@@ -5,9 +5,10 @@ import { isSupabaseConfigured } from '../services/supabaseClient';
 
 interface Props {
     onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup') => void;
+    onDataUpdate?: () => void;
 }
 
-export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
+export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate }) => {
     const [archives, setArchives] = useState<HealthArchive[]>([]);
     const [rawText, setRawText] = useState('');
     const [logs, setLogs] = useState<string[]>([]);
@@ -55,6 +56,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
 
         setIsProcessing(false);
         loadData(); 
+        if (onDataUpdate) onDataUpdate();
     };
     
     const handleDelete = async (id: string, name: string) => {
@@ -62,6 +64,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
             const success = await deleteArchive(id);
             if (success) {
                 loadData();
+                if (onDataUpdate) onDataUpdate();
             } else {
                 alert('删除失败，请重试');
             }
@@ -72,9 +75,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
     const getUpcomingTasks = () => {
         const today = new Date();
         today.setHours(0,0,0,0);
-        const nextWeek = new Date(today);
-        nextWeek.setDate(today.getDate() + 7);
-
+        
         const list: { archive: HealthArchive, date: string, daysLeft: number, focus: string }[] = [];
 
         archives.forEach(arch => {

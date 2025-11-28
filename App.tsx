@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
@@ -7,7 +7,7 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive } from './services/dataService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -16,8 +16,26 @@ const App: React.FC = () => {
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
+  
+  // Lifted State: All Archives (for Global Dashboard Reminders)
+  const [archives, setArchives] = useState<HealthArchive[]>([]);
 
-  // Function to handle patient selection from Admin Console
+  // Fetch all data (Global State)
+  const refreshArchives = async () => {
+      try {
+          const data = await fetchArchives();
+          setArchives(data);
+      } catch (e) {
+          console.error("Failed to refresh archives:", e);
+      }
+  };
+
+  // Initial Load
+  useEffect(() => {
+      refreshArchives();
+  }, []);
+
+  // Function to handle patient selection
   const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
@@ -43,16 +61,16 @@ const App: React.FC = () => {
       setAssessment(result);
       
       // 2. Generate Schedule (if new) or preserve existing logic if needed
-      // For simplicity, we regenerate schedule based on new risk assessment, 
-      // but in a real app you might want to merge with existing future schedules.
       const newSchedule = generateFollowUpSchedule(result);
       setSchedule(newSchedule);
       
       // 3. Save to Cloud Immediately
-      // Pass existing follow-ups if we are updating a record, so we don't lose them
       await saveArchive(data, result, newSchedule, followUps);
+      
+      // 4. Refresh Global List
+      await refreshArchives();
 
-      // 4. Navigate to Report
+      // 5. Navigate to Report
       setActiveTab('assessment');
     } catch (error) {
       alert("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
@@ -83,6 +101,7 @@ const App: React.FC = () => {
     // 3. Sync to Cloud
     if (healthRecord?.profile.checkupId) {
         await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
+        await refreshArchives(); // Refresh global reminders
     }
   };
 
@@ -105,13 +124,26 @@ const App: React.FC = () => {
             </div>
          </div>
       )}
-      {activeTab === 'admin' && <AdminConsole onSelectPatient={handleSelectPatient} />}
+      {activeTab === 'admin' && (
+        <AdminConsole 
+            onSelectPatient={handleSelectPatient} 
+            onDataUpdate={refreshArchives} 
+        />
+      )}
       {activeTab === 'survey' && <HealthSurvey onSubmit={handleSurveySubmit} initialData={healthRecord} isLoading={isGenerating} />}
       {activeTab === 'assessment' && assessment && healthRecord && (
         <AssessmentReport assessment={assessment} patientName={healthRecord.profile.name} />
       )}
       {activeTab === 'followup' && (
-        <FollowUpDashboard records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp} />
+        <FollowUpDashboard 
+            records={followUps} 
+            assessment={assessment} 
+            schedule={schedule} 
+            onAddRecord={handleAddFollowUp}
+            allArchives={archives}
+            onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
+            currentPatientId={healthRecord?.profile.checkupId}
+        />
       )}
     </Layout>
   );

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
+import { HealthArchive } from '../services/dataService'; // Import HealthArchive
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { analyzeFollowUpRecord } from '../services/geminiService';
 
@@ -9,15 +10,63 @@ interface Props {
   assessment: HealthAssessment | null;
   schedule: ScheduledFollowUp[];
   onAddRecord: (record: Omit<FollowUpRecord, 'id'>) => void;
+  // New props for Global Reminders
+  allArchives?: HealthArchive[]; 
+  onPatientChange?: (archive: HealthArchive) => void;
+  currentPatientId?: string;
 }
 
-export const FollowUpDashboard: React.FC<Props> = ({ records, assessment, schedule, onAddRecord }) => {
+export const FollowUpDashboard: React.FC<Props> = ({ 
+    records, 
+    assessment, 
+    schedule, 
+    onAddRecord, 
+    allArchives = [], 
+    onPatientChange, 
+    currentPatientId 
+}) => {
   const [showModal, setShowModal] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // 按照时间排序记录
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const latestRecord = sortedRecords.length > 0 ? sortedRecords[sortedRecords.length - 1] : null;
+
+  // --- Global Upcoming Reminders Logic (Next 7 Days) ---
+  const getGlobalUpcomingTasks = () => {
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      
+      const list: { archive: HealthArchive, date: string, daysLeft: number, focus: string }[] = [];
+
+      allArchives.forEach(arch => {
+          // Skip current patient to avoid redundancy if we want, but showing them is also fine.
+          // Let's show all for clarity.
+          if (arch.follow_up_schedule) {
+              arch.follow_up_schedule.forEach(task => {
+                  if (task.status === 'pending') {
+                      const taskDate = new Date(task.date);
+                      const diffTime = taskDate.getTime() - today.getTime();
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                      // Include Overdue or Upcoming <= 7 days
+                      if (diffDays <= 7) {
+                          list.push({
+                              archive: arch,
+                              date: task.date,
+                              daysLeft: diffDays,
+                              focus: task.focusItems.join(', ')
+                          });
+                      }
+                  }
+              });
+          }
+      });
+      return list.sort((a, b) => a.daysLeft - b.daysLeft);
+  };
+  
+  const upcomingGlobalTasks = getGlobalUpcomingTasks();
+  // -----------------------------------------------------
 
   const initialFormState: Omit<FollowUpRecord, 'id'> = {
     date: new Date().toISOString().split('T')[0],
@@ -167,52 +216,116 @@ export const FollowUpDashboard: React.FC<Props> = ({ records, assessment, schedu
 
   return (
     <div className="space-y-8 animate-fadeIn pb-10">
+
+      {/* --- Global Reminder Alert Section --- */}
+      {upcomingGlobalTasks.length > 0 && (
+          <div className="bg-orange-50 border-l-4 border-orange-400 p-6 rounded-r-xl shadow-sm print:hidden">
+              <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-orange-800 font-bold flex items-center gap-2">
+                      <span className="text-xl">🔔</span> 近期随访提醒 (未来 7 天内)
+                  </h3>
+                  <span className="text-xs bg-orange-200 text-orange-800 px-2 py-1 rounded-full font-bold">
+                      {upcomingGlobalTasks.length} 个待办
+                  </span>
+              </div>
+              
+              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
+                  {upcomingGlobalTasks.map((task, idx) => (
+                      <div key={idx} className={`min-w-[240px] bg-white rounded-lg border p-4 shadow-sm flex flex-col justify-between ${task.archive.checkup_id === currentPatientId ? 'ring-2 ring-teal-500 border-teal-500' : 'border-slate-200'}`}>
+                          <div>
+                              <div className="flex justify-between items-start mb-2">
+                                  <div>
+                                      <div className="font-bold text-slate-800">{task.archive.name}</div>
+                                      <div className="text-xs text-slate-500">{task.archive.department}</div>
+                                  </div>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${
+                                      task.archive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-100' : 
+                                      task.archive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' : 'bg-green-50 text-green-600 border-green-100'
+                                  }`}>
+                                      {task.archive.risk_level === 'RED' ? '高危' : task.archive.risk_level === 'YELLOW' ? '中危' : '低危'}
+                                  </span>
+                              </div>
+                              <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-xs bg-slate-100 px-1 rounded font-mono text-slate-600">{task.date}</span>
+                                  <span className={`text-xs font-bold ${task.daysLeft < 0 ? 'text-red-600' : 'text-orange-600'}`}>
+                                      {task.daysLeft < 0 ? `逾期 ${Math.abs(task.daysLeft)} 天` : task.daysLeft === 0 ? '今天' : `${task.daysLeft} 天后`}
+                                  </span>
+                              </div>
+                              <div className="text-xs text-slate-500 line-clamp-2 mb-3 bg-slate-50 p-1.5 rounded">
+                                  关注: {task.focus}
+                              </div>
+                          </div>
+                          <button 
+                              onClick={() => onPatientChange && onPatientChange(task.archive)}
+                              disabled={task.archive.checkup_id === currentPatientId}
+                              className={`w-full py-2 rounded text-xs font-bold transition-colors ${
+                                  task.archive.checkup_id === currentPatientId 
+                                  ? 'bg-slate-100 text-slate-400 cursor-default' 
+                                  : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                              }`}
+                          >
+                              {task.archive.checkup_id === currentPatientId ? '当前查看中' : '👉 去随访'}
+                          </button>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
       
       {/* 顶部：随访时间轴 */}
       <div className="bg-white p-6 rounded-xl shadow border border-slate-100 print:hidden">
         <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <span>📅</span> 全周期随访路径
+            <span>📅</span> {assessment ? '当前人员随访路径' : '请先选择人员'}
         </h2>
-        <div className="relative flex items-center justify-between px-4 md:px-12">
-            <div className="absolute left-0 right-0 top-1/2 h-1 bg-slate-100 -z-10 transform -translate-y-1/2"></div>
-            {sortedRecords.map((rec, idx) => (
-                <div key={rec.id} className="flex flex-col items-center gap-2">
-                    <div className={`w-4 h-4 rounded-full border-2 border-white ring-2 ring-teal-500 bg-teal-500 z-10`}></div>
-                    <div className="text-xs text-slate-500 font-mono">{rec.date}</div>
-                    <div className="text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded">已完成</div>
-                </div>
-            ))}
-            {nextScheduled ? (
-                <div className="flex flex-col items-center gap-2 opacity-100">
-                    <div className="w-6 h-6 rounded-full border-4 border-white ring-2 ring-blue-500 bg-blue-500 animate-pulse z-10"></div>
-                    <div className="text-xs text-slate-900 font-bold font-mono">{nextScheduled.date}</div>
-                    <div className="text-xs font-bold text-white bg-blue-500 px-2 py-0.5 rounded shadow-lg shadow-blue-200">
-                        计划中
-                    </div>
-                    <div className="absolute mt-16 text-xs text-blue-600 w-32 text-center bg-blue-50 p-1 rounded border border-blue-100 truncate">
-                        重点: {nextScheduled.focusItems.join(', ')}
-                    </div>
-                </div>
-            ) : (
-                <div className="flex flex-col items-center gap-2">
-                     <div className="w-4 h-4 rounded-full bg-slate-300 z-10"></div>
-                     <div className="text-xs text-slate-400">待排期</div>
-                </div>
-            )}
-            <div className="flex flex-col items-center gap-2 opacity-50">
-                <div className="w-3 h-3 rounded-full bg-slate-300 z-10"></div>
-                <div className="text-xs text-slate-400">未来</div>
+        
+        {!assessment ? (
+            <div className="text-center py-10 text-slate-400 border-2 border-dashed border-slate-200 rounded-lg">
+                <p>请从上方提醒卡片或管理控制台选择一位人员进行随访录入</p>
             </div>
-        </div>
+        ) : (
+            <>
+                <div className="relative flex items-center justify-between px-4 md:px-12">
+                    <div className="absolute left-0 right-0 top-1/2 h-1 bg-slate-100 -z-10 transform -translate-y-1/2"></div>
+                    {sortedRecords.map((rec, idx) => (
+                        <div key={rec.id} className="flex flex-col items-center gap-2">
+                            <div className={`w-4 h-4 rounded-full border-2 border-white ring-2 ring-teal-500 bg-teal-500 z-10`}></div>
+                            <div className="text-xs text-slate-500 font-mono">{rec.date}</div>
+                            <div className="text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded">已完成</div>
+                        </div>
+                    ))}
+                    {nextScheduled ? (
+                        <div className="flex flex-col items-center gap-2 opacity-100">
+                            <div className="w-6 h-6 rounded-full border-4 border-white ring-2 ring-blue-500 bg-blue-500 animate-pulse z-10"></div>
+                            <div className="text-xs text-slate-900 font-bold font-mono">{nextScheduled.date}</div>
+                            <div className="text-xs font-bold text-white bg-blue-500 px-2 py-0.5 rounded shadow-lg shadow-blue-200">
+                                计划中
+                            </div>
+                            <div className="absolute mt-16 text-xs text-blue-600 w-32 text-center bg-blue-50 p-1 rounded border border-blue-100 truncate">
+                                重点: {nextScheduled.focusItems.join(', ')}
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="w-4 h-4 rounded-full bg-slate-300 z-10"></div>
+                            <div className="text-xs text-slate-400">待排期</div>
+                        </div>
+                    )}
+                    <div className="flex flex-col items-center gap-2 opacity-50">
+                        <div className="w-3 h-3 rounded-full bg-slate-300 z-10"></div>
+                        <div className="text-xs text-slate-400">未来</div>
+                    </div>
+                </div>
 
-        <div className="mt-12 flex justify-center">
-             <button 
-                onClick={handleOpenSmartModal}
-                className="bg-teal-600 hover:bg-teal-700 text-white px-8 py-3 rounded-full flex items-center gap-2 transition-all shadow-lg shadow-teal-200 font-bold transform hover:scale-105 active:scale-95"
-            >
-                <span>📝</span> 录入本次随访记录 (AI辅助)
-            </button>
-        </div>
+                <div className="mt-12 flex justify-center">
+                    <button 
+                        onClick={handleOpenSmartModal}
+                        className="bg-teal-600 hover:bg-teal-700 text-white px-8 py-3 rounded-full flex items-center gap-2 transition-all shadow-lg shadow-teal-200 font-bold transform hover:scale-105 active:scale-95"
+                    >
+                        <span>📝</span> 录入本次随访记录 (AI辅助)
+                    </button>
+                </div>
+            </>
+        )}
       </div>
 
       {/* 底部：下阶段执行单 (可打印) */}
