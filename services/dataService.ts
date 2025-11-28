@@ -1,113 +1,137 @@
+
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
-import { HealthSurveyData, HealthAssessment, ScheduledFollowUp } from '../types';
+import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel } from '../types';
 
 export interface HealthArchive {
     id: string;
     checkup_id: string;
     name: string;
     department: string;
-    gender: string;
-    age: number;
     risk_level: string;
-    survey_data: HealthSurveyData;
+    health_record: HealthRecord; 
     assessment_data: HealthAssessment;
     follow_up_schedule: ScheduledFollowUp[];
+    follow_ups: FollowUpRecord[];
     created_at: string;
 }
 
-// 模拟延迟，防止 API 速率限制
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 批量处理流水线
 export const processBatchUpload = async (
     rawText: string, 
     onProgress: (log: string, progress: number) => void
 ): Promise<void> => {
+    // Basic splitting logic - expects some delimiter or just treats as one block if AI is smart enough
+    // Ideally, the user pastes multiple reports. We'll split by "体检编号" or "姓名" if possible.
+    // For DeepSeek context window limits, we process one by one.
     
-    // 1. 简单的文本分割逻辑：假设每份报告都以 "体检编号" 或 "姓 名" 开头
-    // 这里使用更智能的分割，假设每个人的数据块相对独立
-    const chunks = rawText.split(/(?=体检编号\s+\d+)/).filter(c => c.trim().length > 50);
+    // Simplistic split: Look for "体检编号" or "2.体检编号"
+    let chunks = rawText.split(/(?=\d+\.?体检编号|体检编号)/g).filter(c => c.trim().length > 50);
+    if (chunks.length === 0 && rawText.length > 50) chunks = [rawText];
 
-    onProgress(`识别到 ${chunks.length} 份体检报告数据`, 0);
+    onProgress(`识别到 ${chunks.length} 份潜在数据`, 0);
 
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const progress = Math.round(((i + 1) / chunks.length) * 100);
 
         try {
-            onProgress(`正在解析第 ${i + 1}/${chunks.length} 份报告...`, progress);
+            onProgress(`AI 正在解析第 ${i + 1} 份数据...`, progress);
+            const record = await parseHealthDataFromText(chunk);
             
-            // Step 1: AI Parse
-            const surveyData = await parseHealthDataFromText(chunk);
-            
-            // Step 2: AI Assessment
-            onProgress(`正在评估风险: ${surveyData.name}...`, progress);
-            const assessment = await generateHealthAssessment(surveyData);
+            // Validate basic extraction
+            if (!record.profile.name && !record.profile.checkupId) {
+                onProgress(`第 ${i+1} 份数据解析为空，跳过`, progress);
+                continue;
+            }
 
-            // Step 3: Generate Schedule
+            onProgress(`生成评估方案: ${record.profile.name}...`, progress);
+            const assessment = await generateHealthAssessment(record);
             const schedule = generateFollowUpSchedule(assessment);
 
-            // Step 4: Save to Database
             if (isSupabaseConfigured()) {
-                onProgress(`正在存档: ${surveyData.name}...`, progress);
+                onProgress(`存入云数据库...`, progress);
                 const { error } = await supabase.from('health_archives').upsert({
-                    checkup_id: surveyData.checkupId,
-                    name: surveyData.name,
-                    department: surveyData.department,
-                    gender: surveyData.gender,
-                    age: surveyData.age,
+                    checkup_id: record.profile.checkupId || `UNKNOWN_${Date.now()}_${i}`,
+                    name: record.profile.name || '未命名',
+                    department: record.profile.department,
+                    gender: record.profile.gender,
+                    age: record.profile.age || 0,
                     risk_level: assessment.riskLevel,
-                    survey_data: surveyData,
-                    assessment_data: assessment,
-                    follow_up_schedule: schedule,
+                    
+                    health_record: record as any, // JSONB
+                    assessment_data: assessment as any, // JSONB
+                    follow_up_schedule: schedule as any, // JSONB
+                    follow_ups: [],
+                    
                     updated_at: new Date().toISOString()
                 }, { onConflict: 'checkup_id' });
 
-                if (error) throw error;
-            } else {
-                onProgress(`[模拟] 数据库未配置，仅跳过保存: ${surveyData.name}`, progress);
-                await delay(500); // 模拟耗时
+                if (error) {
+                    // Log but don't stop batch
+                    console.error("Supabase Error", error);
+                    onProgress(`数据库保存失败: ${error.message}`, progress);
+                }
             }
-
-            // 避免 DeepSeek API 速率限制
-            await delay(1000);
-
+            // Rate limit for API
+            await delay(2000); 
         } catch (error) {
             console.error(error);
-            onProgress(`❌ 处理失败 (第${i+1}份): ${error instanceof Error ? error.message : '未知错误'}`, progress);
+            onProgress(`处理失败: ${error instanceof Error ? error.message : 'Unknown'}`, progress);
         }
     }
-
-    onProgress('✅ 批量处理完成！', 100);
+    onProgress('处理完成', 100);
 };
 
-// 获取所有档案
 export const fetchArchives = async (): Promise<HealthArchive[]> => {
     if (!isSupabaseConfigured()) return [];
-    
-    const { data, error } = await supabase
-        .from('health_archives')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-    if (error) {
-        console.error('Fetch error:', error);
-        return [];
-    }
+    const { data, error } = await supabase.from('health_archives').select('*').order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
     return data as HealthArchive[];
 };
 
-// 获取单个档案详情
-export const fetchArchiveByCheckupId = async (checkupId: string): Promise<HealthArchive | null> => {
-    if (!isSupabaseConfigured()) return null;
+export const updateArchiveData = async (checkupId: string, followUps: FollowUpRecord[], schedule: ScheduledFollowUp[]): Promise<boolean> => {
+    if (!isSupabaseConfigured()) return false;
+    const { error } = await supabase.from('health_archives').update({ follow_ups: followUps, follow_up_schedule: schedule }).eq('checkup_id', checkupId);
+    return !error;
+};
 
-    const { data, error } = await supabase
-        .from('health_archives')
-        .select('*')
-        .eq('checkup_id', checkupId)
-        .single();
-    
-    if (error) return null;
-    return data as HealthArchive;
+export const deleteArchive = async (id: string): Promise<boolean> => {
+    if (!isSupabaseConfigured()) return false;
+    const { error } = await supabase.from('health_archives').delete().eq('id', id);
+    return !error;
+};
+
+// Helper to generate next schedule based on AI text
+export const generateNextScheduleItem = (
+    currentDate: string, 
+    nextCheckPlanText: string, 
+    currentRisk: RiskLevel
+): ScheduledFollowUp => {
+    let monthsToAdd = 3; // Default
+
+    // Simple heuristic parsing for Chinese duration
+    if (nextCheckPlanText.includes('1个月') || nextCheckPlanText.includes('一个月')) monthsToAdd = 1;
+    else if (nextCheckPlanText.includes('2个月') || nextCheckPlanText.includes('两个月')) monthsToAdd = 2;
+    else if (nextCheckPlanText.includes('3个月') || nextCheckPlanText.includes('三个月')) monthsToAdd = 3;
+    else if (nextCheckPlanText.includes('6个月') || nextCheckPlanText.includes('半年')) monthsToAdd = 6;
+    else if (nextCheckPlanText.includes('1年') || nextCheckPlanText.includes('一年')) monthsToAdd = 12;
+    else {
+        // Fallback based on risk
+        if (currentRisk === RiskLevel.RED) monthsToAdd = 1;
+        else if (currentRisk === RiskLevel.YELLOW) monthsToAdd = 3;
+        else monthsToAdd = 6;
+    }
+
+    const nextDate = new Date(currentDate);
+    nextDate.setMonth(nextDate.getMonth() + monthsToAdd);
+
+    return {
+        id: `sch_${Date.now()}`,
+        date: nextDate.toISOString().split('T')[0],
+        status: 'pending',
+        riskLevelAtSchedule: currentRisk,
+        focusItems: ['根据上次随访建议复查', nextCheckPlanText.slice(0, 20) + '...']
+    };
 };
