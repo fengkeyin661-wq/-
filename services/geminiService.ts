@@ -197,6 +197,10 @@ export const analyzeFollowUpRecord = async (
       你是一名健康管理专家。请根据患者的本次随访记录、基线评估和上次记录，分析其健康状况。
       请务必使用中文输出。
       
+      重点关注:
+      1. 核心指标(血压/血糖)是否达标。
+      2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(not_checked)或结果异常(checked_abnormal)，请在风险理由和主要问题中重点警告。
+      
       输出 JSON:
       {
         "riskLevel": "RED" | "YELLOW" | "GREEN",
@@ -208,7 +212,7 @@ export const analyzeFollowUpRecord = async (
       `;
       
       const userContent = `
-      本次随访: ${JSON.stringify(formData)}
+      本次随访录入: ${JSON.stringify(formData)}
       基线评估: ${JSON.stringify(assessment)}
       上次记录: ${JSON.stringify(latestRecord)}
       `;

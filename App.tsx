@@ -47,19 +47,18 @@ const App: React.FC = () => {
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
     
-    // 1. Mark pending schedules as completed
+    // 1. Mark current pending schedules as completed
+    // (Assuming we are completing the pending task now)
     let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
     
-    // 2. Auto-generate NEXT schedule based on AI's latest plan
-    // If AI provides "nextCheckPlan", use it to calculate date
-    if (newRecord.assessment.nextCheckPlan) {
-        const nextItem = generateNextScheduleItem(
-            newRecord.date, 
-            newRecord.assessment.nextCheckPlan, 
-            newRecord.assessment.riskLevel
-        );
-        updatedSchedule = [...updatedSchedule, nextItem];
-    }
+    // 2. Auto-generate NEXT schedule
+    // Always generate a new schedule item to keep the loop going
+    const nextItem = generateNextScheduleItem(
+        newRecord.date, 
+        newRecord.assessment.nextCheckPlan || "", 
+        newRecord.assessment.riskLevel
+    );
+    updatedSchedule = [...updatedSchedule, nextItem];
 
     setSchedule(updatedSchedule);
 

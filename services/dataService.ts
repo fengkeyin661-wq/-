@@ -109,29 +109,43 @@ export const generateNextScheduleItem = (
     nextCheckPlanText: string, 
     currentRisk: RiskLevel
 ): ScheduledFollowUp => {
-    let monthsToAdd = 3; // Default
+    let daysToAdd = 0;
+    let monthsToAdd = 0;
 
-    // Simple heuristic parsing for Chinese duration
-    if (nextCheckPlanText.includes('1个月') || nextCheckPlanText.includes('一个月')) monthsToAdd = 1;
-    else if (nextCheckPlanText.includes('2个月') || nextCheckPlanText.includes('两个月')) monthsToAdd = 2;
-    else if (nextCheckPlanText.includes('3个月') || nextCheckPlanText.includes('三个月')) monthsToAdd = 3;
-    else if (nextCheckPlanText.includes('6个月') || nextCheckPlanText.includes('半年')) monthsToAdd = 6;
-    else if (nextCheckPlanText.includes('1年') || nextCheckPlanText.includes('一年')) monthsToAdd = 12;
+    const text = nextCheckPlanText || "";
+    
+    // Parse Weeks
+    if (text.match(/(\d+)\s*周|(\d+)\s*星期|一周|两周|三周|四周/)) {
+        if (text.includes('一周') || text.includes('1周')) daysToAdd = 7;
+        else if (text.includes('两周') || text.includes('2周')) daysToAdd = 14;
+        else if (text.includes('三周') || text.includes('3周')) daysToAdd = 21;
+        else if (text.includes('四周') || text.includes('4周')) daysToAdd = 28;
+        else daysToAdd = 7; // Default small fallback if matched but not specific
+    } 
+    // Parse Months
     else {
-        // Fallback based on risk
-        if (currentRisk === RiskLevel.RED) monthsToAdd = 1;
-        else if (currentRisk === RiskLevel.YELLOW) monthsToAdd = 3;
-        else monthsToAdd = 6;
+        if (text.includes('1个月') || text.includes('一个月')) monthsToAdd = 1;
+        else if (text.includes('2个月') || text.includes('两个月')) monthsToAdd = 2;
+        else if (text.includes('3个月') || text.includes('三个月')) monthsToAdd = 3;
+        else if (text.includes('6个月') || text.includes('半年')) monthsToAdd = 6;
+        else if (text.includes('1年') || text.includes('一年')) monthsToAdd = 12;
+        else {
+             // Fallback based on risk if no time detected
+            if (currentRisk === RiskLevel.RED) monthsToAdd = 1;
+            else if (currentRisk === RiskLevel.YELLOW) monthsToAdd = 3;
+            else monthsToAdd = 6;
+        }
     }
 
     const nextDate = new Date(currentDate);
-    nextDate.setMonth(nextDate.getMonth() + monthsToAdd);
+    if (monthsToAdd > 0) nextDate.setMonth(nextDate.getMonth() + monthsToAdd);
+    if (daysToAdd > 0) nextDate.setDate(nextDate.getDate() + daysToAdd);
 
     return {
         id: `sch_${Date.now()}`,
         date: nextDate.toISOString().split('T')[0],
         status: 'pending',
         riskLevelAtSchedule: currentRisk,
-        focusItems: ['根据上次随访建议复查', nextCheckPlanText.slice(0, 20) + '...']
+        focusItems: text ? [text.slice(0, 50)] : ['定期随访复查']
     };
 };

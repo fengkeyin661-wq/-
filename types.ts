@@ -264,6 +264,13 @@ export interface FollowUpRecord {
       otherFindings: string; otherStatus: string;
   };
 
+  // 新增: 医学复查执行核对
+  medicalCompliance?: {
+      item: string; // e.g. "复查甲状腺彩超"
+      status: 'checked_normal' | 'checked_abnormal' | 'not_checked';
+      result?: string; // e.g. "结节增大1mm"
+  }[];
+
   medication: {
     currentDrugs: string;
     compliance: string;
