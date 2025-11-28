@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface LayoutProps {
@@ -16,9 +17,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   ];
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-800 text-white flex flex-col shadow-xl z-10">
+    // 添加 print:block print:h-auto print:overflow-visible 以重置 Flex 布局和屏幕高度限制
+    <div className="flex h-screen bg-slate-50 overflow-hidden print:block print:h-auto print:overflow-visible">
+      {/* Sidebar: 添加 print:hidden 确保打印时隐藏 */}
+      <aside className="w-64 bg-slate-800 text-white flex flex-col shadow-xl z-10 print:hidden">
         <div className="p-6 border-b border-slate-700 flex items-center gap-2">
           <div className="w-8 h-8 bg-teal-500 rounded-lg flex items-center justify-center font-bold text-white">H</div>
           <div>
@@ -55,8 +57,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
+      {/* Main Content: print:w-full print:h-auto print:m-0 确保占满纸张 */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative print:h-auto print:overflow-visible print:block print:w-full">
          <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm print:hidden">
             <h2 className="text-xl font-bold text-slate-800">
                 {navItems.find(n => n.id === activeTab)?.label}
@@ -66,8 +68,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                 <button className="text-sm text-slate-600 hover:text-teal-600">设置</button>
             </div>
          </header>
-         <div className="flex-1 overflow-auto p-8 print:p-0">
-            <div className="max-w-7xl mx-auto print:max-w-none">
+         {/* print:p-0 移除内边距 */}
+         <div className="flex-1 overflow-auto p-8 print:p-0 print:overflow-visible print:h-auto">
+            <div className="max-w-7xl mx-auto print:max-w-none print:w-full">
                 {children}
             </div>
          </div>
