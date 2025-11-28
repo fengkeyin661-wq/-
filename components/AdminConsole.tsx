@@ -127,7 +127,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
             <div className="bg-red-50 border border-red-200 p-8 rounded-xl text-center">
                 <h2 className="text-xl font-bold text-red-700 mb-2">Supabase 未配置</h2>
                 <p className="text-red-600 mb-4">
-                    健康管理控制台需要连接 Supabase 数据库才能工作。请在 index.html 中配置 SUPABASE_URL 和 SUPABASE_KEY。
+                    检测到 Vercel 环境变量未正确加载。
+                    <br/>
+                    请在 Vercel 项目设置中配置 <code>VITE_SUPABASE_URL</code> 和 <code>VITE_SUPABASE_KEY</code>。
                 </p>
                 <code className="bg-white p-2 rounded block text-left text-xs text-slate-500 overflow-auto">
                     {`// SQL 建表语句

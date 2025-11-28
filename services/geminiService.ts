@@ -1,37 +1,24 @@
 import { GoogleGenAI } from "@google/genai";
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
 
-// Helper for Gemini API Call
-const callGemini = async (systemPrompt: string, userContent: string, jsonMode: boolean = true) => {
-    // The API key must be obtained exclusively from the environment variable process.env.API_KEY.
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize Gemini API
+// The API key must be obtained exclusively from the environment variable process.env.API_KEY
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+// Helper to clean JSON string if markdown code blocks are present
+const cleanJson = (text: string | undefined): any => {
+    if (!text) return null;
+    const cleaned = text.replace(/```json\n?|```/g, '').trim();
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: userContent,
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: jsonMode ? "application/json" : "text/plain",
-            }
-        });
-
-        const text = response.text;
-        if (!text) throw new Error("No response text from Gemini");
-        
-        // Clean markdown code blocks if present (e.g. ```json ... ```)
-        const cleanJson = text.replace(/```json\n?|```/g, '').trim();
-        
-        return jsonMode ? JSON.parse(cleanJson) : cleanJson;
-    } catch (error) {
-        console.error("Gemini Call Failed:", error);
-        throw error;
+        return JSON.parse(cleaned);
+    } catch (e) {
+        console.error("JSON Parse Error", e);
+        throw new Error("Failed to parse AI response as JSON");
     }
 };
 
 /**
- * 1. Intelligent Parsing: Extract structured HealthRecord from raw text
- * Matches the 11 Basic Items + 20 Optional Items + 59 Survey Questions structure
+ * 1. 智能解析: 从文本中提取结构化健康档案
  */
 export const parseHealthDataFromText = async (rawText: string): Promise<HealthRecord> => {
   const systemPrompt = `
@@ -117,11 +104,21 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     }
   `;
 
-  return await callGemini(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
+  const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: `请解析以下健康档案数据:\n${rawText}`,
+      config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+      }
+  });
+
+  return cleanJson(response.text);
 }
 
 /**
- * 2. Risk Assessment: Generate Management Plan based on structured data
+ * 2. 风险评估: 生成管理方案
  */
 export const generateHealthAssessment = async (record: HealthRecord): Promise<HealthAssessment> => {
   const systemPrompt = `
@@ -147,11 +144,21 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
     }
   `;
 
-  return await callGemini(systemPrompt, `数据:\n${JSON.stringify(record)}`);
+  const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: `数据:\n${JSON.stringify(record)}`,
+      config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+      }
+  });
+
+  return cleanJson(response.text);
 };
 
 /**
- * 3. Schedule Generation (Deterministic)
+ * 3. 随访日程生成 (本地逻辑，无需 AI)
  */
 export const generateFollowUpSchedule = (assessment: HealthAssessment): ScheduledFollowUp[] => {
     const today = new Date();
@@ -173,7 +180,7 @@ export const generateFollowUpSchedule = (assessment: HealthAssessment): Schedule
 };
 
 /**
- * 4. Follow-up Analysis: Compare and Generate Report (Chinese)
+ * 4. 随访记录分析 (中文)
  */
 export const analyzeFollowUpRecord = async (
     formData: Partial<FollowUpRecord>, 
@@ -210,5 +217,15 @@ export const analyzeFollowUpRecord = async (
       上次记录: ${JSON.stringify(latestRecord)}
       `;
       
-      return await callGemini(systemPrompt, userContent);
+      const response = await ai.models.generateContent({
+          model: 'gemini-3-pro-preview',
+          contents: userContent,
+          config: {
+              systemInstruction: systemPrompt,
+              responseMimeType: 'application/json',
+              temperature: 0.1,
+          }
+      });
+
+      return cleanJson(response.text);
   };
