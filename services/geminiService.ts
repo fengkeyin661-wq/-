@@ -1,8 +1,38 @@
 import { GoogleGenAI } from "@google/genai";
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper for Gemini API Call
+const callGemini = async (systemPrompt: string, userContent: string, jsonMode: boolean = true) => {
+    // The API key must be obtained exclusively from the environment variable process.env.API_KEY.
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: userContent,
+            config: {
+                systemInstruction: systemPrompt,
+                responseMimeType: jsonMode ? "application/json" : "text/plain",
+            }
+        });
+
+        const text = response.text;
+        if (!text) throw new Error("No response text from Gemini");
+        
+        // Clean markdown code blocks if present (e.g. ```json ... ```)
+        const cleanJson = text.replace(/```json\n?|```/g, '').trim();
+        
+        return jsonMode ? JSON.parse(cleanJson) : cleanJson;
+    } catch (error) {
+        console.error("Gemini Call Failed:", error);
+        throw error;
+    }
+};
+
+/**
+ * 1. Intelligent Parsing: Extract structured HealthRecord from raw text
+ * Matches the 11 Basic Items + 20 Optional Items + 59 Survey Questions structure
+ */
 export const parseHealthDataFromText = async (rawText: string): Promise<HealthRecord> => {
   const systemPrompt = `
     你是一个医疗数据结构化专家。请从混合了【体检报告】和【59项健康问卷】的文本中提取数据。
@@ -87,24 +117,12 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     }
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `请解析以下健康档案数据:\n${rawText}`,
-        config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: 'application/json',
-        }
-    });
-
-    const text = response.text;
-    return text ? JSON.parse(text) : null;
-  } catch (error) {
-    console.error("Gemini Parse Failed:", error);
-    throw error;
-  }
+  return await callGemini(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
 }
 
+/**
+ * 2. Risk Assessment: Generate Management Plan based on structured data
+ */
 export const generateHealthAssessment = async (record: HealthRecord): Promise<HealthAssessment> => {
   const systemPrompt = `
     你是全科主任医师。基于详细的体检数据(Objective)和问卷数据(Subjective)生成风险评估。
@@ -129,24 +147,12 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
     }
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: `数据:\n${JSON.stringify(record)}`,
-        config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: 'application/json',
-        }
-    });
-    
-    const text = response.text;
-    return text ? JSON.parse(text) : null;
-  } catch (error) {
-     console.error("Gemini Assessment Failed:", error);
-     throw error;
-  }
+  return await callGemini(systemPrompt, `数据:\n${JSON.stringify(record)}`);
 };
 
+/**
+ * 3. Schedule Generation (Deterministic)
+ */
 export const generateFollowUpSchedule = (assessment: HealthAssessment): ScheduledFollowUp[] => {
     const today = new Date();
     const schedule: ScheduledFollowUp[] = [];
@@ -166,6 +172,9 @@ export const generateFollowUpSchedule = (assessment: HealthAssessment): Schedule
     return schedule;
 };
 
+/**
+ * 4. Follow-up Analysis: Compare and Generate Report (Chinese)
+ */
 export const analyzeFollowUpRecord = async (
     formData: Partial<FollowUpRecord>, 
     assessment: HealthAssessment | null,
@@ -201,19 +210,5 @@ export const analyzeFollowUpRecord = async (
       上次记录: ${JSON.stringify(latestRecord)}
       `;
       
-      try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: userContent,
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: 'application/json',
-            }
-        });
-        const text = response.text;
-        return text ? JSON.parse(text) : null;
-      } catch (error) {
-        console.error("Gemini FollowUp Analysis Failed:", error);
-        throw error;
-      }
+      return await callGemini(systemPrompt, userContent);
   };
