@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { processBatchUpload, fetchArchives, deleteArchive, HealthArchive } from '../services/dataService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 
 interface Props {
-    onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit') => void;
+    onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup') => void;
 }
 
 export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
@@ -66,6 +67,47 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
             }
         }
     };
+
+    // --- New: Calculate Upcoming Follow-ups (Next 7 Days) ---
+    const getUpcomingTasks = () => {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const nextWeek = new Date(today);
+        nextWeek.setDate(today.getDate() + 7);
+
+        const list: { archive: HealthArchive, date: string, daysLeft: number, focus: string }[] = [];
+
+        archives.forEach(arch => {
+            if (arch.follow_up_schedule) {
+                arch.follow_up_schedule.forEach(task => {
+                    if (task.status === 'pending') {
+                        const taskDate = new Date(task.date);
+                        // Convert to standard format to compare day diff
+                        const diffTime = taskDate.getTime() - today.getTime();
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                        // Include: 
+                        // 1. Overdue (diffDays < 0) - Important not to miss
+                        // 2. Coming up in 7 days (0 <= diffDays <= 7)
+                        if (diffDays <= 7) {
+                            list.push({
+                                archive: arch,
+                                date: task.date,
+                                daysLeft: diffDays,
+                                focus: task.focusItems.join(', ')
+                            });
+                        }
+                    }
+                });
+            }
+        });
+
+        // Sort by date (Urgent first)
+        return list.sort((a, b) => a.daysLeft - b.daysLeft);
+    };
+
+    const upcomingTasks = getUpcomingTasks();
+    // -------------------------------------------------------
 
     const filteredArchives = archives.filter(archive => {
         const term = searchTerm.toLowerCase();
@@ -148,6 +190,74 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                     </pre>
                 </div>
             )}
+
+            {/* Upcoming Follow-ups Alert Section (Next 7 Days) */}
+            <div className={`rounded-xl border shadow-sm overflow-hidden ${upcomingTasks.length > 0 ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
+                <div className={`px-5 py-3 border-b flex justify-between items-center ${upcomingTasks.length > 0 ? 'bg-orange-100/50 border-orange-200' : 'bg-slate-50 border-slate-100'}`}>
+                    <h3 className={`font-bold flex items-center gap-2 ${upcomingTasks.length > 0 ? 'text-orange-800' : 'text-slate-700'}`}>
+                        {upcomingTasks.length > 0 ? '🔔 近七日需随访提醒' : '✅ 近期无随访任务'}
+                    </h3>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${upcomingTasks.length > 0 ? 'bg-orange-200 text-orange-800 border-orange-300' : 'bg-slate-200 text-slate-600'}`}>
+                        {upcomingTasks.length} 人待访
+                    </span>
+                </div>
+                
+                {upcomingTasks.length > 0 && (
+                    <div className="max-h-64 overflow-y-auto">
+                        <table className="w-full text-sm">
+                            <thead className="text-xs text-orange-800/70 bg-orange-50/50 text-left sticky top-0">
+                                <tr>
+                                    <th className="px-5 py-2">计划日期</th>
+                                    <th className="px-5 py-2">剩余天数</th>
+                                    <th className="px-5 py-2">姓名/部门</th>
+                                    <th className="px-5 py-2">风险等级</th>
+                                    <th className="px-5 py-2">重点监测</th>
+                                    <th className="px-5 py-2 text-right">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-orange-100">
+                                {upcomingTasks.map((item, idx) => (
+                                    <tr key={idx} className="hover:bg-orange-100/40 transition-colors">
+                                        <td className="px-5 py-3 font-mono text-slate-700">{item.date}</td>
+                                        <td className="px-5 py-3">
+                                            {item.daysLeft < 0 ? (
+                                                <span className="text-red-600 font-bold bg-red-100 px-2 py-0.5 rounded text-xs">逾期 {-item.daysLeft} 天</span>
+                                            ) : item.daysLeft === 0 ? (
+                                                <span className="text-teal-600 font-bold bg-teal-100 px-2 py-0.5 rounded text-xs">今天</span>
+                                            ) : (
+                                                <span className="text-orange-600 font-medium">{item.daysLeft} 天后</span>
+                                            )}
+                                        </td>
+                                        <td className="px-5 py-3">
+                                            <div className="font-bold text-slate-800">{item.archive.name}</div>
+                                            <div className="text-xs text-slate-500">{item.archive.department}</div>
+                                        </td>
+                                        <td className="px-5 py-3">
+                                            <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
+                                                item.archive.risk_level === 'RED' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                item.archive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'
+                                            }`}>
+                                                {item.archive.risk_level === 'RED' ? '高危' : item.archive.risk_level === 'YELLOW' ? '中危' : '低危'}
+                                            </span>
+                                        </td>
+                                        <td className="px-5 py-3 text-slate-600 max-w-xs truncate" title={item.focus}>
+                                            {item.focus}
+                                        </td>
+                                        <td className="px-5 py-3 text-right">
+                                            <button 
+                                                onClick={() => onSelectPatient(item.archive, 'followup')}
+                                                className="bg-white border border-orange-300 text-orange-700 hover:bg-orange-600 hover:text-white hover:border-orange-600 px-3 py-1 rounded-full text-xs font-bold shadow-sm transition-all"
+                                            >
+                                                ⚡ 立即随访
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
 
             {/* Dashboard Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

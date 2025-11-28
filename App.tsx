@@ -18,7 +18,7 @@ const App: React.FC = () => {
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
 
   // Function to handle patient selection from Admin Console
-  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' = 'view') => {
+  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
       setSchedule(archive.follow_up_schedule || []);
@@ -26,6 +26,8 @@ const App: React.FC = () => {
       
       if (mode === 'edit') {
           setActiveTab('survey');
+      } else if (mode === 'followup') {
+          setActiveTab('followup');
       } else {
           setActiveTab('assessment');
       }
