@@ -1,54 +1,7 @@
-
+import { GoogleGenAI } from "@google/genai";
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
 
-// DeepSeek Config
-const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
-
-const getApiKey = () => {
-    // 使用 Vite 标准方式读取环境变量
-    return import.meta.env.VITE_DEEPSEEK_API_KEY || '';
-}
-
-// Helper for DeepSeek API Call
-const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode: boolean = true) => {
-    const apiKey = getApiKey();
-    if (!apiKey) throw new Error("API Key 未配置。请检查 Vercel 环境变量 VITE_DEEPSEEK_API_KEY。");
-
-    try {
-        const response = await fetch(DEEPSEEK_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: "deepseek-chat", // V3
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userContent }
-                ],
-                response_format: jsonMode ? { type: "json_object" } : undefined,
-                temperature: 0.1
-            })
-        });
-
-        if (!response.ok) {
-            const err = await response.text();
-            throw new Error(`API Error: ${response.status} - ${err}`);
-        }
-
-        const data = await response.json();
-        const content = data.choices[0].message.content;
-        
-        // Cleaning markdown code blocks if present
-        const cleanJson = content.replace(/```json\n?|```/g, '').trim();
-        
-        return jsonMode ? JSON.parse(cleanJson) : cleanJson;
-    } catch (error) {
-        console.error("DeepSeek Call Failed:", error);
-        throw error;
-    }
-};
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const parseHealthDataFromText = async (rawText: string): Promise<HealthRecord> => {
   const systemPrompt = `
@@ -134,7 +87,22 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     }
   `;
 
-  return await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
+  try {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `请解析以下健康档案数据:\n${rawText}`,
+        config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: 'application/json',
+        }
+    });
+
+    const text = response.text;
+    return text ? JSON.parse(text) : null;
+  } catch (error) {
+    console.error("Gemini Parse Failed:", error);
+    throw error;
+  }
 }
 
 export const generateHealthAssessment = async (record: HealthRecord): Promise<HealthAssessment> => {
@@ -161,7 +129,22 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
     }
   `;
 
-  return await callDeepSeek(systemPrompt, `数据:\n${JSON.stringify(record)}`);
+  try {
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: `数据:\n${JSON.stringify(record)}`,
+        config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: 'application/json',
+        }
+    });
+    
+    const text = response.text;
+    return text ? JSON.parse(text) : null;
+  } catch (error) {
+     console.error("Gemini Assessment Failed:", error);
+     throw error;
+  }
 };
 
 export const generateFollowUpSchedule = (assessment: HealthAssessment): ScheduledFollowUp[] => {
@@ -200,4 +183,37 @@ export const analyzeFollowUpRecord = async (
       
       重点关注:
       1. 核心指标(血压/血糖)是否达标。
-      2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(
+      2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(not_checked)或结果异常(checked_abnormal)，请在风险理由和主要问题中重点警告。
+      
+      输出 JSON:
+      {
+        "riskLevel": "RED" | "YELLOW" | "GREEN",
+        "riskJustification": "风险判定理由(中文)",
+        "majorIssues": "主要问题(中文)",
+        "nextCheckPlan": "下次复查计划(中文)",
+        "lifestyleGoals": ["生活方式目标(中文)"]
+      }
+      `;
+      
+      const userContent = `
+      本次随访录入: ${JSON.stringify(formData)}
+      基线评估: ${JSON.stringify(assessment)}
+      上次记录: ${JSON.stringify(latestRecord)}
+      `;
+      
+      try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: userContent,
+            config: {
+                systemInstruction: systemPrompt,
+                responseMimeType: 'application/json',
+            }
+        });
+        const text = response.text;
+        return text ? JSON.parse(text) : null;
+      } catch (error) {
+        console.error("Gemini FollowUp Analysis Failed:", error);
+        throw error;
+      }
+  };
