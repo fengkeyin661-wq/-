@@ -12,6 +12,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
     { id: 'survey', label: '健康调查建档', icon: '📝' },
     { id: 'assessment', label: '风险评估与方案', icon: '📋' },
     { id: 'followup', label: '随访监测', icon: '📅' },
+    { id: 'admin', label: '管理控制台', icon: '⚡' },
   ];
 
   return (
@@ -56,7 +57,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
-         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm">
+         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm print:hidden">
             <h2 className="text-xl font-bold text-slate-800">
                 {navItems.find(n => n.id === activeTab)?.label}
             </h2>
@@ -65,8 +66,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                 <button className="text-sm text-slate-600 hover:text-teal-600">设置</button>
             </div>
          </header>
-         <div className="flex-1 overflow-auto p-8">
-            <div className="max-w-6xl mx-auto">
+         <div className="flex-1 overflow-auto p-8 print:p-0">
+            <div className="max-w-7xl mx-auto print:max-w-none">
                 {children}
             </div>
          </div>

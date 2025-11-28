@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { HealthSurveyData } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
@@ -8,28 +9,37 @@ interface Props {
   isLoading: boolean;
 }
 
-const DEMO_TEXT = `体检编号：102461
-姓名：邱益
-性别：男
-年龄：56岁
-既往史摘要：高血压、高血脂、甲状腺结节、胆囊息肉、前列腺增生、骨量减少。
-历年阳性结果汇总：
-1. 代谢与心血管：高血压、高血脂（混合型）、脂肪肝。
-2. 甲状腺：多发囊实性结节，TI-RADS 3类，需定期随访。
-3. 消化系统：胆囊息肉样病变，需监测大小变化。
-4. 其他：前列腺增生、骨量减少。
-饮食要点：
-1. 低脂饮食：严格限制饱和脂肪和胆固醇。
-2. 控糖限盐：减少添加糖摄入，控制食盐（<5g/天）。
-3. 膳食习惯：偏咸、偏油、外出就餐为主。
-运动建议：中等强度有氧运动每周至少150分钟。目前运动频率：每周1-2次。
-自我监测指标：
-1. 每日/每周：测量血压、体重。
-2. 每月：注意有无颈部增粗、吞咽困难。
-规律用药提示：严格遵医嘱规律服用降压、降脂药物。
-复查计划：3-6个月复查甲状腺彩超、腹部彩超。
-压力评估：较大，主要来源家庭生活及科研考核。
-睡眠：6.5小时，质量一般。`;
+const DEMO_TEXT = `体检编号   103146  姓 名     张三    
+性    别     女     年 龄          83
+单    位           郑州大学          部    门       离退休（盛和苑）      体检日期        2022年06月28日       
+联系电话         18939554545         
+
+检查综述:*  一般检查 : 血压137/59:基础血压偏低
+*  内科 : 既往史高血压
+*  眼科 : 双眼人工晶体眼  双眼眼底小瞳下窥不清，建议进一步眼科检查
+*  乙肝两对半 : 乙肝两对半全阴
+*  类风湿检测3项 : 血沉偏高(47.00(MM/H))
+*  肿瘤标志物6项（女） : CA-199(胰腺及胃肠癌抗原)偏高(46.00U/mL)
+*  胃泌素17 : 胃泌素17偏高(108.00pg/ml)
+*  胸部 : 胸部未见明显异常。（请结合临床）
+
+*  经颅多普勒超声 : 大脑中动脉、基底动脉血流速度、频谱形态正常
+*  骨密度 : 骨量减少（中度）
+*  口腔科 : 牙楔状缺损  缺齿右下4右下5右下6右下74左下5左下6左下7右上5右上6右上7
+*  动脉硬化检测仪 : 左侧外周动脉弹性变差，硬度升高, 主动脉功能有一定减退，但没有发生明显器质性改变。
+*  乳腺彩超（女） : 双乳未见明显结节
+*  妇科彩超（女） : 绝经后子宫改变
+*  泌尿系统彩超（女） : 双肾输尿管膀胱未见明显异常
+*  腹部彩超（女） : 肝内囊性回声
+*  甲状腺彩超（女） : 甲状腺双侧叶囊性结节
+
+医生建议:
+* CA199(胰腺及胃肠癌抗原)偏高: 建议消化科诊治。该检验项目是胰腺癌、胆管癌的敏感标志。
+* 胃泌素-17偏高: 建议复查，必要时到消化内科诊治。
+* 骨量减少: 合理膳食，保证膳食钙的摄入；增加户外活动。
+* 腹部彩超（女） : 肝内囊性回声：定期复查彩超。
+* 甲状腺彩超（女） : 甲状腺双侧叶囊性结节：定期复查彩超， 甲状腺专科咨询。
+`;
 
 export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading }) => {
   const [mode, setMode] = useState<'input' | 'review'>('input');
@@ -39,17 +49,18 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   const [formData, setFormData] = useState<HealthSurveyData>({
     name: initialData?.name || '',
     checkupId: initialData?.checkupId || '',
-    gender: initialData?.gender || '男',
+    gender: initialData?.gender || '女',
     age: initialData?.age || 0,
-    department: initialData?.department || '行政管理',
+    department: initialData?.department || '离退休',
     medicalHistory: initialData?.medicalHistory || [],
     abnormalities: initialData?.abnormalities || '',
+    checkupAbnormalities: initialData?.checkupAbnormalities || [],
     medications: initialData?.medications || '',
     surgeries: initialData?.surgeries || '无',
     diet: initialData?.diet || [],
     exerciseFrequency: initialData?.exerciseFrequency || '',
-    smokingStatus: initialData?.smokingStatus || '已戒烟',
-    drinkingStatus: initialData?.drinkingStatus || '偶尔',
+    smokingStatus: initialData?.smokingStatus || '从不吸烟',
+    drinkingStatus: initialData?.drinkingStatus || '从不饮酒',
     sleepHours: initialData?.sleepHours || 7,
     stressLevel: initialData?.stressLevel || '',
     mainConcerns: initialData?.mainConcerns || [],
@@ -66,7 +77,8 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
             // Ensure arrays are arrays in case AI returns strings
             medicalHistory: Array.isArray(parsedData.medicalHistory) ? parsedData.medicalHistory : [],
             diet: Array.isArray(parsedData.diet) ? parsedData.diet : [],
-            mainConcerns: Array.isArray(parsedData.mainConcerns) ? parsedData.mainConcerns : []
+            mainConcerns: Array.isArray(parsedData.mainConcerns) ? parsedData.mainConcerns : [],
+            checkupAbnormalities: Array.isArray(parsedData.checkupAbnormalities) ? parsedData.checkupAbnormalities : []
         }));
         setMode('review');
     } catch (e) {
@@ -81,8 +93,15 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  // Helper to remove an item from checkupAbnormalities
+  const removeAbnormality = (index: number) => {
+      const newList = [...formData.checkupAbnormalities];
+      newList.splice(index, 1);
+      handleChange('checkupAbnormalities', newList);
+  };
+
   const [activeSection, setActiveSection] = useState(0);
-  const sections = ['基本信息', '既往病史', '生活方式'];
+  const sections = ['基本信息', '体检异常汇总', '生活方式'];
 
   if (mode === 'input') {
       return (
@@ -92,12 +111,12 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                     🤖
                 </div>
                 <h2 className="text-2xl font-bold text-slate-800">智能健康建档</h2>
-                <p className="text-slate-500 mt-2">请将您的体检报告摘要或健康问卷文本粘贴在下方，系统将自动为您提取档案信息。</p>
+                <p className="text-slate-500 mt-2">支持粘贴复杂的医院体检报告文本，AI 将自动提取异常指标。</p>
             </div>
 
             <div className="mb-6 relative">
                 <textarea
-                    className="w-full h-64 p-4 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none resize-none text-slate-700 leading-relaxed font-mono text-sm bg-slate-50"
+                    className="w-full h-96 p-4 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none resize-none text-slate-700 leading-relaxed font-mono text-xs bg-slate-50"
                     placeholder="在此粘贴文本..."
                     value={rawText}
                     onChange={(e) => setRawText(e.target.value)}
@@ -107,7 +126,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                         onClick={() => setRawText(DEMO_TEXT)}
                         className="px-3 py-1 text-xs bg-slate-200 text-slate-600 rounded hover:bg-slate-300 transition-colors"
                     >
-                        填入示例数据 (邱益)
+                        填入示例数据 (张三 - 郑大体检)
                     </button>
                     <button 
                         onClick={() => setRawText('')}
@@ -136,7 +155,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            AI 正在分析...
+                            AI 深度解析中...
                         </>
                     ) : (
                         '开始智能识别'
@@ -227,13 +246,8 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                 className="w-full rounded-lg border-slate-300 border p-2 focus:ring-2 focus:ring-teal-500 outline-none" 
               />
             </div>
-          </div>
-        )}
-
-        {activeSection === 1 && (
-             <div className="space-y-6 animate-fadeIn">
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">既往病史 (多选)</label>
+            <div className="col-span-1 md:col-span-2">
+                 <label className="block text-sm font-medium text-slate-700 mb-2">既往病史 (多选)</label>
                     <div className="flex flex-wrap gap-2 mb-2">
                          {formData.medicalHistory.map((disease, idx) => (
                              <span key={idx} className="px-3 py-1 rounded-md text-sm border bg-blue-100 border-blue-500 text-blue-700 flex items-center gap-1">
@@ -256,15 +270,65 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                         }}
                         className="w-full rounded-lg border-slate-300 border p-2 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
                     />
+            </div>
+          </div>
+        )}
+
+        {activeSection === 1 && (
+             <div className="space-y-6 animate-fadeIn">
+                <div className="bg-red-50 border border-red-100 rounded-lg p-4">
+                     <h3 className="font-bold text-red-700 mb-4 flex items-center gap-2">
+                        <span>⚠️</span> AI 自动提取的异常项清单
+                     </h3>
+                     {formData.checkupAbnormalities.length > 0 ? (
+                         <div className="overflow-x-auto">
+                            <table className="min-w-full text-sm text-left">
+                                <thead className="bg-red-100 text-red-900 font-bold">
+                                    <tr>
+                                        <th className="px-4 py-2 rounded-tl-lg">检查项目</th>
+                                        <th className="px-4 py-2">结果/数值</th>
+                                        <th className="px-4 py-2">临床提示/建议</th>
+                                        <th className="px-4 py-2 rounded-tr-lg w-16">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-red-200">
+                                    {formData.checkupAbnormalities.map((item, idx) => (
+                                        <tr key={idx} className="hover:bg-red-50/50">
+                                            <td className="px-4 py-2 font-medium">{item.item}</td>
+                                            <td className="px-4 py-2 text-red-600 font-bold">{item.result}</td>
+                                            <td className="px-4 py-2 text-slate-600">{item.suggestion}</td>
+                                            <td className="px-4 py-2 text-center">
+                                                <button 
+                                                    onClick={() => removeAbnormality(idx)}
+                                                    className="text-red-400 hover:text-red-600"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                         </div>
+                     ) : (
+                         <p className="text-slate-500 italic">未检测到明显的结构化异常数据，请手动补充。</p>
+                     )}
+                     
+                     <div className="mt-4 flex gap-2">
+                        <button className="text-xs bg-white border border-red-200 text-red-600 px-3 py-1 rounded hover:bg-red-50 transition-colors">
+                            + 手动添加异常项
+                        </button>
+                     </div>
                 </div>
+
                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">体检阳性发现 / 异常指标详情</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">体检综述 (文本摘要)</label>
                     <textarea 
-                        rows={4}
+                        rows={5}
                         value={formData.abnormalities}
                         onChange={(e) => handleChange('abnormalities', e.target.value)}
-                        placeholder="例如：甲状腺TI-RADS 3类结节；胆囊息肉样病变..."
-                        className="w-full rounded-lg border-slate-300 border p-2 focus:ring-2 focus:ring-teal-500 outline-none" 
+                        placeholder="AI 生成的总体摘要..."
+                        className="w-full rounded-lg border-slate-300 border p-2 focus:ring-2 focus:ring-teal-500 outline-none text-sm" 
                     />
                 </div>
                  <div>

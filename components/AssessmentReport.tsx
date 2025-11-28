@@ -1,10 +1,12 @@
+
 import React from 'react';
-import { HealthAssessment, RiskLevel } from '../types';
+import { HealthAssessment, RiskLevel, HealthSurveyData } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface Props {
   assessment: HealthAssessment;
   patientName?: string;
+  surveyData?: HealthSurveyData; // Added to access specific abnormalities
 }
 
 const COLORS = {
@@ -13,7 +15,7 @@ const COLORS = {
   [RiskLevel.RED]: '#ef4444', // red-500
 };
 
-export const AssessmentReport: React.FC<Props> = ({ assessment, patientName }) => {
+export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, surveyData }) => {
   const riskColor = COLORS[assessment.riskLevel];
   
   // Dummy data for visual flair in the chart
@@ -49,11 +51,11 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName }) =
           <div className="flex justify-between mt-8 text-sm text-slate-600 px-4 font-mono">
                <div className="flex gap-8">
                    <span>受检人: <span className="font-bold text-slate-900 text-base border-b border-slate-400 px-2">{patientName || '___________'}</span></span>
-                   <span>性别: <span className="font-bold text-slate-900 text-base border-b border-slate-400 px-2">______</span></span>
-                   <span>年龄: <span className="font-bold text-slate-900 text-base border-b border-slate-400 px-2">______</span></span>
+                   <span>性别: <span className="font-bold text-slate-900 text-base border-b border-slate-400 px-2">{surveyData?.gender || '___'}</span></span>
+                   <span>年龄: <span className="font-bold text-slate-900 text-base border-b border-slate-400 px-2">{surveyData?.age || '___'}</span></span>
                </div>
                <div className="flex gap-8">
-                   <span>档案编号: <span className="font-bold text-slate-900 text-base">{Math.floor(Math.random() * 900000) + 100000}</span></span>
+                   <span>档案编号: <span className="font-bold text-slate-900 text-base">{surveyData?.checkupId || Math.floor(Math.random() * 900000) + 100000}</span></span>
                    <span>报告日期: <span className="font-bold text-slate-900 text-base">{new Date().toLocaleDateString()}</span></span>
                </div>
           </div>
@@ -94,6 +96,34 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName }) =
           </p>
         </div>
       </div>
+
+      {/* Structured Abnormalities Table (New Section) */}
+      {surveyData?.checkupAbnormalities && surveyData.checkupAbnormalities.length > 0 && (
+          <div className="bg-white rounded-xl shadow-md border border-slate-100 p-6 print:shadow-none print:border print:border-slate-300 break-inside-avoid">
+             <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-2">
+                 <span className="text-xl">🩺</span>
+                 <h3 className="font-bold text-lg text-slate-800">临床异常指标明细</h3>
+             </div>
+             <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 text-slate-700">
+                    <tr>
+                        <th className="px-3 py-2">项目名称</th>
+                        <th className="px-3 py-2">异常结果/数值</th>
+                        <th className="px-3 py-2">临床提示</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {surveyData.checkupAbnormalities.map((item, idx) => (
+                        <tr key={idx} className="print:border-b print:border-slate-100">
+                            <td className="px-3 py-2 font-medium">{item.item}</td>
+                            <td className="px-3 py-2 text-red-600 font-bold">{item.result}</td>
+                            <td className="px-3 py-2 text-slate-500">{item.suggestion}</td>
+                        </tr>
+                    ))}
+                </tbody>
+             </table>
+          </div>
+      )}
 
       {/* Traffic Light System */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:gap-4 break-inside-avoid">

@@ -1,3 +1,4 @@
+
 // Enums
 export enum RiskLevel {
   GREEN = 'GREEN',
@@ -8,6 +9,13 @@ export enum RiskLevel {
 export enum Gender {
   MALE = '男',
   FEMALE = '女',
+}
+
+// 新增：结构化的体检异常项
+export interface CheckupAbnormality {
+  item: string;        // 项目名称，如 "CA-199", "甲状腺彩超"
+  result: string;      // 检查结果/数值，如 "46.00 U/mL", "双侧叶囊性结节"
+  suggestion: string;  // 医生建议/提示，如 "建议进一步检查", "定期随访"
 }
 
 // Survey Data Structure
@@ -21,7 +29,11 @@ export interface HealthSurveyData {
   
   // History
   medicalHistory: string[];
-  abnormalities: string; // Specific exam findings (e.g., TI-RADS 3)
+  
+  // Abnormalities
+  abnormalities: string; // 文本摘要 (保留用于兼容)
+  checkupAbnormalities: CheckupAbnormality[]; // 新增：结构化异常列表
+  
   medications: string;
   surgeries: string;
   
@@ -35,6 +47,16 @@ export interface HealthSurveyData {
   
   // Complaints
   mainConcerns: string[];
+}
+
+// Single actionable task derived from the management plan
+export interface HealthPlanTask {
+  id: string;
+  category: 'diet' | 'exercise' | 'medication' | 'monitoring' | 'other';
+  description: string; // e.g., "每天快走30分钟"
+  targetValue?: string; // e.g., "< 130/80"
+  frequency: string; // e.g., "每天"
+  isKeyGoal: boolean; // Is this a primary focus for the next follow-up?
 }
 
 // AI Generated Assessment Structure
@@ -52,10 +74,21 @@ export interface HealthAssessment {
     medication: string[];
     monitoring: string[];
   };
+  // Structured tasks for tracking compliance
+  structuredTasks?: HealthPlanTask[];
   followUpPlan: {
     frequency: string;
     nextCheckItems: string[];
   };
+}
+
+// Timeline item for the "Care Pathway"
+export interface ScheduledFollowUp {
+  id: string;
+  date: string;
+  status: 'completed' | 'pending' | 'overdue';
+  riskLevelAtSchedule: RiskLevel;
+  focusItems: string[]; // specific items to check this time
 }
 
 // Complex Follow Up Record based on the provided form
@@ -113,6 +146,14 @@ export interface FollowUpRecord {
     stress: '低' | '中' | '高';
   };
 
+  // Task Compliance (Tracking specific goals from previous assessment)
+  taskCompliance?: {
+    taskId: string;
+    description: string;
+    status: 'achieved' | 'partial' | 'failed';
+    note?: string;
+  }[];
+
   // Assessment & Plan
   assessment: {
     riskLevel: RiskLevel;
@@ -130,4 +171,5 @@ export interface UserProfile {
   survey: HealthSurveyData;
   assessment: HealthAssessment | null;
   followUps: FollowUpRecord[];
+  schedule: ScheduledFollowUp[]; // Future schedule
 }
