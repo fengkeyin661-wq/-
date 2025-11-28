@@ -70,20 +70,10 @@
     </style>
     
     <!-- 
-      部署配置：
+      安全更新：
+      已移除硬编码的 API Key 配置脚本。
+      现在应用通过 import.meta.env 读取 Vercel 环境变量。
     -->
-    <script>
-      window.process = {
-        env: {
-          // DeepSeek API Key
-          DEEPSEEK_API_KEY: "sk-59814d1f788c4341b9a6bc607f64dbb1",
-          
-          // Supabase Configuration
-          SUPABASE_URL: "https://wiuylmpewvrmabrqidhb.supabase.co", 
-          SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndpdXlsbXBld3ZybWFicnFpZGhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQzMDQ0NTIsImV4cCI6MjA3OTg4MDQ1Mn0.ih0KhL7_P95aI-LqoojNZd_mso2JC5qBQndKAIbkkqM" 
-        }
-      };
-    </script>
 
     <script type="importmap">
 {
@@ -94,8 +84,7 @@
     "react-dom/": "https://esm.sh/react-dom@18.2.0/",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
     "recharts": "https://esm.sh/recharts@2.12.3?external=react,react-dom",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7"
   }
 }
 </script>

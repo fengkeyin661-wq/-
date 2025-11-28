@@ -3,15 +3,16 @@ import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpR
 
 // DeepSeek Config
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
+
 const getApiKey = () => {
-    // @ts-ignore
-    return (window.process?.env?.DEEPSEEK_API_KEY) || process.env.DEEPSEEK_API_KEY || "";
+    // 使用 Vite 标准方式读取环境变量
+    return import.meta.env.VITE_DEEPSEEK_API_KEY || '';
 }
 
 // Helper for DeepSeek API Call
 const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode: boolean = true) => {
     const apiKey = getApiKey();
-    if (!apiKey) throw new Error("Missing DeepSeek API Key");
+    if (!apiKey) throw new Error("API Key 未配置。请检查 Vercel 环境变量 VITE_DEEPSEEK_API_KEY。");
 
     try {
         const response = await fetch(DEEPSEEK_API_URL, {
@@ -199,23 +200,4 @@ export const analyzeFollowUpRecord = async (
       
       重点关注:
       1. 核心指标(血压/血糖)是否达标。
-      2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(not_checked)或结果异常(checked_abnormal)，请在风险理由和主要问题中重点警告。
-      
-      输出 JSON:
-      {
-        "riskLevel": "RED" | "YELLOW" | "GREEN",
-        "riskJustification": "风险判定理由(中文)",
-        "majorIssues": "主要问题(中文)",
-        "nextCheckPlan": "下次复查计划(中文)",
-        "lifestyleGoals": ["生活方式目标(中文)"]
-      }
-      `;
-      
-      const userContent = `
-      本次随访录入: ${JSON.stringify(formData)}
-      基线评估: ${JSON.stringify(assessment)}
-      上次记录: ${JSON.stringify(latestRecord)}
-      `;
-      
-      return await callDeepSeek(systemPrompt, userContent);
-  };
+      2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(
