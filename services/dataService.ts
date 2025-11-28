@@ -7,12 +7,18 @@ export interface HealthArchive {
     id: string;
     checkup_id: string;
     name: string;
+    phone?: string; // Added phone field
     department: string;
     risk_level: string;
     health_record: HealthRecord; 
     assessment_data: HealthAssessment;
     follow_up_schedule: ScheduledFollowUp[];
     follow_ups: FollowUpRecord[];
+    history_versions: {
+        date: string;
+        health_record: HealthRecord;
+        assessment_data: HealthAssessment;
+    }[];
     created_at: string;
 }
 
@@ -22,10 +28,6 @@ export const processBatchUpload = async (
     rawText: string, 
     onProgress: (log: string, progress: number) => void
 ): Promise<void> => {
-    // Basic splitting logic - expects some delimiter or just treats as one block if AI is smart enough
-    // Ideally, the user pastes multiple reports. We'll split by "体检编号" or "姓名" if possible.
-    // For DeepSeek context window limits, we process one by one.
-    
     // Simplistic split: Look for "体检编号" or "2.体检编号"
     let chunks = rawText.split(/(?=\d+\.?体检编号|体检编号)/g).filter(c => c.trim().length > 50);
     if (chunks.length === 0 && rawText.length > 50) chunks = [rawText];
@@ -46,15 +48,46 @@ export const processBatchUpload = async (
                 continue;
             }
 
+            const checkupId = record.profile.checkupId || `UNKNOWN_${Date.now()}_${i}`;
+
+            // 1. Check for existing archive (Rolling Update Logic)
+            let existingArchive: HealthArchive | null = null;
+            let historyVersions: any[] = [];
+            let existingFollowUps: FollowUpRecord[] = [];
+            
+            if (isSupabaseConfigured()) {
+                const { data } = await supabase
+                    .from('health_archives')
+                    .select('*')
+                    .eq('checkup_id', checkupId)
+                    .single();
+                
+                if (data) {
+                    existingArchive = data as HealthArchive;
+                    historyVersions = existingArchive.history_versions || [];
+                    existingFollowUps = existingArchive.follow_ups || [];
+                    onProgress(`检测到用户 ${record.profile.name} 已存在，执行年度轮动更新...`, progress);
+
+                    // Archive current state
+                    historyVersions.push({
+                        date: new Date().toISOString(),
+                        health_record: existingArchive.health_record,
+                        assessment_data: existingArchive.assessment_data
+                    });
+                }
+            }
+
             onProgress(`生成评估方案: ${record.profile.name}...`, progress);
             const assessment = await generateHealthAssessment(record);
             const schedule = generateFollowUpSchedule(assessment);
 
             if (isSupabaseConfigured()) {
                 onProgress(`存入云数据库...`, progress);
-                const { error } = await supabase.from('health_archives').upsert({
-                    checkup_id: record.profile.checkupId || `UNKNOWN_${Date.now()}_${i}`,
+                
+                const payload = {
+                    checkup_id: checkupId,
                     name: record.profile.name || '未命名',
+                    phone: record.profile.phone || null, // Map phone field
                     department: record.profile.department,
                     gender: record.profile.gender,
                     age: record.profile.age || 0,
@@ -63,13 +96,17 @@ export const processBatchUpload = async (
                     health_record: record as any, // JSONB
                     assessment_data: assessment as any, // JSONB
                     follow_up_schedule: schedule as any, // JSONB
-                    follow_ups: [],
                     
+                    // Maintain history and existing follow-ups
+                    follow_ups: existingFollowUps, 
+                    history_versions: historyVersions,
+
                     updated_at: new Date().toISOString()
-                }, { onConflict: 'checkup_id' });
+                };
+
+                const { error } = await supabase.from('health_archives').upsert(payload, { onConflict: 'checkup_id' });
 
                 if (error) {
-                    // Log but don't stop batch
                     console.error("Supabase Error", error);
                     onProgress(`数据库保存失败: ${error.message}`, progress);
                 }
@@ -86,8 +123,12 @@ export const processBatchUpload = async (
 
 export const fetchArchives = async (): Promise<HealthArchive[]> => {
     if (!isSupabaseConfigured()) return [];
+    // Select phone as well
     const { data, error } = await supabase.from('health_archives').select('*').order('created_at', { ascending: false });
-    if (error) throw new Error(error.message);
+    if (error) {
+        console.error("Supabase Select Error:", JSON.stringify(error));
+        throw new Error(error.message);
+    }
     return data as HealthArchive[];
 };
 
