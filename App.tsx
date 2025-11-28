@@ -79,6 +79,19 @@ const App: React.FC = () => {
     }
   };
 
+  // Handle Manual Assessment Update (Doctor Edit)
+  const handleSaveAssessment = async (updatedAssessment: HealthAssessment) => {
+      if (!healthRecord) return;
+      setAssessment(updatedAssessment);
+      try {
+          await saveArchive(healthRecord, updatedAssessment, schedule, followUps);
+          await refreshArchives();
+          alert("评估方案已更新保存");
+      } catch (e) {
+          alert("保存失败");
+      }
+  };
+
   // Handle Adding Follow-up (and saving it)
   const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
     const newRecord = { ...record, id: Date.now().toString() };
@@ -103,6 +116,17 @@ const App: React.FC = () => {
         await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
         await refreshArchives(); // Refresh global reminders
     }
+  };
+
+  // Handle Editing an existing Follow-up Record (e.g. tweaking the guide)
+  const handleUpdateFollowUpRecord = async (updatedRecord: FollowUpRecord) => {
+      const updatedFollowUps = followUps.map(r => r.id === updatedRecord.id ? updatedRecord : r);
+      setFollowUps(updatedFollowUps);
+      
+      if (healthRecord?.profile.checkupId) {
+          await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, schedule);
+          await refreshArchives();
+      }
   };
 
   return (
@@ -132,7 +156,11 @@ const App: React.FC = () => {
       )}
       {activeTab === 'survey' && <HealthSurvey onSubmit={handleSurveySubmit} initialData={healthRecord} isLoading={isGenerating} />}
       {activeTab === 'assessment' && assessment && healthRecord && (
-        <AssessmentReport assessment={assessment} patientName={healthRecord.profile.name} />
+        <AssessmentReport 
+            assessment={assessment} 
+            patientName={healthRecord.profile.name} 
+            onSave={handleSaveAssessment}
+        />
       )}
       {activeTab === 'followup' && (
         <FollowUpDashboard 
@@ -140,6 +168,7 @@ const App: React.FC = () => {
             assessment={assessment} 
             schedule={schedule} 
             onAddRecord={handleAddFollowUp}
+            onUpdateRecord={handleUpdateFollowUpRecord}
             allArchives={archives}
             onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
             currentPatientId={healthRecord?.profile.checkupId}

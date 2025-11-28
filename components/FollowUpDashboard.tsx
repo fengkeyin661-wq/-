@@ -14,6 +14,8 @@ interface Props {
   allArchives?: HealthArchive[]; 
   onPatientChange?: (archive: HealthArchive) => void;
   currentPatientId?: string;
+  // New prop for updating existing record
+  onUpdateRecord?: (record: FollowUpRecord) => void;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -23,14 +25,33 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onAddRecord, 
     allArchives = [], 
     onPatientChange, 
-    currentPatientId 
+    currentPatientId,
+    onUpdateRecord
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
+  // State for editing the bottom Guide
+  const [isEditingGuide, setIsEditingGuide] = useState(false);
+  const [guideEditData, setGuideEditData] = useState<{
+      plan: string;
+      issues: string;
+      goals: string;
+  }>({ plan: '', issues: '', goals: '' });
+
   // 按照时间排序记录
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const latestRecord = sortedRecords.length > 0 ? sortedRecords[sortedRecords.length - 1] : null;
+
+  useEffect(() => {
+      if (latestRecord) {
+          setGuideEditData({
+              plan: latestRecord.assessment.nextCheckPlan || '',
+              issues: latestRecord.assessment.majorIssues || '',
+              goals: latestRecord.assessment.lifestyleGoals?.join('\n') || ''
+          });
+      }
+  }, [latestRecord]);
 
   // --- Global Upcoming Reminders Logic (Next 7 Days) ---
   const getGlobalUpcomingTasks = () => {
@@ -40,8 +61,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       const list: { archive: HealthArchive, date: string, daysLeft: number, focus: string }[] = [];
 
       allArchives.forEach(arch => {
-          // Skip current patient to avoid redundancy if we want, but showing them is also fine.
-          // Let's show all for clarity.
           if (arch.follow_up_schedule) {
               arch.follow_up_schedule.forEach(task => {
                   if (task.status === 'pending') {
@@ -211,8 +230,29 @@ export const FollowUpDashboard: React.FC<Props> = ({
     setShowModal(false);
   };
 
+  const handleSaveGuideEdit = () => {
+      if (!latestRecord || !onUpdateRecord) return;
+      
+      const updatedRecord: FollowUpRecord = {
+          ...latestRecord,
+          assessment: {
+              ...latestRecord.assessment,
+              nextCheckPlan: guideEditData.plan,
+              majorIssues: guideEditData.issues,
+              lifestyleGoals: guideEditData.goals.split('\n').filter(s => s.trim() !== '')
+          }
+      };
+      
+      onUpdateRecord(updatedRecord);
+      setIsEditingGuide(false);
+  };
+
   const nextScheduled = schedule.find(s => s.status === 'pending');
-  const handlePrintGuide = () => window.print();
+  
+  const handlePrintGuide = () => {
+      setIsEditingGuide(false);
+      setTimeout(() => window.print(), 100);
+  };
 
   return (
     <div className="space-y-8 animate-fadeIn pb-10">
@@ -338,9 +378,23 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       </h2>
                       <p className="text-sm text-slate-500 mt-1">请受检者保存，用于指导日常生活与下次复查</p>
                   </div>
-                  <button onClick={handlePrintGuide} className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-sm">
-                      🖨️ 打印执行单
-                  </button>
+                  <div className="flex gap-3">
+                      {isEditingGuide ? (
+                           <>
+                             <button onClick={() => setIsEditingGuide(false)} className="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 text-sm font-medium">取消</button>
+                             <button onClick={handleSaveGuideEdit} className="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 shadow-sm text-sm font-bold">💾 保存修订</button>
+                           </>
+                      ) : (
+                           <>
+                             <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
+                                ✏️ 修订内容
+                             </button>
+                             <button onClick={handlePrintGuide} className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-sm">
+                                🖨️ 打印执行单
+                             </button>
+                           </>
+                      )}
+                  </div>
               </div>
 
               {/* 打印专用标题 */}
@@ -351,6 +405,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       <span>打印日期: {new Date().toLocaleDateString()}</span>
                   </div>
               </div>
+
+              {isEditingGuide && (
+                  <div className="bg-yellow-50 border border-yellow-200 p-3 rounded mb-4 text-sm text-yellow-800 flex items-center gap-2 animate-pulse print:hidden">
+                      <span>⚠️ 您正在修订执行单内容，修改将同步更新至系统记录。</span>
+                  </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:block print:space-y-6">
                   {/* 左侧：复查计划 */}
@@ -375,34 +435,60 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           </div>
                           <div>
                               <span className="text-xs text-slate-500 block uppercase mb-1">具体复查项目</span>
-                              <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 print:border-none print:p-0">
-                                  {latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}
-                              </p>
+                              {isEditingGuide ? (
+                                  <textarea 
+                                      className="w-full text-sm border border-blue-300 rounded p-2 focus:ring-1 focus:ring-blue-500 h-24"
+                                      value={guideEditData.plan}
+                                      onChange={e => setGuideEditData({...guideEditData, plan: e.target.value})}
+                                  />
+                              ) : (
+                                  <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 print:border-none print:p-0 whitespace-pre-line">
+                                      {latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}
+                                  </p>
+                              )}
                           </div>
                       </div>
 
                       <div className="bg-red-50 p-6 rounded-lg border border-red-100 print:bg-transparent print:border-slate-300 print:border">
                           <h3 className="font-bold text-red-800 mb-4 border-b border-red-200 pb-2 print:text-black">⚠️ 风险警示与问题</h3>
-                          <p className="text-slate-700 leading-relaxed">
-                              {latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}
-                          </p>
+                          {isEditingGuide ? (
+                              <textarea 
+                                  className="w-full text-sm border border-red-300 rounded p-2 focus:ring-1 focus:ring-red-500 h-24 bg-white"
+                                  value={guideEditData.issues}
+                                  onChange={e => setGuideEditData({...guideEditData, issues: e.target.value})}
+                              />
+                          ) : (
+                              <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                                  {latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}
+                              </p>
+                          )}
                       </div>
                   </div>
 
                   {/* 右侧：生活方式 */}
                   <div className="bg-green-50 p-6 rounded-lg border border-green-100 h-full print:bg-transparent print:border-slate-300 print:border print:h-auto">
                       <h3 className="font-bold text-green-800 mb-4 border-b border-green-200 pb-2 print:text-black">🏃 生活方式干预目标</h3>
-                      {latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 ? (
-                          <ul className="space-y-3">
-                              {latestRecord.assessment.lifestyleGoals.map((goal, i) => (
-                                  <li key={i} className="flex items-start gap-2 text-slate-700">
-                                      <span className="text-green-600 font-bold mt-0.5">✓</span>
-                                      <span>{goal}</span>
-                                  </li>
-                              ))}
-                          </ul>
+                      
+                      {isEditingGuide ? (
+                          <textarea 
+                               className="w-full text-sm border border-green-300 rounded p-2 focus:ring-1 focus:ring-green-500 h-48 bg-white"
+                               value={guideEditData.goals}
+                               onChange={e => setGuideEditData({...guideEditData, goals: e.target.value})}
+                               placeholder="每行输入一个目标"
+                          />
                       ) : (
-                          <p className="text-slate-500 italic">暂无具体调整建议，请维持健康生活方式。</p>
+                          latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 ? (
+                              <ul className="space-y-3">
+                                  {latestRecord.assessment.lifestyleGoals.map((goal, i) => (
+                                      <li key={i} className="flex items-start gap-2 text-slate-700">
+                                          <span className="text-green-600 font-bold mt-0.5">✓</span>
+                                          <span>{goal}</span>
+                                      </li>
+                                  ))}
+                              </ul>
+                          ) : (
+                              <p className="text-slate-500 italic">暂无具体调整建议，请维持健康生活方式。</p>
+                          )
                       )}
                       
                       <div className="mt-8 pt-6 border-t border-green-200 print:border-slate-300">
@@ -426,7 +512,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       )}
 
-      {/* 模态框：随访录入 */}
+      {/* 模态框：随访录入 (保持原有代码不变) */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/60 flex justify-end z-50 backdrop-blur-sm transition-opacity print:hidden">
             <div className="bg-white w-full max-w-2xl h-full shadow-2xl overflow-y-auto flex flex-col animate-slideInRight">
