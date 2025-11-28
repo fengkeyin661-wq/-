@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -8,6 +8,8 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   const navItems = [
     { id: 'dashboard', label: '健康总览', icon: '📊' },
     { id: 'survey', label: '健康调查建档', icon: '📝' },
@@ -19,34 +21,40 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   return (
     // 添加 print:block print:h-auto print:overflow-visible 以重置 Flex 布局和屏幕高度限制
     <div className="flex h-screen bg-slate-50 overflow-hidden print:block print:h-auto print:overflow-visible">
-      {/* Sidebar: 添加 print:hidden 确保打印时隐藏 */}
-      <aside className="w-64 bg-slate-800 text-white flex flex-col shadow-xl z-10 print:hidden">
-        <div className="p-6 border-b border-slate-700 flex items-center gap-2">
-          <div className="w-8 h-8 bg-teal-500 rounded-lg flex items-center justify-center font-bold text-white">H</div>
+      
+      {/* Sidebar: 添加 dynamic width & opacity classes for transition */}
+      {/* print:hidden 确保打印时隐藏 */}
+      <aside 
+        className={`bg-slate-800 text-white flex flex-col shadow-xl z-10 print:hidden transition-all duration-300 ease-in-out whitespace-nowrap overflow-hidden ${
+          isSidebarOpen ? 'w-64 opacity-100 translate-x-0' : 'w-0 opacity-0 -translate-x-4'
+        }`}
+      >
+        <div className="p-6 border-b border-slate-700 flex items-center gap-2 min-w-[256px]">
+          <div className="w-8 h-8 bg-teal-500 rounded-lg flex items-center justify-center font-bold text-white shrink-0">H</div>
           <div>
             <h1 className="text-lg font-bold tracking-wide">HealthGuard</h1>
             <p className="text-xs text-slate-400">职工健康管理中心</p>
           </div>
         </div>
-        <nav className="flex-1 py-6 px-3 space-y-2">
+        <nav className="flex-1 py-6 px-3 space-y-2 min-w-[256px]">
           {navItems.map((item) => (
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+              className={`w-[230px] flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
                 activeTab === item.id
                   ? 'bg-teal-600 text-white shadow-md'
                   : 'text-slate-300 hover:bg-slate-700 hover:text-white'
               }`}
             >
-              <span className="text-xl">{item.icon}</span>
+              <span className="text-xl shrink-0">{item.icon}</span>
               <span className="font-medium">{item.label}</span>
             </button>
           ))}
         </nav>
-        <div className="p-4 border-t border-slate-700">
+        <div className="p-4 border-t border-slate-700 min-w-[256px]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center text-sm font-bold">
+            <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center text-sm font-bold shrink-0">
               Dr.
             </div>
             <div>
@@ -58,11 +66,29 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
       </aside>
 
       {/* Main Content: print:w-full print:h-auto print:m-0 确保占满纸张 */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden relative print:h-auto print:overflow-visible print:block print:w-full">
-         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm print:hidden">
-            <h2 className="text-xl font-bold text-slate-800">
-                {navItems.find(n => n.id === activeTab)?.label}
-            </h2>
+      <main className="flex-1 flex flex-col h-screen overflow-hidden relative print:h-auto print:overflow-visible print:block print:w-full transition-all duration-300">
+         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm print:hidden shrink-0">
+            <div className="flex items-center gap-4">
+                {/* Toggle Sidebar Button */}
+                <button 
+                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                  className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  title={isSidebarOpen ? "收起侧边栏" : "展开侧边栏"}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                    {isSidebarOpen ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    )}
+                  </svg>
+                </button>
+
+                <h2 className="text-xl font-bold text-slate-800">
+                    {navItems.find(n => n.id === activeTab)?.label}
+                </h2>
+            </div>
+            
             <div className="flex gap-4">
                 <button className="text-sm text-slate-600 hover:text-teal-600">帮助中心</button>
                 <button className="text-sm text-slate-600 hover:text-teal-600">设置</button>
