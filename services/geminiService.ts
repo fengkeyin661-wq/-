@@ -5,19 +5,26 @@ const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 
 // Helper to safely access environment variables in different environments (Vite, Webpack, etc.)
 const getEnvVar = (key: string): string => {
-  // 1. Try Vite's import.meta.env
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-      // @ts-ignore
-      return import.meta.env[key];
-    }
-  } catch (e) {}
-
-  // 2. Try process.env (Standard Node/Webpack)
+  // 1. Try process.env (Standard Node/Webpack)
   try {
     if (typeof process !== 'undefined' && process.env && process.env[key]) {
       return process.env[key];
+    }
+  } catch (e) {}
+
+  // 2. Try Vite's import.meta.env with safe checks
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // Explicitly check known keys to support bundler string replacement (Vite)
+      if (key === 'VITE_DEEPSEEK_API_KEY') {
+          // @ts-ignore
+          return import.meta.env.VITE_DEEPSEEK_API_KEY || '';
+      }
+      
+      // Fallback for other keys
+      // @ts-ignore
+      return import.meta.env[key] || '';
     }
   } catch (e) {}
 

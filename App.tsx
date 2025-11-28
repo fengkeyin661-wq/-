@@ -7,7 +7,7 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem } from './services/dataService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive } from './services/dataService';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -17,42 +17,58 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
 
-  const handleSelectPatient = (archive: HealthArchive) => {
+  // Function to handle patient selection from Admin Console
+  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
       setSchedule(archive.follow_up_schedule || []);
       setFollowUps(archive.follow_ups || []);
-      setActiveTab('assessment');
+      
+      if (mode === 'edit') {
+          setActiveTab('survey');
+      } else {
+          setActiveTab('assessment');
+      }
   };
 
+  // Main Save Logic: Triggered when Survey is submitted (both New and Edit)
   const handleSurveySubmit = async (data: HealthRecord) => {
     setHealthRecord(data);
     setIsGenerating(true);
     try {
+      // 1. Generate AI Assessment
       const result = await generateHealthAssessment(data);
       setAssessment(result);
+      
+      // 2. Generate Schedule (if new) or preserve existing logic if needed
+      // For simplicity, we regenerate schedule based on new risk assessment, 
+      // but in a real app you might want to merge with existing future schedules.
       const newSchedule = generateFollowUpSchedule(result);
       setSchedule(newSchedule);
-      setFollowUps([]);
+      
+      // 3. Save to Cloud Immediately
+      // Pass existing follow-ups if we are updating a record, so we don't lose them
+      await saveArchive(data, result, newSchedule, followUps);
+
+      // 4. Navigate to Report
       setActiveTab('assessment');
     } catch (error) {
-      alert("AI 评估生成失败: " + (error instanceof Error ? error.message : "未知错误"));
+      alert("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
     } finally {
       setIsGenerating(false);
     }
   };
 
+  // Handle Adding Follow-up (and saving it)
   const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
     const newRecord = { ...record, id: Date.now().toString() };
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
     
     // 1. Mark current pending schedules as completed
-    // (Assuming we are completing the pending task now)
     let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
     
     // 2. Auto-generate NEXT schedule
-    // Always generate a new schedule item to keep the loop going
     const nextItem = generateNextScheduleItem(
         newRecord.date, 
         newRecord.assessment.nextCheckPlan || "", 
@@ -78,7 +94,7 @@ const App: React.FC = () => {
                 集成 11项基础体检 + 20项自选项目 + 59项健康问卷的全维度健康档案。
             </p>
             <div className="flex justify-center gap-4">
-                <button onClick={() => setActiveTab('survey')} className="bg-white text-teal-600 border border-teal-200 px-8 py-3 rounded-lg hover:bg-teal-50 shadow-sm transition-all">
+                <button onClick={() => { setHealthRecord(null); setActiveTab('survey'); }} className="bg-white text-teal-600 border border-teal-200 px-8 py-3 rounded-lg hover:bg-teal-50 shadow-sm transition-all">
                     开始单人建档
                 </button>
                 <button onClick={() => setActiveTab('admin')} className="bg-teal-600 text-white px-8 py-3 rounded-lg shadow-lg hover:bg-teal-700 transition-all transform hover:scale-105">

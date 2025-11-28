@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { processBatchUpload, fetchArchives, deleteArchive, HealthArchive } from '../services/dataService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface Props {
-    onSelectPatient: (archive: HealthArchive) => void;
+    onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit') => void;
 }
 
 export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
@@ -16,8 +15,15 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [showSqlHelp, setShowSqlHelp] = useState(false);
+
+    const configured = isSupabaseConfigured();
 
     const loadData = async () => {
+        if (!configured) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         setFetchError(null);
         try {
@@ -32,26 +38,22 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
     };
 
     useEffect(() => {
-        if (isSupabaseConfigured()) {
-            loadData();
-        } else {
-            setLoading(false);
-        }
+        loadData();
     }, []);
 
     const handleBatchProcess = async () => {
         if (!rawText.trim()) return;
         setIsProcessing(true);
-        setLogs(['🚀 开始批量处理任务...']);
+        setLogs(['🚀 开始处理...']);
         setProgress(0);
 
         await processBatchUpload(rawText, (log, prog) => {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${log}`]);
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString().split(' ')[0]}] ${log}`]);
             setProgress(prog);
         });
 
         setIsProcessing(false);
-        loadData(); // Refresh list
+        loadData(); 
     };
     
     const handleDelete = async (id: string, name: string) => {
@@ -65,7 +67,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
         }
     };
 
-    // Filter Logic
     const filteredArchives = archives.filter(archive => {
         const term = searchTerm.toLowerCase();
         return (
@@ -75,64 +76,56 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
         );
     });
 
-    // Stats Calculation
-    const riskStats = [
-        { name: '高危 (红)', value: archives.filter(a => a.risk_level === 'RED').length, color: '#ef4444' },
-        { name: '中危 (黄)', value: archives.filter(a => a.risk_level === 'YELLOW').length, color: '#eab308' },
-        { name: '低危 (绿)', value: archives.filter(a => a.risk_level === 'GREEN').length, color: '#22c55e' },
-    ];
+    const StatsCard = ({ label, value, color, icon }: any) => (
+        <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl ${color}`}>
+                {icon}
+            </div>
+            <div>
+                <p className="text-slate-500 text-xs uppercase font-bold tracking-wider">{label}</p>
+                <p className="text-2xl font-bold text-slate-800">{value}</p>
+            </div>
+        </div>
+    );
 
-    const deptStatsMap = archives.reduce((acc, curr) => {
-        const dept = curr.department || '未知部门';
-        acc[dept] = (acc[dept] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
-    
-    const deptStats = Object.keys(deptStatsMap).map(k => ({ name: k, count: deptStatsMap[k] }));
+    return (
+        <div className="space-y-6 animate-fadeIn pb-10">
+            {/* Top Bar: Connection Status */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm">
+                <div className="flex items-center gap-3">
+                    <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border ${configured && !fetchError ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                        <div className={`w-2 h-2 rounded-full ${configured && !fetchError ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                        {configured ? (fetchError ? '数据库连接异常' : 'Supabase 已连接') : '环境变量未配置'}
+                    </div>
+                    {fetchError && (
+                        <button onClick={() => setShowSqlHelp(!showSqlHelp)} className="text-xs text-blue-600 underline">
+                            查看修复指南 (SQL)
+                        </button>
+                    )}
+                </div>
+                <div className="flex gap-2">
+                     <button onClick={loadData} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-bold text-slate-600 flex items-center gap-1 transition-colors">
+                        🔄 刷新数据
+                     </button>
+                </div>
+            </div>
 
-    // Follow-up Reminders Logic
-    const getReminders = () => {
-        const today = new Date();
-        const nextWeek = new Date();
-        nextWeek.setDate(today.getDate() + 7);
+            {/* SQL Help Area */}
+            {showSqlHelp && (
+                <div className="bg-slate-800 text-slate-200 p-6 rounded-xl shadow-lg animate-slideDown">
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 className="text-white font-bold text-lg">🛠️ 数据库初始化脚本</h3>
+                            <p className="text-sm text-slate-400">请复制以下 SQL 代码，在 Supabase Dashboard 的 SQL Editor 中运行以创建必要的表结构。</p>
+                        </div>
+                        <button onClick={() => setShowSqlHelp(false)} className="text-slate-400 hover:text-white">✕</button>
+                    </div>
+                    <pre className="bg-black/50 p-4 rounded overflow-x-auto text-xs font-mono text-green-400 border border-slate-700">
+{`-- 1. 启用 UUID 扩展
+create extension if not exists "pgcrypto";
 
-        const tasks: { archive: HealthArchive, date: string, daysDiff: number }[] = [];
-
-        archives.forEach(arch => {
-            if (arch.follow_up_schedule) {
-                arch.follow_up_schedule.forEach(sch => {
-                    if (sch.status === 'pending') {
-                        const dueDate = new Date(sch.date);
-                        const diffTime = dueDate.getTime() - today.getTime();
-                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-                        
-                        // Show overdue or upcoming within 7 days
-                        if (diffDays <= 7) {
-                            tasks.push({ archive: arch, date: sch.date, daysDiff: diffDays });
-                        }
-                    }
-                });
-            }
-        });
-
-        // Sort by urgency
-        return tasks.sort((a, b) => a.daysDiff - b.daysDiff);
-    };
-
-    const reminders = getReminders();
-
-    if (!isSupabaseConfigured()) {
-        return (
-            <div className="bg-red-50 border border-red-200 p-8 rounded-xl text-center">
-                <h2 className="text-xl font-bold text-red-700 mb-2">Supabase 未配置</h2>
-                <p className="text-red-600 mb-4">
-                    检测到环境变量未正确加载。
-                    <br/>
-                    请确保您已在 Vercel 后台配置了 <code>VITE_SUPABASE_URL</code> 和 <code>VITE_SUPABASE_KEY</code>。
-                </p>
-                <code className="bg-white p-2 rounded block text-left text-xs text-slate-500 overflow-auto">
-                    {`// SQL 建表语句
-create table public.health_archives (
+-- 2. 创建核心档案表
+create table if not exists public.health_archives (
   id uuid default gen_random_uuid() primary key,
   checkup_id text not null unique,
   name text,
@@ -148,107 +141,54 @@ create table public.health_archives (
   history_versions jsonb default '[]'::jsonb,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
-);`}
-                </code>
-            </div>
-        );
-    }
+);
 
-    return (
-        <div className="space-y-8 animate-fadeIn">
-            {/* Header Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-                    <p className="text-slate-500 text-sm">总建档人数</p>
-                    <p className="text-3xl font-bold text-slate-800">{archives.length}</p>
-                 </div>
-                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-                    <p className="text-slate-500 text-sm">高危人群占比</p>
-                    <p className="text-3xl font-bold text-red-500">
-                        {archives.length ? ((riskStats[0].value / archives.length) * 100).toFixed(1) : 0}%
-                    </p>
-                 </div>
-                 <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 col-span-2">
-                    <p className="text-slate-500 text-sm mb-2">风险分布</p>
-                    <div className="h-10 flex rounded-full overflow-hidden">
-                        {riskStats.map(stat => (
-                            <div key={stat.name} style={{ width: `${(stat.value / (archives.length || 1)) * 100}%`, backgroundColor: stat.color }} title={stat.name}></div>
-                        ))}
-                    </div>
-                 </div>
-            </div>
-
-            {fetchError && (
-                <div className="bg-red-50 border border-red-200 p-4 rounded-lg flex items-start gap-3">
-                    <span className="text-2xl">⚠️</span>
-                    <div>
-                        <h3 className="font-bold text-red-800">数据库连接错误</h3>
-                        <p className="text-sm text-red-600 mb-2">{fetchError}</p>
-                        <p className="text-xs text-slate-500">提示: 请确保您已在 Supabase SQL Editor 中运行了建表语句，并且 "health_archives" 表存在。</p>
-                    </div>
+-- 3. 创建索引加速查询
+create index if not exists health_archives_checkup_id_idx on public.health_archives (checkup_id);`}
+                    </pre>
                 </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column: Batch Processing */}
-                <div className="lg:col-span-1 space-y-6">
-                    {/* Reminder Widget */}
-                    <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden">
-                        <div className="bg-indigo-600 text-white px-4 py-3 flex justify-between items-center">
-                            <h3 className="font-bold">📅 随访日程提醒</h3>
-                            <span className="text-xs bg-indigo-500 px-2 py-1 rounded">未来7天</span>
-                        </div>
-                        <div className="p-0">
-                            {reminders.length === 0 ? (
-                                <div className="p-6 text-center text-slate-400 text-sm">暂无近期需要随访的任务</div>
-                            ) : (
-                                <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                                    {reminders.map((item, idx) => (
-                                        <div key={idx} className="p-3 hover:bg-slate-50 flex justify-between items-center cursor-pointer" onClick={() => onSelectPatient(item.archive)}>
-                                            <div>
-                                                <div className="font-bold text-slate-800 text-sm">{item.archive.name}</div>
-                                                <div className="text-xs text-slate-500">{item.archive.checkup_id}</div>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className={`text-xs font-bold ${item.daysDiff < 0 ? 'text-red-500' : 'text-orange-500'}`}>
-                                                    {item.daysDiff < 0 ? `逾期 ${Math.abs(item.daysDiff)} 天` : item.daysDiff === 0 ? '今天' : `${item.daysDiff} 天后`}
-                                                </div>
-                                                <div className="text-xs text-slate-400">{item.date}</div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
+            {/* Dashboard Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <StatsCard label="总建档量" value={archives.length} color="bg-blue-100 text-blue-600" icon="📂" />
+                <StatsCard label="高风险 (红)" value={archives.filter(a => a.risk_level === 'RED').length} color="bg-red-100 text-red-600" icon="🔴" />
+                <StatsCard label="中风险 (黄)" value={archives.filter(a => a.risk_level === 'YELLOW').length} color="bg-yellow-100 text-yellow-600" icon="🟡" />
+                <StatsCard label="今日更新" value={archives.filter(a => new Date(a.created_at).toDateString() === new Date().toDateString()).length} color="bg-teal-100 text-teal-600" icon="⚡" />
+            </div>
 
-                    <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden">
-                        <div className="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
-                            <h3 className="font-bold">📤 批量数据处理</h3>
-                            <span className="text-xs bg-slate-700 px-2 py-1 rounded">AI 驱动</span>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Left Panel: Batch Operations */}
+                <div className="lg:col-span-1 space-y-6">
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-800">📝 智能数据录入</h3>
+                            <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded border border-teal-200">AI Powered</span>
                         </div>
-                        <div className="p-4 space-y-4">
-                            <p className="text-xs text-slate-500">请粘贴多份体检报告文本。系统将自动分割、解析、评估并存入数据库。</p>
+                        <div className="p-5 space-y-4">
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                                粘贴体检报告或健康问卷文本（支持批量粘贴，以 "体检编号" 分隔）。
+                                系统将自动解析、评估并存入数据库。如果编号已存在，将自动更新并归档旧数据。
+                            </p>
                             <textarea
-                                className="w-full h-48 p-3 text-xs font-mono border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none"
-                                placeholder="粘贴格式：
-体检编号 1001 ... (报告内容)
-体检编号 1002 ... (报告内容)"
+                                className="w-full h-40 p-3 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none resize-none bg-slate-50"
+                                placeholder="在此处粘贴文本..."
                                 value={rawText}
                                 onChange={e => setRawText(e.target.value)}
                             ></textarea>
                             
                             {isProcessing && (
-                                <div className="space-y-2">
-                                    <div className="flex justify-between text-xs text-slate-600">
-                                        <span>处理进度</span>
+                                <div className="space-y-2 bg-slate-900 rounded-lg p-3">
+                                    <div className="flex justify-between text-xs text-slate-400 mb-1">
+                                        <span>正在处理</span>
                                         <span>{progress}%</span>
                                     </div>
-                                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                                        <div className="bg-teal-500 h-2 transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                                    <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                                        <div className="bg-teal-400 h-1.5 transition-all duration-300" style={{ width: `${progress}%` }}></div>
                                     </div>
-                                    <div className="h-24 overflow-y-auto bg-slate-900 text-green-400 p-2 text-xs font-mono rounded">
-                                        {logs.map((log, i) => <div key={i}>{log}</div>)}
+                                    <div className="h-20 overflow-y-auto font-mono text-xs text-green-400 space-y-1 scrollbar-thin">
+                                        {logs.map((log, i) => <div key={i}>&gt; {log}</div>)}
                                     </div>
                                 </div>
                             )}
@@ -256,104 +196,106 @@ create table public.health_archives (
                             <button
                                 onClick={handleBatchProcess}
                                 disabled={isProcessing || !rawText}
-                                className="w-full bg-teal-600 text-white py-2 rounded-lg font-bold hover:bg-teal-700 disabled:opacity-50 transition-colors shadow-lg shadow-teal-100"
+                                className="w-full bg-slate-800 text-white py-3 rounded-lg font-bold hover:bg-slate-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
                             >
-                                {isProcessing ? '正在处理流水线...' : '开始批量建档与评估'}
+                                {isProcessing ? <span className="animate-spin">⏳</span> : '⚡'} 
+                                {isProcessing ? 'AI 处理中...' : '开始解析并存入数据库'}
                             </button>
                         </div>
                     </div>
                 </div>
 
-                {/* Right Column: Data Table */}
+                {/* Right Panel: Data Grid */}
                 <div className="lg:col-span-2">
-                    <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden min-h-[500px] flex flex-col">
-                        <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-                            <h3 className="font-bold text-lg text-slate-800">🗂️ 健康档案库</h3>
-                            <div className="flex gap-2 w-full md:w-auto">
-                                <div className="relative flex-1">
-                                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400">🔍</span>
-                                    <input 
-                                        type="text" 
-                                        placeholder="搜索姓名、电话或编号..." 
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="pl-9 border border-slate-300 rounded px-3 py-1 text-sm outline-none focus:border-teal-500 w-full" 
-                                    />
-                                </div>
-                                <button onClick={loadData} className="text-slate-500 hover:text-teal-600 bg-slate-100 px-3 py-1 rounded text-sm">
-                                    🔄 刷新
-                                </button>
-                            </div>
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
+                        {/* Toolbar */}
+                        <div className="px-5 py-4 border-b border-slate-100 flex gap-4 items-center">
+                             <div className="relative flex-1">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                                <input 
+                                    type="text" 
+                                    placeholder="搜索姓名、电话、编号..." 
+                                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500 transition-colors"
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                />
+                             </div>
+                             <div className="text-xs text-slate-400">
+                                共 {filteredArchives.length} 条
+                             </div>
                         </div>
-                        
-                        <div className="flex-1 overflow-x-auto">
+
+                        {/* Table */}
+                        <div className="flex-1 overflow-auto">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-600 font-medium border-b border-slate-200">
+                                <thead className="bg-slate-50 sticky top-0 z-10 text-slate-500 font-medium">
                                     <tr>
-                                        <th className="px-6 py-3">姓名/编号</th>
-                                        <th className="px-6 py-3">联系电话</th>
-                                        <th className="px-6 py-3">部门</th>
-                                        <th className="px-6 py-3">风险等级</th>
-                                        <th className="px-6 py-3">建档日期</th>
-                                        <th className="px-6 py-3">操作</th>
+                                        <th className="px-5 py-3 border-b border-slate-200">基本信息</th>
+                                        <th className="px-5 py-3 border-b border-slate-200">风险等级</th>
+                                        <th className="px-5 py-3 border-b border-slate-200">部门/电话</th>
+                                        <th className="px-5 py-3 border-b border-slate-200 text-right">管理操作</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-slate-50">
                                     {loading ? (
-                                        <tr><td colSpan={6} className="text-center py-10 text-slate-400">加载数据中...</td></tr>
+                                        <tr><td colSpan={4} className="p-10 text-center text-slate-400">正在从 Supabase 加载数据...</td></tr>
                                     ) : filteredArchives.length === 0 ? (
-                                        <tr><td colSpan={6} className="text-center py-10 text-slate-400">{searchTerm ? '未找到匹配的档案' : (fetchError ? '数据加载失败' : '暂无档案数据')}</td></tr>
+                                        <tr><td colSpan={4} className="p-10 text-center text-slate-400">暂无数据，请在左侧录入</td></tr>
                                     ) : (
-                                        filteredArchives.map(archive => (
-                                            <tr key={archive.id} className="hover:bg-slate-50 group transition-colors">
-                                                <td className="px-6 py-3">
-                                                    <div className="font-bold text-slate-800">{archive.name}</div>
-                                                    <div className="text-xs text-slate-400 highlight">{archive.checkup_id}</div>
+                                        filteredArchives.map(arch => (
+                                            <tr key={arch.id} className="hover:bg-teal-50/30 group transition-colors">
+                                                <td className="px-5 py-3">
+                                                    <div className="font-bold text-slate-800">{arch.name}</div>
+                                                    <div className="text-xs text-slate-400 font-mono">{arch.checkup_id}</div>
                                                 </td>
-                                                <td className="px-6 py-3 text-slate-600 font-mono">
-                                                    {archive.phone || '-'}
-                                                </td>
-                                                <td className="px-6 py-3 text-slate-600">{archive.department}</td>
-                                                <td className="px-6 py-3">
-                                                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold ${
-                                                        archive.risk_level === 'RED' ? 'bg-red-100 text-red-700' :
-                                                        archive.risk_level === 'YELLOW' ? 'bg-yellow-100 text-yellow-700' :
-                                                        'bg-green-100 text-green-700'
+                                                <td className="px-5 py-3">
+                                                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                                                        arch.risk_level === 'RED' ? 'bg-red-50 text-red-700 border-red-100' :
+                                                        arch.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
+                                                        'bg-green-50 text-green-700 border-green-100'
                                                     }`}>
-                                                        <span className={`w-2 h-2 rounded-full ${
-                                                            archive.risk_level === 'RED' ? 'bg-red-500' :
-                                                            archive.risk_level === 'YELLOW' ? 'bg-yellow-500' :
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${
+                                                            arch.risk_level === 'RED' ? 'bg-red-500' :
+                                                            arch.risk_level === 'YELLOW' ? 'bg-yellow-500' :
                                                             'bg-green-500'
                                                         }`}></span>
-                                                        {archive.risk_level === 'RED' ? '高危' : archive.risk_level === 'YELLOW' ? '中危' : '低危'}
+                                                        {arch.risk_level === 'RED' ? '高危' : arch.risk_level === 'YELLOW' ? '中危' : '低危'}
                                                     </span>
                                                 </td>
-                                                <td className="px-6 py-3 text-slate-500 text-xs">
-                                                    {new Date(archive.created_at).toLocaleDateString()}
+                                                <td className="px-5 py-3 text-slate-600 text-xs">
+                                                    <div>{arch.department || '-'}</div>
+                                                    <div className="font-mono text-slate-400">{arch.phone || '-'}</div>
                                                 </td>
-                                                <td className="px-6 py-3 flex gap-2">
-                                                    <button 
-                                                        onClick={() => onSelectPatient(archive)}
-                                                        className="text-white bg-teal-600 hover:bg-teal-700 px-3 py-1 rounded shadow-sm transition-colors text-xs"
-                                                    >
-                                                        查看详情
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => handleDelete(archive.id, archive.name)}
-                                                        className="text-red-400 hover:text-red-600 px-2 text-xs"
-                                                    >
-                                                        删除
-                                                    </button>
+                                                <td className="px-5 py-3 text-right">
+                                                    <div className="flex justify-end gap-2 opacity-100 transition-opacity">
+                                                        <button 
+                                                            onClick={() => onSelectPatient(arch, 'view')}
+                                                            className="px-2 py-1 text-xs font-bold text-teal-600 hover:bg-teal-50 rounded border border-transparent hover:border-teal-100 transition-colors"
+                                                            title="查看评估报告与随访"
+                                                        >
+                                                            查看
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => onSelectPatient(arch, 'edit')}
+                                                            className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded border border-transparent hover:border-slate-200 transition-colors"
+                                                            title="修改档案数据"
+                                                        >
+                                                            修改
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDelete(arch.id, arch.name)}
+                                                            className="px-2 py-1 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                            title="删除档案"
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))
                                     )}
                                 </tbody>
                             </table>
-                        </div>
-                        <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500 flex justify-between">
-                             <span>显示 {filteredArchives.length} / {archives.length} 条记录</span>
-                             <span>数据来源: Supabase Cloud</span>
                         </div>
                     </div>
                 </div>
