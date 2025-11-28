@@ -37,7 +37,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
       plan: string;
       issues: string;
       goals: string;
-  }>({ plan: '', issues: '', goals: '' });
+      message: string; // Added message field
+  }>({ plan: '', issues: '', goals: '', message: '' });
 
   // 按照时间排序记录
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -48,7 +49,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
           setGuideEditData({
               plan: latestRecord.assessment.nextCheckPlan || '',
               issues: latestRecord.assessment.majorIssues || '',
-              goals: latestRecord.assessment.lifestyleGoals?.join('\n') || ''
+              goals: latestRecord.assessment.lifestyleGoals?.join('\n') || '',
+              message: latestRecord.assessment.riskJustification || ''
           });
       }
   }, [latestRecord]);
@@ -239,7 +241,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
               ...latestRecord.assessment,
               nextCheckPlan: guideEditData.plan,
               majorIssues: guideEditData.issues,
-              lifestyleGoals: guideEditData.goals.split('\n').filter(s => s.trim() !== '')
+              lifestyleGoals: guideEditData.goals.split('\n').filter(s => s.trim() !== ''),
+              riskJustification: guideEditData.message // Save message
           }
       };
       
@@ -493,9 +496,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       
                       <div className="mt-8 pt-6 border-t border-green-200 print:border-slate-300">
                           <h4 className="font-bold text-sm text-slate-700 mb-2">医生寄语</h4>
-                          <p className="text-sm text-slate-600 italic">
-                              "{latestRecord.assessment.riskJustification ? latestRecord.assessment.riskJustification.substring(0, 100) + '...' : '健康是长期的积累，请坚持执行管理方案。'}"
-                          </p>
+                          {isEditingGuide ? (
+                              <textarea 
+                                  className="w-full text-sm border border-green-300 rounded p-2 focus:ring-1 focus:ring-green-500 h-20 bg-white"
+                                  value={guideEditData.message}
+                                  onChange={e => setGuideEditData({...guideEditData, message: e.target.value})}
+                              />
+                          ) : (
+                              <p className="text-sm text-slate-600 italic">
+                                  "{latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。'}"
+                              </p>
+                          )}
                       </div>
                   </div>
               </div>

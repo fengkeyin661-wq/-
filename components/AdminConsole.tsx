@@ -9,6 +9,22 @@ interface Props {
 }
 
 export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate }) => {
+    // --- Authentication State ---
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [authStep, setAuthStep] = useState<'login' | 'verify'>('login');
+    
+    // Login Form State
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [loginError, setLoginError] = useState('');
+
+    // Verification Form State
+    const [email, setEmail] = useState('');
+    const [verifyCode, setVerifyCode] = useState('');
+    const [sentCode, setSentCode] = useState(''); // Store the simulated code
+    const [verifyMsg, setVerifyMsg] = useState('');
+
+    // --- Admin Console Logic ---
     const [archives, setArchives] = useState<HealthArchive[]>([]);
     const [rawText, setRawText] = useState('');
     const [logs, setLogs] = useState<string[]>([]);
@@ -20,6 +36,18 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate })
     const [showSqlHelp, setShowSqlHelp] = useState(false);
 
     const configured = isSupabaseConfigured();
+
+    // Credentials Configuration
+    const ADMIN_USER = "zzdxyy";
+    const ADMIN_PASS = "xyy67739261#";
+    const ADMIN_EMAIL = "xiaoyin4567@126.com";
+
+    // --- Effects ---
+    useEffect(() => {
+        if (isLoggedIn) {
+            loadData();
+        }
+    }, [isLoggedIn]);
 
     const loadData = async () => {
         if (!configured) {
@@ -39,9 +67,42 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate })
         }
     };
 
-    useEffect(() => {
-        loadData();
-    }, []);
+    // --- Auth Handlers ---
+
+    const handleLogin = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (username === ADMIN_USER && password === ADMIN_PASS) {
+            setIsLoggedIn(true);
+            setLoginError('');
+        } else {
+            setLoginError('账号或密码错误');
+        }
+    };
+
+    const handleSendCode = () => {
+        if (email !== ADMIN_EMAIL) {
+            setVerifyMsg('错误：未授权的管理员邮箱');
+            return;
+        }
+        // Simulation of sending email
+        const code = Math.floor(1000 + Math.random() * 9000).toString();
+        setSentCode(code);
+        alert(`【系统模拟】验证码已发送至 ${email}：${code}`);
+        setVerifyMsg('验证码已发送，请查收');
+    };
+
+    const handleVerify = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (verifyCode === sentCode && sentCode !== '') {
+            alert('验证通过，正在登录...');
+            setIsLoggedIn(true);
+            setAuthStep('login'); // Reset step for next time
+        } else {
+            setVerifyMsg('验证码错误');
+        }
+    };
+
+    // --- Data Processing Handlers ---
 
     const handleBatchProcess = async () => {
         if (!rawText.trim()) return;
@@ -71,7 +132,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate })
         }
     };
 
-    // --- New: Calculate Upcoming Follow-ups (Next 7 Days) ---
+    // --- Logic: Upcoming Tasks ---
     const getUpcomingTasks = () => {
         const today = new Date();
         today.setHours(0,0,0,0);
@@ -83,13 +144,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate })
                 arch.follow_up_schedule.forEach(task => {
                     if (task.status === 'pending') {
                         const taskDate = new Date(task.date);
-                        // Convert to standard format to compare day diff
                         const diffTime = taskDate.getTime() - today.getTime();
                         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-                        // Include: 
-                        // 1. Overdue (diffDays < 0) - Important not to miss
-                        // 2. Coming up in 7 days (0 <= diffDays <= 7)
                         if (diffDays <= 7) {
                             list.push({
                                 archive: arch,
@@ -102,14 +158,10 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate })
                 });
             }
         });
-
-        // Sort by date (Urgent first)
         return list.sort((a, b) => a.daysLeft - b.daysLeft);
     };
 
     const upcomingTasks = getUpcomingTasks();
-    // -------------------------------------------------------
-
     const filteredArchives = archives.filter(archive => {
         const term = searchTerm.toLowerCase();
         return (
@@ -131,6 +183,104 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate })
         </div>
     );
 
+    // --- Render Login Screen ---
+    if (!isLoggedIn) {
+        return (
+            <div className="flex items-center justify-center min-h-[600px] animate-fadeIn">
+                <div className="bg-white p-8 rounded-xl shadow-2xl border border-slate-200 w-full max-w-md">
+                    <div className="text-center mb-8">
+                        <div className="w-16 h-16 bg-slate-800 rounded-xl flex items-center justify-center text-white text-3xl font-bold mx-auto mb-4">Z</div>
+                        <h2 className="text-2xl font-bold text-slate-800">管理员登录</h2>
+                        <p className="text-slate-500 text-sm mt-2">郑州大学职工健康管理中心</p>
+                    </div>
+
+                    {authStep === 'login' ? (
+                        <form onSubmit={handleLogin} className="space-y-6">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">管理员账号</label>
+                                <input 
+                                    type="text" 
+                                    value={username}
+                                    onChange={e => setUsername(e.target.value)}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-teal-500 outline-none"
+                                    placeholder="请输入账号"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">密码</label>
+                                <input 
+                                    type="password" 
+                                    value={password}
+                                    onChange={e => setPassword(e.target.value)}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-teal-500 outline-none"
+                                    placeholder="请输入密码"
+                                />
+                            </div>
+                            {loginError && <p className="text-red-500 text-sm text-center font-bold">{loginError}</p>}
+                            
+                            <button type="submit" className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-700 transition-colors shadow-lg">
+                                安全登录
+                            </button>
+                            
+                            <div className="text-center">
+                                <button type="button" onClick={() => setAuthStep('verify')} className="text-sm text-teal-600 hover:underline">
+                                    忘记密码 / 邮箱验证登录
+                                </button>
+                            </div>
+                        </form>
+                    ) : (
+                        <form onSubmit={handleVerify} className="space-y-6">
+                            <div className="bg-blue-50 p-3 rounded text-xs text-blue-700 mb-4">
+                                请输入系统绑定的管理员邮箱进行验证。
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">验证邮箱</label>
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="email" 
+                                        value={email}
+                                        onChange={e => setEmail(e.target.value)}
+                                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
+                                        placeholder="xiaoyin...@126.com"
+                                    />
+                                    <button 
+                                        type="button" 
+                                        onClick={handleSendCode}
+                                        className="bg-teal-600 text-white text-xs px-3 py-2 rounded-lg hover:bg-teal-700 whitespace-nowrap"
+                                    >
+                                        获取验证码
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">验证码</label>
+                                <input 
+                                    type="text" 
+                                    value={verifyCode}
+                                    onChange={e => setVerifyCode(e.target.value)}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-teal-500 outline-none"
+                                    placeholder="请输入邮件中的验证码"
+                                />
+                            </div>
+                            {verifyMsg && <p className={`text-sm text-center font-bold ${verifyMsg.includes('错误') ? 'text-red-500' : 'text-green-600'}`}>{verifyMsg}</p>}
+
+                            <button type="submit" className="w-full bg-teal-600 text-white font-bold py-3 rounded-lg hover:bg-teal-700 transition-colors shadow-lg">
+                                验证并登录
+                            </button>
+
+                            <div className="text-center">
+                                <button type="button" onClick={() => setAuthStep('login')} className="text-sm text-slate-500 hover:text-slate-800">
+                                    &lt; 返回账号登录
+                                </button>
+                            </div>
+                        </form>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // --- Render Console (Only if Logged In) ---
     return (
         <div className="space-y-6 animate-fadeIn pb-10">
             {/* Top Bar: Connection Status */}
@@ -149,6 +299,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate })
                 <div className="flex gap-2">
                      <button onClick={loadData} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-bold text-slate-600 flex items-center gap-1 transition-colors">
                         🔄 刷新数据
+                     </button>
+                     <button onClick={() => setIsLoggedIn(false)} className="px-3 py-1 bg-red-50 hover:bg-red-100 rounded text-xs font-bold text-red-600 flex items-center gap-1 transition-colors border border-red-100">
+                        🚪 退出登录
                      </button>
                 </div>
             </div>
