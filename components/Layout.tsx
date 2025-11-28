@@ -5,9 +5,19 @@ interface LayoutProps {
   children: React.ReactNode;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  isAuthenticated?: boolean;
+  onLoginClick?: () => void;
+  onLogoutClick?: () => void;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => {
+export const Layout: React.FC<LayoutProps> = ({ 
+  children, 
+  activeTab, 
+  onTabChange,
+  isAuthenticated = false,
+  onLoginClick,
+  onLogoutClick
+}) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const navItems = [
@@ -58,8 +68,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
               Dr.
             </div>
             <div>
-              <p className="text-sm font-medium">李医生</p>
-              <p className="text-xs text-slate-400">全科医师</p>
+              <p className="text-sm font-medium">邱医生</p>
+              <p className="text-xs text-slate-400">主检医生</p>
             </div>
           </div>
         </div>
@@ -89,9 +99,30 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                 </h2>
             </div>
             
-            <div className="flex gap-4">
+            <div className="flex gap-4 items-center">
+                {isAuthenticated ? (
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full font-bold border border-green-200 flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                            管理员已登录
+                        </span>
+                        <button 
+                            onClick={onLogoutClick}
+                            className="text-sm text-red-500 hover:text-red-700 font-medium px-3 py-1 hover:bg-red-50 rounded transition-colors"
+                        >
+                            退出登录
+                        </button>
+                    </div>
+                ) : (
+                    <button 
+                        onClick={onLoginClick}
+                        className="flex items-center gap-2 bg-slate-800 text-white px-4 py-1.5 rounded-full text-sm font-bold hover:bg-slate-700 transition-all shadow-sm hover:shadow-md"
+                    >
+                        <span>🔒</span> 管理员登录
+                    </button>
+                )}
+                <div className="h-4 w-[1px] bg-slate-200 mx-1"></div>
                 <button className="text-sm text-slate-600 hover:text-teal-600">帮助中心</button>
-                <button className="text-sm text-slate-600 hover:text-teal-600">设置</button>
             </div>
          </header>
          {/* print:p-0 移除内边距 */}

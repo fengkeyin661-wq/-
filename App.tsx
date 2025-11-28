@@ -5,6 +5,7 @@ import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
 import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
+import { LoginModal } from './components/LoginModal'; // Import LoginModal
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
@@ -17,6 +18,10 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
   
+  // --- Auth State ---
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+
   // Lifted State: All Archives (for Global Dashboard Reminders)
   const [archives, setArchives] = useState<HealthArchive[]>([]);
 
@@ -130,7 +135,22 @@ const App: React.FC = () => {
   };
 
   return (
-    <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+    <Layout 
+      activeTab={activeTab} 
+      onTabChange={setActiveTab}
+      isAuthenticated={isAuthenticated}
+      onLoginClick={() => setShowLoginModal(true)}
+      onLogoutClick={() => setIsAuthenticated(false)}
+    >
+      <LoginModal 
+        isOpen={showLoginModal} 
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={() => {
+            setIsAuthenticated(true);
+            refreshArchives(); // Refresh data on login
+        }}
+      />
+
       {activeTab === 'dashboard' && (
          <div className="text-center py-20 animate-fadeIn">
             <h2 className="text-4xl font-bold text-slate-800 mb-6 tracking-tight">职工健康管理系统 v3.0</h2>
@@ -142,14 +162,24 @@ const App: React.FC = () => {
                 <button onClick={() => { setHealthRecord(null); setActiveTab('survey'); }} className="bg-white text-teal-600 border border-teal-200 px-8 py-3 rounded-lg hover:bg-teal-50 shadow-sm transition-all">
                     开始单人建档
                 </button>
-                <button onClick={() => setActiveTab('admin')} className="bg-teal-600 text-white px-8 py-3 rounded-lg shadow-lg hover:bg-teal-700 transition-all transform hover:scale-105">
-                    进入管理控制台
+                <button 
+                  onClick={() => {
+                      if (isAuthenticated) {
+                          setActiveTab('admin');
+                      } else {
+                          setShowLoginModal(true);
+                      }
+                  }} 
+                  className="bg-teal-600 text-white px-8 py-3 rounded-lg shadow-lg hover:bg-teal-700 transition-all transform hover:scale-105"
+                >
+                    {isAuthenticated ? '进入管理控制台' : '管理员登录'}
                 </button>
             </div>
          </div>
       )}
       {activeTab === 'admin' && (
         <AdminConsole 
+            isAuthenticated={isAuthenticated} // Pass auth state
             onSelectPatient={handleSelectPatient} 
             onDataUpdate={refreshArchives} 
         />
