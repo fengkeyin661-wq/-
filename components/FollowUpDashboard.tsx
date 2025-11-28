@@ -163,12 +163,13 @@ export const FollowUpDashboard: React.FC<Props> = ({ records, assessment, schedu
   };
 
   const nextScheduled = schedule.find(s => s.status === 'pending');
+  const handlePrintGuide = () => window.print();
 
   return (
     <div className="space-y-8 animate-fadeIn pb-10">
       
       {/* 顶部：随访时间轴 */}
-      <div className="bg-white p-6 rounded-xl shadow border border-slate-100">
+      <div className="bg-white p-6 rounded-xl shadow border border-slate-100 print:hidden">
         <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
             <span>📅</span> 全周期随访路径
         </h2>
@@ -214,9 +215,107 @@ export const FollowUpDashboard: React.FC<Props> = ({ records, assessment, schedu
         </div>
       </div>
 
+      {/* 底部：下阶段执行单 (可打印) */}
+      {latestRecord && (
+          <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600 print:shadow-none print:border-none print:p-0 print:border-t-0">
+              <div className="flex justify-between items-start mb-6 print:hidden">
+                  <div>
+                      <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                         <span>📋</span> 下阶段健康管理执行单
+                      </h2>
+                      <p className="text-sm text-slate-500 mt-1">请受检者保存，用于指导日常生活与下次复查</p>
+                  </div>
+                  <button onClick={handlePrintGuide} className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-sm">
+                      🖨️ 打印执行单
+                  </button>
+              </div>
+
+              {/* 打印专用标题 */}
+              <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-8">
+                  <h1 className="text-3xl font-bold">健康管理执行单 (随访记录)</h1>
+                  <div className="mt-4 flex justify-between text-sm">
+                      <span>随访日期: {latestRecord.date}</span>
+                      <span>打印日期: {new Date().toLocaleDateString()}</span>
+                  </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:block print:space-y-6">
+                  {/* 左侧：复查计划 */}
+                  <div className="space-y-6">
+                      <div className="bg-blue-50 p-6 rounded-lg border border-blue-100 print:bg-transparent print:border-slate-300 print:border">
+                          <h3 className="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2 print:text-black">📅 下次复查计划</h3>
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                              <div>
+                                  <span className="text-xs text-slate-500 block uppercase">建议时间</span>
+                                  <span className="text-xl font-bold text-slate-800">{nextScheduled?.date || "待定"}</span>
+                              </div>
+                              <div>
+                                  <span className="text-xs text-slate-500 block uppercase">当前风险</span>
+                                  <span className={`font-bold ${
+                                      latestRecord.assessment.riskLevel === 'RED' ? 'text-red-600' : 
+                                      latestRecord.assessment.riskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
+                                  }`}>
+                                      {latestRecord.assessment.riskLevel === 'RED' ? '高风险' : 
+                                       latestRecord.assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                                  </span>
+                              </div>
+                          </div>
+                          <div>
+                              <span className="text-xs text-slate-500 block uppercase mb-1">具体复查项目</span>
+                              <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 print:border-none print:p-0">
+                                  {latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}
+                              </p>
+                          </div>
+                      </div>
+
+                      <div className="bg-red-50 p-6 rounded-lg border border-red-100 print:bg-transparent print:border-slate-300 print:border">
+                          <h3 className="font-bold text-red-800 mb-4 border-b border-red-200 pb-2 print:text-black">⚠️ 风险警示与问题</h3>
+                          <p className="text-slate-700 leading-relaxed">
+                              {latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}
+                          </p>
+                      </div>
+                  </div>
+
+                  {/* 右侧：生活方式 */}
+                  <div className="bg-green-50 p-6 rounded-lg border border-green-100 h-full print:bg-transparent print:border-slate-300 print:border print:h-auto">
+                      <h3 className="font-bold text-green-800 mb-4 border-b border-green-200 pb-2 print:text-black">🏃 生活方式干预目标</h3>
+                      {latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 ? (
+                          <ul className="space-y-3">
+                              {latestRecord.assessment.lifestyleGoals.map((goal, i) => (
+                                  <li key={i} className="flex items-start gap-2 text-slate-700">
+                                      <span className="text-green-600 font-bold mt-0.5">✓</span>
+                                      <span>{goal}</span>
+                                  </li>
+                              ))}
+                          </ul>
+                      ) : (
+                          <p className="text-slate-500 italic">暂无具体调整建议，请维持健康生活方式。</p>
+                      )}
+                      
+                      <div className="mt-8 pt-6 border-t border-green-200 print:border-slate-300">
+                          <h4 className="font-bold text-sm text-slate-700 mb-2">医生寄语</h4>
+                          <p className="text-sm text-slate-600 italic">
+                              "{latestRecord.assessment.riskJustification ? latestRecord.assessment.riskJustification.substring(0, 100) + '...' : '健康是长期的积累，请坚持执行管理方案。'}"
+                          </p>
+                      </div>
+                  </div>
+              </div>
+
+              {/* 签字区 (仅打印显示) */}
+              <div className="hidden print:flex justify-between mt-12 pt-12 border-t border-slate-300">
+                  <div>
+                      <span className="font-bold">医师签名:</span> ______________________
+                  </div>
+                  <div>
+                      <span className="font-bold">受检者确认:</span> ______________________
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* 模态框：随访录入 */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex justify-end z-50 backdrop-blur-sm transition-opacity">
+        <div className="fixed inset-0 bg-slate-900/60 flex justify-end z-50 backdrop-blur-sm transition-opacity print:hidden">
             <div className="bg-white w-full max-w-2xl h-full shadow-2xl overflow-y-auto flex flex-col animate-slideInRight">
                 <div className="sticky top-0 bg-white z-10 px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-teal-50">
                     <div>
