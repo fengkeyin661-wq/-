@@ -71,7 +71,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
         const term = searchTerm.toLowerCase();
         return (
             (archive.name || '').toLowerCase().includes(term) ||
-            (archive.checkup_id || '').toLowerCase().includes(term)
+            (archive.checkup_id || '').toLowerCase().includes(term) ||
+            (archive.phone || '').toLowerCase().includes(term)
         );
     });
 
@@ -134,14 +135,16 @@ create table public.health_archives (
   id uuid default gen_random_uuid() primary key,
   checkup_id text not null unique,
   name text,
+  phone text,
   department text,
   gender text,
   age int,
   risk_level text,
-  survey_data jsonb,
+  health_record jsonb,
   assessment_data jsonb,
   follow_up_schedule jsonb,
   follow_ups jsonb default '[]'::jsonb,
+  history_versions jsonb default '[]'::jsonb,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );`}
@@ -270,7 +273,7 @@ create table public.health_archives (
                                     <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400">🔍</span>
                                     <input 
                                         type="text" 
-                                        placeholder="搜索姓名或体检编号..." 
+                                        placeholder="搜索姓名、电话或编号..." 
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         className="pl-9 border border-slate-300 rounded px-3 py-1 text-sm outline-none focus:border-teal-500 w-full" 
@@ -287,6 +290,7 @@ create table public.health_archives (
                                 <thead className="bg-slate-50 text-slate-600 font-medium border-b border-slate-200">
                                     <tr>
                                         <th className="px-6 py-3">姓名/编号</th>
+                                        <th className="px-6 py-3">联系电话</th>
                                         <th className="px-6 py-3">部门</th>
                                         <th className="px-6 py-3">风险等级</th>
                                         <th className="px-6 py-3">建档日期</th>
@@ -295,15 +299,18 @@ create table public.health_archives (
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                     {loading ? (
-                                        <tr><td colSpan={5} className="text-center py-10 text-slate-400">加载数据中...</td></tr>
+                                        <tr><td colSpan={6} className="text-center py-10 text-slate-400">加载数据中...</td></tr>
                                     ) : filteredArchives.length === 0 ? (
-                                        <tr><td colSpan={5} className="text-center py-10 text-slate-400">{searchTerm ? '未找到匹配的档案' : (fetchError ? '数据加载失败' : '暂无档案数据')}</td></tr>
+                                        <tr><td colSpan={6} className="text-center py-10 text-slate-400">{searchTerm ? '未找到匹配的档案' : (fetchError ? '数据加载失败' : '暂无档案数据')}</td></tr>
                                     ) : (
                                         filteredArchives.map(archive => (
                                             <tr key={archive.id} className="hover:bg-slate-50 group transition-colors">
                                                 <td className="px-6 py-3">
                                                     <div className="font-bold text-slate-800">{archive.name}</div>
                                                     <div className="text-xs text-slate-400 highlight">{archive.checkup_id}</div>
+                                                </td>
+                                                <td className="px-6 py-3 text-slate-600 font-mono">
+                                                    {archive.phone || '-'}
                                                 </td>
                                                 <td className="px-6 py-3 text-slate-600">{archive.department}</td>
                                                 <td className="px-6 py-3">

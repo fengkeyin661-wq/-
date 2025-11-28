@@ -66,7 +66,8 @@ export const processBatchUpload = async (
                     existingArchive = data as HealthArchive;
                     historyVersions = existingArchive.history_versions || [];
                     existingFollowUps = existingArchive.follow_ups || [];
-                    onProgress(`检测到用户 ${record.profile.name} 已存在，执行年度轮动更新...`, progress);
+                    onProgress(`♻️ 检测到用户 [${record.profile.name}] 已存在，执行年度轮动更新...`, progress);
+                    onProgress(`📦 正在归档旧版本数据...`, progress);
 
                     // Archive current state
                     historyVersions.push({
@@ -74,15 +75,17 @@ export const processBatchUpload = async (
                         health_record: existingArchive.health_record,
                         assessment_data: existingArchive.assessment_data
                     });
+                } else {
+                    onProgress(`✨ 创建新档案: ${record.profile.name} (ID:${checkupId})`, progress);
                 }
             }
 
-            onProgress(`生成评估方案: ${record.profile.name}...`, progress);
+            onProgress(`🧠 生成评估方案...`, progress);
             const assessment = await generateHealthAssessment(record);
             const schedule = generateFollowUpSchedule(assessment);
 
             if (isSupabaseConfigured()) {
-                onProgress(`存入云数据库...`, progress);
+                onProgress(`☁️ 存入 Supabase 云端...`, progress);
                 
                 const payload = {
                     checkup_id: checkupId,
@@ -108,17 +111,19 @@ export const processBatchUpload = async (
 
                 if (error) {
                     console.error("Supabase Error", error);
-                    onProgress(`数据库保存失败: ${error.message}`, progress);
+                    onProgress(`❌ 数据库保存失败: ${error.message}`, progress);
+                } else {
+                    onProgress(`✅ ${record.profile.name} 档案保存成功 (电话: ${record.profile.phone || '无'})`, progress);
                 }
             }
             // Rate limit for API
-            await delay(2000); 
+            await delay(1500); 
         } catch (error) {
             console.error(error);
-            onProgress(`处理失败: ${error instanceof Error ? error.message : 'Unknown'}`, progress);
+            onProgress(`❌ 处理失败: ${error instanceof Error ? error.message : 'Unknown'}`, progress);
         }
     }
-    onProgress('处理完成', 100);
+    onProgress('🎉 所有任务处理完成', 100);
 };
 
 export const fetchArchives = async (): Promise<HealthArchive[]> => {
