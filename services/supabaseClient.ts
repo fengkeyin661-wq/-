@@ -1,11 +1,30 @@
 import { createClient } from '@supabase/supabase-js';
 
-// process.env usage instead of import.meta.env
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
-const supabaseKey = process.env.VITE_SUPABASE_KEY || '';
+// Helper to safely access environment variables in different environments (Vite, Webpack, etc.)
+const getEnvVar = (key: string): string => {
+  // 1. Try Vite's import.meta.env
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      // @ts-ignore
+      return import.meta.env[key];
+    }
+  } catch (e) {}
+
+  // 2. Try process.env (Standard Node/Webpack)
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {}
+
+  return '';
+};
+
+const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
+const supabaseKey = getEnvVar('VITE_SUPABASE_KEY');
 
 // 创建 Supabase 客户端
-// 使用 fallback 防止初始化报错，但 isSupabaseConfigured 会拦截无效配置
 export const supabase = createClient(
     supabaseUrl || 'https://placeholder.supabase.co', 
     supabaseKey || 'placeholder'

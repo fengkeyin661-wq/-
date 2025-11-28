@@ -1,19 +1,73 @@
-import { GoogleGenAI } from "@google/genai";
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
 
-// Initialize Gemini API
-// The API key must be obtained exclusively from the environment variable process.env.API_KEY
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// DeepSeek API Configuration
+const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 
-// Helper to clean JSON string if markdown code blocks are present
-const cleanJson = (text: string | undefined): any => {
-    if (!text) return null;
-    const cleaned = text.replace(/```json\n?|```/g, '').trim();
+// Helper to safely access environment variables in different environments (Vite, Webpack, etc.)
+const getEnvVar = (key: string): string => {
+  // 1. Try Vite's import.meta.env
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      // @ts-ignore
+      return import.meta.env[key];
+    }
+  } catch (e) {}
+
+  // 2. Try process.env (Standard Node/Webpack)
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {}
+
+  return '';
+};
+
+const getApiKey = () => {
+    return getEnvVar('VITE_DEEPSEEK_API_KEY');
+}
+
+// 通用 DeepSeek 调用函数
+const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode: boolean = true) => {
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error("API Key 未配置。请检查 Vercel 环境变量 VITE_DEEPSEEK_API_KEY。");
+
     try {
-        return JSON.parse(cleaned);
-    } catch (e) {
-        console.error("JSON Parse Error", e);
-        throw new Error("Failed to parse AI response as JSON");
+        const response = await fetch(DEEPSEEK_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat", // 使用 DeepSeek-V3
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userContent }
+                ],
+                // 启用 JSON 模式以保证输出格式稳定
+                response_format: jsonMode ? { type: "json_object" } : undefined,
+                temperature: 0.1, // 低温度以保证医学数据的严谨性
+                stream: false
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`DeepSeek API Error: ${response.status} - ${errText}`);
+        }
+
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        
+        // 清洗 Markdown 代码块标记 (```json ... ```)
+        const cleanJson = content.replace(/```json\n?|```/g, '').trim();
+        
+        return jsonMode ? JSON.parse(cleanJson) : cleanJson;
+    } catch (error) {
+        console.error("DeepSeek Call Failed:", error);
+        throw error; // 向上传递错误以便 UI 提示
     }
 };
 
@@ -104,17 +158,7 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     }
   `;
 
-  const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `请解析以下健康档案数据:\n${rawText}`,
-      config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-      }
-  });
-
-  return cleanJson(response.text);
+  return await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
 }
 
 /**
@@ -144,17 +188,7 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
     }
   `;
 
-  const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `数据:\n${JSON.stringify(record)}`,
-      config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-      }
-  });
-
-  return cleanJson(response.text);
+  return await callDeepSeek(systemPrompt, `数据:\n${JSON.stringify(record)}`);
 };
 
 /**
@@ -217,15 +251,5 @@ export const analyzeFollowUpRecord = async (
       上次记录: ${JSON.stringify(latestRecord)}
       `;
       
-      const response = await ai.models.generateContent({
-          model: 'gemini-3-pro-preview',
-          contents: userContent,
-          config: {
-              systemInstruction: systemPrompt,
-              responseMimeType: 'application/json',
-              temperature: 0.1,
-          }
-      });
-
-      return cleanJson(response.text);
+      return await callDeepSeek(systemPrompt, userContent);
   };

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { processBatchUpload, fetchArchives, deleteArchive, HealthArchive } from '../services/dataService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
@@ -127,9 +126,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient }) => {
             <div className="bg-red-50 border border-red-200 p-8 rounded-xl text-center">
                 <h2 className="text-xl font-bold text-red-700 mb-2">Supabase 未配置</h2>
                 <p className="text-red-600 mb-4">
-                    检测到 Vercel 环境变量未正确加载。
+                    检测到环境变量未正确加载。
                     <br/>
-                    请在 Vercel 项目设置中配置 <code>VITE_SUPABASE_URL</code> 和 <code>VITE_SUPABASE_KEY</code>。
+                    请确保您已在 Vercel 后台配置了 <code>VITE_SUPABASE_URL</code> 和 <code>VITE_SUPABASE_KEY</code>。
                 </p>
                 <code className="bg-white p-2 rounded block text-left text-xs text-slate-500 overflow-auto">
                     {`// SQL 建表语句
