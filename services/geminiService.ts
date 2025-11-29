@@ -432,31 +432,3 @@ export const generateHospitalBusinessAnalysis = async (
     const result = await callDeepSeek(systemPrompt, userContent, true);
     return result.departments || result; // Handle potential wrapper object if AI adds one
 };
-
-/**
- * 7. 智能数据合并: 将原有档案与新录入的文本信息合并
- */
-export const mergeHealthData = async (currentRecord: HealthRecord, newText: string): Promise<HealthRecord> => {
-    const systemPrompt = `
-      你是一名医疗数据处理助手。你的任务是将一份现有的结构化健康档案（JSON格式）与医生输入的补充文本信息（Raw Text）进行智能合并。
-      
-      规则：
-      1. 如果补充文本中有新的检查结果（如新的血压、血脂、超声结果），请更新 JSON 中对应的字段。
-      2. 如果补充文本中有新的病史或症状描述，请更新问卷部分（Questionnaire）。
-      3. 如果有冲突，以【补充文本】中的信息为准（认为是最新的）。
-      4. 保持 JSON 结构不变，只修改或填充值。
-      5. 不要删除原有的有效数据，除非新文本明确指出该数据错误。
-      
-      请返回完整的、更新后的 JSON 对象。
-    `;
-    
-    const userContent = `
-      现有档案 JSON:
-      ${JSON.stringify(currentRecord)}
-      
-      新增/补充的文本信息:
-      ${newText}
-    `;
-    
-    return await callDeepSeek(systemPrompt, userContent, true);
-}
