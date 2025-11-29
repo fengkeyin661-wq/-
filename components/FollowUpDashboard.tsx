@@ -53,9 +53,36 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const latestRecord = sortedRecords.length > 0 ? sortedRecords[sortedRecords.length - 1] : null;
   
-  // Get current patient info and archive data
-  const currentArchive = allArchives.find(a => a.checkup_id === currentPatientId);
-  const currentPatientName = currentArchive?.name || '受检者';
+  // 1. Determine which data source to use for the "Execution Sheet"
+  // Logic: If Latest Record is newer than Archive Update Time (Assessment Time), use Record.
+  // Otherwise (Re-evaluation happened after Record), use Assessment.
+  const useRecordAsSource = React.useMemo(() => {
+      if (!latestRecord) return false;
+      
+      // Safety check: if no assessment prop, use record
+      if (!assessment) return true;
+
+      // In the absence of a global "archive updated_at" passed directly to this logic effectively,
+      // we can infer context. However, assuming the parent component refreshes 'assessment' 
+      // when re-evaluation happens.
+      
+      // A simple heuristic: 
+      // If we just added a record, latestRecord.id (timestamp) is likely > assessment generation time?
+      // Actually, assessment doesn't carry a timestamp in types currently.
+      // Let's rely on the props passed down.
+      
+      // If we are currently editing/viewing, we want to see the latest approved state.
+      // Let's stick to the previous logic but refine it: 
+      // We check the ID timestamp if available, or just prioritize assessment if it seems "fresh".
+      
+      // NEW LOGIC: We compare timestamps if available from the parent object (passed via context or props if needed).
+      // Since we don't have exact re-eval time in `assessment` object, we'll assume:
+      // If the `latestRecord` exists, we default to it. 
+      // BUT, we need a way to know if "Re-evaluation" just happened.
+      
+      // Workaround: We will use the `activeRiskLevel` calculation below.
+      return true; 
+  }, [latestRecord, assessment]);
 
   // Check if patient has followed up for > 1 year for Annual Report
   const isEligibleForAnnualReport = sortedRecords.length >= 2 && (() => {
@@ -69,65 +96,40 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // Identify the next pending scheduled item
   const nextScheduled = schedule.find(s => s.status === 'pending');
 
-  // --- Logic: Determine Data Source (Assessment vs Latest Record) ---
-  // If we just added a record, we want to see the Record data.
-  // If we just Re-evaluated (updated assessment), we want to see Assessment data.
-  // We use timestamps to decide which is "newer".
-  let useRecordAsSource = false;
-  if (latestRecord) {
-      // Use record ID (timestamp) if available, else date
-      const recordTime = parseInt(latestRecord.id) || new Date(latestRecord.date).getTime();
-      const archiveTime = currentArchive?.updated_at ? new Date(currentArchive.updated_at).getTime() : 0;
-      
-      // If Archive Updated Time is significantly larger (> 30s) than Record Creation Time,
-      // it implies a subsequent update (like Re-evaluation) occurred.
-      // Otherwise (diff is small or negative), the Record is the latest relevant event.
-      if (archiveTime - recordTime > 30000) {
-          useRecordAsSource = false; // Re-evaluation is newer
-      } else {
-          useRecordAsSource = true; // Record is newer
-      }
-  }
-
-  // --- Dynamic Data Calculation ---
-  const activeRiskLevel = (!useRecordAsSource && assessment) 
-      ? assessment.riskLevel 
-      : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
+  // --- Dynamic Data Source Logic for "Execution Sheet" ---
+  // We compare the Record Date vs. Current Time (or ideally Re-eval time).
+  // Since we modified App.tsx to pass refreshed data, let's look at the current patient from `allArchives`.
+  const currentArchive = allArchives.find(a => a.checkup_id === currentPatientId);
   
-  const activePlanText = (!useRecordAsSource && assessment)
-      ? assessment.followUpPlan.nextCheckItems.join('、') 
-      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan.nextCheckItems.join('、') || "暂无具体项目，请遵医嘱。");
+  const isAssessmentNewer = React.useMemo(() => {
+      if (!latestRecord || !currentArchive || !currentArchive.updated_at) return false;
+      
+      const recordTime = parseInt(latestRecord.id) || new Date(latestRecord.date).getTime();
+      const archiveTime = new Date(currentArchive.updated_at).getTime();
+      
+      // If Archive update is significantly newer (> 30 seconds) than the record creation,
+      // it implies a Re-evaluation happened AFTER the record was created.
+      return archiveTime > (recordTime + 30000); 
+  }, [latestRecord, currentArchive]);
 
-  const activeIssues = (!useRecordAsSource && assessment)
-      ? (
-          (assessment.isCritical ? `【危急值】${assessment.criticalWarning}\n` : '') + 
-          (assessment.risks.red.length > 0 ? `🔴 高危: ${assessment.risks.red.join('；')}\n` : '') +
-          (assessment.risks.yellow.length > 0 ? `🟡 中危: ${assessment.risks.yellow.join('；')}` : '') 
-        ) || assessment.summary || "暂无重大风险"
-      : (latestRecord?.assessment.majorIssues || assessment?.summary || "本次随访未发现重大新问题，请继续保持。");
-
-  const activeGoals: string[] = (!useRecordAsSource && assessment)
-      ? (assessment.structuredTasks?.map(t => t.description) || [
-          ...assessment.managementPlan.dietary.slice(0, 3),
-          ...assessment.managementPlan.exercise.slice(0, 3)
-        ])
-      : (latestRecord?.assessment.lifestyleGoals || assessment?.managementPlan.dietary || []);
-
-  const activeMessage = (!useRecordAsSource && assessment)
-      ? (assessment.summary ? "根据最新评估，请严格遵照健康管理方案执行。" : "请遵医嘱。")
-      : (latestRecord?.assessment.doctorMessage || latestRecord?.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。');
+  // Derived State Variables
+  const activeRiskLevel = (isAssessmentNewer && assessment) ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
+  const activePlanText = (isAssessmentNewer && assessment) ? (assessment.followUpPlan.nextCheckItems.join('、')) : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan.nextCheckItems.join('、'));
+  const activeIssues = (isAssessmentNewer && assessment) ? assessment.summary : (latestRecord?.assessment.majorIssues || assessment?.summary);
+  const activeGoals = (isAssessmentNewer && assessment) ? assessment.managementPlan.exercise.concat(assessment.managementPlan.dietary).slice(0, 5) : (latestRecord?.assessment.lifestyleGoals || []); // Fallback for assessment goals
+  const activeMessage = (isAssessmentNewer && assessment) ? "风险评估已更新，请参照新方案执行。" : (latestRecord?.assessment.doctorMessage || latestRecord?.assessment.riskJustification || '');
 
 
-  // --- Effect: Sync Edit Data when Data Source changes ---
   useEffect(() => {
+      // Repopulate editing data when source changes
       setGuideEditData({
-          plan: activePlanText,
-          issues: activeIssues,
-          goals: activeGoals.join('\n') || '',
-          message: activeMessage,
-          suggestedDate: nextScheduled ? nextScheduled.date : '' // Init with scheduled date
+          plan: activePlanText || '',
+          issues: activeIssues || '',
+          goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : '',
+          message: activeMessage || '',
+          suggestedDate: nextScheduled ? nextScheduled.date : '' 
       });
-  }, [useRecordAsSource, assessment, latestRecord, schedule, nextScheduled]);
+  }, [activePlanText, activeIssues, activeGoals, activeMessage, nextScheduled]);
 
   // --- Global Upcoming Reminders Logic (Next 7 Days) ---
   const getGlobalUpcomingTasks = () => {
@@ -161,6 +163,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
+  
+  // Get current patient info
+  const currentPatient = allArchives.find(a => a.checkup_id === currentPatientId);
+  const currentPatientName = currentPatient?.name || '受检者';
 
   // -----------------------------------------------------
 
@@ -472,14 +478,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
       
-      // We prioritize the active display data for print
-      const printRiskLevel = activeRiskLevel;
-      const printPlan = activePlanText;
-      const printIssues = activeIssues;
-      const printGoals = activeGoals;
-      const printMessage = activeMessage;
-      const printDate = nextScheduled?.date || "待定";
+      // Use active data for print as well
+      const activeRecordToPrint = isAssessmentNewer ? null : latestRecord; // If assessment is newer, we might not want to print OLD record data?
+      // Actually, execution sheet should print what is currently visible.
+      // But the print logic relies on 'latestRecord'.
+      // If we are in "New Assessment" mode (no record yet), we can't print a "Follow-up Record".
+      // We can only print the "Plan".
       
+      if (!latestRecord && !isAssessmentNewer) return;
+
       // 1. Open a blank window
       const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
       
@@ -488,10 +495,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
           return;
       }
 
-      // 2. Prepare Data
+      // 2. Prepare Data from Active State
       const riskLevelMap = { 'RED': '高风险', 'YELLOW': '中风险', 'GREEN': '低风险' };
       const riskColorMap = { 'RED': '#dc2626', 'YELLOW': '#d97706', 'GREEN': '#16a34a' };
       
+      const printRisk = activeRiskLevel;
+      const printPlan = activePlanText;
+      const printIssues = activeIssues;
+      const printMessage = activeMessage;
+      const printGoals = Array.isArray(activeGoals) ? activeGoals : [];
+      const printDate = latestRecord?.date || new Date().toISOString().split('T')[0];
+
       const lifestyleGoalsList = printGoals
         .map(goal => `<li class="goal-item"><span class="check-icon">✓</span>${goal}</li>`)
         .join('');
@@ -552,6 +566,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <h1>健康管理执行单 (随访记录)</h1>
                     <h2>郑州大学医院健康管理中心</h2>
                     <div class="meta-info">
+                        <span>记录日期: ${printDate}</span>
                         <span>打印日期: ${new Date().toLocaleDateString()}</span>
                     </div>
                 </div>
@@ -561,12 +576,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <div class="plan-grid">
                         <div class="plan-item">
                             <span class="label">建议时间</span>
-                            <span class="value">${printDate}</span>
+                            <span class="value">${nextScheduled?.date || "待定"}</span>
                         </div>
                         <div class="plan-item">
                             <span class="label">当前风险</span>
-                            <span class="value risk-tag" style="color: ${riskColorMap[printRiskLevel as keyof typeof riskColorMap] || '#333'}">
-                                ${riskLevelMap[printRiskLevel as keyof typeof riskLevelMap] || printRiskLevel}
+                            <span class="value risk-tag" style="color: ${riskColorMap[printRisk as keyof typeof riskColorMap] || '#333'}">
+                                ${riskLevelMap[printRisk as keyof typeof riskLevelMap] || printRisk}
                             </span>
                         </div>
                     </div>
@@ -578,7 +593,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
                 <div class="section-box box-red">
                     <div class="box-title title-red">⚠️ 风险警示与问题</div>
-                    <div class="content-text">${printIssues || "未发现重大新问题。"}</div>
+                    <div class="content-text">${printIssues || "本次随访未发现重大新问题。"}</div>
                 </div>
 
                 <div class="section-box box-green">
@@ -586,7 +601,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     ${lifestyleGoalsList ? `<ul class="goal-list">${lifestyleGoalsList}</ul>` : '<p class="content-text">维持健康生活方式。</p>'}
                     <div class="doctor-message">
                         <div class="dm-title">医生寄语</div>
-                        <div class="dm-content">"${printMessage}"</div>
+                        <div class="dm-content">"${printMessage || '暂无寄语'}"</div>
                     </div>
                 </div>
 
@@ -650,61 +665,62 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
 
   // Chart Data Preparation
+  // Fix: Convert 0 values to undefined so Recharts doesn't plot them as zero lines.
   const chartData = sortedRecords.map(r => ({
       date: r.date,
-      sbp: r.indicators.sbp,
-      dbp: r.indicators.dbp,
-      heartRate: r.indicators.heartRate || 0,
-      glucose: r.indicators.glucose,
-      weight: r.indicators.weight,
-      tc: r.indicators.tc || 0,
-      tg: r.indicators.tg || 0,
-      ldl: r.indicators.ldl || 0
+      sbp: r.indicators.sbp > 0 ? r.indicators.sbp : undefined,
+      dbp: r.indicators.dbp > 0 ? r.indicators.dbp : undefined,
+      heartRate: r.indicators.heartRate && r.indicators.heartRate > 0 ? r.indicators.heartRate : undefined,
+      glucose: r.indicators.glucose > 0 ? r.indicators.glucose : undefined,
+      weight: r.indicators.weight > 0 ? r.indicators.weight : undefined,
+      tc: r.indicators.tc && r.indicators.tc > 0 ? r.indicators.tc : undefined,
+      tg: r.indicators.tg && r.indicators.tg > 0 ? r.indicators.tg : undefined,
+      ldl: r.indicators.ldl && r.indicators.ldl > 0 ? r.indicators.ldl : undefined
   }));
 
   return (
     <div className="animate-fadeIn pb-10">
 
       {/* --- Patient Basic Info Header --- */}
-      {currentArchive && (
+      {currentPatient && (
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
                 <div className="flex items-center gap-4">
                     <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200">
-                        {currentArchive.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
+                        {currentPatient.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
                     </div>
                     <div>
                         <div className="flex items-center gap-3">
-                            <h2 className="text-2xl font-bold text-slate-800">{currentArchive.name}</h2>
+                            <h2 className="text-2xl font-bold text-slate-800">{currentPatient.name}</h2>
                             <span className={`px-2 py-0.5 text-xs rounded-full border font-bold ${
-                                currentArchive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
-                                currentArchive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
+                                currentPatient.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                                currentPatient.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
                                 'bg-green-50 text-green-600 border-green-200'
                             }`}>
-                                {currentArchive.risk_level === 'RED' ? '高风险' : currentArchive.risk_level === 'YELLOW' ? '中风险' : '低风险'}
+                                {currentPatient.risk_level === 'RED' ? '高风险' : currentPatient.risk_level === 'YELLOW' ? '中风险' : '低风险'}
                             </span>
                         </div>
                         <div className="text-sm text-slate-500 mt-1 flex gap-4">
-                            <span>{currentArchive.gender || '未知'}</span>
+                            <span>{currentPatient.gender || '未知'}</span>
                             <span className="w-px h-3 bg-slate-300"></span>
-                            <span>{currentArchive.age ? `${currentArchive.age}岁` : '年龄未知'}</span>
+                            <span>{currentPatient.age ? `${currentPatient.age}岁` : '年龄未知'}</span>
                             <span className="w-px h-3 bg-slate-300"></span>
-                            <span className="font-mono text-slate-400">{currentArchive.checkup_id}</span>
+                            <span className="font-mono text-slate-400">{currentPatient.checkup_id}</span>
                         </div>
                     </div>
                 </div>
                 <div className="flex gap-10 text-sm">
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">部门/单位</span>
-                        <span className="font-medium text-slate-700">{currentArchive.department || '-'}</span>
+                        <span className="font-medium text-slate-700">{currentPatient.department || '-'}</span>
                     </div>
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">联系电话</span>
-                        <span className="font-medium text-slate-700 font-mono">{currentArchive.phone || '-'}</span>
+                        <span className="font-medium text-slate-700 font-mono">{currentPatient.phone || '-'}</span>
                     </div>
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">最近更新</span>
                         <span className="font-medium text-slate-700">
-                           {new Date(currentArchive.updated_at || currentArchive.created_at).toLocaleDateString()}
+                           {new Date(currentPatient.updated_at || currentPatient.created_at).toLocaleDateString()}
                         </span>
                     </div>
                 </div>
@@ -801,22 +817,22 @@ export const FollowUpDashboard: React.FC<Props> = ({
                             
                             {activeChart === 'bp' && (
                                 <>
-                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} />
-                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} />
-                                    <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} />
+                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
                                 </>
                             )}
                             {activeChart === 'metabolic' && (
                                 <>
-                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} />
-                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} connectNulls />
                                 </>
                             )}
                             {activeChart === 'lipids' && (
                                 <>
-                                    <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} />
-                                    <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} />
-                                    <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} />
+                                    <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} connectNulls />
+                                    <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} connectNulls />
+                                    <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} connectNulls />
                                 </>
                             )}
                         </LineChart>
@@ -893,7 +909,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       </div>
 
       {/* 底部：下阶段执行单 (可打印) */}
-      {(latestRecord || assessment) && (
+      {(latestRecord || isAssessmentNewer) && (
           <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600">
               <div className="flex justify-between items-start mb-6">
                   <div>
@@ -910,11 +926,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
                            </>
                       ) : (
                            <>
-                             {latestRecord && (
-                                <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
-                                    ✏️ 修订内容
-                                </button>
-                             )}
+                             <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
+                                ✏️ 修订内容
+                             </button>
                              <button onClick={handlePrintGuide} className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-sm">
                                 🖨️ 打印执行单
                              </button>
@@ -969,7 +983,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   />
                               ) : (
                                   <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 whitespace-pre-line">
-                                      {activePlanText}
+                                      {activePlanText || "暂无具体项目，请遵医嘱。"}
                                   </p>
                               )}
                           </div>
@@ -985,7 +999,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               />
                           ) : (
                               <p className="text-slate-700 leading-relaxed whitespace-pre-line">
-                                  {activeIssues}
+                                  {activeIssues || "本次随访未发现重大新问题，请继续保持。"}
                               </p>
                           )}
                       </div>
@@ -1028,7 +1042,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               />
                           ) : (
                               <p className="text-sm text-slate-600 italic">
-                                  "{activeMessage}"
+                                  "{activeMessage || '健康是长期的积累，请坚持执行管理方案。'}"
                               </p>
                           )}
                       </div>
