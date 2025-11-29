@@ -15,16 +15,23 @@ const getEnvVar = (key: string): string => {
   // 2. Try Vite's import.meta.env with safe checks
   try {
     // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-      // Explicitly check known keys to support bundler string replacement (Vite)
-      if (key === 'VITE_DEEPSEEK_API_KEY') {
-          // @ts-ignore
-          return import.meta.env.VITE_DEEPSEEK_API_KEY || '';
-      }
-      
-      // Fallback for other keys
+    if (typeof import.meta !== 'undefined') {
       // @ts-ignore
-      return import.meta.env[key] || '';
+      const meta = import.meta;
+      // @ts-ignore
+      if (meta.env) {
+        // @ts-ignore
+        const env = meta.env;
+        // Explicitly check known keys to support bundler string replacement (Vite)
+        if (key === 'VITE_DEEPSEEK_API_KEY') {
+            // @ts-ignore
+            return env.VITE_DEEPSEEK_API_KEY || '';
+        }
+        
+        // Fallback for other keys
+        // @ts-ignore
+        return env[key] || '';
+      }
     }
   } catch (e) {}
 
@@ -241,13 +248,17 @@ export const analyzeFollowUpRecord = async (
       重点关注:
       1. 核心指标(血压/血糖)是否达标。
       2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(not_checked)或结果异常(checked_abnormal)，请在风险理由和主要问题中重点警告。
+      3. 区分【临床风险理由 riskJustification】和【医生寄语 doctorMessage】。
+         - riskJustification: 专业、客观的风险分析（供医生看）。
+         - doctorMessage: 温暖、鼓励性、通俗易懂的行动呼吁（供患者看）。
       
       输出 JSON:
       {
         "riskLevel": "RED" | "YELLOW" | "GREEN",
-        "riskJustification": "风险判定理由(中文)",
+        "riskJustification": "临床风险分析(中文)",
+        "doctorMessage": "医生寄语(中文, 针对患者)",
         "majorIssues": "主要问题(中文)",
-        "nextCheckPlan": "下次复查计划(中文)",
+        "nextCheckPlan": "下次复查计划(中文, 包含具体项目和建议时间)",
         "lifestyleGoals": ["生活方式目标(中文)"]
       }
       `;
@@ -258,5 +269,14 @@ export const analyzeFollowUpRecord = async (
       上次记录: ${JSON.stringify(latestRecord)}
       `;
       
-      return await callDeepSeek(systemPrompt, userContent);
+      // 注意：callDeepSeek 返回的 JSON 中会有 doctorMessage，但 analyzeFollowUpRecord 的返回类型在 types.ts 中需要定义
+      // 这里我们先返回原始对象，调用方 (FollowUpDashboard) 会处理
+      const result = await callDeepSeek(systemPrompt, userContent);
+      return {
+          riskLevel: result.riskLevel,
+          riskJustification: result.doctorMessage || result.riskJustification, // 为了兼容旧代码接口，这里暂时混用，但在 UI 层我们会分离
+          majorIssues: result.majorIssues,
+          nextCheckPlan: result.nextCheckPlan,
+          lifestyleGoals: result.lifestyleGoals
+      };
   };
