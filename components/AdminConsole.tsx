@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, HealthArchive } from '../services/dataService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
@@ -104,6 +105,47 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         } else {
             alert("保存失败：" + res.message);
         }
+    };
+
+    // --- Export Handler ---
+    const handleExportData = () => {
+        if (filteredArchives.length === 0) {
+            alert("当前列表无数据可导出");
+            return;
+        }
+
+        const headers = ['姓名', '体检编号', '性别', '年龄', '部门', '联系电话', '风险等级', '下次随访日期', '最新评估时间'];
+        
+        const rows = filteredArchives.map(arch => {
+            // Find next pending date
+            const nextPending = arch.follow_up_schedule?.find(s => s.status === 'pending');
+            const nextDate = nextPending ? nextPending.date : '无计划';
+            const riskLabel = arch.risk_level === 'RED' ? '高危' : arch.risk_level === 'YELLOW' ? '中危' : '低危';
+
+            return [
+                arch.name,
+                arch.checkup_id,
+                arch.gender || '-',
+                arch.age || '-',
+                arch.department || '-',
+                arch.phone ? `"${arch.phone}"` : '-', // 防止Excel将数字变为科学计数法
+                riskLabel,
+                nextDate,
+                new Date(arch.updated_at || arch.created_at).toLocaleString()
+            ].join(',');
+        });
+
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `健康档案导出_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     // --- Logic: Upcoming Tasks (Standard Follow-ups) ---
@@ -370,20 +412,28 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
             {/* Main Data Grid (Full Width) */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[700px]">
                 {/* Toolbar */}
-                <div className="px-5 py-4 border-b border-slate-100 flex gap-4 items-center">
+                <div className="px-5 py-4 border-b border-slate-100 flex gap-4 items-center justify-between">
+                    <div className="flex gap-4 items-center flex-1">
                         <div className="relative flex-1 max-w-md">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
-                        <input 
-                            type="text" 
-                            placeholder="搜索姓名、电话、编号..." 
-                            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500 transition-colors"
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                        />
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                            <input 
+                                type="text" 
+                                placeholder="搜索姓名、电话、编号..." 
+                                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500 transition-colors"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                            />
                         </div>
-                        <div className="text-xs text-slate-400">
-                        共 {filteredArchives.length} 条
+                        <div className="text-xs text-slate-400 whitespace-nowrap">
+                             共 {filteredArchives.length} 条
                         </div>
+                    </div>
+                    <button 
+                        onClick={handleExportData}
+                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 shadow-sm transition-colors"
+                    >
+                        <span>📤</span> 导出数据
+                    </button>
                 </div>
 
                 {/* Table */}
@@ -394,70 +444,91 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                 <th className="px-5 py-3 border-b border-slate-200">基本信息</th>
                                 <th className="px-5 py-3 border-b border-slate-200">风险等级</th>
                                 <th className="px-5 py-3 border-b border-slate-200">部门/电话</th>
+                                <th className="px-5 py-3 border-b border-slate-200">下次随访时间</th>
                                 <th className="px-5 py-3 border-b border-slate-200">最新评估时间</th>
                                 <th className="px-5 py-3 border-b border-slate-200 text-right">管理操作</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                             {loading ? (
-                                <tr><td colSpan={5} className="p-10 text-center text-slate-400">正在从 Supabase 加载数据...</td></tr>
+                                <tr><td colSpan={6} className="p-10 text-center text-slate-400">正在从 Supabase 加载数据...</td></tr>
                             ) : filteredArchives.length === 0 ? (
-                                <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无数据</td></tr>
+                                <tr><td colSpan={6} className="p-10 text-center text-slate-400">暂无数据</td></tr>
                             ) : (
-                                filteredArchives.map(arch => (
-                                    <tr key={arch.id} className="hover:bg-teal-50/30 group transition-colors">
-                                        <td className="px-5 py-3">
-                                            <div className="font-bold text-slate-800">{arch.name}</div>
-                                            <div className="text-xs text-slate-400 font-mono">{arch.checkup_id}</div>
-                                        </td>
-                                        <td className="px-5 py-3">
-                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
-                                                arch.risk_level === 'RED' ? 'bg-red-50 text-red-700 border-red-100' :
-                                                arch.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
-                                                'bg-green-50 text-green-700 border-green-100'
-                                            }`}>
-                                                <span className={`w-1.5 h-1.5 rounded-full ${
-                                                    arch.risk_level === 'RED' ? 'bg-red-500' :
-                                                    arch.risk_level === 'YELLOW' ? 'bg-yellow-500' :
-                                                    'bg-green-500'
-                                                }`}></span>
-                                                {arch.risk_level === 'RED' ? '高危' : arch.risk_level === 'YELLOW' ? '中危' : '低危'}
-                                            </span>
-                                        </td>
-                                        <td className="px-5 py-3 text-slate-600 text-xs">
-                                            <div>{arch.department || '-'}</div>
-                                            <div className="font-mono text-slate-400">{arch.phone || '-'}</div>
-                                        </td>
-                                        <td className="px-5 py-3 text-slate-500 text-xs font-mono">
-                                             {new Date(arch.updated_at || arch.created_at).toLocaleString()}
-                                        </td>
-                                        <td className="px-5 py-3 text-right">
-                                            <div className="flex justify-end gap-2 opacity-100 transition-opacity">
-                                                <button 
-                                                    onClick={() => onSelectPatient(arch, 'view')}
-                                                    className="px-2 py-1 text-xs font-bold text-teal-600 hover:bg-teal-50 rounded border border-transparent hover:border-teal-100 transition-colors"
-                                                    title="查看评估报告"
-                                                >
-                                                    查看
-                                                </button>
-                                                <button 
-                                                    onClick={() => handleEditClick(arch)}
-                                                    className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded border border-transparent hover:border-slate-200 transition-colors"
-                                                    title="修改基本信息"
-                                                >
-                                                    修改
-                                                </button>
-                                                <button 
-                                                    onClick={() => handleDelete(arch.id, arch.name)}
-                                                    className="px-2 py-1 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                    title="删除档案"
-                                                >
-                                                    🗑️
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
+                                filteredArchives.map(arch => {
+                                    // Calculate Next Follow Up Date for Table
+                                    const nextFollowUp = arch.follow_up_schedule?.find(s => s.status === 'pending');
+                                    const nextDateStr = nextFollowUp ? nextFollowUp.date : '-';
+
+                                    return (
+                                        <tr 
+                                            key={arch.id} 
+                                            className="hover:bg-teal-50/30 group transition-colors cursor-pointer"
+                                            onDoubleClick={() => onSelectPatient(arch, 'view')}
+                                            title="双击查看评估方案"
+                                        >
+                                            <td className="px-5 py-3">
+                                                <div className="font-bold text-slate-800">{arch.name}</div>
+                                                <div className="text-xs text-slate-400 font-mono">{arch.checkup_id}</div>
+                                            </td>
+                                            <td className="px-5 py-3">
+                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                                                    arch.risk_level === 'RED' ? 'bg-red-50 text-red-700 border-red-100' :
+                                                    arch.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
+                                                    'bg-green-50 text-green-700 border-green-100'
+                                                }`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${
+                                                        arch.risk_level === 'RED' ? 'bg-red-500' :
+                                                        arch.risk_level === 'YELLOW' ? 'bg-yellow-500' :
+                                                        'bg-green-500'
+                                                    }`}></span>
+                                                    {arch.risk_level === 'RED' ? '高危' : arch.risk_level === 'YELLOW' ? '中危' : '低危'}
+                                                </span>
+                                            </td>
+                                            <td className="px-5 py-3 text-slate-600 text-xs">
+                                                <div>{arch.department || '-'}</div>
+                                                <div className="font-mono text-slate-400">{arch.phone || '-'}</div>
+                                            </td>
+                                            <td className="px-5 py-3 text-slate-600 text-xs font-mono">
+                                                 {nextDateStr !== '-' ? (
+                                                     <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-bold">
+                                                         {nextDateStr}
+                                                     </span>
+                                                 ) : (
+                                                     <span className="text-slate-300">-</span>
+                                                 )}
+                                            </td>
+                                            <td className="px-5 py-3 text-slate-500 text-xs font-mono">
+                                                 {new Date(arch.updated_at || arch.created_at).toLocaleString()}
+                                            </td>
+                                            <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                                <div className="flex justify-end gap-2 opacity-100 transition-opacity">
+                                                    <button 
+                                                        onClick={() => onSelectPatient(arch, 'view')}
+                                                        className="px-2 py-1 text-xs font-bold text-teal-600 hover:bg-teal-50 rounded border border-transparent hover:border-teal-100 transition-colors"
+                                                        title="查看评估报告"
+                                                    >
+                                                        查看
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleEditClick(arch)}
+                                                        className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded border border-transparent hover:border-slate-200 transition-colors"
+                                                        title="修改基本信息"
+                                                    >
+                                                        修改
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDelete(arch.id, arch.name)}
+                                                        className="px-2 py-1 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                        title="删除档案"
+                                                    >
+                                                        🗑️
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
