@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { processBatchUpload, fetchArchives, deleteArchive, HealthArchive } from '../services/dataService';
+import { processBatchUpload, fetchArchives, deleteArchive, updateArchiveProfile, HealthArchive } from '../services/dataService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
+import { HealthProfile } from '../types';
 
 interface Props {
     onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup') => void;
@@ -20,6 +21,10 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [showSqlHelp, setShowSqlHelp] = useState(false);
+
+    // Edit Modal State
+    const [editingArchive, setEditingArchive] = useState<HealthArchive | null>(null);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
     const configured = isSupabaseConfigured();
 
@@ -75,6 +80,29 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             } else {
                 alert('删除失败，请重试');
             }
+        }
+    };
+
+    // --- Edit Handlers ---
+    const handleEditClick = (archive: HealthArchive) => {
+        setEditingArchive(archive);
+        setIsEditModalOpen(true);
+    };
+
+    const handleSaveProfile = async (updatedProfile: HealthProfile) => {
+        if (!editingArchive) return;
+        
+        // Optimistic UI update or wait? Let's wait.
+        const result = await updateArchiveProfile(editingArchive.id, updatedProfile);
+        
+        if (result.success) {
+            alert('基本信息更新成功');
+            setIsEditModalOpen(false);
+            setEditingArchive(null);
+            loadData();
+            if (onDataUpdate) onDataUpdate();
+        } else {
+            alert(`更新失败: ${result.message}`);
         }
     };
 
@@ -402,9 +430,9 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                                             查看
                                                         </button>
                                                         <button 
-                                                            onClick={() => onSelectPatient(arch, 'edit')}
+                                                            onClick={() => handleEditClick(arch)}
                                                             className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded border border-transparent hover:border-slate-200 transition-colors"
-                                                            title="修改档案数据"
+                                                            title="修改基本信息（电话/部门等）"
                                                         >
                                                             修改
                                                         </button>
@@ -425,6 +453,118 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                         </div>
                     </div>
                 </div>
+            </div>
+
+            {/* Edit Profile Modal */}
+            {isEditModalOpen && editingArchive && (
+                <EditProfileModal 
+                    archive={editingArchive}
+                    onClose={() => setIsEditModalOpen(false)}
+                    onSave={handleSaveProfile}
+                />
+            )}
+        </div>
+    );
+};
+
+// Internal Edit Profile Modal Component
+interface EditModalProps {
+    archive: HealthArchive;
+    onClose: () => void;
+    onSave: (data: HealthProfile) => void;
+}
+
+const EditProfileModal: React.FC<EditModalProps> = ({ archive, onClose, onSave }) => {
+    const [form, setForm] = useState<HealthProfile>({
+        checkupId: archive.checkup_id,
+        name: archive.name,
+        gender: archive.gender || '男',
+        department: archive.department,
+        phone: archive.phone || '',
+        age: archive.age,
+        dob: archive.health_record.profile.dob
+    });
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave(form);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-scaleIn">
+                <div className="flex justify-between items-center mb-6 border-b pb-4">
+                    <h3 className="text-lg font-bold text-slate-800">✏️ 修改基本信息</h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">姓名</label>
+                        <input 
+                            type="text" required
+                            className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                            value={form.name}
+                            onChange={e => setForm({...form, name: e.target.value})}
+                        />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">体检编号</label>
+                            <input 
+                                type="text" required
+                                className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                                value={form.checkupId}
+                                onChange={e => setForm({...form, checkupId: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">联系电话</label>
+                            <input 
+                                type="text"
+                                className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                                value={form.phone || ''}
+                                onChange={e => setForm({...form, phone: e.target.value})}
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">部门/单位</label>
+                        <input 
+                            type="text"
+                            className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                            value={form.department}
+                            onChange={e => setForm({...form, department: e.target.value})}
+                        />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">性别</label>
+                            <select 
+                                className="w-full border border-slate-300 rounded p-2 text-sm bg-white"
+                                value={form.gender}
+                                onChange={e => setForm({...form, gender: e.target.value})}
+                            >
+                                <option value="男">男</option>
+                                <option value="女">女</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">年龄</label>
+                            <input 
+                                type="number"
+                                className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                                value={form.age || ''}
+                                onChange={e => setForm({...form, age: Number(e.target.value)})}
+                            />
+                        </div>
+                    </div>
+                    
+                    <div className="pt-4 flex gap-3 justify-end">
+                        <button type="button" onClick={onClose} className="px-4 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">取消</button>
+                        <button type="submit" className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow-sm text-sm">保存修改</button>
+                    </div>
+                </form>
             </div>
         </div>
     );

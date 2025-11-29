@@ -1,7 +1,6 @@
-
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
-import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel } from '../types';
+import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile } from '../types';
 
 export interface HealthArchive {
     id: string;
@@ -9,6 +8,8 @@ export interface HealthArchive {
     name: string;
     phone?: string;
     department: string;
+    gender?: string;
+    age?: number;
     risk_level: string;
     health_record: HealthRecord; 
     assessment_data: HealthAssessment;
@@ -85,6 +86,56 @@ export const saveArchive = async (
         return { success: true };
     } catch (e: any) {
         console.error("Save Archive Error:", e);
+        return { success: false, message: e.message };
+    }
+};
+
+/**
+ * Update Basic Profile Info (Name, Phone, Dept, ID)
+ */
+export const updateArchiveProfile = async (
+    dbId: string, 
+    newProfile: HealthProfile
+): Promise<{ success: boolean; message?: string }> => {
+    if (!isSupabaseConfigured()) return { success: false, message: "Config Error" };
+
+    try {
+        // 1. Get current record to preserve other data in health_record
+        const { data: current, error: fetchError } = await supabase
+            .from('health_archives')
+            .select('health_record')
+            .eq('id', dbId)
+            .single();
+        
+        if (fetchError || !current) throw new Error("File not found");
+
+        // 2. Merge new profile into health_record
+        const updatedHealthRecord = {
+            ...current.health_record,
+            profile: {
+                ...current.health_record.profile,
+                ...newProfile
+            }
+        };
+
+        // 3. Update top-level columns AND jsonb
+        const { error } = await supabase
+            .from('health_archives')
+            .update({
+                checkup_id: newProfile.checkupId,
+                name: newProfile.name,
+                phone: newProfile.phone,
+                department: newProfile.department,
+                gender: newProfile.gender,
+                age: newProfile.age,
+                health_record: updatedHealthRecord,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', dbId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (e: any) {
         return { success: false, message: e.message };
     }
 };
