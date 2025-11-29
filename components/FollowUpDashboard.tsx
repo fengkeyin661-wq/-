@@ -257,15 +257,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
   
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
+      // Wait for React to render the view state then print
       setTimeout(() => window.print(), 100);
   };
 
   return (
-    <div className="space-y-8 animate-fadeIn pb-10">
+    // Replaced space-y-8 with individual margins (mb-8) to avoid 'space-y' print layout issues where hidden top elements cause phantom margins.
+    <div className="animate-fadeIn pb-10">
 
       {/* --- Global Reminder Alert Section --- */}
       {upcomingGlobalTasks.length > 0 && (
-          <div className="bg-orange-50 border-l-4 border-orange-400 p-6 rounded-r-xl shadow-sm print:hidden">
+          <div className="bg-orange-50 border-l-4 border-orange-400 p-6 rounded-r-xl shadow-sm print:hidden mb-8">
               <div className="flex justify-between items-center mb-4">
                   <h3 className="text-orange-800 font-bold flex items-center gap-2">
                       <span className="text-xl">🔔</span> 近期随访提醒 (未来 7 天内)
@@ -319,7 +321,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       )}
       
       {/* 顶部：随访时间轴 */}
-      <div className="bg-white p-6 rounded-xl shadow border border-slate-100 print:hidden">
+      <div className="bg-white p-6 rounded-xl shadow border border-slate-100 print:hidden mb-8">
         <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
             <span>📅</span> {assessment ? '当前人员随访路径' : '请先选择人员'}
         </h2>
@@ -376,7 +378,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
       {/* 底部：下阶段执行单 (可打印) */}
       {latestRecord && (
-          <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600 print:shadow-none print:border-none print:p-0 print:border-t-0">
+          <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600 print:shadow-none print:border-none print:p-0 print:border-t-0 print:w-full">
               <div className="flex justify-between items-start mb-6 print:hidden">
                   <div>
                       <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -425,11 +427,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           <h3 className="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2 print:text-black">📅 下次复查计划</h3>
                           <div className="grid grid-cols-2 gap-4 mb-4">
                               <div>
-                                  <span className="text-xs text-slate-500 block uppercase">建议时间</span>
-                                  <span className="text-xl font-bold text-slate-800">{nextScheduled?.date || "待定"}</span>
+                                  <span className="text-xs text-slate-500 block uppercase print:text-black">建议时间</span>
+                                  <span className="text-xl font-bold text-slate-800 print:text-black">{nextScheduled?.date || "待定"}</span>
                               </div>
                               <div>
-                                  <span className="text-xs text-slate-500 block uppercase">当前风险</span>
+                                  <span className="text-xs text-slate-500 block uppercase print:text-black">当前风险</span>
                                   <span className={`font-bold ${
                                       latestRecord.assessment.riskLevel === 'RED' ? 'text-red-600' : 
                                       latestRecord.assessment.riskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
@@ -440,7 +442,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               </div>
                           </div>
                           <div>
-                              <span className="text-xs text-slate-500 block uppercase mb-1">具体复查项目</span>
+                              <span className="text-xs text-slate-500 block uppercase mb-1 print:text-black">具体复查项目</span>
                               {isEditingGuide ? (
                                   <textarea 
                                       className="w-full text-sm border border-blue-300 rounded p-2 focus:ring-1 focus:ring-blue-500 h-24"
@@ -448,7 +450,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                       onChange={e => setGuideEditData({...guideEditData, plan: e.target.value})}
                                   />
                               ) : (
-                                  <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 print:border-none print:p-0 whitespace-pre-line">
+                                  <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 print:border-none print:p-0 whitespace-pre-line print:text-black">
                                       {latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}
                                   </p>
                               )}
@@ -464,7 +466,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   onChange={e => setGuideEditData({...guideEditData, issues: e.target.value})}
                               />
                           ) : (
-                              <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                              <p className="text-slate-700 leading-relaxed whitespace-pre-line print:text-black">
                                   {latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}
                               </p>
                           )}
@@ -486,19 +488,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 ? (
                               <ul className="space-y-3">
                                   {latestRecord.assessment.lifestyleGoals.map((goal, i) => (
-                                      <li key={i} className="flex items-start gap-2 text-slate-700">
+                                      <li key={i} className="flex items-start gap-2 text-slate-700 print:text-black">
                                           <span className="text-green-600 font-bold mt-0.5">✓</span>
                                           <span>{goal}</span>
                                       </li>
                                   ))}
                               </ul>
                           ) : (
-                              <p className="text-slate-500 italic">暂无具体调整建议，请维持健康生活方式。</p>
+                              <p className="text-slate-500 italic print:text-black">暂无具体调整建议，请维持健康生活方式。</p>
                           )
                       )}
                       
                       <div className="mt-8 pt-6 border-t border-green-200 print:border-slate-300">
-                          <h4 className="font-bold text-sm text-slate-700 mb-2">医生寄语</h4>
+                          <h4 className="font-bold text-sm text-slate-700 mb-2 print:text-black">医生寄语</h4>
                           {isEditingGuide ? (
                               <textarea 
                                   className="w-full text-sm border border-green-300 rounded p-2 focus:ring-1 focus:ring-green-500 h-20 bg-white"
@@ -507,7 +509,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   placeholder="请输入给患者的寄语"
                               />
                           ) : (
-                              <p className="text-sm text-slate-600 italic">
+                              <p className="text-sm text-slate-600 italic print:text-black">
                                   "{latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。'}"
                               </p>
                           )}
