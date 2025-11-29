@@ -33,9 +33,241 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
     { name: '正常', value: Math.max(1, 5 - editData.risks.red.length), color: COLORS[RiskLevel.GREEN] },
   ];
 
+  // Standalone Print Window Logic
   const handlePrint = () => {
       setIsEditing(false);
-      setTimeout(() => window.print(), 100);
+      
+      const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
+      
+      if (!printWindow) {
+          alert("浏览器拦截了弹窗，请允许本站弹出窗口以便打印。");
+          return;
+      }
+
+      const riskLevelMap = { 'RED': '高风险', 'YELLOW': '中风险', 'GREEN': '低风险' };
+      const riskLevelColorMap = { 'RED': '#fee2e2', 'YELLOW': '#fef9c3', 'GREEN': '#dcfce7' }; // bg colors
+      const riskTextColorMap = { 'RED': '#991b1b', 'YELLOW': '#854d0e', 'GREEN': '#166534' }; // text colors
+      
+      const riskLevel = editData.riskLevel;
+      const riskBg = riskLevelColorMap[riskLevel as keyof typeof riskLevelColorMap];
+      const riskText = riskTextColorMap[riskLevel as keyof typeof riskTextColorMap];
+      const riskLabel = riskLevelMap[riskLevel as keyof typeof riskLevelMap];
+
+      const renderList = (items: string[]) => items.length > 0 
+        ? `<ul class="list">${items.map(i => `<li>${i}</li>`).join('')}</ul>` 
+        : '<p class="empty-text">无特定建议</p>';
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="UTF-8">
+            <title>健康风险评估报告</title>
+            <style>
+                body {
+                    font-family: "PingFang SC", "Microsoft YaHei", "Heiti SC", sans-serif;
+                    background-color: #fff;
+                    color: #333;
+                    margin: 0;
+                    padding: 40px;
+                    font-size: 14px;
+                    line-height: 1.6;
+                }
+                .container { max-width: 800px; margin: 0 auto; }
+                
+                /* Header */
+                .header {
+                    text-align: center;
+                    border-bottom: 2px solid #111827;
+                    padding-bottom: 20px;
+                    margin-bottom: 30px;
+                }
+                .header h1 {
+                    font-size: 20px;
+                    color: #4b5563;
+                    margin-bottom: 5px;
+                    font-weight: normal;
+                }
+                .header h2 {
+                    font-size: 28px;
+                    font-weight: 800;
+                    margin: 0;
+                    letter-spacing: 2px;
+                    color: #111827;
+                }
+                .meta-row {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-top: 15px;
+                    font-size: 14px;
+                    color: #4b5563;
+                }
+
+                /* Risk Banner */
+                .risk-banner {
+                    background-color: ${riskBg};
+                    color: ${riskText};
+                    padding: 20px;
+                    border-radius: 8px;
+                    text-align: center;
+                    margin-bottom: 30px;
+                    border: 1px solid currentColor;
+                }
+                .risk-label {
+                    font-size: 24px;
+                    font-weight: 900;
+                    display: block;
+                    margin-bottom: 5px;
+                }
+                .risk-desc { font-size: 14px; opacity: 0.9; }
+
+                /* Sections */
+                .section { margin-bottom: 25px; }
+                .section-title {
+                    font-size: 16px;
+                    font-weight: bold;
+                    border-left: 5px solid #0d9488;
+                    padding-left: 10px;
+                    margin-bottom: 12px;
+                    color: #111827;
+                    background-color: #f0fdfa;
+                    padding-top: 5px;
+                    padding-bottom: 5px;
+                }
+                
+                .content-box {
+                    border: 1px solid #e5e7eb;
+                    border-radius: 6px;
+                    padding: 15px;
+                }
+
+                /* Summary */
+                .summary-text { font-size: 15px; text-align: justify; white-space: pre-line; }
+
+                /* Risk Lists */
+                .risk-grid { display: flex; gap: 20px; margin-bottom: 20px; }
+                .risk-col { flex: 1; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
+                .risk-header { padding: 8px 15px; font-weight: bold; font-size: 14px; }
+                .rh-red { background-color: #fef2f2; color: #991b1b; }
+                .rh-yellow { background-color: #fefce8; color: #854d0e; }
+                .risk-body { padding: 15px; }
+
+                /* Management Matrix */
+                .plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+                .plan-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 15px; }
+                .plan-title { font-weight: bold; color: #0f766e; margin-bottom: 10px; font-size: 15px; border-bottom: 1px solid #ccfbf1; padding-bottom: 5px; }
+                
+                ul.list { padding-left: 20px; margin: 0; }
+                ul.list li { margin-bottom: 4px; color: #374151; }
+                .empty-text { color: #9ca3af; font-style: italic; }
+
+                /* Footer */
+                .footer {
+                    margin-top: 50px;
+                    padding-top: 30px;
+                    border-top: 1px solid #e5e7eb;
+                    display: flex;
+                    justify-content: space-between;
+                    font-weight: bold;
+                }
+
+                @media print {
+                    body { padding: 0; -webkit-print-color-adjust: exact; }
+                    .plan-card, .risk-col { break-inside: avoid; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>郑州大学职工健康管理中心</h1>
+                    <h2>健康风险评估报告</h2>
+                    <div class="meta-row">
+                        <span>受检人: <strong>${patientName || '未命名'}</strong></span>
+                        <span>评估日期: ${new Date().toLocaleDateString()}</span>
+                    </div>
+                </div>
+
+                <div class="risk-banner">
+                    <span class="risk-label">${riskLabel}</span>
+                    <span class="risk-desc">根据您的体检数据与健康问卷综合判定</span>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">综合评估综述</div>
+                    <div class="content-box summary-text">${editData.summary}</div>
+                </div>
+
+                <div class="risk-grid">
+                    <div class="risk-col">
+                        <div class="risk-header rh-red">🔴 高危因素</div>
+                        <div class="risk-body">
+                            ${renderList(editData.risks.red)}
+                        </div>
+                    </div>
+                    <div class="risk-col">
+                        <div class="risk-header rh-yellow">🟡 中危因素</div>
+                        <div class="risk-body">
+                            ${renderList(editData.risks.yellow)}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">健康管理方案</div>
+                    <div class="plan-grid">
+                        <div class="plan-card">
+                            <div class="plan-title">🥗 饮食干预</div>
+                            ${renderList(editData.managementPlan.dietary)}
+                        </div>
+                        <div class="plan-card">
+                            <div class="plan-title">🏃 运动方案</div>
+                            ${renderList(editData.managementPlan.exercise)}
+                        </div>
+                        <div class="plan-card">
+                            <div class="plan-title">💊 医疗建议</div>
+                            ${renderList(editData.managementPlan.medication)}
+                        </div>
+                        <div class="plan-card">
+                            <div class="plan-title">🔍 监测与随访</div>
+                            ${renderList(editData.managementPlan.monitoring)}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">📅 随访计划建议</div>
+                    <div class="content-box">
+                        <p style="margin-bottom: 8px;"><strong>建议随访频率:</strong> ${editData.followUpPlan.frequency}</p>
+                        <div>
+                            <strong>重点复查项目:</strong>
+                            <div style="margin-top: 5px;">
+                                ${renderList(editData.followUpPlan.nextCheckItems)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="footer">
+                    <div>评估医师签名: _________________</div>
+                    <div>受检者确认: _________________</div>
+                </div>
+            </div>
+            <script>
+                window.onload = function() {
+                    setTimeout(function() {
+                        window.print();
+                    }, 500);
+                };
+            </script>
+        </body>
+        </html>
+      `;
+      
+      printWindow.document.open();
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      if (printWindow.focus) printWindow.focus();
   };
 
   const handleSave = () => {
