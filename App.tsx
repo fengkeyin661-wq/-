@@ -6,6 +6,7 @@ import { AssessmentReport } from './components/AssessmentReport';
 import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal'; // Import LoginModal
+import { HospitalHeatmap } from './components/HospitalHeatmap'; // Import Heatmap
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
@@ -188,6 +189,13 @@ const App: React.FC = () => {
             onSelectPatient={handleSelectPatient} 
             onDataUpdate={refreshArchives} 
         />
+      )}
+      
+      {activeTab === 'heatmap' && (
+          <HospitalHeatmap 
+              archives={archives} 
+              onRefresh={refreshArchives}
+          />
       )}
       
       {/* 

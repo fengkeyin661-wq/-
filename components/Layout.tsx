@@ -25,6 +25,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'survey', label: '健康调查建档', icon: '📝' },
     { id: 'assessment', label: '风险评估与方案', icon: '📋' },
     { id: 'followup', label: '随访监测', icon: '📅' },
+    { id: 'heatmap', label: '医疗服务热力图', icon: '🏥' }, // Added Heatmap
     { id: 'admin', label: '管理控制台', icon: '⚡' },
   ];
 
