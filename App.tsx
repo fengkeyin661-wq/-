@@ -210,6 +210,7 @@ const App: React.FC = () => {
         <AssessmentReport 
             assessment={assessment} 
             patientName={healthRecord.profile.name} 
+            profile={healthRecord.profile} 
             onSave={handleSaveAssessment}
             onReevaluate={() => setActiveTab('survey')}
         />
