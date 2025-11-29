@@ -214,6 +214,8 @@ export interface HealthPlanTask {
 export interface HealthAssessment {
   riskLevel: RiskLevel;
   summary: string;
+  isCritical?: boolean; // 新增：是否危急值
+  criticalWarning?: string; // 新增：危急值详情
   risks: {
     red: string[]; 
     yellow: string[];

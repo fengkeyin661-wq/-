@@ -58,6 +58,12 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
         ? `<ul class="list">${items.map(i => `<li>${i}</li>`).join('')}</ul>` 
         : '<p class="empty-text">无特定建议</p>';
 
+      const criticalBanner = editData.isCritical ? `
+          <div class="critical-banner">
+              ⚠️ 危急值警示：${editData.criticalWarning || '存在严重异常指标，请立即处理！'}
+          </div>
+      ` : '';
+
       const htmlContent = `
         <!DOCTYPE html>
         <html lang="zh-CN">
@@ -121,6 +127,19 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
                     margin-bottom: 5px;
                 }
                 .risk-desc { font-size: 14px; opacity: 0.9; }
+
+                /* Critical Banner */
+                .critical-banner {
+                    background-color: #fef2f2;
+                    color: #b91c1c;
+                    border: 2px solid #ef4444;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin-bottom: 25px;
+                    text-align: center;
+                    font-weight: bold;
+                    font-size: 16px;
+                }
 
                 /* Sections */
                 .section { margin-bottom: 25px; }
@@ -213,6 +232,8 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
                         <span>评估日期: ${new Date().toLocaleDateString()}</span>
                     </div>
                 </div>
+
+                ${criticalBanner}
 
                 <div class="risk-banner">
                     <span class="risk-label">${riskLabel}</span>
@@ -369,6 +390,19 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
       {isEditing && (
           <div className="bg-yellow-50 border border-yellow-200 p-3 rounded mb-4 text-sm text-yellow-800 flex items-center gap-2 animate-pulse">
               <span>⚠️ 编辑模式：您可以直接修改下方的文本内容，修改完成后请点击右上角“保存”。</span>
+          </div>
+      )}
+
+      {/* Critical Value Alert Banner */}
+      {editData.isCritical && (
+          <div className="bg-red-50 border-2 border-red-500 rounded-lg p-4 mb-6 shadow-md animate-pulse">
+              <div className="flex items-center gap-3">
+                  <span className="text-3xl">🚨</span>
+                  <div>
+                      <h3 className="text-lg font-bold text-red-700">危急值警示 (Critical Value)</h3>
+                      <p className="text-red-800 font-bold">{editData.criticalWarning || "系统检测到严重异常结果，请立即进行临床干预！"}</p>
+                  </div>
+              </div>
           </div>
       )}
 

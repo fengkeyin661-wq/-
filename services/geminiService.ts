@@ -1,3 +1,4 @@
+
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
 
 // DeepSeek API Configuration
@@ -178,11 +179,19 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
     逻辑:
     1. 整合 [CheckupData] 中的 Lab/Imaging 异常项。
     2. 整合 [QuestionnaireData] 中的既往史和生活方式风险。
-    3. 输出风险分级、综述、具体风险点列表、管理方案和随访计划。
+    3. 【重要】特别筛查“危急值”(Critical Values)。如果发现以下情况，必须将 isCritical 设为 true，并在 criticalWarning 中简述：
+       - 收缩压 ≥180mmHg 或 舒张压 ≥110mmHg
+       - 空腹血糖 ≥16.7mmol/L 或 ≤2.8mmol/L
+       - 血钾 ≤2.5mmol/L 或 ≥6.5mmol/L
+       - 心率 ≥120次/分 或 ≤40次/分
+       - 心电图提示急性心梗、高度房室传导阻滞等致命性心律失常
+       - 怀疑恶性肿瘤（如CT/彩超发现占位且BI-RADS/TI-RADS 4b以上）
     
     返回 JSON:
     {
        "riskLevel": "RED/YELLOW/GREEN",
+       "isCritical": true/false,
+       "criticalWarning": "危急值详情(如无则null)",
        "summary": "综合综述",
        "risks": { "red": ["高危因素"], "yellow": ["中危因素"], "green": ["低危/关注"] },
        "managementPlan": {
@@ -204,17 +213,25 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
 export const generateFollowUpSchedule = (assessment: HealthAssessment): ScheduledFollowUp[] => {
     const today = new Date();
     const schedule: ScheduledFollowUp[] = [];
-    let interval = assessment.riskLevel === RiskLevel.RED ? 1 : assessment.riskLevel === RiskLevel.YELLOW ? 3 : 6;
+    
+    // 如果是危急值，随访频率极高 (3天后)
+    let interval = assessment.isCritical ? 0.1 : (assessment.riskLevel === RiskLevel.RED ? 1 : assessment.riskLevel === RiskLevel.YELLOW ? 3 : 6);
 
     for (let i = 1; i <= 2; i++) {
         const d = new Date(today);
-        d.setMonth(today.getMonth() + (interval * i));
+        // interval 0.1 means ~3 days
+        if (interval < 1) {
+            d.setDate(today.getDate() + 3 * i);
+        } else {
+            d.setMonth(today.getMonth() + (interval * i));
+        }
+        
         schedule.push({
             id: `sch_${Date.now()}_${i}`,
             date: d.toISOString().split('T')[0],
             status: 'pending',
             riskLevelAtSchedule: assessment.riskLevel,
-            focusItems: assessment.followUpPlan.nextCheckItems
+            focusItems: assessment.isCritical ? ['🚨 复查危急指标', ...assessment.followUpPlan.nextCheckItems] : assessment.followUpPlan.nextCheckItems
         });
     }
     return schedule;

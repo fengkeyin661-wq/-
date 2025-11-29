@@ -135,7 +135,14 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         return list.sort((a, b) => a.daysLeft - b.daysLeft);
     };
 
+    // --- Logic: Critical Patients ---
+    const getCriticalPatients = () => {
+        return archives.filter(arch => arch.assessment_data?.isCritical === true);
+    };
+
     const upcomingTasks = getUpcomingTasks();
+    const criticalPatients = getCriticalPatients();
+
     const filteredArchives = archives.filter(archive => {
         const term = searchTerm.toLowerCase();
         return (
@@ -230,6 +237,42 @@ create table if not exists public.health_archives (
 -- 3. 创建索引加速查询
 create index if not exists health_archives_checkup_id_idx on public.health_archives (checkup_id);`}
                     </pre>
+                </div>
+            )}
+
+            {/* Critical Value Warning List (Top Priority) */}
+            {criticalPatients.length > 0 && (
+                <div className="bg-red-50 border-l-4 border-red-500 rounded-xl shadow-sm p-5 animate-pulse-slow">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-red-800 font-bold flex items-center gap-2 text-lg">
+                            🚨 危急值预警名单 (立即干预)
+                        </h3>
+                        <span className="text-xs bg-red-200 text-red-900 px-2 py-1 rounded-full font-bold">
+                            {criticalPatients.length} 人严重异常
+                        </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {criticalPatients.map((arch) => (
+                            <div key={arch.id} className="bg-white border border-red-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-slate-800">{arch.name}</span>
+                                        <span className="text-xs text-red-500 font-bold border border-red-200 px-1 rounded bg-red-50">危急</span>
+                                    </div>
+                                    <div className="text-xs text-red-700 mt-1 max-w-[200px] truncate" title={arch.assessment_data.criticalWarning || '危急值指标异常'}>
+                                        ⚠️ {arch.assessment_data.criticalWarning || '存在危急指标'}
+                                    </div>
+                                    <div className="text-xs text-slate-500 mt-1">📞 {arch.phone || '无电话'}</div>
+                                </div>
+                                <button 
+                                    onClick={() => onSelectPatient(arch, 'followup')}
+                                    className="bg-red-600 text-white text-xs px-3 py-1.5 rounded hover:bg-red-700 font-bold shadow-sm animate-pulse"
+                                >
+                                    立即处理
+                                </button>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
 
