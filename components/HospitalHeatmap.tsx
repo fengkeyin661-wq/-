@@ -9,6 +9,19 @@ interface Props {
     onRefresh?: () => void; // Add refresh callback
 }
 
+// Helper for exporting data
+const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
 // Internal Modal Component for Patient Drill-down
 const PatientListModal = ({ service, dept, onClose, archives }: { service: string, dept: string, onClose: () => void, archives: HealthArchive[] }) => {
     // Logic: Filter archives that are likely candidates. 
@@ -19,6 +32,25 @@ const PatientListModal = ({ service, dept, onClose, archives }: { service: strin
         // Sort by risk (Red first)
         .sort((a, b) => (a.risk_level === 'RED' ? -1 : 1))
         .slice(0, 15); // Show top 15 candidates
+
+    const handleExportList = () => {
+        // Generate CSV content with BOM for Excel compatibility
+        const headers = ['姓名', '性别', '年龄', '部门', '联系电话', '当前风险等级', '关联服务'];
+        const csvContent = '\uFEFF' + [
+            headers.join(','),
+            ...potentialPatients.map(p => [
+                p.name,
+                p.gender || '-',
+                p.age || '-',
+                p.department || '-',
+                p.phone ? `"${p.phone}"` : '-', // Quote phone to prevent scientific notation
+                p.risk_level === 'RED' ? '高危' : '中危',
+                service
+            ].join(','))
+        ].join('\n');
+
+        downloadFile(csvContent, `${dept}_${service}_潜在患者名单.csv`, 'text/csv;charset=utf-8');
+    };
 
     return (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[100] animate-fadeIn backdrop-blur-sm">
@@ -42,8 +74,7 @@ const PatientListModal = ({ service, dept, onClose, archives }: { service: strin
                                 <th className="p-3 rounded-tl-lg">姓名 (脱敏)</th>
                                 <th className="p-3">性别 / 年龄</th>
                                 <th className="p-3">部门</th>
-                                <th className="p-3">当前风险</th>
-                                <th className="p-3 text-right rounded-tr-lg">干预操作</th>
+                                <th className="p-3 rounded-tr-lg">当前风险</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -61,18 +92,10 @@ const PatientListModal = ({ service, dept, onClose, archives }: { service: strin
                                             {p.risk_level === 'RED' ? '高危' : '中危'}
                                         </span>
                                     </td>
-                                    <td className="p-3 text-right">
-                                        <button 
-                                            onClick={() => alert(`已向 ${p.name} 发送 ${service} 检查提醒短信`)}
-                                            className="text-teal-600 hover:text-white hover:bg-teal-600 border border-teal-200 hover:border-teal-600 px-3 py-1 rounded text-xs transition-all shadow-sm"
-                                        >
-                                            📩 通知检查
-                                        </button>
-                                    </td>
                                 </tr>
                             ))}
                             {potentialPatients.length === 0 && (
-                                <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无符合筛选条件的高风险人员</td></tr>
+                                <tr><td colSpan={4} className="p-10 text-center text-slate-400">暂无符合筛选条件的高风险人员</td></tr>
                             )}
                         </tbody>
                     </table>
@@ -84,7 +107,10 @@ const PatientListModal = ({ service, dept, onClose, archives }: { service: strin
                     </div>
                     <div className="flex gap-3">
                         <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">关闭</button>
-                        <button className="px-5 py-2 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 text-sm shadow-md flex items-center gap-2">
+                        <button 
+                            onClick={handleExportList}
+                            className="px-5 py-2 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 text-sm shadow-md flex items-center gap-2"
+                        >
                             <span>📤</span> 导出完整名单
                         </button>
                     </div>
@@ -217,6 +243,32 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
         analyze(); // Trigger local re-analysis
     }
 
+    const handleExportDepartmentReport = () => {
+        if (!selectedDept) return;
+        
+        const reportContent = `
+医院医疗服务业务分析报告 - ${selectedDept.departmentName}
+================================================
+生成日期: ${new Date().toLocaleString()}
+数据来源: 郑州大学医院健康管理系统 v3.0
+
+【科室概况】
+潜在患者总数: ${selectedDept.patientCount} 人
+业务需求强度: ${selectedDept.riskLevel === 'HIGH' ? '高 (需重点配置资源)' : selectedDept.riskLevel === 'MEDIUM' ? '中 (常态化开展)' : '低'}
+
+【主要关联病种】
+${selectedDept.keyConditions.map((c, i) => `${i+1}. ${c}`).join('\n')}
+
+【建议开展/加强的诊疗业务】
+${selectedDept.suggestedServices.map((s, i) => `${i+1}. ${s}`).join('\n')}
+
+------------------------------------------------
+* 本报告基于健康档案数据自动分析生成，仅供运营参考。
+        `.trim();
+
+        downloadFile(reportContent, `${selectedDept.departmentName}_业务分析报告.txt`, 'text/plain;charset=utf-8');
+    };
+
     return (
         <div className="bg-white w-full h-full rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden animate-fadeIn">
             {/* Header */}
@@ -333,7 +385,10 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
                                     </div>
                                 </div>
                                 <div className="p-4 border-t bg-slate-50 text-center">
-                                    <button className="bg-blue-600 text-white w-full py-2 rounded-lg font-bold hover:bg-blue-700 shadow-md">
+                                    <button 
+                                        onClick={handleExportDepartmentReport}
+                                        className="bg-blue-600 text-white w-full py-2 rounded-lg font-bold hover:bg-blue-700 shadow-md"
+                                    >
                                         导出该科室业务报告
                                     </button>
                                 </div>
