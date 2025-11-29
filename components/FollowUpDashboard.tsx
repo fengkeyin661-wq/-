@@ -255,10 +255,142 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   const nextScheduled = schedule.find(s => s.status === 'pending');
   
+  // --- New Print Strategy: Open a clean window and write HTML to it ---
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
-      // Wait for React to render the view state then print
-      setTimeout(() => window.print(), 100);
+      
+      if (!latestRecord) return;
+
+      const printWindow = window.open('', '_blank', 'width=800,height=1000');
+      if (!printWindow) {
+          alert("请允许弹出窗口以进行打印");
+          return;
+      }
+
+      // Colors for inline styles
+      const colors = {
+          headerBg: '#111827', // Slate 900
+          textDark: '#1f2937', // Slate 800
+          textLight: '#4b5563', // Slate 600
+          blueBg: '#eff6ff', blueBorder: '#bfdbfe', blueText: '#1e40af',
+          redBg: '#fef2f2', redBorder: '#fecaca', redText: '#991b1b',
+          greenBg: '#f0fdf4', greenBorder: '#bbf7d0', greenText: '#166534',
+          riskRed: '#dc2626', riskYellow: '#ca8a04', riskGreen: '#16a34a'
+      };
+
+      const riskLevelText = latestRecord.assessment.riskLevel === 'RED' ? '高风险' : latestRecord.assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险';
+      const riskColor = latestRecord.assessment.riskLevel === 'RED' ? colors.riskRed : latestRecord.assessment.riskLevel === 'YELLOW' ? colors.riskYellow : colors.riskGreen;
+
+      const goalsHtml = latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 
+          ? latestRecord.assessment.lifestyleGoals.map(g => `<li style="margin-bottom:8px;">${g}</li>`).join('')
+          : '<li>暂无具体调整建议，请维持健康生活方式。</li>';
+
+      const docMessage = latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。';
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>健康管理执行单 - 打印</title>
+            <style>
+                body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; padding: 40px; color: ${colors.textDark}; max-width: 900px; margin: 0 auto; }
+                h1, h2, h3, h4 { margin: 0; }
+                .header { text-align: center; border-bottom: 3px solid ${colors.textDark}; padding-bottom: 20px; margin-bottom: 30px; }
+                .header h1 { font-size: 28px; font-weight: 800; margin-bottom: 10px; }
+                .sub-info { display: flex; justify-content: space-between; font-size: 14px; color: ${colors.textLight}; }
+                
+                .box { border: 1px solid #ddd; border-radius: 12px; padding: 25px; margin-bottom: 25px; page-break-inside: avoid; }
+                .box-blue { background-color: ${colors.blueBg}; border-color: ${colors.blueBorder}; }
+                .box-red { background-color: ${colors.redBg}; border-color: ${colors.redBorder}; }
+                .box-green { background-color: ${colors.greenBg}; border-color: ${colors.greenBorder}; }
+
+                .box-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 10px; }
+                
+                .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+                
+                .field-label { font-size: 12px; color: #666; text-transform: uppercase; display: block; margin-bottom: 4px; }
+                .field-value { font-size: 20px; font-weight: bold; }
+                .content-text { font-size: 15px; line-height: 1.6; white-space: pre-line; }
+
+                .goals-list { padding-left: 20px; margin: 0; }
+                .goals-list li { margin-bottom: 8px; font-weight: 500; }
+                
+                .doctor-msg { margin-top: 20px; padding-top: 15px; border-top: 1px solid ${colors.greenBorder}; }
+                .doctor-msg-title { font-size: 14px; font-weight: bold; margin-bottom: 5px; color: ${colors.greenText}; }
+                .doctor-msg-text { font-style: italic; color: ${colors.textLight}; font-size: 14px; }
+
+                .footer { margin-top: 50px; border-top: 2px solid #eee; padding-top: 30px; display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>健康管理执行单 (随访记录)</h1>
+                <div class="sub-info">
+                    <span>随访日期: ${latestRecord.date}</span>
+                    <span>打印日期: ${new Date().toLocaleDateString()}</span>
+                </div>
+            </div>
+
+            <div class="box box-blue">
+                <div class="box-title" style="color: ${colors.blueText}">
+                    📅 下次复查计划
+                </div>
+                <div class="grid-2" style="margin-bottom: 15px;">
+                    <div>
+                        <span class="field-label">建议时间</span>
+                        <span class="field-value">${nextScheduled?.date || "待定"}</span>
+                    </div>
+                    <div>
+                        <span class="field-label">当前风险</span>
+                        <span class="field-value" style="color: ${riskColor}">${riskLevelText}</span>
+                    </div>
+                </div>
+                <div>
+                    <span class="field-label">具体复查项目</span>
+                    <div class="content-text">${latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}</div>
+                </div>
+            </div>
+
+            <div class="box box-red">
+                <div class="box-title" style="color: ${colors.riskRed}">
+                    ⚠️ 风险警示与问题
+                </div>
+                <div class="content-text">${latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}</div>
+            </div>
+
+            <div class="box box-green">
+                <div class="box-title" style="color: ${colors.greenText}">
+                    🏃 生活方式干预目标
+                </div>
+                <ul class="goals-list content-text" style="color: #333">
+                    ${goalsHtml}
+                </ul>
+
+                <div class="doctor-msg">
+                    <div class="doctor-msg-title">医生寄语</div>
+                    <div class="doctor-msg-text">"${docMessage}"</div>
+                </div>
+            </div>
+
+            <div class="footer">
+                <div>医师签名: ______________________</div>
+                <div>受检者确认: ______________________</div>
+            </div>
+            
+            <script>
+                // Auto print when loaded
+                window.onload = function() {
+                    window.print();
+                    // Optional: Close after print (commented out to let user decide)
+                    // window.close();
+                }
+            </script>
+        </body>
+        </html>
+      `;
+
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
   };
 
   return (
@@ -267,7 +399,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
       {/* --- Global Reminder Alert Section --- */}
       {upcomingGlobalTasks.length > 0 && (
-          <div className="bg-orange-50 border-l-4 border-orange-400 p-6 rounded-r-xl shadow-sm print:hidden mb-8">
+          <div className="bg-orange-50 border-l-4 border-orange-400 p-6 rounded-r-xl shadow-sm mb-8">
               <div className="flex justify-between items-center mb-4">
                   <h3 className="text-orange-800 font-bold flex items-center gap-2">
                       <span className="text-xl">🔔</span> 近期随访提醒 (未来 7 天内)
@@ -321,7 +453,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       )}
       
       {/* 顶部：随访时间轴 */}
-      <div className="bg-white p-6 rounded-xl shadow border border-slate-100 print:hidden mb-8">
+      <div className="bg-white p-6 rounded-xl shadow border border-slate-100 mb-8">
         <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
             <span>📅</span> {assessment ? '当前人员随访路径' : '请先选择人员'}
         </h2>
@@ -378,8 +510,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
       {/* 底部：下阶段执行单 (可打印) */}
       {latestRecord && (
-          <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600 print:shadow-none print:border-none print:p-0 print:border-t-0 print:w-full">
-              <div className="flex justify-between items-start mb-6 print:hidden">
+          <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600">
+              <div className="flex justify-between items-start mb-6">
                   <div>
                       <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                          <span>📋</span> 下阶段健康管理执行单
@@ -405,33 +537,24 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </div>
               </div>
 
-              {/* 打印专用标题 */}
-              <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-8">
-                  <h1 className="text-3xl font-bold">健康管理执行单 (随访记录)</h1>
-                  <div className="mt-4 flex justify-between text-sm">
-                      <span>随访日期: {latestRecord.date}</span>
-                      <span>打印日期: {new Date().toLocaleDateString()}</span>
-                  </div>
-              </div>
-
               {isEditingGuide && (
-                  <div className="bg-yellow-50 border border-yellow-200 p-3 rounded mb-4 text-sm text-yellow-800 flex items-center gap-2 animate-pulse print:hidden">
+                  <div className="bg-yellow-50 border border-yellow-200 p-3 rounded mb-4 text-sm text-yellow-800 flex items-center gap-2 animate-pulse">
                       <span>⚠️ 您正在修订执行单内容，修改将同步更新至系统记录。</span>
                   </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:block print:space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   {/* 左侧：复查计划 */}
                   <div className="space-y-6">
-                      <div className="bg-blue-50 p-6 rounded-lg border border-blue-100 print:bg-transparent print:border-slate-300 print:border">
-                          <h3 className="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2 print:text-black">📅 下次复查计划</h3>
+                      <div className="bg-blue-50 p-6 rounded-lg border border-blue-100">
+                          <h3 className="font-bold text-blue-800 mb-4 border-b border-blue-200 pb-2">📅 下次复查计划</h3>
                           <div className="grid grid-cols-2 gap-4 mb-4">
                               <div>
-                                  <span className="text-xs text-slate-500 block uppercase print:text-black">建议时间</span>
-                                  <span className="text-xl font-bold text-slate-800 print:text-black">{nextScheduled?.date || "待定"}</span>
+                                  <span className="text-xs text-slate-500 block uppercase">建议时间</span>
+                                  <span className="text-xl font-bold text-slate-800">{nextScheduled?.date || "待定"}</span>
                               </div>
                               <div>
-                                  <span className="text-xs text-slate-500 block uppercase print:text-black">当前风险</span>
+                                  <span className="text-xs text-slate-500 block uppercase">当前风险</span>
                                   <span className={`font-bold ${
                                       latestRecord.assessment.riskLevel === 'RED' ? 'text-red-600' : 
                                       latestRecord.assessment.riskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
@@ -442,7 +565,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               </div>
                           </div>
                           <div>
-                              <span className="text-xs text-slate-500 block uppercase mb-1 print:text-black">具体复查项目</span>
+                              <span className="text-xs text-slate-500 block uppercase mb-1">具体复查项目</span>
                               {isEditingGuide ? (
                                   <textarea 
                                       className="w-full text-sm border border-blue-300 rounded p-2 focus:ring-1 focus:ring-blue-500 h-24"
@@ -450,15 +573,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                       onChange={e => setGuideEditData({...guideEditData, plan: e.target.value})}
                                   />
                               ) : (
-                                  <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 print:border-none print:p-0 whitespace-pre-line print:text-black">
+                                  <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 whitespace-pre-line">
                                       {latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}
                                   </p>
                               )}
                           </div>
                       </div>
 
-                      <div className="bg-red-50 p-6 rounded-lg border border-red-100 print:bg-transparent print:border-slate-300 print:border">
-                          <h3 className="font-bold text-red-800 mb-4 border-b border-red-200 pb-2 print:text-black">⚠️ 风险警示与问题</h3>
+                      <div className="bg-red-50 p-6 rounded-lg border border-red-100">
+                          <h3 className="font-bold text-red-800 mb-4 border-b border-red-200 pb-2">⚠️ 风险警示与问题</h3>
                           {isEditingGuide ? (
                               <textarea 
                                   className="w-full text-sm border border-red-300 rounded p-2 focus:ring-1 focus:ring-red-500 h-24 bg-white"
@@ -466,7 +589,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   onChange={e => setGuideEditData({...guideEditData, issues: e.target.value})}
                               />
                           ) : (
-                              <p className="text-slate-700 leading-relaxed whitespace-pre-line print:text-black">
+                              <p className="text-slate-700 leading-relaxed whitespace-pre-line">
                                   {latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}
                               </p>
                           )}
@@ -474,8 +597,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </div>
 
                   {/* 右侧：生活方式 */}
-                  <div className="bg-green-50 p-6 rounded-lg border border-green-100 h-full print:bg-transparent print:border-slate-300 print:border print:h-auto">
-                      <h3 className="font-bold text-green-800 mb-4 border-b border-green-200 pb-2 print:text-black">🏃 生活方式干预目标</h3>
+                  <div className="bg-green-50 p-6 rounded-lg border border-green-100 h-full">
+                      <h3 className="font-bold text-green-800 mb-4 border-b border-green-200 pb-2">🏃 生活方式干预目标</h3>
                       
                       {isEditingGuide ? (
                           <textarea 
@@ -488,19 +611,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 ? (
                               <ul className="space-y-3">
                                   {latestRecord.assessment.lifestyleGoals.map((goal, i) => (
-                                      <li key={i} className="flex items-start gap-2 text-slate-700 print:text-black">
+                                      <li key={i} className="flex items-start gap-2 text-slate-700">
                                           <span className="text-green-600 font-bold mt-0.5">✓</span>
                                           <span>{goal}</span>
                                       </li>
                                   ))}
                               </ul>
                           ) : (
-                              <p className="text-slate-500 italic print:text-black">暂无具体调整建议，请维持健康生活方式。</p>
+                              <p className="text-slate-500 italic">暂无具体调整建议，请维持健康生活方式。</p>
                           )
                       )}
                       
-                      <div className="mt-8 pt-6 border-t border-green-200 print:border-slate-300">
-                          <h4 className="font-bold text-sm text-slate-700 mb-2 print:text-black">医生寄语</h4>
+                      <div className="mt-8 pt-6 border-t border-green-200">
+                          <h4 className="font-bold text-sm text-slate-700 mb-2">医生寄语</h4>
                           {isEditingGuide ? (
                               <textarea 
                                   className="w-full text-sm border border-green-300 rounded p-2 focus:ring-1 focus:ring-green-500 h-20 bg-white"
@@ -509,21 +632,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   placeholder="请输入给患者的寄语"
                               />
                           ) : (
-                              <p className="text-sm text-slate-600 italic print:text-black">
+                              <p className="text-sm text-slate-600 italic">
                                   "{latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。'}"
                               </p>
                           )}
                       </div>
-                  </div>
-              </div>
-
-              {/* 签字区 (仅打印显示) */}
-              <div className="hidden print:flex justify-between mt-12 pt-12 border-t border-slate-300">
-                  <div>
-                      <span className="font-bold">医师签名:</span> ______________________
-                  </div>
-                  <div>
-                      <span className="font-bold">受检者确认:</span> ______________________
                   </div>
               </div>
           </div>
@@ -531,7 +644,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
       {/* 模态框：随访录入 (保持原有代码不变) */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex justify-end z-50 backdrop-blur-sm transition-opacity print:hidden">
+        <div className="fixed inset-0 bg-slate-900/60 flex justify-end z-50 backdrop-blur-sm transition-opacity">
             <div className="bg-white w-full max-w-2xl h-full shadow-2xl overflow-y-auto flex flex-col animate-slideInRight">
                 <div className="sticky top-0 bg-white z-10 px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-teal-50">
                     <div>
