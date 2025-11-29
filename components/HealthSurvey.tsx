@@ -19,8 +19,6 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   const [surveySubTab, setSurveySubTab] = useState<'history' | 'lifestyle' | 'mental'>('history');
 
   // 新增：监听 initialData 变化
-  // 因为组件现在被设置为常驻（Hidden模式），当从 Dashboard 点击“开始建档”或从 Admin 点击“修改”时，
-  // 组件不会重新挂载，因此需要 useEffect 来同步 props 数据。
   useEffect(() => {
     setData(initialData || null);
     if (initialData) {
@@ -214,11 +212,11 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                 </div>
             )}
 
-            {/* 3. Questionnaire Tab */}
+            {/* 3. Questionnaire Tab (Enhanced Detail) */}
             {activeTab === 'questionnaire' && (
                 <div>
                      <div className="flex border-b border-slate-200 mb-6">
-                        {[{id:'history', label:'既往史与用药'}, {id:'lifestyle', label:'生活方式'}, {id:'mental', label:'心理与需求'}].map(st => (
+                        {[{id:'history', label:'既往史与用药'}, {id:'lifestyle', label:'生活方式细节'}, {id:'mental', label:'心理与需求'}].map(st => (
                             <button
                                 key={st.id}
                                 onClick={() => setSurveySubTab(st.id as any)}
@@ -234,65 +232,129 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                     {surveySubTab === 'history' && (
                         <div className="space-y-6">
                             <div className="bg-blue-50 p-4 rounded border border-blue-100">
-                                <h5 className="font-bold text-blue-800 mb-2">既往病史 (Q5)</h5>
+                                <h5 className="font-bold text-blue-800 mb-3">Q5-Q15 既往病史详情</h5>
                                 <div className="flex flex-wrap gap-2 mb-4">
                                     {data.questionnaire.history.diseases.map((d,i) => (
-                                        <span key={i} className="bg-white px-2 py-1 rounded text-sm text-blue-600 border border-blue-200">{d}</span>
+                                        <span key={i} className="bg-white px-2 py-1 rounded text-sm text-blue-600 border border-blue-200 shadow-sm">{d}</span>
                                     ))}
                                 </div>
-                                <div className="grid grid-cols-2 gap-4 text-sm text-slate-700">
-                                    {data.questionnaire.history.details.hypertensionYear && <div>高血压确诊: {data.questionnaire.history.details.hypertensionYear}</div>}
-                                    {data.questionnaire.history.details.diabetesYear && <div>糖尿病确诊: {data.questionnaire.history.details.diabetesYear}</div>}
-                                    {data.questionnaire.history.details.cadTypes && <div>冠心病类型: {data.questionnaire.history.details.cadTypes.join(', ')}</div>}
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-slate-700 bg-white p-4 rounded border border-blue-100">
+                                    {data.questionnaire.history.details.hypertensionYear && <div><span className="text-slate-500">高血压确诊:</span> {data.questionnaire.history.details.hypertensionYear}</div>}
+                                    {data.questionnaire.history.details.diabetesYear && <div><span className="text-slate-500">糖尿病确诊:</span> {data.questionnaire.history.details.diabetesYear}</div>}
+                                    {data.questionnaire.history.details.cadTypes && <div><span className="text-slate-500">冠心病类型:</span> {data.questionnaire.history.details.cadTypes.join(', ')}</div>}
+                                    {data.questionnaire.history.details.arrhythmiaType && <div><span className="text-slate-500">心律失常:</span> {data.questionnaire.history.details.arrhythmiaType}</div>}
+                                    {data.questionnaire.history.details.strokeTypes && <div><span className="text-slate-500">脑卒中类型:</span> {data.questionnaire.history.details.strokeTypes.join(', ')}</div>}
+                                    {data.questionnaire.history.details.strokeYear && <div><span className="text-slate-500">脑卒中发生:</span> {data.questionnaire.history.details.strokeYear}</div>}
+                                    {data.questionnaire.history.details.tumorSite && <div><span className="text-slate-500">肿瘤部位:</span> {data.questionnaire.history.details.tumorSite}</div>}
+                                    {data.questionnaire.history.details.tumorYear && <div><span className="text-slate-500">肿瘤确诊:</span> {data.questionnaire.history.details.tumorYear}</div>}
+                                    {data.questionnaire.history.details.otherHistory && <div><span className="text-slate-500">其他病史:</span> {data.questionnaire.history.details.otherHistory}</div>}
                                 </div>
                             </div>
                             <Field label="手术/外伤史 (Q15)" value={data.questionnaire.history.surgeries} fullWidth />
                             <div className="border p-4 rounded bg-slate-50">
-                                <h5 className="font-bold text-slate-700 mb-2">用药情况</h5>
-                                <p className="text-sm">规律用药: {data.questionnaire.medication.isRegular}</p>
-                                <p className="text-sm">药物清单: {data.questionnaire.medication.list || '无'}</p>
+                                <h5 className="font-bold text-slate-700 mb-2">Q16-Q17 用药情况</h5>
+                                <p className="text-sm mb-1"><span className="text-slate-500">是否规律用药:</span> {data.questionnaire.medication.isRegular}</p>
+                                <p className="text-sm"><span className="text-slate-500">目前用药清单:</span> {data.questionnaire.medication.list || '无'}</p>
                             </div>
                         </div>
                     )}
 
                     {surveySubTab === 'lifestyle' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="border p-4 rounded">
-                                <h5 className="font-bold text-slate-700 mb-2">膳食 (Diet)</h5>
-                                <ul className="text-sm space-y-1 text-slate-600">
-                                    <li>习惯: {data.questionnaire.diet.habits.join(', ')}</li>
-                                    <li>主食: {data.questionnaire.diet.stapleType} ({data.questionnaire.diet.dailyStaple})</li>
-                                    <li>蔬菜: {data.questionnaire.diet.dailyVeg}</li>
-                                    <li>肉蛋: {data.questionnaire.diet.dailyMeat}</li>
-                                </ul>
+                        <div className="space-y-6">
+                            {/* Diet & Hydration */}
+                            <div className="border p-4 rounded bg-white">
+                                <h5 className="font-bold text-teal-700 mb-3 text-sm border-b pb-2">膳食与饮水 (Diet & Hydration)</h5>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <Field label="饮食偏好 (Q18)" value={data.questionnaire.diet.habits.join(', ')} fullWidth />
+                                    <Field label="主食类型 (Q19)" value={data.questionnaire.diet.stapleType} />
+                                    <Field label="粗粮频率 (Q20)" value={data.questionnaire.diet.coarseGrainFreq} />
+                                    <Field label="主食摄入量 (Q21)" value={data.questionnaire.diet.dailyStaple} />
+                                    <Field label="蔬菜摄入量 (Q22)" value={data.questionnaire.diet.dailyVeg} />
+                                    <Field label="水果摄入量 (Q23)" value={data.questionnaire.diet.dailyFruit} />
+                                    <Field label="肉蛋禽摄入 (Q24)" value={data.questionnaire.diet.dailyMeat} />
+                                    <Field label="常吃肉类 (Q25)" value={data.questionnaire.diet.meatTypes?.join(', ')} />
+                                    <Field label="奶制品 (Q26)" value={data.questionnaire.diet.dailyDairy} />
+                                    <Field label="豆类坚果 (Q27)" value={data.questionnaire.diet.dailyBeanNut} />
+                                    <Field label="每日饮水 (Q28)" value={data.questionnaire.hydration?.dailyAmount} />
+                                    <Field label="饮水类型 (Q29)" value={data.questionnaire.hydration?.types?.join(', ')} />
+                                </div>
                             </div>
-                            <div className="border p-4 rounded">
-                                <h5 className="font-bold text-slate-700 mb-2">运动 (Exercise)</h5>
-                                <ul className="text-sm space-y-1 text-slate-600">
-                                    <li>频率: {data.questionnaire.exercise.frequency}</li>
-                                    <li>类型: {data.questionnaire.exercise.types?.join(', ')}</li>
-                                    <li>时长: {data.questionnaire.exercise.duration}</li>
-                                </ul>
+
+                            {/* Exercise & Sleep */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="border p-4 rounded bg-white">
+                                    <h5 className="font-bold text-teal-700 mb-3 text-sm border-b pb-2">运动习惯 (Exercise)</h5>
+                                    <div className="space-y-3">
+                                        <Field label="运动频率 (Q30)" value={data.questionnaire.exercise.frequency} />
+                                        <Field label="运动类型 (Q31)" value={data.questionnaire.exercise.types?.join(', ')} fullWidth />
+                                        <Field label="其他类型 (Q32)" value={data.questionnaire.exercise.otherType} fullWidth />
+                                        <Field label="平均时长 (Q33)" value={data.questionnaire.exercise.duration} />
+                                    </div>
+                                </div>
+                                <div className="border p-4 rounded bg-white">
+                                    <h5 className="font-bold text-teal-700 mb-3 text-sm border-b pb-2">睡眠情况 (Sleep)</h5>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <Field label="睡眠时长 (Q34)" value={data.questionnaire.sleep.hours + '小时'} />
+                                        <Field label="睡眠质量 (Q35)" value={data.questionnaire.sleep.quality} />
+                                        <Field label="是否午休 (Q36)" value={data.questionnaire.sleep.nap} />
+                                        <Field label="打鼾情况 (Q37)" value={data.questionnaire.sleep.snore} />
+                                        <Field label="监测结果 (Q38)" value={data.questionnaire.sleep.monitorResult} fullWidth />
+                                    </div>
+                                </div>
                             </div>
-                            <div className="border p-4 rounded">
-                                <h5 className="font-bold text-slate-700 mb-2">烟酒 (Substances)</h5>
-                                <p className="text-sm text-slate-600">吸烟: {data.questionnaire.substances.smoking.status}</p>
-                                <p className="text-sm text-slate-600">饮酒: {data.questionnaire.substances.alcohol.status}</p>
-                            </div>
-                            <div className="border p-4 rounded">
-                                <h5 className="font-bold text-slate-700 mb-2">睡眠 (Sleep)</h5>
-                                <p className="text-sm text-slate-600">时长: {data.questionnaire.sleep.hours}小时</p>
-                                <p className="text-sm text-slate-600">质量: {data.questionnaire.sleep.quality}</p>
+
+                            {/* Substances */}
+                            <div className="border p-4 rounded bg-white">
+                                <h5 className="font-bold text-teal-700 mb-3 text-sm border-b pb-2">烟酒嗜好 (Substances)</h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="bg-slate-50 p-3 rounded">
+                                        <div className="font-bold text-xs text-slate-500 mb-2">吸烟 (Smoking)</div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <Field label="吸烟状况 (Q39)" value={data.questionnaire.substances.smoking.status} />
+                                            <Field label="戒烟年份 (Q40)" value={data.questionnaire.substances.smoking.quitYear} />
+                                            <Field label="每日吸烟 (Q41)" value={data.questionnaire.substances.smoking.dailyAmount} />
+                                            <Field label="吸烟年限 (Q42)" value={data.questionnaire.substances.smoking.years} />
+                                            <Field label="二手烟暴露 (Q43)" value={data.questionnaire.substances.smoking.passive?.join(', ')} fullWidth />
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded">
+                                        <div className="font-bold text-xs text-slate-500 mb-2">饮酒 (Alcohol)</div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <Field label="饮酒状况 (Q44)" value={data.questionnaire.substances.alcohol.status} />
+                                            <Field label="饮酒种类 (Q45)" value={data.questionnaire.substances.alcohol.types?.join(', ')} />
+                                            <Field label="每周频次 (Q46)" value={data.questionnaire.substances.alcohol.freq} />
+                                            <Field label="每次饮量 (Q47)" value={data.questionnaire.substances.alcohol.amount} />
+                                            <Field label="醉酒史 (Q48)" value={data.questionnaire.substances.alcohol.drunkHistory} />
+                                            <Field label="戒酒意愿 (Q49)" value={data.questionnaire.substances.alcohol.quitIntent} />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
 
                     {surveySubTab === 'mental' && (
-                        <div className="space-y-4">
-                            <Field label="压力程度 (Q50)" value={data.questionnaire.mental.stressLevel} fullWidth />
-                            <Field label="压力来源 (Q51)" value={data.questionnaire.mental.stressSource?.join(', ')} fullWidth />
-                            <Field label="主要关注健康问题 (Q55)" value={data.questionnaire.needs.concerns?.join(', ')} fullWidth />
-                            <Field label="希望获得的支持 (Q58)" value={data.questionnaire.needs.desiredSupport?.join(', ')} fullWidth />
+                        <div className="space-y-6">
+                            <div className="border p-4 rounded bg-white">
+                                <h5 className="font-bold text-indigo-700 mb-3 text-sm border-b pb-2">心理压力 (Stress & Mental)</h5>
+                                <div className="grid grid-cols-1 gap-4">
+                                    <Field label="自我压力评估 (Q50)" value={data.questionnaire.mental.stressLevel} />
+                                    <Field label="主要压力来源 (Q51)" value={data.questionnaire.mental.stressSource?.join(', ')} />
+                                    <Field label="其他来源 (Q52)" value={data.questionnaire.mental.otherSource} />
+                                    <Field label="缓解方式 (Q53)" value={data.questionnaire.mental.reliefMethod?.join(', ')} />
+                                    <Field label="其他方式 (Q54)" value={data.questionnaire.mental.otherRelief} />
+                                </div>
+                            </div>
+                            <div className="border p-4 rounded bg-white">
+                                <h5 className="font-bold text-indigo-700 mb-3 text-sm border-b pb-2">健康需求与支持 (Needs)</h5>
+                                <div className="grid grid-cols-1 gap-4">
+                                    <Field label="最关心的健康问题 (Q55)" value={data.questionnaire.needs.concerns?.join(', ')} />
+                                    <Field label="其他问题 (Q56)" value={data.questionnaire.needs.otherConcern} />
+                                    <Field label="是否愿意接受随访 (Q57)" value={data.questionnaire.needs.followUpWillingness} />
+                                    <Field label="希望获得的健康支持 (Q58)" value={data.questionnaire.needs.desiredSupport?.join(', ')} />
+                                    <Field label="其他支持 (Q59)" value={data.questionnaire.needs.otherSupport} />
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -317,7 +379,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
 const Field: React.FC<{label: string, value: any, fullWidth?: boolean}> = ({label, value, fullWidth}) => (
     <div className={`bg-slate-50 p-3 rounded border border-slate-200 ${fullWidth ? 'col-span-full' : ''}`}>
         <div className="text-xs text-slate-500 mb-1">{label}</div>
-        <div className="font-medium text-slate-800 text-sm truncate" title={String(value || '')}>
+        <div className="font-medium text-slate-800 text-sm truncate whitespace-normal" title={String(value || '')}>
             {value || '-'}
         </div>
     </div>

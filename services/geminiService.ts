@@ -84,7 +84,7 @@ const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode:
  */
 export const parseHealthDataFromText = async (rawText: string): Promise<HealthRecord> => {
   const systemPrompt = `
-    你是一个医疗数据结构化专家。请从混合了【体检报告】和【59项健康问卷】的文本中提取数据。
+    你是一个医疗数据结构化专家。请从混合了【体检报告】和【59项教职工健康问卷】的文本中提取数据。
     请忽略无关文本，尽可能提取有效信息。如果某项未提及，请留空或null。
     
     输出必须是严格的 JSON 格式，符合以下结构:
@@ -141,27 +141,81 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
       },
       "questionnaire": {
         "history": {
-           "diseases": ["高血压(Q5)", "糖尿病" 等],
+           "diseases": ["Q5既往史: 高血压/冠心病/心律失常/脑卒中/糖尿病/高脂血症/高尿酸/脂肪肝/慢肺/甲状腺/肾病/胃病/骨质疏松/肿瘤"],
            "details": {
-               "hypertensionYear": "Q6年份", "cadTypes": ["Q7类型"], "arrhythmiaType": "Q8类型", "strokeTypes": ["Q9类型"], "strokeYear": "Q10年份",
-               "diabetesYear": "Q11年份", "tumorSite": "Q12部位", "tumorYear": "Q13年份", "otherHistory": "Q14其他"
+               "hypertensionYear": "Q6高血压年份", 
+               "cadTypes": ["Q7冠心病类型: 心绞痛/心肌梗死/支架/搭桥"], 
+               "arrhythmiaType": "Q8心律失常类型", 
+               "strokeTypes": ["Q9脑卒中类型: 脑梗/脑出血"], 
+               "strokeYear": "Q10年份",
+               "diabetesYear": "Q11糖尿病年份", 
+               "tumorSite": "Q12肿瘤部位", 
+               "tumorYear": "Q13年份", 
+               "otherHistory": "Q14其他病史"
            },
-           "surgeries": "Q15手术外伤"
+           "surgeries": "Q15手术及外伤史"
         },
-        "medication": { "isRegular": "Q16(是/否)", "list": "Q17药名" },
+        "medication": { "isRegular": "Q16(是/否)", "list": "Q17规律用药情况" },
         "diet": {
-           "habits": ["Q18习惯"], "stapleType": "Q19类型", "coarseGrainFreq": "Q20频率",
-           "dailyStaple": "Q21量", "dailyVeg": "Q22量", "dailyFruit": "Q23量", "dailyMeat": "Q24量", "meatTypes": ["Q25类型"], "dailyDairy": "Q26量", "dailyBeanNut": "Q27量"
+           "habits": ["Q18: 外卖/不规律/偏咸/偏油/偏甜"], 
+           "stapleType": "Q19: 精米白面/粗粮杂豆", 
+           "coarseGrainFreq": "Q20: 每天/每周3-5次/每周1-2次",
+           "dailyStaple": "Q21: ≥500g/400g/300g/200g/100g", 
+           "dailyVeg": "Q22: ≥300g/150-300g/<150g", 
+           "dailyFruit": "Q23: ≥200g/100-200g/<100g", 
+           "dailyMeat": "Q24: ≥200g/100-200g/<100g", 
+           "meatTypes": ["Q25: 牛羊猪/鸡鸭鹅/鱼海鲜/鸡蛋"], 
+           "dailyDairy": "Q26: 每天/每周3-5次/偶尔/几乎不", 
+           "dailyBeanNut": "Q27: 经常/偶尔/几乎不"
         },
-        "hydration": { "dailyAmount": "Q28量", "types": ["Q29类型"] },
-        "exercise": { "frequency": "Q30频率", "types": ["Q31类型"], "otherType": "Q32", "duration": "Q33时长" },
-        "sleep": { "hours": "Q34时长", "quality": "Q35质量", "nap": "Q36午休", "snore": "Q37打鼾", "monitorResult": "Q38结果" },
+        "hydration": { 
+            "dailyAmount": "Q28: 杯数或ml", 
+            "types": ["Q29: 白开水/茶/咖啡/含糖饮料"] 
+        },
+        "exercise": { 
+            "frequency": "Q30: 几乎不/每周1-2/3-5/5次以上", 
+            "types": ["Q31: 散步/快走/跑步/游泳/球类/力量/太极瑜伽/其他"], 
+            "otherType": "Q32", 
+            "duration": "Q33: <30min/30-60min/>60min" 
+        },
+        "sleep": { 
+            "hours": "Q34: 小时", 
+            "quality": "Q35: 好/一般/差", 
+            "nap": "Q36: 每天/偶尔/从不", 
+            "snore": "Q37: 无/偶尔/经常/已做监测", 
+            "monitorResult": "Q38" 
+        },
         "substances": {
-           "smoking": { "status": "Q39状态", "quitYear": "Q40年份", "dailyAmount": "Q41量", "years": "Q42年限", "passive": ["Q43二手烟"] },
-           "alcohol": { "status": "Q44状态", "types": ["Q45类型"], "freq": "Q46频率", "amount": "Q47量", "drunkHistory": "Q48醉酒", "quitIntent": "Q49戒酒" }
+           "smoking": { 
+               "status": "Q39: 从不/已戒/吸烟", 
+               "quitYear": "Q40", 
+               "dailyAmount": "Q41支", 
+               "years": "Q42年", 
+               "passive": ["Q43: 无/家/办/公共"] 
+           },
+           "alcohol": { 
+               "status": "Q44: 从不/已戒/饮酒", 
+               "types": ["Q45: 啤/红/白"], 
+               "freq": "Q46次/周", 
+               "amount": "Q47两/杯", 
+               "drunkHistory": "Q48: 0/1-2/≥3次", 
+               "quitIntent": "Q49: 无/想/已试" 
+           }
         },
-        "mental": { "stressLevel": "Q50压力", "stressSource": ["Q51来源"], "otherSource": "Q52", "reliefMethod": ["Q53方式"], "otherRelief": "Q54" },
-        "needs": { "concerns": ["Q55关注"], "otherConcern": "Q56", "followUpWillingness": "Q57意愿", "desiredSupport": ["Q58支持"], "otherSupport": "Q59" }
+        "mental": { 
+            "stressLevel": "Q50: 很小/一般/较大/很大", 
+            "stressSource": ["Q51: 家庭/人际/教学/科研/职称/行政"], 
+            "otherSource": "Q52", 
+            "reliefMethod": ["Q53: 运动/娱乐/沟通"], 
+            "otherRelief": "Q54" 
+        },
+        "needs": { 
+            "concerns": ["Q55: 血压/血糖/血脂/颈腰/睡眠/胃肠/肿瘤/心理"], 
+            "otherConcern": "Q56", 
+            "followUpWillingness": "Q57: 是/否", 
+            "desiredSupport": ["Q58: 饮食/运动/慢病/急救/心理/中医"], 
+            "otherSupport": "Q59" 
+        }
       }
     }
   `;

@@ -9,11 +9,99 @@ interface Props {
     onRefresh?: () => void; // Add refresh callback
 }
 
+// Internal Modal Component for Patient Drill-down
+const PatientListModal = ({ service, dept, onClose, archives }: { service: string, dept: string, onClose: () => void, archives: HealthArchive[] }) => {
+    // Logic: Filter archives that are likely candidates. 
+    // In a real scenario, this would filter based on specific tags (e.g. "Diabetes").
+    // Here we simulate it by showing High/Medium risk patients as a proxy pool.
+    const potentialPatients = archives
+        .filter(a => a.risk_level === 'RED' || a.risk_level === 'YELLOW')
+        // Sort by risk (Red first)
+        .sort((a, b) => (a.risk_level === 'RED' ? -1 : 1))
+        .slice(0, 15); // Show top 15 candidates
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[100] animate-fadeIn backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl p-6 m-4 animate-scaleIn flex flex-col max-h-[85vh]">
+                <div className="flex justify-between items-start mb-6 border-b border-slate-100 pb-4 shrink-0">
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                            <span>📋</span> 目标患者名单筛查
+                        </h3>
+                        <p className="text-sm text-slate-500 mt-1">
+                            针对 <strong>{dept}</strong> - <span className="text-teal-600 font-bold">{service}</span> 的建议干预对象
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold p-2">×</button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto pr-2">
+                    <table className="w-full text-sm text-left border-collapse">
+                        <thead className="bg-slate-50 text-slate-500 sticky top-0 z-10 font-medium">
+                            <tr>
+                                <th className="p-3 rounded-tl-lg">姓名 (脱敏)</th>
+                                <th className="p-3">性别 / 年龄</th>
+                                <th className="p-3">部门</th>
+                                <th className="p-3">当前风险</th>
+                                <th className="p-3 text-right rounded-tr-lg">干预操作</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {potentialPatients.map((p, i) => (
+                                <tr key={i} className="hover:bg-teal-50/30 transition-colors group">
+                                    <td className="p-3 font-bold text-slate-700">
+                                        {p.name.substring(0, 1)}**
+                                    </td>
+                                    <td className="p-3 text-slate-600">{p.gender || '-'} / {p.age || '-'}岁</td>
+                                    <td className="p-3 text-slate-500 text-xs">{p.department}</td>
+                                    <td className="p-3">
+                                        <span className={`px-2 py-0.5 rounded text-xs border font-bold ${
+                                            p.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-yellow-50 text-yellow-600 border-yellow-100'
+                                        }`}>
+                                            {p.risk_level === 'RED' ? '高危' : '中危'}
+                                        </span>
+                                    </td>
+                                    <td className="p-3 text-right">
+                                        <button 
+                                            onClick={() => alert(`已向 ${p.name} 发送 ${service} 检查提醒短信`)}
+                                            className="text-teal-600 hover:text-white hover:bg-teal-600 border border-teal-200 hover:border-teal-600 px-3 py-1 rounded text-xs transition-all shadow-sm"
+                                        >
+                                            📩 通知检查
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                            {potentialPatients.length === 0 && (
+                                <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无符合筛选条件的高风险人员</td></tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div className="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center shrink-0">
+                    <div className="text-xs text-slate-400">
+                        * 名单仅供临床参考，请结合医生专业判断执行
+                    </div>
+                    <div className="flex gap-3">
+                        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">关闭</button>
+                        <button className="px-5 py-2 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 text-sm shadow-md flex items-center gap-2">
+                            <span>📤</span> 导出完整名单
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
     const [analytics, setAnalytics] = useState<DepartmentAnalytics[]>([]);
     const [loading, setLoading] = useState(false);
     const [selectedDept, setSelectedDept] = useState<DepartmentAnalytics | null>(null);
     const [lastUpdated, setLastUpdated] = useState<string>('');
+    
+    // Modal State
+    const [viewingService, setViewingService] = useState<string | null>(null);
 
     // Initial Aggregation & Analysis
     useEffect(() => {
@@ -192,7 +280,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
                     </div>
 
                     {/* Detail Panel */}
-                    <div className="w-full lg:w-96 bg-white border-l border-slate-200 flex flex-col">
+                    <div className="w-full lg:w-96 bg-white border-l border-slate-200 flex flex-col transition-all duration-300">
                         {selectedDept ? (
                             <div className="h-full flex flex-col">
                                 <div className="p-6 border-b bg-blue-50">
@@ -226,9 +314,19 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
                                         </h4>
                                         <ul className="space-y-3">
                                             {selectedDept.suggestedServices.map((srv, i) => (
-                                                <li key={i} className="flex items-start gap-3 bg-teal-50 p-3 rounded-lg border border-teal-100">
-                                                    <span className="text-teal-500 font-bold text-lg mt-[-2px]">✓</span>
-                                                    <span className="text-slate-800 font-medium text-sm">{srv}</span>
+                                                <li key={i} className="flex flex-col gap-2 bg-teal-50 p-3 rounded-lg border border-teal-100 group">
+                                                    <div className="flex items-start gap-3">
+                                                        <span className="text-teal-500 font-bold text-lg mt-[-2px]">✓</span>
+                                                        <span className="text-slate-800 font-medium text-sm flex-1">{srv}</span>
+                                                    </div>
+                                                    <div className="flex justify-end pt-1">
+                                                        <button 
+                                                            onClick={() => setViewingService(srv)}
+                                                            className="text-xs bg-white text-teal-600 border border-teal-200 px-2 py-1 rounded hover:bg-teal-600 hover:text-white transition-colors shadow-sm font-bold flex items-center gap-1"
+                                                        >
+                                                            👥 查看潜在患者
+                                                        </button>
+                                                    </div>
                                                 </li>
                                             ))}
                                         </ul>
@@ -249,6 +347,16 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
                         )}
                     </div>
                 </div>
+            )}
+
+            {/* Patient List Modal */}
+            {viewingService && selectedDept && (
+                <PatientListModal 
+                    service={viewingService}
+                    dept={selectedDept.departmentName}
+                    onClose={() => setViewingService(null)}
+                    archives={archives}
+                />
             )}
         </div>
     );
