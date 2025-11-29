@@ -176,22 +176,55 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
   const systemPrompt = `
     你是全科主任医师。基于详细的体检数据(Objective)和问卷数据(Subjective)生成风险评估。
     
-    逻辑:
-    1. 整合 [CheckupData] 中的 Lab/Imaging 异常项。
-    2. 整合 [QuestionnaireData] 中的既往史和生活方式风险。
-    3. 【重要】特别筛查“危急值”(Critical Values)。如果发现以下情况，必须将 isCritical 设为 true，并在 criticalWarning 中简述：
-       - 收缩压 ≥180mmHg 或 舒张压 ≥110mmHg
-       - 空腹血糖 ≥16.7mmol/L 或 ≤2.8mmol/L
-       - 血钾 ≤2.5mmol/L 或 ≥6.5mmol/L
-       - 心率 ≥120次/分 或 ≤40次/分
-       - 心电图提示急性心梗、高度房室传导阻滞等致命性心律失常
-       - 怀疑恶性肿瘤（如CT/彩超发现占位且BI-RADS/TI-RADS 4b以上）
-    
+    【重要】请严格依据以下“重要异常结果分层管理标准”判断危急值（A类）和重大异常（B类）。
+    如果符合以下任意条件，必须将 riskLevel 设为 RED，将 isCritical 设为 true，并在 criticalWarning 中注明具体类别（如“A类危急值”或“B类重大异常”）和原因。
+
+    一、一般检查
+    [A类] 血压：收缩压≥180mmHg 或 舒张压≥110mmHg。
+
+    二、物理检查
+    [A类] 
+    1. 心率 ≥150次/min 或 ≤45次/min。
+    2. 眼科：疑似青光眼发作、突发视力下降、疑似流行性出血性结膜炎。
+    3. 妇科：急腹症（结合超声）。
+    [B类]
+    1. 触及高度可疑恶性包块（甲状腺、乳腺、腹部、直肠等）。
+    2. 眼压>25mmHg，视乳头水肿。
+    3. 阴道异常出血。
+
+    三、实验室检查
+    [A类]
+    1. 血红蛋白(Hb) ≤60g/L。
+    2. 血小板(PLT) ≤30×10^9/L 或 ≥1000×10^9/L。
+    3. 白细胞(WBC) ≤1.0×10^9/L 或 中性粒绝对值 ≤0.5×10^9/L。
+    4. 肝功：ALT/AST ≥15倍正常值，总胆红素 ≥5倍。
+    5. 肾功：肌酐(Scr) ≥707μmol/L (首次)。
+    6. 血糖：空腹 ≤2.8mmol/L 或 ≥16.7mmol/L；随机 ≥20.0mmol/L。
+    7. 血钾 ≤2.5mmol/L 或 ≥6.5mmol/L。
+    [B类]
+    1. Hb ≤60g/L(历次) 或 ≥200g/L。
+    2. PLT 30-50×10^9/L。
+    3. WBC ≤2.0×10^9/L 或 ≥30.0×10^9/L；发现幼稚细胞。
+    4. 尿蛋白3+且红细胞满视野；酮体≥2+(糖尿病)或≥3+(无糖尿病)。
+    5. 肝功：ALT/AST ≥5-15倍，总胆红素 ≥3-5倍。
+    6. 肾功：肌酐 ≥445μmol/L。
+    7. TCT：HSIL、AS-H、癌、AGC、AIS。
+    8. 肿瘤标志物：AFP>400；PSA>10且f/t<0.15；CA125>95(绝经后)；其他指标≥2倍参考值。
+
+    四、辅助检查
+    [A类]
+    1. 心电图：急性心梗、心缺血、室扑室颤、室速(≥150)、多形性室速、R on T、三度房室阻滞、停搏>3s、提示严重高/低钾。
+    2. X线/CT：气胸、大量胸水、脑出血>30ml、脑梗死大面积、主动脉夹层、动脉瘤、肠梗阻。
+    3. 超声：脏器破裂、胆管炎、异位妊娠、囊肿扭转/破裂。
+    [B类]
+    1. 影像学提示：高度可疑恶性占位（肺、肝、胆、胰、脾、肾、纵隔、骨骼）。
+    2. 囊肿巨大（肝>10cm，肾>5cm，胰>3cm）。
+
     返回 JSON:
     {
        "riskLevel": "RED/YELLOW/GREEN",
        "isCritical": true/false,
-       "criticalWarning": "危急值详情(如无则null)",
+       "criticalWarning": "危急值详情(例如: '[A类] 收缩压185mmHg', '[B类] 肺部高度可疑恶性结节')，如无则null",
        "summary": "综合综述",
        "risks": { "red": ["高危因素"], "yellow": ["中危因素"], "green": ["低危/关注"] },
        "managementPlan": {
