@@ -7,8 +7,9 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal'; // Import LoginModal
 import { HospitalHeatmap } from './components/HospitalHeatmap'; // Import Heatmap
+import { ReevaluationModal } from './components/ReevaluationModal'; // Import ReevaluationModal
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp } from './types'; 
-import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
+import { generateHealthAssessment, generateFollowUpSchedule, mergeHealthData } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
 
 const App: React.FC = () => {
@@ -22,6 +23,9 @@ const App: React.FC = () => {
   // --- Auth State ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+
+  // --- Re-evaluation State ---
+  const [showReevalModal, setShowReevalModal] = useState(false);
 
   // Lifted State: All Archives (for Global Dashboard Reminders)
   const [archives, setArchives] = useState<HealthArchive[]>([]);
@@ -139,6 +143,38 @@ const App: React.FC = () => {
       }
   };
 
+  // Handle Re-evaluation Submit (Merge & Re-assess)
+  const handleReevalSubmit = async (newText: string) => {
+      if (!healthRecord) return;
+      setIsGenerating(true);
+      try {
+          // 1. Merge Data
+          const mergedRecord = await mergeHealthData(healthRecord, newText);
+          setHealthRecord(mergedRecord);
+
+          // 2. Re-assess
+          const newAssessment = await generateHealthAssessment(mergedRecord);
+          setAssessment(newAssessment);
+
+          // 3. Update Schedule (Optional: reset or append? usually reset for new assessment)
+          const newSchedule = generateFollowUpSchedule(newAssessment);
+          setSchedule(newSchedule);
+
+          // 4. Save
+          await saveArchive(mergedRecord, newAssessment, newSchedule, followUps);
+          
+          // 5. Refresh & Close
+          await refreshArchives();
+          setShowReevalModal(false);
+          alert("档案更新与重新评估完成！");
+      } catch (e) {
+          console.error(e);
+          alert("重新评估失败，请重试");
+      } finally {
+          setIsGenerating(false);
+      }
+  };
+
   return (
     <Layout 
       activeTab={activeTab} 
@@ -155,6 +191,17 @@ const App: React.FC = () => {
             refreshArchives(); // Refresh data on login
         }}
       />
+
+      {/* Re-evaluation Modal */}
+      {healthRecord && (
+          <ReevaluationModal 
+              isOpen={showReevalModal}
+              onClose={() => setShowReevalModal(false)}
+              originalRecord={healthRecord}
+              onSubmit={handleReevalSubmit}
+              isProcessing={isGenerating}
+          />
+      )}
 
       {activeTab === 'dashboard' && (
          <div className="text-center py-20 animate-fadeIn">
@@ -212,7 +259,7 @@ const App: React.FC = () => {
             patientName={healthRecord.profile.name} 
             profile={healthRecord.profile} 
             onSave={handleSaveAssessment}
-            onReevaluate={() => setActiveTab('survey')}
+            onReevaluate={() => setShowReevalModal(true)} // Change: Open Modal instead of nav
         />
       )}
       
