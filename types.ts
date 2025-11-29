@@ -302,5 +302,6 @@ export interface FollowUpRecord {
     referral: boolean;
     nextCheckPlan: string;
     lifestyleGoals: string[];
+    doctorMessage?: string; // 给患者的医生寄语
   };
 }

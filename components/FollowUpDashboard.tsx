@@ -37,7 +37,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       plan: string;
       issues: string;
       goals: string;
-      message: string; // Added message field
+      message: string; // Used for Doctor Message
   }>({ plan: '', issues: '', goals: '', message: '' });
 
   // 按照时间排序记录
@@ -50,7 +50,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
               plan: latestRecord.assessment.nextCheckPlan || '',
               issues: latestRecord.assessment.majorIssues || '',
               goals: latestRecord.assessment.lifestyleGoals?.join('\n') || '',
-              message: latestRecord.assessment.riskJustification || ''
+              // 优先使用 doctorMessage，如果是旧数据则回退到 riskJustification
+              message: latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || ''
           });
       }
   }, [latestRecord]);
@@ -119,7 +120,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
       majorIssues: '',
       referral: false,
       nextCheckPlan: '',
-      lifestyleGoals: []
+      lifestyleGoals: [],
+      doctorMessage: '' // Initialize doctorMessage
     }
   };
 
@@ -215,6 +217,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 ...prev.assessment,
                 riskLevel: result.riskLevel,
                 riskJustification: result.riskJustification,
+                doctorMessage: result.doctorMessage, // Capture Doctor Message
                 majorIssues: result.majorIssues,
                 nextCheckPlan: result.nextCheckPlan,
                 lifestyleGoals: result.lifestyleGoals
@@ -242,7 +245,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
               nextCheckPlan: guideEditData.plan,
               majorIssues: guideEditData.issues,
               lifestyleGoals: guideEditData.goals.split('\n').filter(s => s.trim() !== ''),
-              riskJustification: guideEditData.message // Save message
+              doctorMessage: guideEditData.message // Save message to doctorMessage
           }
       };
       
@@ -499,12 +502,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           {isEditingGuide ? (
                               <textarea 
                                   className="w-full text-sm border border-green-300 rounded p-2 focus:ring-1 focus:ring-green-500 h-20 bg-white"
-                                  value={guideEditData.message}
+                                  value={guideEditData.message} // Bind to message (Doctor Message)
                                   onChange={e => setGuideEditData({...guideEditData, message: e.target.value})}
+                                  placeholder="请输入给患者的寄语"
                               />
                           ) : (
                               <p className="text-sm text-slate-600 italic">
-                                  "{latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。'}"
+                                  "{latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。'}"
                               </p>
                           )}
                       </div>
@@ -659,9 +663,20 @@ export const FollowUpDashboard: React.FC<Props> = ({
                             </button>
                          </div>
                          <div className="space-y-3">
-                            <textarea className="w-full border border-slate-300 rounded p-3 text-sm" rows={5}
-                                value={formData.assessment.riskJustification} onChange={e => updateForm('assessment', 'riskJustification', e.target.value)} />
-                            <div className="flex items-center gap-2 text-sm">
+                            <div>
+                                <label className="text-xs font-bold text-slate-600 mb-1 block">临床评估 (医生专用)</label>
+                                <textarea className="w-full border border-slate-300 rounded p-3 text-sm focus:ring-1 focus:ring-teal-500" rows={3}
+                                    placeholder="风险判定理由 (Clinical Justification)"
+                                    value={formData.assessment.riskJustification} onChange={e => updateForm('assessment', 'riskJustification', e.target.value)} />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-600 mb-1 block">医生寄语 (患者可见)</label>
+                                <textarea className="w-full border border-slate-300 rounded p-3 text-sm focus:ring-1 focus:ring-teal-500" rows={3}
+                                    placeholder="温馨提示与核心建议 (Patient Message)"
+                                    value={formData.assessment.doctorMessage} onChange={e => updateForm('assessment', 'doctorMessage', e.target.value)} />
+                            </div>
+                            
+                            <div className="flex items-center gap-2 text-sm pt-2">
                                 <span className="font-bold text-slate-700">本次风险:</span>
                                 <div className="flex gap-1">
                                     {['GREEN', 'YELLOW', 'RED'].map((level) => (

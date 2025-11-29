@@ -233,6 +233,7 @@ export const analyzeFollowUpRecord = async (
       majorIssues: string;
       nextCheckPlan: string;
       lifestyleGoals: string[];
+      doctorMessage: string;
   }> => {
       const systemPrompt = `
       你是一名健康管理专家。请根据患者的本次随访记录、基线评估和上次记录，分析其健康状况。
@@ -245,8 +246,9 @@ export const analyzeFollowUpRecord = async (
       输出 JSON:
       {
         "riskLevel": "RED" | "YELLOW" | "GREEN",
-        "riskJustification": "风险判定理由(中文)",
-        "majorIssues": "主要问题(中文)",
+        "riskJustification": "临床风险判定理由(请使用专业医学术语，分析核心指标变化、达标情况及风险因素控制情况，供医生参考)",
+        "doctorMessage": "医生寄语(请使用通俗易懂的语言，面向患者。综合评估结果，给出鼓励、警示或核心行动建议，语气亲切但专业)",
+        "majorIssues": "主要问题(中文摘要)",
         "nextCheckPlan": "下次复查计划(中文)",
         "lifestyleGoals": ["生活方式目标(中文)"]
       }
