@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
 
@@ -18,6 +18,19 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   const [clinicalSubTab, setClinicalSubTab] = useState<'lab' | 'imaging' | 'optional'>('lab');
   const [surveySubTab, setSurveySubTab] = useState<'history' | 'lifestyle' | 'mental'>('history');
 
+  // 新增：监听 initialData 变化
+  // 因为组件现在被设置为常驻（Hidden模式），当从 Dashboard 点击“开始建档”或从 Admin 点击“修改”时，
+  // 组件不会重新挂载，因此需要 useEffect 来同步 props 数据。
+  useEffect(() => {
+    setData(initialData || null);
+    if (initialData) {
+        setMode('review');
+    } else {
+        setMode('input');
+        setRawText(''); // 清空旧文本
+    }
+  }, [initialData]);
+
   const handleParse = async () => {
     if (!rawText) return;
     setIsParsing(true);
@@ -35,7 +48,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
 
   if (mode === 'input') {
     return (
-        <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-100">
+        <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-100 h-full overflow-y-auto">
             <h2 className="text-2xl font-bold text-slate-800 mb-4">智能数据采集</h2>
             <div className="mb-4 text-sm text-slate-500 bg-slate-50 p-4 rounded border border-slate-200">
                 <p className="font-bold mb-2">支持录入内容：</p>
@@ -51,13 +64,13 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                 value={rawText}
                 onChange={e => setRawText(e.target.value)}
             />
-            <div className="mt-6 flex justify-center">
+            <div className="mt-6 flex justify-center pb-8">
                 <button 
                     onClick={handleParse} 
                     disabled={isParsing || !rawText}
-                    className="bg-teal-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
+                    className="bg-teal-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2 shadow-lg"
                 >
-                    {isParsing ? 'DeepSeek AI 正在解析...' : '开始智能提取'}
+                    {isParsing ? 'DeepSeek AI 正在解析 (可切换至其他页面浏览)...' : '开始智能提取'}
                 </button>
             </div>
         </div>

@@ -181,6 +181,7 @@ const App: React.FC = () => {
             </div>
          </div>
       )}
+      
       {activeTab === 'admin' && (
         <AdminConsole 
             isAuthenticated={isAuthenticated} // Pass auth state
@@ -188,7 +189,15 @@ const App: React.FC = () => {
             onDataUpdate={refreshArchives} 
         />
       )}
-      {activeTab === 'survey' && <HealthSurvey onSubmit={handleSurveySubmit} initialData={healthRecord} isLoading={isGenerating} />}
+      
+      {/* 
+        修改：使用 hidden 类来控制显示/隐藏，而不是条件渲染。
+        这样组件实例会一直保持挂载状态，后台的 API 请求不会中断。
+      */}
+      <div className={activeTab === 'survey' ? 'block h-full' : 'hidden'}>
+          <HealthSurvey onSubmit={handleSurveySubmit} initialData={healthRecord} isLoading={isGenerating} />
+      </div>
+
       {activeTab === 'assessment' && assessment && healthRecord && (
         <AssessmentReport 
             assessment={assessment} 
@@ -197,6 +206,7 @@ const App: React.FC = () => {
             onReevaluate={() => setActiveTab('survey')}
         />
       )}
+      
       {activeTab === 'followup' && (
         <FollowUpDashboard 
             records={followUps} 

@@ -307,3 +307,23 @@ export interface FollowUpRecord {
     doctorMessage?: string; // 给患者的医生寄语
   };
 }
+
+// --- 6. 危急值管理记录 (新) ---
+export interface CriticalTrackRecord {
+    id: string;
+    status: 'pending_initial' | 'pending_secondary' | 'archived'; // 状态: 待初次处理 | 待二次回访 | 已归档
+    
+    // 自动提取的异常信息
+    critical_item: string; // e.g. "[A类] 空腹血糖"
+    critical_desc: string; // e.g. "18.28mmol/L"
+    critical_level: 'A类' | 'B类';
+
+    // 初次干预 (立即处理)
+    initial_notify_time: string; // 通知时间
+    initial_feedback: string; // 反馈结果
+
+    // 二次回访 (1个月后)
+    secondary_due_date: string; // 计划回访时间
+    secondary_notify_time?: string; // 实际回访时间
+    secondary_feedback?: string; // 回访结果
+}

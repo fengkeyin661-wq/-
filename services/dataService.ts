@@ -1,6 +1,7 @@
+
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
-import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile } from '../types';
+import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord } from '../types';
 
 export interface HealthArchive {
     id: string;
@@ -15,6 +16,8 @@ export interface HealthArchive {
     assessment_data: HealthAssessment;
     follow_up_schedule: ScheduledFollowUp[];
     follow_ups: FollowUpRecord[];
+    // 新增：危急值跟踪记录
+    critical_track?: CriticalTrackRecord;
     history_versions: {
         date: string;
         health_record: HealthRecord;
@@ -43,14 +46,18 @@ export const saveArchive = async (
         
         // 1. Fetch existing to handle history
         let historyVersions: any[] = [];
+        let existingCriticalTrack = null;
+        
         const { data: existing } = await supabase
             .from('health_archives')
-            .select('history_versions, health_record, assessment_data')
+            .select('history_versions, health_record, assessment_data, critical_track')
             .eq('checkup_id', checkupId)
             .single();
 
         if (existing) {
             historyVersions = existing.history_versions || [];
+            existingCriticalTrack = existing.critical_track;
+
             // Archive previous state if it's a significant update
             historyVersions.push({
                 date: new Date().toISOString(),
@@ -75,6 +82,9 @@ export const saveArchive = async (
             
             follow_ups: existingFollowUps, 
             history_versions: historyVersions,
+            
+            // Preserve critical track if exists, otherwise it will be created via Admin Console later
+            critical_track: existingCriticalTrack, 
 
             updated_at: new Date().toISOString()
         };
@@ -139,6 +149,32 @@ export const updateArchiveProfile = async (
         return { success: false, message: e.message };
     }
 };
+
+/**
+ * Update Critical Value Tracking Record
+ */
+export const updateCriticalTrack = async (
+    checkupId: string, 
+    trackRecord: CriticalTrackRecord
+): Promise<{ success: boolean; message?: string }> => {
+    if (!isSupabaseConfigured()) return { success: false, message: "Config Error" };
+    
+    try {
+        const { error } = await supabase
+            .from('health_archives')
+            .update({
+                critical_track: trackRecord,
+                updated_at: new Date().toISOString()
+            })
+            .eq('checkup_id', checkupId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, message: e.message };
+    }
+};
+
 
 export const processBatchUpload = async (
     rawText: string, 

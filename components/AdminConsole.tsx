@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { processBatchUpload, fetchArchives, deleteArchive, updateArchiveProfile, HealthArchive } from '../services/dataService';
+import { processBatchUpload, fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, HealthArchive } from '../services/dataService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
-import { HealthProfile } from '../types';
+import { HealthProfile, CriticalTrackRecord } from '../types';
+import { CriticalHandleModal } from './CriticalHandleModal';
 
 interface Props {
     onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup') => void;
@@ -25,6 +26,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     // Edit Modal State
     const [editingArchive, setEditingArchive] = useState<HealthArchive | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+    // Critical Modal State
+    const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
 
     const configured = isSupabaseConfigured();
 
@@ -91,10 +95,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     const handleSaveProfile = async (updatedProfile: HealthProfile) => {
         if (!editingArchive) return;
-        
-        // Optimistic UI update or wait? Let's wait.
         const result = await updateArchiveProfile(editingArchive.id, updatedProfile);
-        
         if (result.success) {
             alert('基本信息更新成功');
             setIsEditModalOpen(false);
@@ -106,7 +107,26 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         }
     };
 
-    // --- Logic: Upcoming Tasks ---
+    // --- Critical Track Handlers ---
+    const handleCriticalSave = async (record: CriticalTrackRecord) => {
+        if (!criticalModalArchive) return;
+        
+        const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record);
+        if (res.success) {
+            if (record.status === 'archived') {
+                alert("危急值记录已归档！");
+            } else {
+                alert("记录已保存，已自动列入二次回访计划。");
+            }
+            setCriticalModalArchive(null);
+            loadData(); // refresh list to update button state/visibility
+            if (onDataUpdate) onDataUpdate();
+        } else {
+            alert("保存失败：" + res.message);
+        }
+    };
+
+    // --- Logic: Upcoming Tasks (Standard Follow-ups) ---
     const getUpcomingTasks = () => {
         const today = new Date();
         today.setHours(0,0,0,0);
@@ -135,13 +155,17 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         return list.sort((a, b) => a.daysLeft - b.daysLeft);
     };
 
-    // --- Logic: Critical Patients ---
-    const getCriticalPatients = () => {
-        return archives.filter(arch => arch.assessment_data?.isCritical === true);
+    // --- Logic: Critical Patients (Active only) ---
+    const getActiveCriticalPatients = () => {
+        // Filter those who are Critical AND NOT Archived
+        return archives.filter(arch => 
+            arch.assessment_data?.isCritical === true && 
+            arch.critical_track?.status !== 'archived'
+        );
     };
 
     const upcomingTasks = getUpcomingTasks();
-    const criticalPatients = getCriticalPatients();
+    const activeCriticalPatients = getActiveCriticalPatients();
 
     const filteredArchives = archives.filter(archive => {
         const term = searchTerm.toLowerCase();
@@ -229,6 +253,7 @@ create table if not exists public.health_archives (
   assessment_data jsonb,
   follow_up_schedule jsonb,
   follow_ups jsonb default '[]'::jsonb,
+  critical_track jsonb, -- 新增字段
   history_versions jsonb default '[]'::jsonb,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -240,43 +265,52 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                 </div>
             )}
 
-            {/* Critical Value Warning List (Top Priority) */}
-            {criticalPatients.length > 0 && (
+            {/* Critical Value Warning List (New Logic) */}
+            {activeCriticalPatients.length > 0 && (
                 <div className="bg-red-50 border-l-4 border-red-500 rounded-xl shadow-sm p-5 animate-pulse-slow">
                     <div className="flex justify-between items-center mb-3">
                         <h3 className="text-red-800 font-bold flex items-center gap-2 text-lg">
-                            🚨 危急值预警名单 (立即干预)
+                            🚨 危急值预警名单 (独立闭环管理)
                         </h3>
                         <span className="text-xs bg-red-200 text-red-900 px-2 py-1 rounded-full font-bold">
-                            {criticalPatients.length} 人严重异常
+                            {activeCriticalPatients.length} 人待处理
                         </span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {criticalPatients.map((arch) => (
-                            <div key={arch.id} className="bg-white border border-red-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-bold text-slate-800">{arch.name}</span>
-                                        <span className="text-xs text-red-500 font-bold border border-red-200 px-1 rounded bg-red-50">危急</span>
+                        {activeCriticalPatients.map((arch) => {
+                            const isPendingSecondary = arch.critical_track?.status === 'pending_secondary';
+                            
+                            return (
+                                <div key={arch.id} className="bg-white border border-red-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-bold text-slate-800">{arch.name}</span>
+                                            <span className="text-xs text-red-500 font-bold border border-red-200 px-1 rounded bg-red-50">危急</span>
+                                        </div>
+                                        <div className="text-xs text-red-700 mt-1 max-w-[200px] truncate" title={arch.assessment_data.criticalWarning || '危急值指标异常'}>
+                                            ⚠️ {arch.assessment_data.criticalWarning || '存在危急指标'}
+                                        </div>
+                                        <div className="text-xs text-slate-500 mt-1">📞 {arch.phone || '无电话'}</div>
                                     </div>
-                                    <div className="text-xs text-red-700 mt-1 max-w-[200px] truncate" title={arch.assessment_data.criticalWarning || '危急值指标异常'}>
-                                        ⚠️ {arch.assessment_data.criticalWarning || '存在危急指标'}
-                                    </div>
-                                    <div className="text-xs text-slate-500 mt-1">📞 {arch.phone || '无电话'}</div>
+                                    
+                                    <button 
+                                        onClick={() => setCriticalModalArchive(arch)}
+                                        className={`text-white text-xs px-3 py-1.5 rounded font-bold shadow-sm transition-transform hover:scale-105 ${
+                                            isPendingSecondary 
+                                            ? 'bg-yellow-600 hover:bg-yellow-700' 
+                                            : 'bg-red-600 hover:bg-red-700 animate-pulse'
+                                        }`}
+                                    >
+                                        {isPendingSecondary ? '🕒 二次回访' : '⚡ 立即处理'}
+                                    </button>
                                 </div>
-                                <button 
-                                    onClick={() => onSelectPatient(arch, 'followup')}
-                                    className="bg-red-600 text-white text-xs px-3 py-1.5 rounded hover:bg-red-700 font-bold shadow-sm animate-pulse"
-                                >
-                                    立即处理
-                                </button>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             )}
 
-            {/* Upcoming Follow-ups Alert Section (Next 7 Days) */}
+            {/* Standard Follow-ups Section */}
             <div className={`rounded-xl border shadow-sm overflow-hidden ${upcomingTasks.length > 0 ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
                 <div className={`px-5 py-3 border-b flex justify-between items-center ${upcomingTasks.length > 0 ? 'bg-orange-100/50 border-orange-200' : 'bg-slate-50 border-slate-100'}`}>
                     <h3 className={`font-bold flex items-center gap-2 ${upcomingTasks.length > 0 ? 'text-orange-800' : 'text-slate-700'}`}>
@@ -316,7 +350,6 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                         <td className="px-5 py-3">
                                             <div className="font-bold text-slate-800">{item.archive.name}</div>
                                             <div className="text-xs text-slate-500">{item.archive.department}</div>
-                                            {/* Phone Display */}
                                             <div className="text-xs text-slate-600 font-mono mt-0.5">📞 {item.archive.phone || '-'}</div>
                                         </td>
                                         <td className="px-5 py-3">
@@ -354,6 +387,7 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                 <StatsCard label="今日更新" value={archives.filter(a => new Date(a.created_at).toDateString() === new Date().toDateString()).length} color="bg-teal-100 text-teal-600" icon="⚡" />
             </div>
 
+            {/* Main Content: Input & List */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
                 {/* Left Panel: Batch Operations */}
@@ -365,8 +399,7 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                         </div>
                         <div className="p-5 space-y-4">
                             <p className="text-xs text-slate-500 leading-relaxed">
-                                粘贴体检报告或健康问卷文本（支持批量粘贴，以 "体检编号" 分隔）。
-                                系统将自动解析、评估并存入数据库。如果编号已存在，将自动更新并归档旧数据。
+                                粘贴体检报告或健康问卷文本。系统将自动解析、评估并存入数据库。
                             </p>
                             <textarea
                                 className="w-full h-40 p-3 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none resize-none bg-slate-50"
@@ -468,14 +501,14 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                                         <button 
                                                             onClick={() => onSelectPatient(arch, 'view')}
                                                             className="px-2 py-1 text-xs font-bold text-teal-600 hover:bg-teal-50 rounded border border-transparent hover:border-teal-100 transition-colors"
-                                                            title="查看评估报告与随访"
+                                                            title="查看评估报告"
                                                         >
                                                             查看
                                                         </button>
                                                         <button 
                                                             onClick={() => handleEditClick(arch)}
                                                             className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded border border-transparent hover:border-slate-200 transition-colors"
-                                                            title="修改基本信息（电话/部门等）"
+                                                            title="修改基本信息"
                                                         >
                                                             修改
                                                         </button>
@@ -506,11 +539,20 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                     onSave={handleSaveProfile}
                 />
             )}
+
+            {/* Critical Handle Modal */}
+            {criticalModalArchive && (
+                <CriticalHandleModal 
+                    archive={criticalModalArchive}
+                    onClose={() => setCriticalModalArchive(null)}
+                    onSave={handleCriticalSave}
+                />
+            )}
         </div>
     );
 };
 
-// Internal Edit Profile Modal Component
+// Internal Edit Profile Modal Component (Same as before)
 interface EditModalProps {
     archive: HealthArchive;
     onClose: () => void;
