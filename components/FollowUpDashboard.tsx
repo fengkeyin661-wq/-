@@ -53,6 +53,48 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const latestRecord = sortedRecords.length > 0 ? sortedRecords[sortedRecords.length - 1] : null;
   
+  // Get current patient info and archive data
+  const currentArchive = allArchives.find(a => a.checkup_id === currentPatientId);
+  const currentPatientName = currentArchive?.name || '受检者';
+
+  // --- CORE LOGIC: Determine Source of Truth (Record vs Assessment) ---
+  // If the archive was updated (Re-evaluated) significantly LATER than the last record was created,
+  // we prioritize the Assessment data (New Year Checkup) over the old Follow-up Record.
+  const isAssessmentNewer = React.useMemo(() => {
+      if (!currentArchive || !assessment) return false;
+      if (!latestRecord) return true; // No records yet, so Assessment is definitely newer
+
+      // latestRecord.id is generated via Date.now().toString()
+      const recordTime = Number(latestRecord.id); 
+      // currentArchive.updated_at is ISO string
+      const archiveTime = new Date(currentArchive.updated_at || currentArchive.created_at).getTime();
+
+      // If Archive update is > 2 seconds newer than record creation, treat as Re-evaluated
+      // (Buffer to avoid race conditions when saving a record updates the archive time too)
+      return archiveTime > (recordTime + 2000);
+  }, [currentArchive, latestRecord, assessment]);
+
+  // Derived Active Data for Display (Execution Sheet)
+  const activeRiskLevel = isAssessmentNewer && assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
+  
+  const activePlanText = isAssessmentNewer && assessment 
+      ? assessment.followUpPlan.nextCheckItems.join('、') // From Assessment Array
+      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan.nextCheckItems.join('、') || ''); // From Record String or Fallback
+
+  const activeIssues = isAssessmentNewer && assessment 
+      ? (assessment.isCritical ? assessment.criticalWarning : assessment.summary) // From Assessment Summary/Critical
+      : (latestRecord?.assessment.majorIssues || assessment?.summary || '');
+
+  const activeGoals = isAssessmentNewer && assessment
+      ? assessment.managementPlan.dietary.concat(assessment.managementPlan.exercise).slice(0, 5) // Pick top 5 from plan
+      : (latestRecord?.assessment.lifestyleGoals || []);
+
+  const activeMessage = isAssessmentNewer && assessment
+      ? "新的一年评估已完成，请遵照新的管理方案执行。" 
+      : (latestRecord?.assessment.doctorMessage || latestRecord?.assessment.riskJustification || '');
+
+  const nextScheduled = schedule.find(s => s.status === 'pending');
+
   // Check if patient has followed up for > 1 year for Annual Report
   const isEligibleForAnnualReport = sortedRecords.length >= 2 && (() => {
       const start = new Date(sortedRecords[0].date);
@@ -62,20 +104,16 @@ export const FollowUpDashboard: React.FC<Props> = ({
       return diffDays > 365;
   })();
 
-  // Identify the next pending scheduled item
-  const nextScheduled = schedule.find(s => s.status === 'pending');
-
+  // Sync state for Editing Guide when data source changes
   useEffect(() => {
-      if (latestRecord) {
-          setGuideEditData({
-              plan: latestRecord.assessment.nextCheckPlan || '',
-              issues: latestRecord.assessment.majorIssues || '',
-              goals: latestRecord.assessment.lifestyleGoals?.join('\n') || '',
-              message: latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '',
-              suggestedDate: nextScheduled ? nextScheduled.date : '' // Init with scheduled date
-          });
-      }
-  }, [latestRecord, schedule, nextScheduled]);
+      setGuideEditData({
+          plan: activePlanText,
+          issues: activeIssues || '',
+          goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : activeGoals, // Handle potential type mismatch safely
+          message: activeMessage,
+          suggestedDate: nextScheduled ? nextScheduled.date : ''
+      });
+  }, [activePlanText, activeIssues, activeGoals, activeMessage, nextScheduled]);
 
   // --- Global Upcoming Reminders Logic (Next 7 Days) ---
   const getGlobalUpcomingTasks = () => {
@@ -110,10 +148,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
   
-  // Get current patient info
-  const currentPatient = allArchives.find(a => a.checkup_id === currentPatientId);
-  const currentPatientName = currentPatient?.name || '受检者';
-
   // -----------------------------------------------------
 
   const initialFormState: Omit<FollowUpRecord, 'id'> = {
@@ -141,7 +175,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       psychology: '平稳', stress: '低'
     },
     taskCompliance: [],
-    otherInfo: '', // 新增：其他有效信息
+    otherInfo: '',
     assessment: {
       riskLevel: RiskLevel.GREEN,
       riskJustification: '',
@@ -171,7 +205,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handleOpenSmartModal = () => {
     const baseState = { ...initialFormState };
     
-    // 1. 继承上次的静态数据
+    // 1. 继承基础静态数据 (从上次记录继承，比较方便)
     if (latestRecord) {
         baseState.medication.currentDrugs = latestRecord.medication.currentDrugs;
         baseState.organRisks.carotidPlaque = latestRecord.organRisks.carotidPlaque;
@@ -180,10 +214,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
         baseState.organRisks.thyroidStatus = '稳定';
     }
 
-    // 2. 生成“医学复查计划核对”清单
-    // 优先使用上次记录的“下次计划”，如果没有，则使用基线评估的计划
-    const planText = latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan.nextCheckItems.join(',') || "";
-    const itemsToCheck = extractCheckItems(planText);
+    // 2. 生成“医学复查计划核对”清单 (Medical Compliance)
+    // 关键逻辑：如果是刚评估完(isAssessmentNewer)，必须从 activePlanText 生成，而不是 latestRecord
+    const itemsToCheck = extractCheckItems(activePlanText);
     
     if (itemsToCheck.length > 0) {
         baseState.medicalCompliance = itemsToCheck.map(item => ({
@@ -192,18 +225,26 @@ export const FollowUpDashboard: React.FC<Props> = ({
             result: ''
         }));
     } else {
-        // 如果提取失败，给一个通用项
         baseState.medicalCompliance = [{ item: '常规复查项目', status: 'not_checked', result: '' }];
     }
 
-    // 3. 生活方式任务
+    // 3. 生活方式任务 (Task Compliance)
+    // 如果是新评估，直接使用 Assessment 的 Tasks。否则，如果上次有记录，可以尝试继承状态(可选)，这里选择重置为 Assessment 任务
     if (assessment?.structuredTasks) {
         baseState.taskCompliance = assessment.structuredTasks.map(task => ({
             taskId: task.id,
             description: task.description,
-            status: 'achieved',
+            status: 'achieved', // 默认为达标，鼓励式
             note: task.targetValue ? `目标: ${task.targetValue}` : ''
         }));
+    }
+
+    // 4. 预填充 AI 评估草稿
+    if (isAssessmentNewer && assessment) {
+        baseState.assessment.riskJustification = `基于最新评估：${assessment.summary.slice(0, 50)}...`;
+        baseState.assessment.majorIssues = activeIssues;
+        baseState.assessment.lifestyleGoals = Array.isArray(activeGoals) ? activeGoals : [];
+        baseState.assessment.nextCheckPlan = activePlanText;
     }
 
     setFormData(baseState);
@@ -289,8 +330,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
 
   const handleSaveGuideEdit = () => {
-      if (!latestRecord || !onUpdateData) return;
+      if (!onUpdateData) return;
       
+      // If Assessment is newer, we are technically editing the "template" derived from assessment, 
+      // but to save it, we need a record. 
+      // However, usually we edit the guide AFTER a record exists.
+      // If no record exists yet (just re-evaluated), we can't save to a record.
+      // But the UI button "Save" is only shown if `latestRecord` exists (see render below).
+      // So we are safe to update `latestRecord`.
+      if (!latestRecord) {
+          alert("请先录入一次随访记录，才能保存修订的执行单。");
+          return;
+      }
+
       const updatedRecord: FollowUpRecord = {
           ...latestRecord,
           assessment: {
@@ -428,9 +480,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
       
-      if (!latestRecord) return;
-
-      // 1. Open a blank window
+      // If Assessment is newer, we print the ASSESSMENT data. If Record is newer, we print RECORD data.
+      // We use the 'active*' variables we calculated.
+      
       const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
       
       if (!printWindow) {
@@ -438,15 +490,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
           return;
       }
 
-      // 2. Prepare Data
-      const docMessage = latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '暂无寄语';
       const riskLevelMap = { 'RED': '高风险', 'YELLOW': '中风险', 'GREEN': '低风险' };
       const riskColorMap = { 'RED': '#dc2626', 'YELLOW': '#d97706', 'GREEN': '#16a34a' };
-      const riskLevel = latestRecord.assessment.riskLevel;
       
-      const lifestyleGoalsList = (latestRecord.assessment.lifestyleGoals || [])
+      const goalsListHtml = Array.isArray(activeGoals) ? activeGoals
         .map(goal => `<li class="goal-item"><span class="check-icon">✓</span>${goal}</li>`)
-        .join('');
+        .join('') : '';
 
       // 3. Construct the HTML String with Inline CSS
       const htmlContent = `
@@ -501,11 +550,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>健康管理执行单 (随访记录)</h1>
+                    <h1>健康管理执行单 (${isAssessmentNewer ? '年度评估方案' : '随访记录'})</h1>
                     <h2>郑州大学医院健康管理中心</h2>
                     <div class="meta-info">
-                        <span>随访日期: ${latestRecord.date}</span>
-                        <span>打印日期: ${new Date().toLocaleDateString()}</span>
+                        <span>生成日期: ${new Date().toLocaleDateString()}</span>
+                        <span>受检者: ${currentPatientName}</span>
                     </div>
                 </div>
 
@@ -518,28 +567,28 @@ export const FollowUpDashboard: React.FC<Props> = ({
                         </div>
                         <div class="plan-item">
                             <span class="label">当前风险</span>
-                            <span class="value risk-tag" style="color: ${riskColorMap[riskLevel as keyof typeof riskColorMap] || '#333'}">
-                                ${riskLevelMap[riskLevel as keyof typeof riskLevelMap] || riskLevel}
+                            <span class="value risk-tag" style="color: ${riskColorMap[activeRiskLevel as keyof typeof riskColorMap] || '#333'}">
+                                ${riskLevelMap[activeRiskLevel as keyof typeof riskLevelMap] || activeRiskLevel}
                             </span>
                         </div>
                     </div>
                     <div>
                         <span class="label">具体复查项目</span>
-                        <div class="content-text">${latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}</div>
+                        <div class="content-text">${activePlanText || "暂无具体项目，请遵医嘱。"}</div>
                     </div>
                 </div>
 
                 <div class="section-box box-red">
                     <div class="box-title title-red">⚠️ 风险警示与问题</div>
-                    <div class="content-text">${latestRecord.assessment.majorIssues || "本次随访未发现重大新问题。"}</div>
+                    <div class="content-text">${activeIssues || "无重大新问题。"}</div>
                 </div>
 
                 <div class="section-box box-green">
                     <div class="box-title title-green">🏃 生活方式干预目标</div>
-                    ${lifestyleGoalsList ? `<ul class="goal-list">${lifestyleGoalsList}</ul>` : '<p class="content-text">维持健康生活方式。</p>'}
+                    ${goalsListHtml ? `<ul class="goal-list">${goalsListHtml}</ul>` : '<p class="content-text">维持健康生活方式。</p>'}
                     <div class="doctor-message">
                         <div class="dm-title">医生寄语</div>
-                        <div class="dm-content">"${docMessage}"</div>
+                        <div class="dm-content">"${activeMessage}"</div>
                     </div>
                 </div>
 
@@ -619,45 +668,45 @@ export const FollowUpDashboard: React.FC<Props> = ({
     <div className="animate-fadeIn pb-10">
 
       {/* --- Patient Basic Info Header --- */}
-      {currentPatient && (
+      {currentArchive && (
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
                 <div className="flex items-center gap-4">
                     <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200">
-                        {currentPatient.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
+                        {currentArchive.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
                     </div>
                     <div>
                         <div className="flex items-center gap-3">
-                            <h2 className="text-2xl font-bold text-slate-800">{currentPatient.name}</h2>
+                            <h2 className="text-2xl font-bold text-slate-800">{currentArchive.name}</h2>
                             <span className={`px-2 py-0.5 text-xs rounded-full border font-bold ${
-                                currentPatient.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
-                                currentPatient.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
+                                activeRiskLevel === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                                activeRiskLevel === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
                                 'bg-green-50 text-green-600 border-green-200'
                             }`}>
-                                {currentPatient.risk_level === 'RED' ? '高风险' : currentPatient.risk_level === 'YELLOW' ? '中风险' : '低风险'}
+                                {activeRiskLevel === 'RED' ? '高风险' : activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
                             </span>
                         </div>
                         <div className="text-sm text-slate-500 mt-1 flex gap-4">
-                            <span>{currentPatient.gender || '未知'}</span>
+                            <span>{currentArchive.gender || '未知'}</span>
                             <span className="w-px h-3 bg-slate-300"></span>
-                            <span>{currentPatient.age ? `${currentPatient.age}岁` : '年龄未知'}</span>
+                            <span>{currentArchive.age ? `${currentArchive.age}岁` : '年龄未知'}</span>
                             <span className="w-px h-3 bg-slate-300"></span>
-                            <span className="font-mono text-slate-400">{currentPatient.checkup_id}</span>
+                            <span className="font-mono text-slate-400">{currentArchive.checkup_id}</span>
                         </div>
                     </div>
                 </div>
                 <div className="flex gap-10 text-sm">
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">部门/单位</span>
-                        <span className="font-medium text-slate-700">{currentPatient.department || '-'}</span>
+                        <span className="font-medium text-slate-700">{currentArchive.department || '-'}</span>
                     </div>
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">联系电话</span>
-                        <span className="font-medium text-slate-700 font-mono">{currentPatient.phone || '-'}</span>
+                        <span className="font-medium text-slate-700 font-mono">{currentArchive.phone || '-'}</span>
                     </div>
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">最近更新</span>
                         <span className="font-medium text-slate-700">
-                           {new Date(currentPatient.updated_at || currentPatient.created_at).toLocaleDateString()}
+                           {new Date(currentArchive.updated_at || currentArchive.created_at).toLocaleDateString()}
                         </span>
                     </div>
                 </div>
@@ -845,8 +894,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       </div>
 
-      {/* 底部：下阶段执行单 (可打印) */}
-      {latestRecord && (
+      {/* 底部：下阶段执行单 (可打印) - Shows Assessment if newer than record, otherwise shows Record */}
+      {(latestRecord || assessment) && (
           <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600">
               <div className="flex justify-between items-start mb-6">
                   <div>
@@ -854,6 +903,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                          <span>📋</span> 下阶段健康管理执行单
                       </h2>
                       <p className="text-sm text-slate-500 mt-1">请受检者保存，用于指导日常生活与下次复查</p>
+                      {isAssessmentNewer && (
+                          <span className="inline-block mt-2 text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200 font-bold">
+                              ✨ 已加载最新年度评估方案
+                          </span>
+                      )}
                   </div>
                   <div className="flex gap-3">
                       {isEditingGuide ? (
@@ -863,9 +917,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
                            </>
                       ) : (
                            <>
-                             <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
-                                ✏️ 修订内容
-                             </button>
+                             {/* Only allow editing if a record exists (to attach edit to). If fresh assessment, must log record first. */}
+                             {latestRecord && (
+                                <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
+                                    ✏️ 修订内容
+                                </button>
+                             )}
                              <button onClick={handlePrintGuide} className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-sm">
                                 🖨️ 打印执行单
                              </button>
@@ -902,11 +959,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               <div>
                                   <span className="text-xs text-slate-500 block uppercase">当前风险</span>
                                   <span className={`font-bold ${
-                                      latestRecord.assessment.riskLevel === 'RED' ? 'text-red-600' : 
-                                      latestRecord.assessment.riskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
+                                      activeRiskLevel === 'RED' ? 'text-red-600' : 
+                                      activeRiskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
                                   }`}>
-                                      {latestRecord.assessment.riskLevel === 'RED' ? '高风险' : 
-                                       latestRecord.assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                                      {activeRiskLevel === 'RED' ? '高风险' : 
+                                       activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
                                   </span>
                               </div>
                           </div>
@@ -920,7 +977,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   />
                               ) : (
                                   <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 whitespace-pre-line">
-                                      {latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}
+                                      {activePlanText || "暂无具体项目，请遵医嘱。"}
                                   </p>
                               )}
                           </div>
@@ -936,7 +993,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               />
                           ) : (
                               <p className="text-slate-700 leading-relaxed whitespace-pre-line">
-                                  {latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}
+                                  {activeIssues || "本次随访未发现重大新问题，请继续保持。"}
                               </p>
                           )}
                       </div>
@@ -954,9 +1011,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                placeholder="每行输入一个目标"
                           />
                       ) : (
-                          latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 ? (
+                          Array.isArray(activeGoals) && activeGoals.length > 0 ? (
                               <ul className="space-y-3">
-                                  {latestRecord.assessment.lifestyleGoals.map((goal, i) => (
+                                  {activeGoals.map((goal, i) => (
                                       <li key={i} className="flex items-start gap-2 text-slate-700">
                                           <span className="text-green-600 font-bold mt-0.5">✓</span>
                                           <span>{goal}</span>
@@ -979,7 +1036,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               />
                           ) : (
                               <p className="text-sm text-slate-600 italic">
-                                  "{latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。'}"
+                                  "{activeMessage || '健康是长期的积累，请坚持执行管理方案。'}"
                               </p>
                           )}
                       </div>
