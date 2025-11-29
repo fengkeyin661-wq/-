@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -156,7 +157,7 @@ const App: React.FC = () => {
 
       {activeTab === 'dashboard' && (
          <div className="text-center py-20 animate-fadeIn">
-            <h2 className="text-4xl font-bold text-slate-800 mb-6 tracking-tight">职工健康管理系统 v3.0</h2>
+            <h2 className="text-4xl font-bold text-slate-800 mb-6 tracking-tight">郑州大学医院健康管理系统 v3.0</h2>
             <p className="text-slate-500 mb-10 text-lg max-w-2xl mx-auto">
                 基于 DeepSeek AI 引擎构建。<br/>
                 集成 11项基础体检 + 20项自选项目 + 59项健康问卷的全维度健康档案。

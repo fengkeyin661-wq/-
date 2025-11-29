@@ -42,8 +42,8 @@ export const Layout: React.FC<LayoutProps> = ({
         <div className="p-6 border-b border-slate-700 flex items-center gap-2 min-w-[256px]">
           <div className="w-8 h-8 bg-teal-500 rounded-lg flex items-center justify-center font-bold text-white shrink-0">Z</div>
           <div>
-            <h1 className="text-lg font-bold tracking-wide">郑州大学</h1>
-            <p className="text-xs text-slate-400">职工健康管理中心</p>
+            <h1 className="text-lg font-bold tracking-wide">郑州大学医院</h1>
+            <p className="text-xs text-slate-400">健康管理中心</p>
           </div>
         </div>
         <nav className="flex-1 py-6 px-3 space-y-2 min-w-[256px]">

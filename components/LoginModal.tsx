@@ -75,7 +75,7 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                 <div className="text-center mb-6">
                     <div className="w-14 h-14 bg-slate-800 rounded-xl flex items-center justify-center text-white text-2xl font-bold mx-auto mb-3">Z</div>
                     <h2 className="text-xl font-bold text-slate-800">管理员安全登录</h2>
-                    <p className="text-slate-500 text-xs mt-1">郑州大学职工健康管理中心</p>
+                    <p className="text-slate-500 text-xs mt-1">郑州大学医院健康管理中心</p>
                 </div>
 
                 {authStep === 'login' ? (

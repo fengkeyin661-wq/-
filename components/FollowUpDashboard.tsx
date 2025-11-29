@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; // Import HealthArchive
@@ -329,8 +330,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 .header h1 {
                     font-size: 24px;
                     font-weight: 800;
-                    margin-bottom: 10px;
+                    margin-bottom: 5px;
                     letter-spacing: 1px;
+                }
+                .header h2 {
+                    font-size: 18px;
+                    font-weight: bold;
+                    margin-bottom: 10px;
+                    color: #4b5563;
                 }
                 .meta-info {
                     display: flex;
@@ -429,19 +436,44 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
                 /* Footer */
                 .footer {
-                    margin-top: 50px;
+                    margin-top: 40px;
                     border-top: 1px solid #e5e7eb;
-                    padding-top: 30px;
+                    padding-top: 20px;
                     display: flex;
                     justify-content: space-between;
                     font-size: 15px;
                     font-weight: bold;
+                    margin-bottom: 20px;
+                }
+
+                .disclaimer-box {
+                    border-top: 2px solid #374151;
+                    padding-top: 15px;
+                    margin-top: 20px;
+                    text-align: center;
+                }
+                .disclaimer {
+                    font-weight: bold;
+                    font-size: 14px;
+                    color: #dc2626;
+                    margin-bottom: 8px;
+                }
+                .contact-info {
+                    font-size: 12px;
+                    color: #4b5563;
+                    display: flex;
+                    justify-content: center;
+                    gap: 15px;
+                    flex-wrap: wrap;
+                }
+                .contact-info span {
+                    display: inline-block;
                 }
                 
                 /* Print specific overrides */
                 @media print {
                     body { padding: 0; }
-                    .section-box { break-inside: avoid; }
+                    .section-box, .disclaimer-box { break-inside: avoid; }
                 }
             </style>
         </head>
@@ -449,6 +481,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
             <div class="container">
                 <div class="header">
                     <h1>健康管理执行单 (随访记录)</h1>
+                    <h2>郑州大学医院健康管理中心</h2>
                     <div class="meta-info">
                         <span>随访日期: ${latestRecord.date}</span>
                         <span>打印日期: ${new Date().toLocaleDateString()}</span>
@@ -497,6 +530,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 <div class="footer">
                     <div>医师签名: ___________________</div>
                     <div>受检者确认: ___________________</div>
+                </div>
+
+                <div class="disclaimer-box">
+                    <p class="disclaimer">本方案仅供参考，具体治疗请遵医嘱。</p>
+                    <div class="contact-info">
+                        <span>制定机构：郑州大学医院</span>
+                        <span>服务热线：0371-67739261</span>
+                        <span>工作时间：周一至周五上午8:00-12:00，下午2:30-5:30</span>
+                    </div>
                 </div>
             </div>
 

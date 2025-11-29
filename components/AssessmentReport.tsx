@@ -163,24 +163,49 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
 
                 /* Footer */
                 .footer {
-                    margin-top: 50px;
-                    padding-top: 30px;
+                    margin-top: 40px;
+                    padding-top: 20px;
                     border-top: 1px solid #e5e7eb;
                     display: flex;
                     justify-content: space-between;
                     font-weight: bold;
+                    margin-bottom: 20px;
+                }
+                
+                .disclaimer-box {
+                    border-top: 2px solid #374151;
+                    padding-top: 15px;
+                    margin-top: 20px;
+                    text-align: center;
+                }
+                .disclaimer {
+                    font-weight: bold;
+                    font-size: 14px;
+                    color: #dc2626;
+                    margin-bottom: 8px;
+                }
+                .contact-info {
+                    font-size: 12px;
+                    color: #4b5563;
+                    display: flex;
+                    justify-content: center;
+                    gap: 15px;
+                    flex-wrap: wrap;
+                }
+                .contact-info span {
+                    display: inline-block;
                 }
 
                 @media print {
                     body { padding: 0; -webkit-print-color-adjust: exact; }
-                    .plan-card, .risk-col { break-inside: avoid; }
+                    .plan-card, .risk-col, .disclaimer-box { break-inside: avoid; }
                 }
             </style>
         </head>
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>郑州大学职工健康管理中心</h1>
+                    <h1>郑州大学医院健康管理中心</h1>
                     <h2>健康风险评估报告</h2>
                     <div class="meta-row">
                         <span>受检人: <strong>${patientName || '未命名'}</strong></span>
@@ -251,6 +276,15 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
                 <div class="footer">
                     <div>评估医师签名: _________________</div>
                     <div>受检者确认: _________________</div>
+                </div>
+                
+                <div class="disclaimer-box">
+                    <p class="disclaimer">本方案仅供参考，具体治疗请遵医嘱。</p>
+                    <div class="contact-info">
+                        <span>制定机构：郑州大学医院</span>
+                        <span>服务热线：0371-67739261</span>
+                        <span>工作时间：周一至周五上午8:00-12:00，下午2:30-5:30</span>
+                    </div>
                 </div>
             </div>
             <script>
