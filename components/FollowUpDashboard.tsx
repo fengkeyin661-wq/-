@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; // Import HealthArchive
-import { analyzeFollowUpRecord } from '../services/geminiService';
+import { analyzeFollowUpRecord, generateFollowUpSMS } from '../services/geminiService';
 
 interface Props {
   records: FollowUpRecord[];
@@ -14,7 +13,7 @@ interface Props {
   onPatientChange?: (archive: HealthArchive) => void;
   currentPatientId?: string;
   // Updated prop for generic data update (Record + Schedule)
-  onUpdateData?: (record: FollowUpRecord, schedule: ScheduledFollowUp[]) => void;
+  onUpdateData?: (record: FollowUpRecord | null, schedule: ScheduledFollowUp[]) => void;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -39,6 +38,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
       message: string; 
       suggestedDate: string; // New field for date editing
   }>({ plan: '', issues: '', goals: '', message: '', suggestedDate: '' });
+
+  // State for SMS Modal
+  const [showSmsModal, setShowSmsModal] = useState(false);
+  const [smsContent, setSmsContent] = useState('');
+  const [isGeneratingSms, setIsGeneratingSms] = useState(false);
 
   // 按照时间排序记录
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -91,6 +95,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
+  
+  // Get current patient name for SMS
+  const currentPatientName = allArchives.find(a => a.checkup_id === currentPatientId)?.name || '受检者';
+
   // -----------------------------------------------------
 
   const initialFormState: Omit<FollowUpRecord, 'id'> = {
@@ -263,11 +271,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
               ...updatedSchedule[pendingIndex],
               date: guideEditData.suggestedDate
           };
-      } else if (guideEditData.suggestedDate) {
-          // If no pending item found but date is provided (edge case), could create new, 
-          // but for safety, we just don't update schedule if not found to avoid dupes.
-          // This ensures we only modify if there is a plan to modify.
-      }
+      } 
       
       onUpdateData(updatedRecord, updatedSchedule);
       setIsEditingGuide(false);
@@ -564,6 +568,48 @@ export const FollowUpDashboard: React.FC<Props> = ({
       }
   };
 
+  // --- SMS & Delay Logic ---
+  const handleGenerateSms = async () => {
+    setIsGeneratingSms(true);
+    setShowSmsModal(true);
+    try {
+        const res = await generateFollowUpSMS(currentPatientName);
+        setSmsContent(res.smsContent);
+    } catch (e) {
+        setSmsContent("生成短信失败，请重试。");
+    } finally {
+        setIsGeneratingSms(false);
+    }
+  };
+
+  const handleSendAndDelay = () => {
+      if (!onUpdateData || !nextScheduled) return;
+
+      // 1. Calculate new date (Current + 1 Month)
+      const currentDate = new Date(nextScheduled.date);
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      const newDateStr = currentDate.toISOString().split('T')[0];
+
+      // 2. Update Schedule
+      const updatedSchedule = schedule.map(s => 
+          s.id === nextScheduled.id ? { ...s, date: newDateStr } : s
+      );
+
+      // 3. Trigger Update (Pass null for record if we are only updating schedule)
+      // Note: App.tsx generic update might need adaptation if it expects non-null record.
+      // However, handleManualDataUpdate accepts updatedRecord and updatedSchedule. 
+      // If we pass 'latestRecord' as is, it effectively just updates the schedule.
+      if (latestRecord) {
+          onUpdateData(latestRecord, updatedSchedule);
+          alert(`短信模拟发送成功！\n随访日期已自动延期至 ${newDateStr}`);
+      } else {
+         // Edge case: No records yet, but scheduled?
+         alert("无法更新：缺少基础记录");
+      }
+      
+      setShowSmsModal(false);
+  };
+
   return (
     // Replaced space-y-8 with individual margins (mb-8) to avoid 'space-y' print layout issues where hidden top elements cause phantom margins.
     <div className="animate-fadeIn pb-10">
@@ -629,8 +675,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
       
       {/* 顶部：随访时间轴 */}
       <div className="bg-white p-6 rounded-xl shadow border border-slate-100 mb-8">
-        <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <span>📅</span> {assessment ? '当前人员随访路径' : '请先选择人员'}
+        <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2 justify-between">
+            <div className="flex items-center gap-2">
+                <span>📅</span> {assessment ? '当前人员随访路径' : '请先选择人员'}
+            </div>
+            {/* 无法联系按钮 */}
+            {assessment && nextScheduled && (
+                <button 
+                    onClick={handleGenerateSms}
+                    className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 font-bold flex items-center gap-1 shadow-sm transition-colors"
+                >
+                    <span>📱</span> 无法联系 / 延期提醒
+                </button>
+            )}
         </h2>
         
         {!assessment ? (
@@ -824,6 +881,40 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </div>
               </div>
           </div>
+      )}
+
+      {/* SMS Modal */}
+      {showSmsModal && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[60] backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-scaleIn">
+                <h3 className="text-lg font-bold text-slate-800 mb-2">📩 随访提醒短信生成</h3>
+                <p className="text-xs text-slate-500 mb-4">场景：患者未接电话或需延期随访。发送后系统将自动延期1个月。</p>
+                
+                {isGeneratingSms ? (
+                    <div className="py-8 text-center text-teal-600 font-bold animate-pulse">
+                        AI 正在撰写短信内容...
+                    </div>
+                ) : (
+                    <textarea 
+                        className="w-full h-32 border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-teal-500 mb-4"
+                        value={smsContent}
+                        onChange={e => setSmsContent(e.target.value)}
+                        placeholder="短信内容..."
+                    />
+                )}
+
+                <div className="flex justify-end gap-3">
+                    <button onClick={() => setShowSmsModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm">取消</button>
+                    <button 
+                        onClick={handleSendAndDelay}
+                        disabled={isGeneratingSms || !smsContent}
+                        className="px-4 py-2 bg-teal-600 text-white rounded-lg font-bold hover:bg-teal-700 shadow-lg text-sm disabled:opacity-50"
+                    >
+                        📤 发送并延期 1 个月
+                    </button>
+                </div>
+            </div>
+        </div>
       )}
 
       {/* 模态框：随访录入 (保持原有代码不变) */}

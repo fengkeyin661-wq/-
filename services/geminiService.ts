@@ -262,3 +262,29 @@ export const analyzeFollowUpRecord = async (
       
       return await callDeepSeek(systemPrompt, userContent);
   };
+
+/**
+ * 5. 生成随访提醒短信
+ */
+export const generateFollowUpSMS = async (
+    patientName: string,
+    doctorName: string = "邱医生",
+    hospitalName: string = "郑州大学医院"
+): Promise<{ smsContent: string }> => {
+    const systemPrompt = `
+    你是一名医院健康管理中心的助手。请生成一条发给患者的提醒短信。
+    场景：患者已到随访时间，但无法通过电话联系上，或者需要延期随访。
+    要求：
+    1. 语气专业、亲切、负责任。
+    2. 提醒患者健康随访的重要性。
+    3. 告知由于暂时未联系上，系统已自动将随访延期1个月，并请患者看到短信后方便时回电。
+    4. 包含医院名称和医生姓名。
+    5. 字数控制在100字以内。
+    
+    输出 JSON: { "smsContent": "短信内容" }
+    `;
+
+    const userContent = `患者姓名: ${patientName}, 医生: ${doctorName}, 医院: ${hospitalName}`;
+    
+    return await callDeepSeek(systemPrompt, userContent, true);
+};
