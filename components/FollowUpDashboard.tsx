@@ -242,6 +242,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
 
   const handleSubmit = () => {
+    // 校验：确保评估报告已生成（即风险理由或医生寄语不为空）
+    if (!formData.assessment.riskJustification?.trim() || !formData.assessment.doctorMessage?.trim()) {
+        alert("⚠️ 无法提交：随访评估报告为空。\n\n请点击“✨ 生成报告”按钮由AI辅助生成，或手动完善“临床评估”与“医生寄语”内容后再提交。");
+        return;
+    }
+
     onAddRecord(formData);
     setShowModal(false);
   };
