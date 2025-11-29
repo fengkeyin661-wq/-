@@ -588,6 +588,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   <div>
                                       <div className="font-bold text-slate-800">{task.archive.name}</div>
                                       <div className="text-xs text-slate-500">{task.archive.department}</div>
+                                      {/* Phone Number Display */}
+                                      <div className="text-xs text-teal-700 font-mono mt-1 flex items-center gap-1 bg-teal-50 px-1.5 py-0.5 rounded w-fit">
+                                          <span>📞</span> {task.archive.phone || '未留电话'}
+                                      </div>
                                   </div>
                                   <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${
                                       task.archive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-100' : 

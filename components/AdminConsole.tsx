@@ -245,6 +245,8 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                         <td className="px-5 py-3">
                                             <div className="font-bold text-slate-800">{item.archive.name}</div>
                                             <div className="text-xs text-slate-500">{item.archive.department}</div>
+                                            {/* Phone Display */}
+                                            <div className="text-xs text-slate-600 font-mono mt-0.5">📞 {item.archive.phone || '-'}</div>
                                         </td>
                                         <td className="px-5 py-3">
                                             <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
