@@ -160,7 +160,7 @@ const App: React.FC = () => {
             <h2 className="text-4xl font-bold text-slate-800 mb-6 tracking-tight">郑州大学医院健康管理系统 v3.0</h2>
             <p className="text-slate-500 mb-10 text-lg max-w-2xl mx-auto">
                 基于 DeepSeek AI 引擎构建。<br/>
-                集成 11项基础体检 + 20项自选项目 + 59项健康问卷的全维度健康档案。
+                集成 11项基础体检 + 20项自选项目 + 59项详细健康问卷的全维度健康档案。
             </p>
             <div className="flex justify-center gap-4">
                 <button onClick={() => { setHealthRecord(null); setActiveTab('survey'); }} className="bg-white text-teal-600 border border-teal-200 px-8 py-3 rounded-lg hover:bg-teal-50 shadow-sm transition-all">
@@ -194,6 +194,7 @@ const App: React.FC = () => {
             assessment={assessment} 
             patientName={healthRecord.profile.name} 
             onSave={handleSaveAssessment}
+            onReevaluate={() => setActiveTab('survey')}
         />
       )}
       {activeTab === 'followup' && (

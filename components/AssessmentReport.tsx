@@ -7,6 +7,7 @@ interface Props {
   assessment: HealthAssessment;
   patientName?: string;
   onSave?: (newAssessment: HealthAssessment) => void;
+  onReevaluate?: () => void; // New prop for re-evaluation navigation
 }
 
 const COLORS = {
@@ -15,7 +16,7 @@ const COLORS = {
   [RiskLevel.RED]: '#ef4444',
 };
 
-export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onSave }) => {
+export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onSave, onReevaluate }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
 
@@ -342,6 +343,14 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
              </>
          ) : (
              <>
+                {onReevaluate && (
+                    <button 
+                        onClick={onReevaluate} 
+                        className="bg-white border border-slate-300 text-slate-600 px-5 py-2 rounded-lg font-medium hover:bg-slate-50 hover:text-teal-600 flex items-center gap-2 transition-colors"
+                    >
+                        🔄 重新评估
+                    </button>
+                )}
                 <button onClick={() => setIsEditing(true)} className="bg-white border border-teal-200 text-teal-700 px-5 py-2 rounded-lg font-medium hover:bg-teal-50 flex items-center gap-2">
                     ✏️ 医生修订
                 </button>
