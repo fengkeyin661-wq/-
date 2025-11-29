@@ -53,6 +53,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const latestRecord = sortedRecords.length > 0 ? sortedRecords[sortedRecords.length - 1] : null;
   
+  // Get current patient info and archive data
+  const currentArchive = allArchives.find(a => a.checkup_id === currentPatientId);
+  const currentPatientName = currentArchive?.name || '受检者';
+
   // Check if patient has followed up for > 1 year for Annual Report
   const isEligibleForAnnualReport = sortedRecords.length >= 2 && (() => {
       const start = new Date(sortedRecords[0].date);
@@ -65,44 +69,65 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // Identify the next pending scheduled item
   const nextScheduled = schedule.find(s => s.status === 'pending');
 
-  // --- Dynamic Data Calculation (Prioritize Assessment > Latest Record) ---
-  const activeRiskLevel = assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || RiskLevel.GREEN);
-  
-  const activePlanText = assessment 
-      ? assessment.followUpPlan.nextCheckItems.join('、') 
-      : (latestRecord?.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。");
+  // --- Logic: Determine Data Source (Assessment vs Latest Record) ---
+  // If we just added a record, we want to see the Record data.
+  // If we just Re-evaluated (updated assessment), we want to see Assessment data.
+  // We use timestamps to decide which is "newer".
+  let useRecordAsSource = false;
+  if (latestRecord) {
+      // Use record ID (timestamp) if available, else date
+      const recordTime = parseInt(latestRecord.id) || new Date(latestRecord.date).getTime();
+      const archiveTime = currentArchive?.updated_at ? new Date(currentArchive.updated_at).getTime() : 0;
+      
+      // If Archive Updated Time is significantly larger (> 30s) than Record Creation Time,
+      // it implies a subsequent update (like Re-evaluation) occurred.
+      // Otherwise (diff is small or negative), the Record is the latest relevant event.
+      if (archiveTime - recordTime > 30000) {
+          useRecordAsSource = false; // Re-evaluation is newer
+      } else {
+          useRecordAsSource = true; // Record is newer
+      }
+  }
 
-  const activeIssues = assessment
+  // --- Dynamic Data Calculation ---
+  const activeRiskLevel = (!useRecordAsSource && assessment) 
+      ? assessment.riskLevel 
+      : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
+  
+  const activePlanText = (!useRecordAsSource && assessment)
+      ? assessment.followUpPlan.nextCheckItems.join('、') 
+      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan.nextCheckItems.join('、') || "暂无具体项目，请遵医嘱。");
+
+  const activeIssues = (!useRecordAsSource && assessment)
       ? (
           (assessment.isCritical ? `【危急值】${assessment.criticalWarning}\n` : '') + 
           (assessment.risks.red.length > 0 ? `🔴 高危: ${assessment.risks.red.join('；')}\n` : '') +
           (assessment.risks.yellow.length > 0 ? `🟡 中危: ${assessment.risks.yellow.join('；')}` : '') 
         ) || assessment.summary || "暂无重大风险"
-      : (latestRecord?.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。");
+      : (latestRecord?.assessment.majorIssues || assessment?.summary || "本次随访未发现重大新问题，请继续保持。");
 
-  const activeGoals: string[] = assessment
+  const activeGoals: string[] = (!useRecordAsSource && assessment)
       ? (assessment.structuredTasks?.map(t => t.description) || [
           ...assessment.managementPlan.dietary.slice(0, 3),
           ...assessment.managementPlan.exercise.slice(0, 3)
         ])
-      : (latestRecord?.assessment.lifestyleGoals || []);
+      : (latestRecord?.assessment.lifestyleGoals || assessment?.managementPlan.dietary || []);
 
-  const activeMessage = assessment
+  const activeMessage = (!useRecordAsSource && assessment)
       ? (assessment.summary ? "根据最新评估，请严格遵照健康管理方案执行。" : "请遵医嘱。")
       : (latestRecord?.assessment.doctorMessage || latestRecord?.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。');
 
-  // --- Effect: Sync Edit Data when Assessment or Record changes ---
+
+  // --- Effect: Sync Edit Data when Data Source changes ---
   useEffect(() => {
-      if (assessment || latestRecord) {
-          setGuideEditData({
-              plan: activePlanText,
-              issues: activeIssues,
-              goals: activeGoals.join('\n') || '',
-              message: activeMessage,
-              suggestedDate: nextScheduled ? nextScheduled.date : '' // Init with scheduled date
-          });
-      }
-  }, [assessment, latestRecord, schedule, nextScheduled]);
+      setGuideEditData({
+          plan: activePlanText,
+          issues: activeIssues,
+          goals: activeGoals.join('\n') || '',
+          message: activeMessage,
+          suggestedDate: nextScheduled ? nextScheduled.date : '' // Init with scheduled date
+      });
+  }, [useRecordAsSource, assessment, latestRecord, schedule, nextScheduled]);
 
   // --- Global Upcoming Reminders Logic (Next 7 Days) ---
   const getGlobalUpcomingTasks = () => {
@@ -136,10 +161,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
-  
-  // Get current patient info
-  const currentPatient = allArchives.find(a => a.checkup_id === currentPatientId);
-  const currentPatientName = currentPatient?.name || '受检者';
 
   // -----------------------------------------------------
 
@@ -645,45 +666,45 @@ export const FollowUpDashboard: React.FC<Props> = ({
     <div className="animate-fadeIn pb-10">
 
       {/* --- Patient Basic Info Header --- */}
-      {currentPatient && (
+      {currentArchive && (
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
                 <div className="flex items-center gap-4">
                     <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200">
-                        {currentPatient.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
+                        {currentArchive.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
                     </div>
                     <div>
                         <div className="flex items-center gap-3">
-                            <h2 className="text-2xl font-bold text-slate-800">{currentPatient.name}</h2>
+                            <h2 className="text-2xl font-bold text-slate-800">{currentArchive.name}</h2>
                             <span className={`px-2 py-0.5 text-xs rounded-full border font-bold ${
-                                currentPatient.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
-                                currentPatient.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
+                                currentArchive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                                currentArchive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
                                 'bg-green-50 text-green-600 border-green-200'
                             }`}>
-                                {currentPatient.risk_level === 'RED' ? '高风险' : currentPatient.risk_level === 'YELLOW' ? '中风险' : '低风险'}
+                                {currentArchive.risk_level === 'RED' ? '高风险' : currentArchive.risk_level === 'YELLOW' ? '中风险' : '低风险'}
                             </span>
                         </div>
                         <div className="text-sm text-slate-500 mt-1 flex gap-4">
-                            <span>{currentPatient.gender || '未知'}</span>
+                            <span>{currentArchive.gender || '未知'}</span>
                             <span className="w-px h-3 bg-slate-300"></span>
-                            <span>{currentPatient.age ? `${currentPatient.age}岁` : '年龄未知'}</span>
+                            <span>{currentArchive.age ? `${currentArchive.age}岁` : '年龄未知'}</span>
                             <span className="w-px h-3 bg-slate-300"></span>
-                            <span className="font-mono text-slate-400">{currentPatient.checkup_id}</span>
+                            <span className="font-mono text-slate-400">{currentArchive.checkup_id}</span>
                         </div>
                     </div>
                 </div>
                 <div className="flex gap-10 text-sm">
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">部门/单位</span>
-                        <span className="font-medium text-slate-700">{currentPatient.department || '-'}</span>
+                        <span className="font-medium text-slate-700">{currentArchive.department || '-'}</span>
                     </div>
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">联系电话</span>
-                        <span className="font-medium text-slate-700 font-mono">{currentPatient.phone || '-'}</span>
+                        <span className="font-medium text-slate-700 font-mono">{currentArchive.phone || '-'}</span>
                     </div>
                     <div>
                         <span className="block text-xs text-slate-400 uppercase">最近更新</span>
                         <span className="font-medium text-slate-700">
-                           {new Date(currentPatient.updated_at || currentPatient.created_at).toLocaleDateString()}
+                           {new Date(currentArchive.updated_at || currentArchive.created_at).toLocaleDateString()}
                         </span>
                     </div>
                 </div>
