@@ -230,13 +230,16 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 <div className="bg-slate-800 text-slate-200 p-6 rounded-xl shadow-lg animate-slideDown">
                     <div className="flex justify-between items-start mb-4">
                         <div>
-                            <h3 className="text-white font-bold text-lg">🛠️ 数据库初始化脚本</h3>
-                            <p className="text-sm text-slate-400">请复制以下 SQL 代码，在 Supabase Dashboard 的 SQL Editor 中运行以创建必要的表结构。</p>
+                            <h3 className="text-white font-bold text-lg">🛠️ 数据库维护脚本</h3>
+                            <p className="text-sm text-slate-400">请复制以下 SQL 代码，在 Supabase Dashboard 的 SQL Editor 中运行。</p>
                         </div>
                         <button onClick={() => setShowSqlHelp(false)} className="text-slate-400 hover:text-white">✕</button>
                     </div>
                     <pre className="bg-black/50 p-4 rounded overflow-x-auto text-xs font-mono text-green-400 border border-slate-700">
-{`-- 1. 启用 UUID 扩展
+{`-- [修复] 如果出现 "Could not find critical_track column" 错误，请运行：
+ALTER TABLE public.health_archives ADD COLUMN IF NOT EXISTS critical_track jsonb;
+
+-- 1. 启用 UUID 扩展
 create extension if not exists "pgcrypto";
 
 -- 2. 创建核心档案表
