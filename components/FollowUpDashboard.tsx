@@ -110,8 +110,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
   
-  // Get current patient name for SMS
-  const currentPatientName = allArchives.find(a => a.checkup_id === currentPatientId)?.name || '受检者';
+  // Get current patient info
+  const currentPatient = allArchives.find(a => a.checkup_id === currentPatientId);
+  const currentPatientName = currentPatient?.name || '受检者';
 
   // -----------------------------------------------------
 
@@ -612,6 +613,52 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   return (
     <div className="animate-fadeIn pb-10">
+
+      {/* --- Patient Basic Info Header --- */}
+      {currentPatient && (
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200">
+                        {currentPatient.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-3">
+                            <h2 className="text-2xl font-bold text-slate-800">{currentPatient.name}</h2>
+                            <span className={`px-2 py-0.5 text-xs rounded-full border font-bold ${
+                                currentPatient.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                                currentPatient.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
+                                'bg-green-50 text-green-600 border-green-200'
+                            }`}>
+                                {currentPatient.risk_level === 'RED' ? '高风险' : currentPatient.risk_level === 'YELLOW' ? '中风险' : '低风险'}
+                            </span>
+                        </div>
+                        <div className="text-sm text-slate-500 mt-1 flex gap-4">
+                            <span>{currentPatient.gender || '未知'}</span>
+                            <span className="w-px h-3 bg-slate-300"></span>
+                            <span>{currentPatient.age ? `${currentPatient.age}岁` : '年龄未知'}</span>
+                            <span className="w-px h-3 bg-slate-300"></span>
+                            <span className="font-mono text-slate-400">{currentPatient.checkup_id}</span>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex gap-10 text-sm">
+                    <div>
+                        <span className="block text-xs text-slate-400 uppercase">部门/单位</span>
+                        <span className="font-medium text-slate-700">{currentPatient.department || '-'}</span>
+                    </div>
+                    <div>
+                        <span className="block text-xs text-slate-400 uppercase">联系电话</span>
+                        <span className="font-medium text-slate-700 font-mono">{currentPatient.phone || '-'}</span>
+                    </div>
+                    <div>
+                        <span className="block text-xs text-slate-400 uppercase">最近更新</span>
+                        <span className="font-medium text-slate-700">
+                           {new Date(currentPatient.updated_at || currentPatient.created_at).toLocaleDateString()}
+                        </span>
+                    </div>
+                </div>
+            </div>
+      )}
 
       {/* --- Global Reminder Alert Section --- */}
       {upcomingGlobalTasks.length > 0 && (
