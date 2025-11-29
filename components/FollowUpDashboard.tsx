@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; // Import HealthArchive
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { analyzeFollowUpRecord } from '../services/geminiService';
 
 interface Props {
@@ -255,142 +254,254 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   const nextScheduled = schedule.find(s => s.status === 'pending');
   
-  // --- New Print Strategy: Open a clean window and write HTML to it ---
+  // --- Completely Standalone Print Window Logic ---
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
       
       if (!latestRecord) return;
 
-      const printWindow = window.open('', '_blank', 'width=800,height=1000');
+      // 1. Open a blank window
+      const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
+      
       if (!printWindow) {
-          alert("请允许弹出窗口以进行打印");
+          alert("浏览器拦截了弹窗，请允许本站弹出窗口以便打印。");
           return;
       }
 
-      // Colors for inline styles
-      const colors = {
-          headerBg: '#111827', // Slate 900
-          textDark: '#1f2937', // Slate 800
-          textLight: '#4b5563', // Slate 600
-          blueBg: '#eff6ff', blueBorder: '#bfdbfe', blueText: '#1e40af',
-          redBg: '#fef2f2', redBorder: '#fecaca', redText: '#991b1b',
-          greenBg: '#f0fdf4', greenBorder: '#bbf7d0', greenText: '#166534',
-          riskRed: '#dc2626', riskYellow: '#ca8a04', riskGreen: '#16a34a'
-      };
+      // 2. Prepare Data
+      const docMessage = latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '暂无寄语';
+      const riskLevelMap = { 'RED': '高风险', 'YELLOW': '中风险', 'GREEN': '低风险' };
+      const riskColorMap = { 'RED': '#dc2626', 'YELLOW': '#d97706', 'GREEN': '#16a34a' };
+      const riskLevel = latestRecord.assessment.riskLevel;
+      
+      const lifestyleGoalsList = (latestRecord.assessment.lifestyleGoals || [])
+        .map(goal => `<li class="goal-item"><span class="check-icon">✓</span>${goal}</li>`)
+        .join('');
 
-      const riskLevelText = latestRecord.assessment.riskLevel === 'RED' ? '高风险' : latestRecord.assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险';
-      const riskColor = latestRecord.assessment.riskLevel === 'RED' ? colors.riskRed : latestRecord.assessment.riskLevel === 'YELLOW' ? colors.riskYellow : colors.riskGreen;
-
-      const goalsHtml = latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 
-          ? latestRecord.assessment.lifestyleGoals.map(g => `<li style="margin-bottom:8px;">${g}</li>`).join('')
-          : '<li>暂无具体调整建议，请维持健康生活方式。</li>';
-
-      const docMessage = latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。';
-
+      // 3. Construct the HTML String with Inline CSS
       const htmlContent = `
         <!DOCTYPE html>
-        <html>
+        <html lang="zh-CN">
         <head>
-            <title>健康管理执行单 - 打印</title>
+            <meta charset="UTF-8">
+            <title>健康管理执行单</title>
             <style>
-                body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; padding: 40px; color: ${colors.textDark}; max-width: 900px; margin: 0 auto; }
-                h1, h2, h3, h4 { margin: 0; }
-                .header { text-align: center; border-bottom: 3px solid ${colors.textDark}; padding-bottom: 20px; margin-bottom: 30px; }
-                .header h1 { font-size: 28px; font-weight: 800; margin-bottom: 10px; }
-                .sub-info { display: flex; justify-content: space-between; font-size: 14px; color: ${colors.textLight}; }
+                body {
+                    font-family: "PingFang SC", "Microsoft YaHei", "Heiti SC", sans-serif;
+                    background-color: #fff;
+                    color: #333;
+                    margin: 0;
+                    padding: 40px;
+                    font-size: 14px;
+                    line-height: 1.6;
+                }
+                .container {
+                    max-width: 800px;
+                    margin: 0 auto;
+                }
+                h1, h2, h3, h4, p, ul { margin: 0; padding: 0; }
                 
-                .box { border: 1px solid #ddd; border-radius: 12px; padding: 25px; margin-bottom: 25px; page-break-inside: avoid; }
-                .box-blue { background-color: ${colors.blueBg}; border-color: ${colors.blueBorder}; }
-                .box-red { background-color: ${colors.redBg}; border-color: ${colors.redBorder}; }
-                .box-green { background-color: ${colors.greenBg}; border-color: ${colors.greenBorder}; }
+                /* Header */
+                .header {
+                    text-align: center;
+                    border-bottom: 2px solid #333;
+                    padding-bottom: 20px;
+                    margin-bottom: 30px;
+                }
+                .header h1 {
+                    font-size: 24px;
+                    font-weight: 800;
+                    margin-bottom: 10px;
+                    letter-spacing: 1px;
+                }
+                .meta-info {
+                    display: flex;
+                    justify-content: center;
+                    gap: 30px;
+                    color: #666;
+                    font-size: 13px;
+                }
 
-                .box-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 10px; }
-                
-                .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-                
-                .field-label { font-size: 12px; color: #666; text-transform: uppercase; display: block; margin-bottom: 4px; }
-                .field-value { font-size: 20px; font-weight: bold; }
-                .content-text { font-size: 15px; line-height: 1.6; white-space: pre-line; }
+                /* Boxes */
+                .section-box {
+                    border-radius: 8px;
+                    padding: 20px;
+                    margin-bottom: 20px;
+                    border: 1px solid #e5e7eb;
+                }
+                .box-blue { background-color: #eff6ff; border-color: #bfdbfe; }
+                .box-red { background-color: #fef2f2; border-color: #fecaca; }
+                .box-green { background-color: #f0fdf4; border-color: #bbf7d0; }
 
-                .goals-list { padding-left: 20px; margin: 0; }
-                .goals-list li { margin-bottom: 8px; font-weight: 500; }
-                
-                .doctor-msg { margin-top: 20px; padding-top: 15px; border-top: 1px solid ${colors.greenBorder}; }
-                .doctor-msg-title { font-size: 14px; font-weight: bold; margin-bottom: 5px; color: ${colors.greenText}; }
-                .doctor-msg-text { font-style: italic; color: ${colors.textLight}; font-size: 14px; }
+                .box-title {
+                    font-size: 16px;
+                    font-weight: bold;
+                    margin-bottom: 12px;
+                    padding-bottom: 8px;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    border-bottom: 1px solid rgba(0,0,0,0.05);
+                }
+                .title-blue { color: #1e40af; border-color: #bfdbfe; }
+                .title-red { color: #991b1b; border-color: #fecaca; }
+                .title-green { color: #166534; border-color: #bbf7d0; }
 
-                .footer { margin-top: 50px; border-top: 2px solid #eee; padding-top: 30px; display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; }
+                /* Grid Layout for Plan */
+                .plan-grid {
+                    display: flex;
+                    gap: 30px;
+                    margin-bottom: 15px;
+                }
+                .plan-item { flex: 1; }
+                .label {
+                    display: block;
+                    font-size: 11px;
+                    text-transform: uppercase;
+                    color: #6b7280;
+                    margin-bottom: 4px;
+                }
+                .value {
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: #111;
+                }
+                .risk-tag {
+                    font-weight: bold;
+                }
+
+                /* Text Content */
+                .content-text {
+                    font-size: 14px;
+                    color: #374151;
+                    white-space: pre-line;
+                }
+
+                /* List */
+                .goal-list {
+                    list-style: none;
+                }
+                .goal-item {
+                    margin-bottom: 8px;
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 8px;
+                }
+                .check-icon {
+                    color: #16a34a;
+                    font-weight: bold;
+                }
+
+                /* Doctor Message */
+                .doctor-message {
+                    margin-top: 20px;
+                    padding-top: 15px;
+                    border-top: 1px dashed #bbf7d0;
+                }
+                .dm-title {
+                    font-size: 13px;
+                    font-weight: bold;
+                    color: #166534;
+                    margin-bottom: 6px;
+                }
+                .dm-content {
+                    font-style: italic;
+                    color: #4b5563;
+                }
+
+                /* Footer */
+                .footer {
+                    margin-top: 50px;
+                    border-top: 1px solid #e5e7eb;
+                    padding-top: 30px;
+                    display: flex;
+                    justify-content: space-between;
+                    font-size: 15px;
+                    font-weight: bold;
+                }
+                
+                /* Print specific overrides */
+                @media print {
+                    body { padding: 0; }
+                    .section-box { break-inside: avoid; }
+                }
             </style>
         </head>
         <body>
-            <div class="header">
-                <h1>健康管理执行单 (随访记录)</h1>
-                <div class="sub-info">
-                    <span>随访日期: ${latestRecord.date}</span>
-                    <span>打印日期: ${new Date().toLocaleDateString()}</span>
-                </div>
-            </div>
-
-            <div class="box box-blue">
-                <div class="box-title" style="color: ${colors.blueText}">
-                    📅 下次复查计划
-                </div>
-                <div class="grid-2" style="margin-bottom: 15px;">
-                    <div>
-                        <span class="field-label">建议时间</span>
-                        <span class="field-value">${nextScheduled?.date || "待定"}</span>
-                    </div>
-                    <div>
-                        <span class="field-label">当前风险</span>
-                        <span class="field-value" style="color: ${riskColor}">${riskLevelText}</span>
+            <div class="container">
+                <div class="header">
+                    <h1>健康管理执行单 (随访记录)</h1>
+                    <div class="meta-info">
+                        <span>随访日期: ${latestRecord.date}</span>
+                        <span>打印日期: ${new Date().toLocaleDateString()}</span>
                     </div>
                 </div>
-                <div>
-                    <span class="field-label">具体复查项目</span>
-                    <div class="content-text">${latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}</div>
+
+                <!-- Plan Section -->
+                <div class="section-box box-blue">
+                    <div class="box-title title-blue">📅 下次复查计划</div>
+                    <div class="plan-grid">
+                        <div class="plan-item">
+                            <span class="label">建议时间</span>
+                            <span class="value">${nextScheduled?.date || "待定"}</span>
+                        </div>
+                        <div class="plan-item">
+                            <span class="label">当前风险</span>
+                            <span class="value risk-tag" style="color: ${riskColorMap[riskLevel as keyof typeof riskColorMap] || '#333'}">
+                                ${riskLevelMap[riskLevel as keyof typeof riskLevelMap] || riskLevel}
+                            </span>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="label">具体复查项目</span>
+                        <div class="content-text">${latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}</div>
+                    </div>
+                </div>
+
+                <!-- Risk Section -->
+                <div class="section-box box-red">
+                    <div class="box-title title-red">⚠️ 风险警示与问题</div>
+                    <div class="content-text">${latestRecord.assessment.majorIssues || "本次随访未发现重大新问题。"}</div>
+                </div>
+
+                <!-- Lifestyle & Message Section -->
+                <div class="section-box box-green">
+                    <div class="box-title title-green">🏃 生活方式干预目标</div>
+                    
+                    ${lifestyleGoalsList ? `<ul class="goal-list">${lifestyleGoalsList}</ul>` : '<p class="content-text">维持健康生活方式。</p>'}
+
+                    <div class="doctor-message">
+                        <div class="dm-title">医生寄语</div>
+                        <div class="dm-content">"${docMessage}"</div>
+                    </div>
+                </div>
+
+                <div class="footer">
+                    <div>医师签名: ___________________</div>
+                    <div>受检者确认: ___________________</div>
                 </div>
             </div>
 
-            <div class="box box-red">
-                <div class="box-title" style="color: ${colors.riskRed}">
-                    ⚠️ 风险警示与问题
-                </div>
-                <div class="content-text">${latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}</div>
-            </div>
-
-            <div class="box box-green">
-                <div class="box-title" style="color: ${colors.greenText}">
-                    🏃 生活方式干预目标
-                </div>
-                <ul class="goals-list content-text" style="color: #333">
-                    ${goalsHtml}
-                </ul>
-
-                <div class="doctor-msg">
-                    <div class="doctor-msg-title">医生寄语</div>
-                    <div class="doctor-msg-text">"${docMessage}"</div>
-                </div>
-            </div>
-
-            <div class="footer">
-                <div>医师签名: ______________________</div>
-                <div>受检者确认: ______________________</div>
-            </div>
-            
             <script>
-                // Auto print when loaded
                 window.onload = function() {
-                    window.print();
-                    // Optional: Close after print (commented out to let user decide)
-                    // window.close();
-                }
+                    setTimeout(function() {
+                        window.print();
+                    }, 500);
+                };
             </script>
         </body>
         </html>
       `;
 
+      // 4. Write to the new window
+      printWindow.document.open();
       printWindow.document.write(htmlContent);
       printWindow.document.close();
+      
+      // 5. Focus to ensure print dialog appears on top
+      if (printWindow.focus) {
+          printWindow.focus();
+      }
   };
 
   return (
