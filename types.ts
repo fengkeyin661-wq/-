@@ -257,6 +257,11 @@ export interface FollowUpRecord {
     glucose: number;
     glucoseType?: string; 
     weight: number;
+    // 新增：血脂四项
+    tc?: number; // 总胆固醇
+    tg?: number; // 甘油三酯
+    ldl?: number; // 低密度
+    hdl?: number; // 高密度
   };
   
   organRisks: {

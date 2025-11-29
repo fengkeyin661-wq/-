@@ -15,8 +15,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     // --- Admin Console Logic ---
     const [archives, setArchives] = useState<HealthArchive[]>([]);
     
-    // Removed batch upload states (rawText, logs, progress, isProcessing)
-    
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -107,14 +105,14 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         }
     };
 
-    // --- Export Handler ---
+    // --- Export Handler (General) ---
     const handleExportData = () => {
         if (filteredArchives.length === 0) {
             alert("当前列表无数据可导出");
             return;
         }
 
-        const headers = ['姓名', '体检编号', '性别', '年龄', '部门', '联系电话', '风险等级', '下次随访日期', '最新评估时间'];
+        const headers = ['姓名', '体检编号', '性别', '年龄', '部门', '联系电话', '风险等级', '下次随访时间', '最新评估时间'];
         
         const rows = filteredArchives.map(arch => {
             // Find next pending date
@@ -136,12 +134,43 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         });
 
         const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
-        
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+        downloadCsv(csvContent, `健康档案导出_${new Date().toISOString().split('T')[0]}.csv`);
+    };
+
+    // --- Export Handler (Critical Values) ---
+    const handleExportCritical = () => {
+        if (activeCriticalPatients.length === 0) {
+            alert("当前无活跃的危急值数据");
+            return;
+        }
+
+        const headers = ['姓名', '体检编号', '联系电话', '危急等级', '异常描述', '通知时间', '当前状态'];
+        const rows = activeCriticalPatients.map(arch => {
+            const track = arch.critical_track;
+            const warning = arch.assessment_data.criticalWarning || '未知异常';
+            const statusLabel = track?.status === 'pending_secondary' ? '待二次回访' : '待初次处理';
+            
+            return [
+                arch.name,
+                arch.checkup_id,
+                arch.phone ? `"${arch.phone}"` : '-',
+                track?.critical_level || (arch.risk_level === 'RED' ? 'A类' : 'B类'),
+                `"${(track?.critical_desc || warning).replace(/"/g, '""')}"`, // Escape quotes
+                track?.initial_notify_time || '未通知',
+                statusLabel
+            ].join(',');
+        });
+
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+        downloadCsv(csvContent, `危急值专项报告_${new Date().toISOString().split('T')[0]}.csv`);
+    };
+
+    const downloadCsv = (content: string, filename: string) => {
+        const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `健康档案导出_${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -294,9 +323,17 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                         <h3 className="text-red-800 font-bold flex items-center gap-2 text-lg">
                             🚨 危急值预警名单 (独立闭环管理)
                         </h3>
-                        <span className="text-xs bg-red-200 text-red-900 px-2 py-1 rounded-full font-bold">
-                            {activeCriticalPatients.length} 人待处理
-                        </span>
+                        <div className="flex items-center gap-3">
+                            <span className="text-xs bg-red-200 text-red-900 px-2 py-1 rounded-full font-bold">
+                                {activeCriticalPatients.length} 人待处理
+                            </span>
+                            <button 
+                                onClick={handleExportCritical}
+                                className="bg-white border border-red-300 text-red-700 px-3 py-1 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 shadow-sm"
+                            >
+                                📤 导出危急值报告
+                            </button>
+                        </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {activeCriticalPatients.map((arch) => {

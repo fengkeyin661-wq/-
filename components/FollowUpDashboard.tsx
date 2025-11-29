@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
-import { HealthArchive } from '../services/dataService'; // Import HealthArchive
+import { HealthArchive } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS } from '../services/geminiService';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface Props {
   records: FollowUpRecord[];
@@ -44,10 +46,22 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const [smsContent, setSmsContent] = useState('');
   const [isGeneratingSms, setIsGeneratingSms] = useState(false);
 
+  // State for Chart View
+  const [activeChart, setActiveChart] = useState<'bp' | 'metabolic' | 'lipids'>('bp');
+
   // 按照时间排序记录
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const latestRecord = sortedRecords.length > 0 ? sortedRecords[sortedRecords.length - 1] : null;
   
+  // Check if patient has followed up for > 1 year for Annual Report
+  const isEligibleForAnnualReport = sortedRecords.length >= 2 && (() => {
+      const start = new Date(sortedRecords[0].date);
+      const end = new Date(sortedRecords[sortedRecords.length - 1].date);
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays > 365;
+  })();
+
   // Identify the next pending scheduled item
   const nextScheduled = schedule.find(s => s.status === 'pending');
 
@@ -106,7 +120,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
     method: '电话',
     mainComplaint: '无',
     indicators: {
-      sbp: 0, dbp: 0, heartRate: 0, glucose: 0, glucoseType: '空腹', weight: 0
+      sbp: 0, dbp: 0, heartRate: 0, glucose: 0, glucoseType: '空腹', weight: 0,
+      tc: 0, tg: 0, ldl: 0, hdl: 0 // Initialize lipids
     },
     organRisks: {
       carotidPlaque: '无', carotidStatus: '无',
@@ -114,7 +129,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       lungNodule: '无', lungStatus: '无',
       otherFindings: '无', otherStatus: '无'
     },
-    medicalCompliance: [], // 新增
+    medicalCompliance: [], 
     medication: {
       currentDrugs: '', compliance: '规律服药', adverseReactions: '无'
     },
@@ -132,7 +147,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       referral: false,
       nextCheckPlan: '',
       lifestyleGoals: [],
-      doctorMessage: '' // Initialize doctorMessage
+      doctorMessage: '' 
     }
   };
 
@@ -211,11 +226,27 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setFormData(prev => ({ ...prev, medicalCompliance: newList }));
   };
 
+  // Remove Medical Compliance Item
+  const removeMedicalComplianceItem = (index: number) => {
+      if (!formData.medicalCompliance) return;
+      const newList = [...formData.medicalCompliance];
+      newList.splice(index, 1);
+      setFormData(prev => ({ ...prev, medicalCompliance: newList }));
+  };
+
   const updateTaskCompliance = (index: number, status: 'achieved' | 'partial' | 'failed') => {
       if (!formData.taskCompliance) return;
       const newTasks = [...formData.taskCompliance];
       newTasks[index].status = status;
       setFormData(prev => ({ ...prev, taskCompliance: newTasks }));
+  };
+  
+  // Remove Task Compliance Item
+  const removeTaskComplianceItem = (index: number) => {
+      if (!formData.taskCompliance) return;
+      const newList = [...formData.taskCompliance];
+      newList.splice(index, 1);
+      setFormData(prev => ({ ...prev, taskCompliance: newList }));
   };
 
   const handleSmartAnalyze = async () => {
@@ -255,7 +286,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handleSaveGuideEdit = () => {
       if (!latestRecord || !onUpdateData) return;
       
-      // 1. Prepare Updated Record
       const updatedRecord: FollowUpRecord = {
           ...latestRecord,
           assessment: {
@@ -267,12 +297,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
           }
       };
       
-      // 2. Prepare Updated Schedule
       let updatedSchedule = [...schedule];
       const pendingIndex = updatedSchedule.findIndex(s => s.status === 'pending');
       
       if (pendingIndex !== -1 && guideEditData.suggestedDate) {
-          // Update existing pending item
           updatedSchedule[pendingIndex] = {
               ...updatedSchedule[pendingIndex],
               date: guideEditData.suggestedDate
@@ -281,6 +309,114 @@ export const FollowUpDashboard: React.FC<Props> = ({
       
       onUpdateData(updatedRecord, updatedSchedule);
       setIsEditingGuide(false);
+  };
+
+  // --- Annual Report Generation Logic ---
+  const handleGenerateAnnualReport = () => {
+      if (sortedRecords.length < 2) return;
+      
+      const baseline = sortedRecords[0];
+      const current = sortedRecords[sortedRecords.length - 1];
+      
+      const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
+      if (!printWindow) return;
+
+      const calcDiff = (curr: number, base: number) => {
+          if (!curr || !base) return '-';
+          const diff = curr - base;
+          return diff > 0 ? `+${diff}` : `${diff}`;
+      };
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+        <head>
+            <meta charset="UTF-8">
+            <title>年度随访成效报告</title>
+            <style>
+                body { font-family: "PingFang SC", sans-serif; padding: 40px; color: #333; }
+                h1 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; }
+                .meta { text-align: center; margin-bottom: 40px; color: #666; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+                th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
+                th { background-color: #f8f9fa; color: #444; }
+                .highlight { color: #16a34a; font-weight: bold; }
+                .neg { color: #dc2626; }
+                .section-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-left: 5px solid #0d9488; padding-left: 10px; }
+            </style>
+        </head>
+        <body>
+            <h1>年度健康管理成效报告</h1>
+            <div class="meta">
+                受检者: ${currentPatientName} | 随访周期: ${baseline.date} 至 ${current.date}
+            </div>
+
+            <div class="section-title">核心指标变化对比</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>指标</th>
+                        <th>基线值 (${baseline.date})</th>
+                        <th>当前值 (${current.date})</th>
+                        <th>变化情况</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>收缩压 (mmHg)</td>
+                        <td>${baseline.indicators.sbp || '-'}</td>
+                        <td>${current.indicators.sbp || '-'}</td>
+                        <td class="${(current.indicators.sbp < baseline.indicators.sbp) ? 'highlight' : ''}">
+                            ${calcDiff(current.indicators.sbp, baseline.indicators.sbp)}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>舒张压 (mmHg)</td>
+                        <td>${baseline.indicators.dbp || '-'}</td>
+                        <td>${current.indicators.dbp || '-'}</td>
+                        <td class="${(current.indicators.dbp < baseline.indicators.dbp) ? 'highlight' : ''}">
+                            ${calcDiff(current.indicators.dbp, baseline.indicators.dbp)}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>体重 (kg)</td>
+                        <td>${baseline.indicators.weight || '-'}</td>
+                        <td>${current.indicators.weight || '-'}</td>
+                        <td class="${(current.indicators.weight < baseline.indicators.weight) ? 'highlight' : ''}">
+                            ${calcDiff(current.indicators.weight, baseline.indicators.weight)}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>空腹血糖 (mmol/L)</td>
+                        <td>${baseline.indicators.glucose || '-'}</td>
+                        <td>${current.indicators.glucose || '-'}</td>
+                        <td>${calcDiff(current.indicators.glucose, baseline.indicators.glucose)}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="section-title">管理成效评估</div>
+            <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; border: 1px solid #bbf7d0; margin-bottom: 30px;">
+                <p><strong>风险等级变化：</strong> 
+                    ${baseline.assessment.riskLevel} ➔ 
+                    <span style="font-weight:bold; font-size:1.2em;">${current.assessment.riskLevel}</span>
+                </p>
+                <p><strong>年度随访次数：</strong> ${sortedRecords.length} 次</p>
+                <p><strong>医生总评：</strong> ${current.assessment.doctorMessage || '患者依从性良好，核心指标控制稳定。'}</p>
+            </div>
+
+            <div class="section-title">下年度建议</div>
+            <ul>
+                ${(current.assessment.lifestyleGoals || ['继续保持当前健康生活方式']).map(g => `<li>${g}</li>`).join('')}
+            </ul>
+
+            <script>window.print();</script>
+        </body>
+        </html>
+      `;
+      
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
   };
 
   // --- Completely Standalone Print Window Logic ---
@@ -324,167 +460,37 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     font-size: 14px;
                     line-height: 1.6;
                 }
-                .container {
-                    max-width: 800px;
-                    margin: 0 auto;
-                }
+                .container { max-width: 800px; margin: 0 auto; }
                 h1, h2, h3, h4, p, ul { margin: 0; padding: 0; }
-                
-                /* Header */
-                .header {
-                    text-align: center;
-                    border-bottom: 2px solid #333;
-                    padding-bottom: 20px;
-                    margin-bottom: 30px;
-                }
-                .header h1 {
-                    font-size: 24px;
-                    font-weight: 800;
-                    margin-bottom: 5px;
-                    letter-spacing: 1px;
-                }
-                .header h2 {
-                    font-size: 18px;
-                    font-weight: bold;
-                    margin-bottom: 10px;
-                    color: #4b5563;
-                }
-                .meta-info {
-                    display: flex;
-                    justify-content: center;
-                    gap: 30px;
-                    color: #666;
-                    font-size: 13px;
-                }
-
-                /* Boxes */
-                .section-box {
-                    border-radius: 8px;
-                    padding: 20px;
-                    margin-bottom: 20px;
-                    border: 1px solid #e5e7eb;
-                }
+                .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
+                .header h1 { font-size: 24px; font-weight: 800; margin-bottom: 5px; }
+                .header h2 { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #4b5563; }
+                .meta-info { display: flex; justify-content: center; gap: 30px; color: #666; font-size: 13px; }
+                .section-box { border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 1px solid #e5e7eb; }
                 .box-blue { background-color: #eff6ff; border-color: #bfdbfe; }
                 .box-red { background-color: #fef2f2; border-color: #fecaca; }
                 .box-green { background-color: #f0fdf4; border-color: #bbf7d0; }
-
-                .box-title {
-                    font-size: 16px;
-                    font-weight: bold;
-                    margin-bottom: 12px;
-                    padding-bottom: 8px;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    border-bottom: 1px solid rgba(0,0,0,0.05);
-                }
+                .box-title { font-size: 16px; font-weight: bold; margin-bottom: 12px; padding-bottom: 8px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(0,0,0,0.05); }
                 .title-blue { color: #1e40af; border-color: #bfdbfe; }
                 .title-red { color: #991b1b; border-color: #fecaca; }
                 .title-green { color: #166534; border-color: #bbf7d0; }
-
-                /* Grid Layout for Plan */
-                .plan-grid {
-                    display: flex;
-                    gap: 30px;
-                    margin-bottom: 15px;
-                }
+                .plan-grid { display: flex; gap: 30px; margin-bottom: 15px; }
                 .plan-item { flex: 1; }
-                .label {
-                    display: block;
-                    font-size: 11px;
-                    text-transform: uppercase;
-                    color: #6b7280;
-                    margin-bottom: 4px;
-                }
-                .value {
-                    font-size: 18px;
-                    font-weight: bold;
-                    color: #111;
-                }
-                .risk-tag {
-                    font-weight: bold;
-                }
-
-                /* Text Content */
-                .content-text {
-                    font-size: 14px;
-                    color: #374151;
-                    white-space: pre-line;
-                }
-
-                /* List */
-                .goal-list {
-                    list-style: none;
-                }
-                .goal-item {
-                    margin-bottom: 8px;
-                    display: flex;
-                    align-items: flex-start;
-                    gap: 8px;
-                }
-                .check-icon {
-                    color: #16a34a;
-                    font-weight: bold;
-                }
-
-                /* Doctor Message */
-                .doctor-message {
-                    margin-top: 20px;
-                    padding-top: 15px;
-                    border-top: 1px dashed #bbf7d0;
-                }
-                .dm-title {
-                    font-size: 13px;
-                    font-weight: bold;
-                    color: #166534;
-                    margin-bottom: 6px;
-                }
-                .dm-content {
-                    font-style: italic;
-                    color: #4b5563;
-                }
-
-                /* Footer */
-                .footer {
-                    margin-top: 40px;
-                    border-top: 1px solid #e5e7eb;
-                    padding-top: 20px;
-                    display: flex;
-                    justify-content: space-between;
-                    font-size: 15px;
-                    font-weight: bold;
-                    margin-bottom: 20px;
-                }
-
-                .disclaimer-box {
-                    border-top: 2px solid #374151;
-                    padding-top: 15px;
-                    margin-top: 20px;
-                    text-align: center;
-                }
-                .disclaimer {
-                    font-weight: bold;
-                    font-size: 14px;
-                    color: #dc2626;
-                    margin-bottom: 8px;
-                }
-                .contact-info {
-                    font-size: 12px;
-                    color: #4b5563;
-                    display: flex;
-                    justify-content: center;
-                    gap: 15px;
-                    flex-wrap: wrap;
-                }
-                .contact-info span {
-                    display: inline-block;
-                }
-                
-                /* Print specific overrides */
-                @media print {
-                    body { padding: 0; }
-                    .section-box, .disclaimer-box { break-inside: avoid; }
-                }
+                .label { display: block; font-size: 11px; text-transform: uppercase; color: #6b7280; margin-bottom: 4px; }
+                .value { font-size: 18px; font-weight: bold; color: #111; }
+                .content-text { font-size: 14px; color: #374151; white-space: pre-line; }
+                .goal-list { list-style: none; }
+                .goal-item { margin-bottom: 8px; display: flex; align-items: flex-start; gap: 8px; }
+                .check-icon { color: #16a34a; font-weight: bold; }
+                .doctor-message { margin-top: 20px; padding-top: 15px; border-top: 1px dashed #bbf7d0; }
+                .dm-title { font-size: 13px; font-weight: bold; color: #166534; margin-bottom: 6px; }
+                .dm-content { font-style: italic; color: #4b5563; }
+                .footer { margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 20px; display: flex; justify-content: space-between; font-size: 15px; font-weight: bold; margin-bottom: 20px; }
+                .disclaimer-box { border-top: 2px solid #374151; padding-top: 15px; margin-top: 20px; text-align: center; }
+                .disclaimer { font-weight: bold; font-size: 14px; color: #dc2626; margin-bottom: 8px; }
+                .contact-info { font-size: 12px; color: #4b5563; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
+                .contact-info span { display: inline-block; }
+                @media print { body { padding: 0; } .section-box, .disclaimer-box { break-inside: avoid; } }
             </style>
         </head>
         <body>
@@ -498,7 +504,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     </div>
                 </div>
 
-                <!-- Plan Section -->
                 <div class="section-box box-blue">
                     <div class="box-title title-blue">📅 下次复查计划</div>
                     <div class="plan-grid">
@@ -519,18 +524,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     </div>
                 </div>
 
-                <!-- Risk Section -->
                 <div class="section-box box-red">
                     <div class="box-title title-red">⚠️ 风险警示与问题</div>
                     <div class="content-text">${latestRecord.assessment.majorIssues || "本次随访未发现重大新问题。"}</div>
                 </div>
 
-                <!-- Lifestyle & Message Section -->
                 <div class="section-box box-green">
                     <div class="box-title title-green">🏃 生活方式干预目标</div>
-                    
                     ${lifestyleGoalsList ? `<ul class="goal-list">${lifestyleGoalsList}</ul>` : '<p class="content-text">维持健康生活方式。</p>'}
-
                     <div class="doctor-message">
                         <div class="dm-title">医生寄语</div>
                         <div class="dm-content">"${docMessage}"</div>
@@ -551,27 +552,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     </div>
                 </div>
             </div>
-
-            <script>
-                window.onload = function() {
-                    setTimeout(function() {
-                        window.print();
-                    }, 500);
-                };
-            </script>
+            <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
         </body>
         </html>
       `;
 
-      // 4. Write to the new window
       printWindow.document.open();
       printWindow.document.write(htmlContent);
       printWindow.document.close();
-      
-      // 5. Focus to ensure print dialog appears on top
-      if (printWindow.focus) {
-          printWindow.focus();
-      }
+      if (printWindow.focus) printWindow.focus();
   };
 
   // --- SMS & Delay Logic ---
@@ -591,33 +580,37 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handleSendAndDelay = () => {
       if (!onUpdateData || !nextScheduled) return;
 
-      // 1. Calculate new date (Current + 1 Month)
       const currentDate = new Date(nextScheduled.date);
       currentDate.setMonth(currentDate.getMonth() + 1);
       const newDateStr = currentDate.toISOString().split('T')[0];
 
-      // 2. Update Schedule
       const updatedSchedule = schedule.map(s => 
           s.id === nextScheduled.id ? { ...s, date: newDateStr } : s
       );
 
-      // 3. Trigger Update (Pass null for record if we are only updating schedule)
-      // Note: App.tsx generic update might need adaptation if it expects non-null record.
-      // However, handleManualDataUpdate accepts updatedRecord and updatedSchedule. 
-      // If we pass 'latestRecord' as is, it effectively just updates the schedule.
       if (latestRecord) {
           onUpdateData(latestRecord, updatedSchedule);
           alert(`短信模拟发送成功！\n随访日期已自动延期至 ${newDateStr}`);
       } else {
-         // Edge case: No records yet, but scheduled?
          alert("无法更新：缺少基础记录");
       }
-      
       setShowSmsModal(false);
   };
 
+  // Chart Data Preparation
+  const chartData = sortedRecords.map(r => ({
+      date: r.date,
+      sbp: r.indicators.sbp,
+      dbp: r.indicators.dbp,
+      heartRate: r.indicators.heartRate || 0,
+      glucose: r.indicators.glucose,
+      weight: r.indicators.weight,
+      tc: r.indicators.tc || 0,
+      tg: r.indicators.tg || 0,
+      ldl: r.indicators.ldl || 0
+  }));
+
   return (
-    // Replaced space-y-8 with individual margins (mb-8) to avoid 'space-y' print layout issues where hidden top elements cause phantom margins.
     <div className="animate-fadeIn pb-10">
 
       {/* --- Global Reminder Alert Section --- */}
@@ -631,7 +624,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       {upcomingGlobalTasks.length} 个待办
                   </span>
               </div>
-              
               <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
                   {upcomingGlobalTasks.map((task, idx) => (
                       <div key={idx} className={`min-w-[240px] bg-white rounded-lg border p-4 shadow-sm flex flex-col justify-between ${task.archive.checkup_id === currentPatientId ? 'ring-2 ring-teal-500 border-teal-500' : 'border-slate-200'}`}>
@@ -640,7 +632,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   <div>
                                       <div className="font-bold text-slate-800">{task.archive.name}</div>
                                       <div className="text-xs text-slate-500">{task.archive.department}</div>
-                                      {/* Phone Number Display */}
                                       <div className="text-xs text-teal-700 font-mono mt-1 flex items-center gap-1 bg-teal-50 px-1.5 py-0.5 rounded w-fit">
                                           <span>📞</span> {task.archive.phone || '未留电话'}
                                       </div>
@@ -679,71 +670,128 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       )}
       
-      {/* 顶部：随访时间轴 */}
-      <div className="bg-white p-6 rounded-xl shadow border border-slate-100 mb-8">
-        <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2 justify-between">
-            <div className="flex items-center gap-2">
-                <span>📅</span> {assessment ? '当前人员随访路径' : '请先选择人员'}
-            </div>
-            {/* 无法联系按钮 */}
-            {assessment && nextScheduled && (
-                <button 
-                    onClick={handleGenerateSms}
-                    className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 font-bold flex items-center gap-1 shadow-sm transition-colors"
-                >
-                    <span>📱</span> 无法联系 / 延期提醒
-                </button>
-            )}
-        </h2>
-        
-        {!assessment ? (
-            <div className="text-center py-10 text-slate-400 border-2 border-dashed border-slate-200 rounded-lg">
-                <p>请从上方提醒卡片或管理控制台选择一位人员进行随访录入</p>
-            </div>
-        ) : (
-            <>
-                <div className="relative flex items-center justify-between px-4 md:px-12">
-                    <div className="absolute left-0 right-0 top-1/2 h-1 bg-slate-100 -z-10 transform -translate-y-1/2"></div>
-                    {sortedRecords.map((rec, idx) => (
-                        <div key={rec.id} className="flex flex-col items-center gap-2">
-                            <div className={`w-4 h-4 rounded-full border-2 border-white ring-2 ring-teal-500 bg-teal-500 z-10`}></div>
-                            <div className="text-xs text-slate-500 font-mono">{rec.date}</div>
-                            <div className="text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded">已完成</div>
-                        </div>
-                    ))}
-                    {nextScheduled ? (
-                        <div className="flex flex-col items-center gap-2 opacity-100">
-                            <div className="w-6 h-6 rounded-full border-4 border-white ring-2 ring-blue-500 bg-blue-500 animate-pulse z-10"></div>
-                            <div className="text-xs text-slate-900 font-bold font-mono">{nextScheduled.date}</div>
-                            <div className="text-xs font-bold text-white bg-blue-500 px-2 py-0.5 rounded shadow-lg shadow-blue-200">
-                                计划中
-                            </div>
-                            <div className="absolute mt-16 text-xs text-blue-600 w-32 text-center bg-blue-50 p-1 rounded border border-blue-100 truncate">
-                                重点: {nextScheduled.focusItems.join(', ')}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2">
-                            <div className="w-4 h-4 rounded-full bg-slate-300 z-10"></div>
-                            <div className="text-xs text-slate-400">待排期</div>
-                        </div>
-                    )}
-                    <div className="flex flex-col items-center gap-2 opacity-50">
-                        <div className="w-3 h-3 rounded-full bg-slate-300 z-10"></div>
-                        <div className="text-xs text-slate-400">未来</div>
-                    </div>
-                </div>
+      {/* 顶部：随访时间轴与图表区 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          {/* 左侧：趋势图 (New) */}
+          <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
+             <div className="flex justify-between items-center mb-4">
+                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <span>📈</span> 核心指标监测
+                 </h2>
+                 <div className="flex bg-slate-100 rounded-lg p-1">
+                     {[{id: 'bp', label: '血压/心率'}, {id: 'metabolic', label: '血糖/体重'}, {id: 'lipids', label: '血脂趋势'}].map(tab => (
+                         <button 
+                             key={tab.id}
+                             onClick={() => setActiveChart(tab.id as any)}
+                             className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeChart === tab.id ? 'bg-white shadow text-teal-700' : 'text-slate-500 hover:text-slate-700'}`}
+                         >
+                             {tab.label}
+                         </button>
+                     ))}
+                 </div>
+             </div>
+             
+             <div className="flex-1 w-full min-h-0">
+                 {chartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                            <XAxis dataKey="date" fontSize={12} stroke="#9ca3af" tickMargin={10} />
+                            <YAxis fontSize={12} stroke="#9ca3af" />
+                            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                            <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                            
+                            {activeChart === 'bp' && (
+                                <>
+                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} />
+                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} />
+                                    <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} />
+                                </>
+                            )}
+                            {activeChart === 'metabolic' && (
+                                <>
+                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} />
+                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+                                </>
+                            )}
+                            {activeChart === 'lipids' && (
+                                <>
+                                    <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} />
+                                    <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} />
+                                    <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} />
+                                </>
+                            )}
+                        </LineChart>
+                    </ResponsiveContainer>
+                 ) : (
+                     <div className="h-full flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg">
+                         暂无监测数据
+                     </div>
+                 )}
+             </div>
+          </div>
 
-                <div className="mt-12 flex justify-center">
+          {/* 右侧：时间轴 */}
+          <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
+            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 justify-between">
+                <div className="flex items-center gap-2">
+                    <span>📅</span> 随访路径
+                </div>
+                {/* 无法联系按钮 */}
+                {assessment && nextScheduled && (
+                    <button 
+                        onClick={handleGenerateSms}
+                        className="text-xs bg-red-50 text-red-600 border border-red-200 px-2 py-1 rounded hover:bg-red-100 font-bold flex items-center gap-1"
+                    >
+                        <span>📱</span> 延期
+                    </button>
+                )}
+            </h2>
+            
+            <div className="flex-1 overflow-y-auto pr-2 relative">
+                {!assessment ? (
+                    <div className="text-center py-10 text-slate-400">请选择人员</div>
+                ) : (
+                    <div className="space-y-6 pl-4 border-l-2 border-slate-100 ml-2">
+                         {sortedRecords.map((rec, idx) => (
+                            <div key={rec.id} className="relative">
+                                <div className="absolute -left-[23px] top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-teal-500 bg-teal-500"></div>
+                                <div className="text-xs text-slate-400 mb-1">{rec.date}</div>
+                                <div className="text-sm font-bold text-slate-700">已完成随访</div>
+                                <div className="text-xs text-slate-500 mt-1">方式: {rec.method}</div>
+                            </div>
+                         ))}
+                         {nextScheduled && (
+                            <div className="relative animate-pulse">
+                                <div className="absolute -left-[23px] top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-blue-500 bg-blue-500"></div>
+                                <div className="text-xs text-blue-600 font-bold mb-1">{nextScheduled.date}</div>
+                                <div className="text-sm font-bold text-slate-800">计划中</div>
+                                <div className="text-xs text-slate-500 mt-1 max-w-[150px] truncate">{nextScheduled.focusItems.join(', ')}</div>
+                            </div>
+                         )}
+                    </div>
+                )}
+            </div>
+
+            {assessment && (
+                <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
                     <button 
                         onClick={handleOpenSmartModal}
-                        className="bg-teal-600 hover:bg-teal-700 text-white px-8 py-3 rounded-full flex items-center gap-2 transition-all shadow-lg shadow-teal-200 font-bold transform hover:scale-105 active:scale-95"
+                        className="bg-teal-600 hover:bg-teal-700 text-white w-full py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-teal-100 font-bold transition-all"
                     >
-                        <span>📝</span> 录入本次随访记录 (AI辅助)
+                        <span>📝</span> 录入本次记录
                     </button>
+                    {isEligibleForAnnualReport && (
+                        <button 
+                            onClick={handleGenerateAnnualReport}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white w-full py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 font-bold transition-all"
+                        >
+                            <span>📜</span> 生成年度成效报告
+                        </button>
+                    )}
                 </div>
-            </>
-        )}
+            )}
+          </div>
       </div>
 
       {/* 底部：下阶段执行单 (可打印) */}
@@ -923,7 +971,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* 模态框：随访录入 (保持原有代码不变) */}
+      {/* 模态框：随访录入 (AI辅助) */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/60 flex justify-end z-50 backdrop-blur-sm transition-opacity">
             <div className="bg-white w-full max-w-2xl h-full shadow-2xl overflow-y-auto flex flex-col animate-slideInRight">
@@ -937,18 +985,26 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
                 <div className="p-6 space-y-8 flex-1">
                     
-                    {/* Section 1: 上期复查计划核对 (NEW) */}
+                    {/* Section 1: 上期复查计划核对 (NEW with Removal) */}
                     <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
                          <h4 className="flex items-center gap-2 font-bold text-yellow-800 mb-3">
-                             <span className="text-xl">📋</span> 上期复查重点核对
+                             <span className="text-xl">📋</span> 1. 上期复查重点核对
                          </h4>
                          <p className="text-xs text-yellow-700 mb-3">请确认是否完成了上次医嘱要求的复查项目：</p>
                          
                          {formData.medicalCompliance && formData.medicalCompliance.length > 0 ? (
                              <div className="space-y-3">
                                  {formData.medicalCompliance.map((item, idx) => (
-                                     <div key={idx} className="bg-white p-3 rounded border border-yellow-100 shadow-sm">
-                                         <div className="font-bold text-slate-800 mb-2">{item.item}</div>
+                                     <div key={idx} className="bg-white p-3 rounded border border-yellow-100 shadow-sm relative group">
+                                         {/* Remove Button */}
+                                         <button 
+                                             onClick={() => removeMedicalComplianceItem(idx)}
+                                             className="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs font-bold px-2 py-1"
+                                             title="移除此项"
+                                         >
+                                             🗑️
+                                         </button>
+                                         <div className="font-bold text-slate-800 mb-2 pr-6">{item.item}</div>
                                          <div className="flex flex-col gap-2">
                                              <div className="flex gap-4 text-sm">
                                                  <label className="flex items-center gap-1 cursor-pointer">
@@ -985,7 +1041,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                          )}
                     </section>
 
-                    {/* Section 2: 核心指标 */}
+                    {/* Section 2: 核心指标 (Updated with Lipids) */}
                     <section>
                          <h4 className="flex items-center gap-2 font-bold text-slate-800 mb-4 border-b pb-2">
                              <span className="bg-blue-100 text-blue-600 px-2 rounded text-sm">2</span> 核心指标监测
@@ -1000,6 +1056,34 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                      value={formData.indicators.dbp || ''} onChange={e => updateForm('indicators', 'dbp', Number(e.target.value))} />
                              </div>
                          </div>
+                         
+                         {/* Lipids Input Grid */}
+                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4">
+                             <label className="block text-sm font-bold text-slate-700 mb-2">血脂四项 (mmol/L)</label>
+                             <div className="grid grid-cols-2 gap-3">
+                                 <div>
+                                     <span className="text-xs text-slate-500">总胆固醇 (TC)</span>
+                                     <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-1.5"
+                                         value={formData.indicators.tc || ''} onChange={e => updateForm('indicators', 'tc', Number(e.target.value))} />
+                                 </div>
+                                 <div>
+                                     <span className="text-xs text-slate-500">甘油三酯 (TG)</span>
+                                     <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-1.5"
+                                         value={formData.indicators.tg || ''} onChange={e => updateForm('indicators', 'tg', Number(e.target.value))} />
+                                 </div>
+                                 <div>
+                                     <span className="text-xs text-slate-500">LDL-C</span>
+                                     <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-1.5"
+                                         value={formData.indicators.ldl || ''} onChange={e => updateForm('indicators', 'ldl', Number(e.target.value))} />
+                                 </div>
+                                 <div>
+                                     <span className="text-xs text-slate-500">HDL-C</span>
+                                     <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-1.5"
+                                         value={formData.indicators.hdl || ''} onChange={e => updateForm('indicators', 'hdl', Number(e.target.value))} />
+                                 </div>
+                             </div>
+                         </div>
+
                          <div className="grid grid-cols-2 gap-4">
                              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                                 <label className="block text-sm font-bold text-slate-700 mb-2">血糖</label>
@@ -1021,7 +1105,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                          </div>
                     </section>
 
-                    {/* Section 3: 方案执行度清单 */}
+                    {/* Section 3: 方案执行度清单 (with Removal) */}
                     <section>
                         <h4 className="flex items-center gap-2 font-bold text-slate-800 mb-4 border-b pb-2">
                              <span className="bg-indigo-100 text-indigo-600 px-2 rounded text-sm">3</span> 生活方式执行核对
@@ -1029,8 +1113,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                         {formData.taskCompliance && formData.taskCompliance.length > 0 ? (
                             <div className="space-y-3">
                                 {formData.taskCompliance.map((task, idx) => (
-                                    <div key={idx} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
-                                        <div className="flex-1">
+                                    <div key={idx} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg shadow-sm relative group">
+                                        <button 
+                                             onClick={() => removeTaskComplianceItem(idx)}
+                                             className="absolute top-1 right-1 text-slate-300 hover:text-red-500 text-xs font-bold px-2 py-1"
+                                             title="移除此项"
+                                         >
+                                             🗑️
+                                         </button>
+                                        <div className="flex-1 pr-6">
                                             <p className="font-bold text-slate-800 text-sm">{task.description}</p>
                                         </div>
                                         <div className="flex gap-1">
