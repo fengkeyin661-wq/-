@@ -1,3 +1,4 @@
+
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
 
 // DeepSeek API Configuration
@@ -237,6 +238,7 @@ export const analyzeFollowUpRecord = async (
   ): Promise<{
       riskLevel: RiskLevel;
       riskJustification: string;
+      doctorMessage: string;
       majorIssues: string;
       nextCheckPlan: string;
       lifestyleGoals: string[];
@@ -249,14 +251,14 @@ export const analyzeFollowUpRecord = async (
       1. 核心指标(血压/血糖)是否达标。
       2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(not_checked)或结果异常(checked_abnormal)，请在风险理由和主要问题中重点警告。
       3. 区分【临床风险理由 riskJustification】和【医生寄语 doctorMessage】。
-         - riskJustification: 专业、客观的风险分析（供医生看）。
-         - doctorMessage: 温暖、鼓励性、通俗易懂的行动呼吁（供患者看）。
+         - riskJustification: 专业、客观的风险分析（供医生看）。包括指标异常、依从性评价、风险升降理由。
+         - doctorMessage: 温暖、鼓励性、通俗易懂的行动呼吁（供患者看）。基于分析结果，给出针对性的建议和鼓励。
       
       输出 JSON:
       {
         "riskLevel": "RED" | "YELLOW" | "GREEN",
-        "riskJustification": "临床风险分析(中文)",
-        "doctorMessage": "医生寄语(中文, 针对患者)",
+        "riskJustification": "临床风险分析(中文, 供医生参考)",
+        "doctorMessage": "医生寄语(中文, 针对患者, 温暖鼓励且有针对性)",
         "majorIssues": "主要问题(中文)",
         "nextCheckPlan": "下次复查计划(中文, 包含具体项目和建议时间)",
         "lifestyleGoals": ["生活方式目标(中文)"]
@@ -269,12 +271,11 @@ export const analyzeFollowUpRecord = async (
       上次记录: ${JSON.stringify(latestRecord)}
       `;
       
-      // 注意：callDeepSeek 返回的 JSON 中会有 doctorMessage，但 analyzeFollowUpRecord 的返回类型在 types.ts 中需要定义
-      // 这里我们先返回原始对象，调用方 (FollowUpDashboard) 会处理
       const result = await callDeepSeek(systemPrompt, userContent);
       return {
           riskLevel: result.riskLevel,
-          riskJustification: result.doctorMessage || result.riskJustification, // 为了兼容旧代码接口，这里暂时混用，但在 UI 层我们会分离
+          riskJustification: result.riskJustification,
+          doctorMessage: result.doctorMessage,
           majorIssues: result.majorIssues,
           nextCheckPlan: result.nextCheckPlan,
           lifestyleGoals: result.lifestyleGoals
