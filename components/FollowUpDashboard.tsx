@@ -141,6 +141,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       psychology: '平稳', stress: '低'
     },
     taskCompliance: [],
+    otherInfo: '', // 新增：其他有效信息
     assessment: {
       riskLevel: RiskLevel.GREEN,
       riskJustification: '',
@@ -160,7 +161,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
       // 简单分词逻辑：按逗号、顿号、分号或换行分割
       return text.split(/[，,、;；\n]/)
                  .map(s => s.trim())
-                 .filter(s => s.length > 1 && !s.includes('建议') && !s.includes('复查'));
+                 // 移除常见的非项目词汇，如“建议”、“定期”、“复查”、“监测”、“评估”等
+                 .map(s => s.replace(/建议|定期|复查|监测|检查|评估|关注|前往|专科|就诊|完善/g, ''))
+                 .map(s => s.trim())
+                 .filter(s => s.length > 1);
   };
 
   // 智能预填充表单
@@ -598,17 +602,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setShowSmsModal(false);
   };
 
-  // Chart Data Preparation
+  // Chart Data Preparation: Map 0 values to undefined for better plotting
   const chartData = sortedRecords.map(r => ({
       date: r.date,
-      sbp: r.indicators.sbp,
-      dbp: r.indicators.dbp,
-      heartRate: r.indicators.heartRate || 0,
-      glucose: r.indicators.glucose,
-      weight: r.indicators.weight,
-      tc: r.indicators.tc || 0,
-      tg: r.indicators.tg || 0,
-      ldl: r.indicators.ldl || 0
+      sbp: r.indicators.sbp || undefined,
+      dbp: r.indicators.dbp || undefined,
+      heartRate: r.indicators.heartRate || undefined,
+      glucose: r.indicators.glucose || undefined,
+      weight: r.indicators.weight || undefined,
+      tc: r.indicators.tc || undefined,
+      tg: r.indicators.tg || undefined,
+      ldl: r.indicators.ldl || undefined
   }));
 
   return (
@@ -750,22 +754,22 @@ export const FollowUpDashboard: React.FC<Props> = ({
                             
                             {activeChart === 'bp' && (
                                 <>
-                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} />
-                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} />
-                                    <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} />
+                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
                                 </>
                             )}
                             {activeChart === 'metabolic' && (
                                 <>
-                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} />
-                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
+                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} connectNulls />
                                 </>
                             )}
                             {activeChart === 'lipids' && (
                                 <>
-                                    <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} />
-                                    <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} />
-                                    <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} />
+                                    <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} connectNulls />
+                                    <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} connectNulls />
+                                    <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} connectNulls />
                                 </>
                             )}
                         </LineChart>
@@ -1018,7 +1022,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* 模态框：随访录入 (AI辅助) */}
+      {/* 模态框：随访录入 (AI辅助模式) */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/60 flex justify-end z-50 backdrop-blur-sm transition-opacity">
             <div className="bg-white w-full max-w-2xl h-full shadow-2xl overflow-y-auto flex flex-col animate-slideInRight">
@@ -1032,7 +1036,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
                 <div className="p-6 space-y-8 flex-1">
                     
-                    {/* Section 1: 上期复查计划核对 (NEW with Removal) */}
+                    {/* Section 1: 上期复查计划核对 (with Removal) */}
                     <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
                          <h4 className="flex items-center gap-2 font-bold text-yellow-800 mb-3">
                              <span className="text-xl">📋</span> 1. 上期复查重点核对
@@ -1186,8 +1190,21 @@ export const FollowUpDashboard: React.FC<Props> = ({
                             </div>
                         ) : <p className="text-slate-400 text-sm italic">无具体生活方式任务</p>}
                     </section>
+
+                    {/* New Section: 其他有效信息 */}
+                    <section>
+                         <h4 className="flex items-center gap-2 font-bold text-slate-800 mb-2 border-b pb-2">
+                             <span className="bg-slate-100 text-slate-600 px-2 rounded text-sm">4</span> 其他情况备注
+                         </h4>
+                         <textarea 
+                             className="w-full border border-slate-300 rounded p-3 text-sm focus:ring-1 focus:ring-teal-500 h-24"
+                             placeholder="请输入其他有效信息，例如患者主诉的新症状、外院检查结果补充等..."
+                             value={formData.otherInfo || ''}
+                             onChange={e => updateForm('otherInfo', '', e.target.value)}
+                         />
+                    </section>
                     
-                    {/* Section 4: AI 分析 */}
+                    {/* Section 5: AI 分析 */}
                     <section className="bg-gradient-to-br from-slate-50 to-slate-100 p-4 rounded-lg border border-slate-200">
                          <div className="flex justify-between items-center mb-4">
                             <h4 className="text-sm font-bold text-slate-800">随访评估报告 (AI 生成)</h4>

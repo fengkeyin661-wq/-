@@ -301,6 +301,8 @@ export interface FollowUpRecord {
       status: 'achieved' | 'partial' | 'failed';
       note?: string;
   }[];
+  
+  otherInfo?: string; // 新增：其他有效信息
 
   assessment: {
     riskLevel: RiskLevel;

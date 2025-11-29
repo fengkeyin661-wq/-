@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { HealthAssessment, RiskLevel } from '../types';
+import { HealthAssessment, RiskLevel, HealthProfile } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface Props {
   assessment: HealthAssessment;
   patientName?: string;
+  profile?: HealthProfile;
   onSave?: (newAssessment: HealthAssessment) => void;
   onReevaluate?: () => void; // New prop for re-evaluation navigation
 }
@@ -16,7 +17,7 @@ const COLORS = {
   [RiskLevel.RED]: '#ef4444',
 };
 
-export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onSave, onReevaluate }) => {
+export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, profile, onSave, onReevaluate }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
 
@@ -63,6 +64,11 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
               ⚠️ 危急值警示：${editData.criticalWarning || '存在严重异常指标，请立即处理！'}
           </div>
       ` : '';
+
+      const pName = profile?.name || patientName || '未命名';
+      const pGender = profile?.gender || '';
+      const pAge = profile?.age ? `${profile.age}岁` : '';
+      const pDept = profile?.department || '';
 
       const htmlContent = `
         <!DOCTYPE html>
@@ -228,7 +234,8 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
                     <h1>郑州大学医院健康管理中心</h1>
                     <h2>健康风险评估报告</h2>
                     <div class="meta-row">
-                        <span>受检人: <strong>${patientName || '未命名'}</strong></span>
+                        <span>受检人: <strong>${pName}</strong> ${pGender} ${pAge}</span>
+                        <span>部门: ${pDept}</span>
                         <span>评估日期: ${new Date().toLocaleDateString()}</span>
                     </div>
                 </div>
@@ -381,6 +388,51 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, onS
              </>
          )}
       </div>
+      
+      {/* NEW: Patient Profile Card (Screen Only) */}
+      {profile && (
+        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
+             <div className="flex items-center gap-4 w-full md:w-auto">
+                <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200 shrink-0">
+                    {profile.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
+                </div>
+                <div>
+                    <div className="flex items-center gap-3 flex-wrap">
+                        <h2 className="text-2xl font-bold text-slate-800">{profile.name}</h2>
+                        <span className={`px-2 py-0.5 text-xs rounded-full border font-bold ${
+                            editData.riskLevel === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                            editData.riskLevel === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
+                            'bg-green-50 text-green-600 border-green-200'
+                        }`}>
+                            {editData.riskLevel === 'RED' ? '高风险' : editData.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                        </span>
+                    </div>
+                    <div className="text-sm text-slate-500 mt-1 flex gap-3 items-center">
+                        <span>{profile.gender || '未知'}</span>
+                        <span className="w-px h-3 bg-slate-300"></span>
+                        <span>{profile.age ? `${profile.age}岁` : '年龄未知'}</span>
+                        <span className="w-px h-3 bg-slate-300"></span>
+                        <span className="font-mono text-slate-400">{profile.checkupId}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm w-full md:w-auto mt-2 md:mt-0 bg-slate-50 p-3 rounded-lg border border-slate-100 md:bg-transparent md:border-0 md:p-0">
+                <div>
+                    <span className="block text-xs text-slate-400 uppercase">部门/单位</span>
+                    <span className="font-medium text-slate-700">{profile.department || '-'}</span>
+                </div>
+                <div>
+                    <span className="block text-xs text-slate-400 uppercase">联系电话</span>
+                    <span className="font-medium text-slate-700 font-mono">{profile.phone || '-'}</span>
+                </div>
+                <div>
+                    <span className="block text-xs text-slate-400 uppercase">体检日期</span>
+                    <span className="font-medium text-slate-700">{profile.checkupDate || '-'}</span>
+                </div>
+            </div>
+        </div>
+      )}
 
       <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-8">
           <h1 className="text-3xl font-bold">健康风险评估报告</h1>
