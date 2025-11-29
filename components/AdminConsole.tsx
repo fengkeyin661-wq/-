@@ -4,6 +4,7 @@ import { processBatchUpload, fetchArchives, deleteArchive, updateArchiveProfile,
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { HealthProfile, CriticalTrackRecord } from '../types';
 import { CriticalHandleModal } from './CriticalHandleModal';
+import { HospitalHeatmap } from './HospitalHeatmap'; // Import Heatmap
 
 interface Props {
     onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup') => void;
@@ -29,6 +30,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     // Critical Modal State
     const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
+
+    // Heatmap State
+    const [showHeatmap, setShowHeatmap] = useState(false);
 
     const configured = isSupabaseConfigured();
 
@@ -219,6 +223,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     )}
                 </div>
                 <div className="flex gap-2">
+                     <button onClick={() => setShowHeatmap(true)} className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-xs font-bold text-white flex items-center gap-1 transition-colors shadow-sm">
+                        📊 医疗业务热力图
+                     </button>
                      <button onClick={loadData} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-bold text-slate-600 flex items-center gap-1 transition-colors">
                         🔄 刷新数据
                      </button>
@@ -549,6 +556,14 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                     archive={criticalModalArchive}
                     onClose={() => setCriticalModalArchive(null)}
                     onSave={handleCriticalSave}
+                />
+            )}
+
+            {/* Hospital Heatmap Modal */}
+            {showHeatmap && (
+                <HospitalHeatmap 
+                    archives={archives}
+                    onClose={() => setShowHeatmap(false)}
                 />
             )}
         </div>

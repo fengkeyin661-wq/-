@@ -327,3 +327,12 @@ export interface CriticalTrackRecord {
     secondary_notify_time?: string; // 实际回访时间
     secondary_feedback?: string; // 回访结果
 }
+
+// --- 7. 医疗业务热力图数据 ---
+export interface DepartmentAnalytics {
+    departmentName: string; // e.g. "心血管内科"
+    patientCount: number;   // 关联的潜在患者数
+    riskLevel: 'HIGH' | 'MEDIUM' | 'LOW'; // 业务需求等级
+    suggestedServices: string[]; // 建议开展的业务, e.g. ["24小时动态血压", "冠脉CT"]
+    keyConditions: string[]; // 主要关联病种, e.g. ["高血压3级", "心律失常"]
+}

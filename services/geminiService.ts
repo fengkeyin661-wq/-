@@ -1,5 +1,5 @@
 
-import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
+import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 
 // DeepSeek API Configuration
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
@@ -337,4 +337,34 @@ export const generateFollowUpSMS = async (
     const userContent = `患者姓名: ${patientName}, 医生: ${doctorName}, 医院: ${hospitalName}`;
     
     return await callDeepSeek(systemPrompt, userContent, true);
+};
+
+/**
+ * 6. 生成全院医疗服务热力图分析
+ */
+export const generateHospitalBusinessAnalysis = async (
+    aggregatedIssues: { [key: string]: number }
+): Promise<DepartmentAnalytics[]> => {
+    const systemPrompt = `
+    你是一名医院运营管理专家。我将提供全院体检人员的异常检出项统计汇总（Issue: Count）。
+    请分析这些数据，将其映射到医院的具体临床科室，并为每个科室建议“待开展的诊疗业务”（Specific Medical Services），以帮助医院提高临床业务转化率。
+    
+    目标科室范围（可根据数据扩展）：心血管内科、神经内科、内分泌科、妇科、口腔科、耳鼻喉科、眼科、体重管理科、理疗康复科、实验室、彩超室、放射科等。
+    
+    输出格式为 JSON 数组:
+    [
+      {
+        "departmentName": "科室名称",
+        "patientCount": 数字(基于关联异常项的总人数估算),
+        "riskLevel": "HIGH"(高需求)/"MEDIUM"/"LOW",
+        "keyConditions": ["关联的主要异常项1", "异常项2"],
+        "suggestedServices": ["建议开展业务1 (如: 动态血压监测)", "业务2 (如: 冠脉CT血管成像)"]
+      }
+    ]
+    `;
+
+    const userContent = `全院异常项统计汇总: ${JSON.stringify(aggregatedIssues)}`;
+
+    const result = await callDeepSeek(systemPrompt, userContent, true);
+    return result.departments || result; // Handle potential wrapper object if AI adds one
 };
