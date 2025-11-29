@@ -1,4 +1,3 @@
-
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
 
 // DeepSeek API Configuration
@@ -16,23 +15,16 @@ const getEnvVar = (key: string): string => {
   // 2. Try Vite's import.meta.env with safe checks
   try {
     // @ts-ignore
-    if (typeof import.meta !== 'undefined') {
-      // @ts-ignore
-      const meta = import.meta;
-      // @ts-ignore
-      if (meta.env) {
-        // @ts-ignore
-        const env = meta.env;
-        // Explicitly check known keys to support bundler string replacement (Vite)
-        if (key === 'VITE_DEEPSEEK_API_KEY') {
-            // @ts-ignore
-            return env.VITE_DEEPSEEK_API_KEY || '';
-        }
-        
-        // Fallback for other keys
-        // @ts-ignore
-        return env[key] || '';
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // Explicitly check known keys to support bundler string replacement (Vite)
+      if (key === 'VITE_DEEPSEEK_API_KEY') {
+          // @ts-ignore
+          return import.meta.env.VITE_DEEPSEEK_API_KEY || '';
       }
+      
+      // Fallback for other keys
+      // @ts-ignore
+      return import.meta.env[key] || '';
     }
   } catch (e) {}
 
@@ -238,7 +230,6 @@ export const analyzeFollowUpRecord = async (
   ): Promise<{
       riskLevel: RiskLevel;
       riskJustification: string;
-      doctorMessage: string;
       majorIssues: string;
       nextCheckPlan: string;
       lifestyleGoals: string[];
@@ -250,17 +241,13 @@ export const analyzeFollowUpRecord = async (
       重点关注:
       1. 核心指标(血压/血糖)是否达标。
       2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(not_checked)或结果异常(checked_abnormal)，请在风险理由和主要问题中重点警告。
-      3. 区分【临床风险理由 riskJustification】和【医生寄语 doctorMessage】。
-         - riskJustification: 专业、客观的风险分析（供医生看）。包括指标异常、依从性评价、风险升降理由。
-         - doctorMessage: 温暖、鼓励性、通俗易懂的行动呼吁（供患者看）。基于分析结果，给出针对性的建议和鼓励。
       
       输出 JSON:
       {
         "riskLevel": "RED" | "YELLOW" | "GREEN",
-        "riskJustification": "临床风险分析(中文, 供医生参考)",
-        "doctorMessage": "医生寄语(中文, 针对患者, 温暖鼓励且有针对性)",
+        "riskJustification": "风险判定理由(中文)",
         "majorIssues": "主要问题(中文)",
-        "nextCheckPlan": "下次复查计划(中文, 包含具体项目和建议时间)",
+        "nextCheckPlan": "下次复查计划(中文)",
         "lifestyleGoals": ["生活方式目标(中文)"]
       }
       `;
@@ -271,13 +258,5 @@ export const analyzeFollowUpRecord = async (
       上次记录: ${JSON.stringify(latestRecord)}
       `;
       
-      const result = await callDeepSeek(systemPrompt, userContent);
-      return {
-          riskLevel: result.riskLevel,
-          riskJustification: result.riskJustification,
-          doctorMessage: result.doctorMessage,
-          majorIssues: result.majorIssues,
-          nextCheckPlan: result.nextCheckPlan,
-          lifestyleGoals: result.lifestyleGoals
-      };
+      return await callDeepSeek(systemPrompt, userContent);
   };

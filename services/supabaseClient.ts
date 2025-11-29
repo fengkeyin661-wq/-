@@ -10,24 +10,17 @@ const getEnvVar = (key: string): string => {
 
   try {
     // @ts-ignore
-    if (typeof import.meta !== 'undefined') {
-      // @ts-ignore
-      const meta = import.meta;
-      // @ts-ignore
-      if (meta.env) {
-         // @ts-ignore
-         const env = meta.env;
-         if (key === 'VITE_SUPABASE_URL') {
-             // @ts-ignore
-             return env.VITE_SUPABASE_URL || '';
-         }
-         if (key === 'VITE_SUPABASE_KEY') {
-             // @ts-ignore
-             return env.VITE_SUPABASE_KEY || '';
-         }
-         // @ts-ignore
-         return env[key] || '';
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      if (key === 'VITE_SUPABASE_URL') {
+          // @ts-ignore
+          return import.meta.env.VITE_SUPABASE_URL || '';
       }
+      if (key === 'VITE_SUPABASE_KEY') {
+          // @ts-ignore
+          return import.meta.env.VITE_SUPABASE_KEY || '';
+      }
+      // @ts-ignore
+      return import.meta.env[key] || '';
     }
   } catch (e) {}
 
@@ -37,7 +30,7 @@ const getEnvVar = (key: string): string => {
 const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
 const supabaseKey = getEnvVar('VITE_SUPABASE_KEY');
 
-// Log config status for debugging
+// Log config status for debugging (don't log the actual key in production ideally, but helpful here)
 console.log(`[Supabase Config] URL found: ${!!supabaseUrl}, Key found: ${!!supabaseKey}`);
 
 export const supabase = createClient(
@@ -46,6 +39,7 @@ export const supabase = createClient(
 );
 
 export const isSupabaseConfigured = () => {
+    // More lenient check: just ensure variables exist and have some length
     return !!supabaseUrl && 
            !!supabaseKey && 
            supabaseUrl.length > 10 && 

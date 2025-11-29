@@ -297,8 +297,7 @@ export interface FollowUpRecord {
 
   assessment: {
     riskLevel: RiskLevel;
-    riskJustification: string; // 临床风险理由 (医用)
-    doctorMessage?: string;   // 医生寄语 (患用) - 新增
+    riskJustification: string;
     majorIssues: string;
     referral: boolean;
     nextCheckPlan: string;
