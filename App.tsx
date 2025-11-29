@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -123,13 +122,17 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle Editing an existing Follow-up Record (e.g. tweaking the guide)
-  const handleUpdateFollowUpRecord = async (updatedRecord: FollowUpRecord) => {
+  // Handle Manual Data Update (Edit Record + Schedule)
+  const handleManualDataUpdate = async (updatedRecord: FollowUpRecord, updatedSchedule: ScheduledFollowUp[]) => {
+      // Update FollowUps
       const updatedFollowUps = followUps.map(r => r.id === updatedRecord.id ? updatedRecord : r);
       setFollowUps(updatedFollowUps);
       
+      // Update Schedule
+      setSchedule(updatedSchedule);
+
       if (healthRecord?.profile.checkupId) {
-          await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, schedule);
+          await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
           await refreshArchives();
       }
   };
@@ -198,7 +201,7 @@ const App: React.FC = () => {
             assessment={assessment} 
             schedule={schedule} 
             onAddRecord={handleAddFollowUp}
-            onUpdateRecord={handleUpdateFollowUpRecord}
+            onUpdateData={handleManualDataUpdate}
             allArchives={archives}
             onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
             currentPatientId={healthRecord?.profile.checkupId}

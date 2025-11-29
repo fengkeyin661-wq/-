@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; // Import HealthArchive
@@ -13,8 +12,8 @@ interface Props {
   allArchives?: HealthArchive[]; 
   onPatientChange?: (archive: HealthArchive) => void;
   currentPatientId?: string;
-  // New prop for updating existing record
-  onUpdateRecord?: (record: FollowUpRecord) => void;
+  // Updated prop for generic data update (Record + Schedule)
+  onUpdateData?: (record: FollowUpRecord, schedule: ScheduledFollowUp[]) => void;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -25,7 +24,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     allArchives = [], 
     onPatientChange, 
     currentPatientId,
-    onUpdateRecord
+    onUpdateData
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -36,12 +35,16 @@ export const FollowUpDashboard: React.FC<Props> = ({
       plan: string;
       issues: string;
       goals: string;
-      message: string; // Used for Doctor Message
-  }>({ plan: '', issues: '', goals: '', message: '' });
+      message: string; 
+      suggestedDate: string; // New field for date editing
+  }>({ plan: '', issues: '', goals: '', message: '', suggestedDate: '' });
 
   // 按照时间排序记录
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   const latestRecord = sortedRecords.length > 0 ? sortedRecords[sortedRecords.length - 1] : null;
+  
+  // Identify the next pending scheduled item
+  const nextScheduled = schedule.find(s => s.status === 'pending');
 
   useEffect(() => {
       if (latestRecord) {
@@ -49,11 +52,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
               plan: latestRecord.assessment.nextCheckPlan || '',
               issues: latestRecord.assessment.majorIssues || '',
               goals: latestRecord.assessment.lifestyleGoals?.join('\n') || '',
-              // 优先使用 doctorMessage，如果是旧数据则回退到 riskJustification
-              message: latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || ''
+              message: latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '',
+              suggestedDate: nextScheduled ? nextScheduled.date : '' // Init with scheduled date
           });
       }
-  }, [latestRecord]);
+  }, [latestRecord, schedule, nextScheduled]);
 
   // --- Global Upcoming Reminders Logic (Next 7 Days) ---
   const getGlobalUpcomingTasks = () => {
@@ -216,7 +219,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 ...prev.assessment,
                 riskLevel: result.riskLevel,
                 riskJustification: result.riskJustification,
-                doctorMessage: result.doctorMessage, // Capture Doctor Message
+                doctorMessage: result.doctorMessage, 
                 majorIssues: result.majorIssues,
                 nextCheckPlan: result.nextCheckPlan,
                 lifestyleGoals: result.lifestyleGoals
@@ -235,8 +238,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
 
   const handleSaveGuideEdit = () => {
-      if (!latestRecord || !onUpdateRecord) return;
+      if (!latestRecord || !onUpdateData) return;
       
+      // 1. Prepare Updated Record
       const updatedRecord: FollowUpRecord = {
           ...latestRecord,
           assessment: {
@@ -244,16 +248,30 @@ export const FollowUpDashboard: React.FC<Props> = ({
               nextCheckPlan: guideEditData.plan,
               majorIssues: guideEditData.issues,
               lifestyleGoals: guideEditData.goals.split('\n').filter(s => s.trim() !== ''),
-              doctorMessage: guideEditData.message // Save message to doctorMessage
+              doctorMessage: guideEditData.message
           }
       };
       
-      onUpdateRecord(updatedRecord);
+      // 2. Prepare Updated Schedule
+      let updatedSchedule = [...schedule];
+      const pendingIndex = updatedSchedule.findIndex(s => s.status === 'pending');
+      
+      if (pendingIndex !== -1 && guideEditData.suggestedDate) {
+          // Update existing pending item
+          updatedSchedule[pendingIndex] = {
+              ...updatedSchedule[pendingIndex],
+              date: guideEditData.suggestedDate
+          };
+      } else if (guideEditData.suggestedDate) {
+          // If no pending item found but date is provided (edge case), could create new, 
+          // but for safety, we just don't update schedule if not found to avoid dupes.
+          // This ensures we only modify if there is a plan to modify.
+      }
+      
+      onUpdateData(updatedRecord, updatedSchedule);
       setIsEditingGuide(false);
   };
 
-  const nextScheduled = schedule.find(s => s.status === 'pending');
-  
   // --- Completely Standalone Print Window Logic ---
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
@@ -662,7 +680,16 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           <div className="grid grid-cols-2 gap-4 mb-4">
                               <div>
                                   <span className="text-xs text-slate-500 block uppercase">建议时间</span>
-                                  <span className="text-xl font-bold text-slate-800">{nextScheduled?.date || "待定"}</span>
+                                  {isEditingGuide ? (
+                                      <input 
+                                          type="date"
+                                          className="text-lg font-bold text-slate-800 bg-white border border-blue-300 rounded px-2 py-1 w-full"
+                                          value={guideEditData.suggestedDate}
+                                          onChange={e => setGuideEditData({...guideEditData, suggestedDate: e.target.value})}
+                                      />
+                                  ) : (
+                                      <span className="text-xl font-bold text-slate-800">{nextScheduled?.date || "待定"}</span>
+                                  )}
                               </div>
                               <div>
                                   <span className="text-xs text-slate-500 block uppercase">当前风险</span>
