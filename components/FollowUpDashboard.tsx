@@ -65,17 +65,44 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // Identify the next pending scheduled item
   const nextScheduled = schedule.find(s => s.status === 'pending');
 
+  // --- Dynamic Data Calculation (Prioritize Assessment > Latest Record) ---
+  const activeRiskLevel = assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || RiskLevel.GREEN);
+  
+  const activePlanText = assessment 
+      ? assessment.followUpPlan.nextCheckItems.join('、') 
+      : (latestRecord?.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。");
+
+  const activeIssues = assessment
+      ? (
+          (assessment.isCritical ? `【危急值】${assessment.criticalWarning}\n` : '') + 
+          (assessment.risks.red.length > 0 ? `🔴 高危: ${assessment.risks.red.join('；')}\n` : '') +
+          (assessment.risks.yellow.length > 0 ? `🟡 中危: ${assessment.risks.yellow.join('；')}` : '') 
+        ) || assessment.summary || "暂无重大风险"
+      : (latestRecord?.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。");
+
+  const activeGoals: string[] = assessment
+      ? (assessment.structuredTasks?.map(t => t.description) || [
+          ...assessment.managementPlan.dietary.slice(0, 3),
+          ...assessment.managementPlan.exercise.slice(0, 3)
+        ])
+      : (latestRecord?.assessment.lifestyleGoals || []);
+
+  const activeMessage = assessment
+      ? (assessment.summary ? "根据最新评估，请严格遵照健康管理方案执行。" : "请遵医嘱。")
+      : (latestRecord?.assessment.doctorMessage || latestRecord?.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。');
+
+  // --- Effect: Sync Edit Data when Assessment or Record changes ---
   useEffect(() => {
-      if (latestRecord) {
+      if (assessment || latestRecord) {
           setGuideEditData({
-              plan: latestRecord.assessment.nextCheckPlan || '',
-              issues: latestRecord.assessment.majorIssues || '',
-              goals: latestRecord.assessment.lifestyleGoals?.join('\n') || '',
-              message: latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '',
+              plan: activePlanText,
+              issues: activeIssues,
+              goals: activeGoals.join('\n') || '',
+              message: activeMessage,
               suggestedDate: nextScheduled ? nextScheduled.date : '' // Init with scheduled date
           });
       }
-  }, [latestRecord, schedule, nextScheduled]);
+  }, [assessment, latestRecord, schedule, nextScheduled]);
 
   // --- Global Upcoming Reminders Logic (Next 7 Days) ---
   const getGlobalUpcomingTasks = () => {
@@ -424,8 +451,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
       
-      if (!latestRecord) return;
-
+      // We prioritize the active display data for print
+      const printRiskLevel = activeRiskLevel;
+      const printPlan = activePlanText;
+      const printIssues = activeIssues;
+      const printGoals = activeGoals;
+      const printMessage = activeMessage;
+      const printDate = nextScheduled?.date || "待定";
+      
       // 1. Open a blank window
       const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
       
@@ -435,12 +468,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
       }
 
       // 2. Prepare Data
-      const docMessage = latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '暂无寄语';
       const riskLevelMap = { 'RED': '高风险', 'YELLOW': '中风险', 'GREEN': '低风险' };
       const riskColorMap = { 'RED': '#dc2626', 'YELLOW': '#d97706', 'GREEN': '#16a34a' };
-      const riskLevel = latestRecord.assessment.riskLevel;
       
-      const lifestyleGoalsList = (latestRecord.assessment.lifestyleGoals || [])
+      const lifestyleGoalsList = printGoals
         .map(goal => `<li class="goal-item"><span class="check-icon">✓</span>${goal}</li>`)
         .join('');
 
@@ -500,7 +531,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <h1>健康管理执行单 (随访记录)</h1>
                     <h2>郑州大学医院健康管理中心</h2>
                     <div class="meta-info">
-                        <span>随访日期: ${latestRecord.date}</span>
                         <span>打印日期: ${new Date().toLocaleDateString()}</span>
                     </div>
                 </div>
@@ -510,24 +540,24 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <div class="plan-grid">
                         <div class="plan-item">
                             <span class="label">建议时间</span>
-                            <span class="value">${nextScheduled?.date || "待定"}</span>
+                            <span class="value">${printDate}</span>
                         </div>
                         <div class="plan-item">
                             <span class="label">当前风险</span>
-                            <span class="value risk-tag" style="color: ${riskColorMap[riskLevel as keyof typeof riskColorMap] || '#333'}">
-                                ${riskLevelMap[riskLevel as keyof typeof riskLevelMap] || riskLevel}
+                            <span class="value risk-tag" style="color: ${riskColorMap[printRiskLevel as keyof typeof riskColorMap] || '#333'}">
+                                ${riskLevelMap[printRiskLevel as keyof typeof riskLevelMap] || printRiskLevel}
                             </span>
                         </div>
                     </div>
                     <div>
                         <span class="label">具体复查项目</span>
-                        <div class="content-text">${latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}</div>
+                        <div class="content-text">${printPlan || "暂无具体项目，请遵医嘱。"}</div>
                     </div>
                 </div>
 
                 <div class="section-box box-red">
                     <div class="box-title title-red">⚠️ 风险警示与问题</div>
-                    <div class="content-text">${latestRecord.assessment.majorIssues || "本次随访未发现重大新问题。"}</div>
+                    <div class="content-text">${printIssues || "未发现重大新问题。"}</div>
                 </div>
 
                 <div class="section-box box-green">
@@ -535,7 +565,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     ${lifestyleGoalsList ? `<ul class="goal-list">${lifestyleGoalsList}</ul>` : '<p class="content-text">维持健康生活方式。</p>'}
                     <div class="doctor-message">
                         <div class="dm-title">医生寄语</div>
-                        <div class="dm-content">"${docMessage}"</div>
+                        <div class="dm-content">"${printMessage}"</div>
                     </div>
                 </div>
 
@@ -842,7 +872,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       </div>
 
       {/* 底部：下阶段执行单 (可打印) */}
-      {latestRecord && (
+      {(latestRecord || assessment) && (
           <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600">
               <div className="flex justify-between items-start mb-6">
                   <div>
@@ -859,9 +889,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                            </>
                       ) : (
                            <>
-                             <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
-                                ✏️ 修订内容
-                             </button>
+                             {latestRecord && (
+                                <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
+                                    ✏️ 修订内容
+                                </button>
+                             )}
                              <button onClick={handlePrintGuide} className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-sm">
                                 🖨️ 打印执行单
                              </button>
@@ -898,11 +930,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               <div>
                                   <span className="text-xs text-slate-500 block uppercase">当前风险</span>
                                   <span className={`font-bold ${
-                                      latestRecord.assessment.riskLevel === 'RED' ? 'text-red-600' : 
-                                      latestRecord.assessment.riskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
+                                      activeRiskLevel === 'RED' ? 'text-red-600' : 
+                                      activeRiskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
                                   }`}>
-                                      {latestRecord.assessment.riskLevel === 'RED' ? '高风险' : 
-                                       latestRecord.assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                                      {activeRiskLevel === 'RED' ? '高风险' : 
+                                       activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
                                   </span>
                               </div>
                           </div>
@@ -916,7 +948,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   />
                               ) : (
                                   <p className="text-slate-800 font-medium leading-relaxed bg-white p-3 rounded border border-blue-100 whitespace-pre-line">
-                                      {latestRecord.assessment.nextCheckPlan || "暂无具体项目，请遵医嘱。"}
+                                      {activePlanText}
                                   </p>
                               )}
                           </div>
@@ -932,7 +964,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               />
                           ) : (
                               <p className="text-slate-700 leading-relaxed whitespace-pre-line">
-                                  {latestRecord.assessment.majorIssues || "本次随访未发现重大新问题，请继续保持。"}
+                                  {activeIssues}
                               </p>
                           )}
                       </div>
@@ -950,9 +982,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                placeholder="每行输入一个目标"
                           />
                       ) : (
-                          latestRecord.assessment.lifestyleGoals && latestRecord.assessment.lifestyleGoals.length > 0 ? (
+                          activeGoals && activeGoals.length > 0 ? (
                               <ul className="space-y-3">
-                                  {latestRecord.assessment.lifestyleGoals.map((goal, i) => (
+                                  {activeGoals.map((goal, i) => (
                                       <li key={i} className="flex items-start gap-2 text-slate-700">
                                           <span className="text-green-600 font-bold mt-0.5">✓</span>
                                           <span>{goal}</span>
@@ -975,7 +1007,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               />
                           ) : (
                               <p className="text-sm text-slate-600 italic">
-                                  "{latestRecord.assessment.doctorMessage || latestRecord.assessment.riskJustification || '健康是长期的积累，请坚持执行管理方案。'}"
+                                  "{activeMessage}"
                               </p>
                           )}
                       </div>
