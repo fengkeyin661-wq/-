@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
@@ -8,11 +9,6 @@ import * as mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 // @ts-ignore
 import * as pdfjsLib from 'pdfjs-dist';
-
-// Fix PDF Worker configuration
-// Use cdnjs for the worker script to ensure it is loaded as a standalone script, 
-// preventing "fake worker" errors caused by module wrapping in other CDNs.
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 interface Props {
   onSubmit: (data: HealthRecord) => void;
@@ -33,6 +29,35 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   const [activeTab, setActiveTab] = useState<'profile' | 'clinical' | 'questionnaire'>('profile');
   const [clinicalSubTab, setClinicalSubTab] = useState<'lab' | 'imaging' | 'optional'>('lab');
   const [surveySubTab, setSurveySubTab] = useState<'history' | 'lifestyle' | 'mental'>('history');
+
+  // Configure PDF Worker with Blob approach to avoid Cross-Origin issues
+  useEffect(() => {
+    const setupPdfWorker = async () => {
+        // Use jsDelivr which is generally faster/reliable in China
+        const workerUrl = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+        
+        try {
+            // Fetch the worker script text
+            const response = await fetch(workerUrl);
+            if (!response.ok) throw new Error("Failed to fetch worker script");
+            const workerScript = await response.text();
+            
+            // Create a Blob from the script content
+            // This bypasses the Cross-Origin Worker restriction because the Blob URL is considered same-origin
+            const blob = new Blob([workerScript], { type: "text/javascript" });
+            const blobUrl = URL.createObjectURL(blob);
+            
+            pdfjsLib.GlobalWorkerOptions.workerSrc = blobUrl;
+            console.log("PDF Worker initialized via Blob URL");
+        } catch (error) {
+            console.warn("PDF Worker Blob setup failed, falling back to direct CDN URL", error);
+            // Fallback: Direct URL (Might fail if strict CORS)
+            pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+        }
+    };
+
+    setupPdfWorker();
+  }, []);
 
   useEffect(() => {
     setData(initialData || null);
