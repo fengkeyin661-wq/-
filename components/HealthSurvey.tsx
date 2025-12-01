@@ -1,7 +1,25 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
+
+// @ts-ignore
+import * as mammoth from 'mammoth';
+// @ts-ignore
+import * as XLSX from 'xlsx';
+// @ts-ignore
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure PDF Worker
+if (typeof window !== 'undefined' && (window as any).pdfjsLib) {
+    (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+} else {
+    // Fallback if imported as module
+    try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    } catch(e) {
+        console.warn("PDF Worker setup warning:", e);
+    }
+}
 
 interface Props {
   onSubmit: (data: HealthRecord) => void;
@@ -14,6 +32,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   const [rawText, setRawText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [data, setData] = useState<HealthRecord | null>(initialData || null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Edit Mode State
   const [isEditing, setIsEditing] = useState(false);
@@ -49,31 +68,125 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      setIsParsing(true);
+      try {
+          let text = "";
+          const fileType = file.name.split('.').pop()?.toLowerCase();
+
+          if (fileType === 'txt') {
+              text = await file.text();
+          } 
+          else if (fileType === 'docx') {
+              const arrayBuffer = await file.arrayBuffer();
+              const result = await mammoth.extractRawText({ arrayBuffer });
+              text = result.value;
+              if(result.messages.length > 0) console.log("Word parsing messages:", result.messages);
+          }
+          else if (fileType === 'xlsx' || fileType === 'xls') {
+              const arrayBuffer = await file.arrayBuffer();
+              const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+              // Iterate all sheets
+              workbook.SheetNames.forEach(sheetName => {
+                  const sheet = workbook.Sheets[sheetName];
+                  text += `--- Sheet: ${sheetName} ---\n`;
+                  text += XLSX.utils.sheet_to_csv(sheet);
+                  text += "\n\n";
+              });
+          }
+          else if (fileType === 'pdf') {
+              const arrayBuffer = await file.arrayBuffer();
+              const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+              const pdf = await loadingTask.promise;
+              let fullText = "";
+              
+              for (let i = 1; i <= pdf.numPages; i++) {
+                  const page = await pdf.getPage(i);
+                  const textContent = await page.getTextContent();
+                  const pageText = textContent.items.map((item: any) => item.str).join(' ');
+                  fullText += `--- Page ${i} ---\n${pageText}\n\n`;
+              }
+              text = fullText;
+          }
+          else {
+              alert("不支持的文件格式。请上传 .txt, .docx, .xlsx, .pdf");
+              setIsParsing(false);
+              return;
+          }
+
+          if (text) {
+              setRawText(prev => prev ? prev + "\n\n" + text : text);
+          } else {
+              alert("未能从文件中提取到有效文本。");
+          }
+
+      } catch (error) {
+          console.error("File upload error:", error);
+          alert("文件解析失败: " + (error instanceof Error ? error.message : "未知错误"));
+      } finally {
+          setIsParsing(false);
+          // Clear input to allow re-uploading same file
+          if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+  };
+
+  const triggerUpload = () => {
+      fileInputRef.current?.click();
+  };
+
   if (mode === 'input') {
     return (
         <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-100 h-full overflow-y-auto">
-            <h2 className="text-2xl font-bold text-slate-800 mb-4">智能数据采集</h2>
+            <h2 className="text-2xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+                智能数据采集
+                <span className="text-xs font-normal text-white bg-teal-600 px-2 py-0.5 rounded-full">AI Powered</span>
+            </h2>
             <div className="mb-4 text-sm text-slate-500 bg-slate-50 p-4 rounded border border-slate-200">
-                <p className="font-bold mb-2">支持录入内容 (含2025新版问卷)：</p>
+                <p className="font-bold mb-2">支持录入方式：</p>
                 <ul className="list-disc pl-5 space-y-1">
-                    <li>基础信息与11项基础体检 (肝功/肾功/血脂/甲功/彩超等)</li>
-                    <li>详细家族史、女性健康史、呼吸道症状、PHQ-9/GAD-7心理量表</li>
-                    <li>59项详细健康问卷 (既往史/膳食/运动/睡眠/心理等)</li>
+                    <li>直接粘贴体检报告或问卷文本</li>
+                    <li>上传文件自动提取 (支持 PDF, Word, Excel, TXT)</li>
                 </ul>
             </div>
-            <textarea 
-                className="w-full h-96 p-4 bg-slate-50 border border-slate-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-teal-500 outline-none"
-                placeholder="请粘贴体检报告全文和问卷调查文本..."
-                value={rawText}
-                onChange={e => setRawText(e.target.value)}
-            />
-            <div className="mt-6 flex justify-center pb-8">
+            
+            <div className="relative">
+                <textarea 
+                    className="w-full h-96 p-4 bg-slate-50 border border-slate-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-teal-500 outline-none resize-none"
+                    placeholder="请粘贴文本，或点击下方按钮上传文件..."
+                    value={rawText}
+                    onChange={e => setRawText(e.target.value)}
+                />
+                
+                {/* Floating Upload Button inside/near Textarea */}
+                <div className="absolute bottom-4 right-4 flex gap-2">
+                     <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleFileUpload} 
+                        className="hidden" 
+                        accept=".txt,.docx,.doc,.xlsx,.xls,.pdf"
+                     />
+                     <button 
+                        onClick={triggerUpload}
+                        disabled={isParsing}
+                        className="bg-white text-slate-600 border border-slate-300 px-3 py-1.5 rounded-md text-xs font-bold hover:bg-slate-50 shadow-sm flex items-center gap-1 transition-colors"
+                        title="上传体检报告文件"
+                     >
+                        {isParsing ? '⏳ 读取中...' : '📂 添加附件 (PDF/Word/Excel)'}
+                     </button>
+                </div>
+            </div>
+
+            <div className="mt-6 flex justify-center pb-8 gap-4">
                 <button 
                     onClick={handleParse} 
                     disabled={isParsing || !rawText}
-                    className="bg-teal-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2 shadow-lg"
+                    className="bg-teal-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2 shadow-lg transition-transform active:scale-95"
                 >
-                    {isParsing ? 'DeepSeek AI 正在解析 (可切换至其他页面浏览)...' : '开始智能提取'}
+                    {isParsing ? 'AI 正在解析内容...' : '✨ 开始智能提取'}
                 </button>
             </div>
         </div>
