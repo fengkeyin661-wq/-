@@ -183,95 +183,126 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
                  {!hidePrintButton && (
                     <button 
                         onClick={handlePrint}
-                        className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-sm"
+                        className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-sm text-sm"
                     >
                         <span>🖨️</span> 打印评估报告
                     </button>
                  )}
             </div>
             
-            {/* 1. 系统健康画像 (System Portraits) */}
+            {/* 1. 系统健康画像 (System Portraits - Compact & Aesthetic) */}
             <section className="print:break-inside-avoid">
-                <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <span className="text-2xl">🧘</span> 人体六大系统健康画像
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {analysis.portraits.map((sys, idx) => (
-                        <div key={idx} className={`bg-white rounded-xl shadow-sm border p-5 transition-all hover:shadow-md ${
-                            sys.status === 'High' ? 'border-red-200 bg-red-50/30' : 
-                            sys.status === 'Medium' ? 'border-yellow-200 bg-yellow-50/30' : 'border-slate-100'
-                        }`}>
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="text-3xl">{sys.icon}</div>
-                                    <h3 className="font-bold text-slate-700">{sys.systemName}</h3>
-                                </div>
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
-                                    sys.status === 'High' ? 'bg-red-100 text-red-600 border-red-200' :
-                                    sys.status === 'Medium' ? 'bg-yellow-100 text-yellow-600 border-yellow-200' :
-                                    'bg-green-100 text-green-600 border-green-200'
-                                }`}>
-                                    {sys.status === 'High' ? '重点关注' : sys.status === 'Medium' ? '一般关注' : '健康'}
-                                </span>
-                            </div>
-                            
-                            <div className="mb-3 min-h-[60px]">
-                                {sys.keyFindings.length > 0 ? (
-                                    <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
-                                        {sys.keyFindings.map((f, i) => <li key={i}>{f}</li>)}
-                                    </ul>
-                                ) : (
-                                    <p className="text-xs text-slate-400 italic">未发现明显异常</p>
-                                )}
-                            </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {analysis.portraits.map((sys, idx) => {
+                        // Styles based on status
+                        const isHigh = sys.status === 'High';
+                        const isMedium = sys.status === 'Medium';
+                        
+                        const cardBg = isHigh 
+                            ? 'bg-gradient-to-br from-red-50 to-white border-red-200' 
+                            : isMedium 
+                                ? 'bg-gradient-to-br from-orange-50 to-white border-orange-200' 
+                                : 'bg-white border-slate-100';
 
-                            <div className="pt-3 border-t border-slate-100">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">核心关注点</span>
-                                <div className="flex flex-wrap gap-1">
-                                    {sys.focusAreas.map((focus, i) => (
-                                        <span key={i} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
-                                            {focus}
-                                        </span>
-                                    ))}
+                        const iconBg = isHigh ? 'bg-red-100' : isMedium ? 'bg-orange-100' : 'bg-slate-50';
+                        const textColor = isHigh ? 'text-red-900' : isMedium ? 'text-orange-900' : 'text-slate-800';
+
+                        return (
+                            <div key={idx} className={`relative flex flex-col justify-between rounded-xl border p-4 shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-1 group ${cardBg}`}>
+                                
+                                {/* Header */}
+                                <div className="flex justify-between items-start mb-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl shadow-sm ${iconBg}`}>
+                                            {sys.icon}
+                                        </div>
+                                        <div>
+                                            <h3 className={`font-bold text-sm ${textColor}`}>{sys.systemName}</h3>
+                                            <div className="text-[10px] text-slate-400 font-mono leading-none mt-0.5">SYSTEM CHECK</div>
+                                        </div>
+                                    </div>
+                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border tracking-wide ${
+                                        isHigh ? 'bg-red-500 text-white border-red-600 shadow-sm' :
+                                        isMedium ? 'bg-orange-400 text-white border-orange-500 shadow-sm' :
+                                        'bg-emerald-50 text-emerald-600 border-emerald-200'
+                                    }`}>
+                                        {isHigh ? '⚠️ 重点关注' : isMedium ? '⚡ 一般关注' : '✅ 健康'}
+                                    </span>
+                                </div>
+                                
+                                {/* Findings List */}
+                                <div className="flex-1 mb-3">
+                                    {sys.keyFindings.length > 0 ? (
+                                        <ul className="space-y-1.5">
+                                            {sys.keyFindings.slice(0, 4).map((f, i) => (
+                                                <li key={i} className="text-xs text-slate-600 flex items-start gap-1.5">
+                                                    <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${isHigh ? 'bg-red-400' : isMedium ? 'bg-orange-400' : 'bg-slate-300'}`}></span>
+                                                    <span className="leading-tight">{f}</span>
+                                                </li>
+                                            ))}
+                                            {sys.keyFindings.length > 4 && (
+                                                <li className="text-[10px] text-slate-400 pl-3">...等 {sys.keyFindings.length} 项异常</li>
+                                            )}
+                                        </ul>
+                                    ) : (
+                                        <div className="h-full flex flex-col items-center justify-center py-2 opacity-50">
+                                            <span className="text-2xl grayscale opacity-30">🛡️</span>
+                                            <p className="text-[10px] text-slate-400 mt-1">各项指标未见明显异常</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Focus Tags (Footer) */}
+                                <div className="pt-3 border-t border-black/5">
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {sys.focusAreas.map((focus, i) => (
+                                            <span key={i} className="text-[10px] bg-white/60 border border-black/5 text-slate-500 px-1.5 py-0.5 rounded backdrop-blur-sm">
+                                                {focus}
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </section>
 
             {/* 2. 风险预测矩阵 (Risk Prediction Matrix) */}
             <section className="print:break-inside-avoid">
-                 <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                 <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <span className="text-2xl">📊</span> 疾病风险预测模型矩阵
-                    <span className="text-xs font-normal text-slate-400 ml-2 bg-slate-100 px-2 py-1 rounded no-print">点击灰色卡片可补全数据进行评估</span>
+                    <span className="text-xs font-normal text-slate-400 ml-2 bg-slate-100 px-2 py-1 rounded no-print">点击卡片可补全数据</span>
                 </h2>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
                     {analysis.models.map((model) => (
                         <button 
                             key={model.modelId}
                             onClick={() => handleModelClick(model)}
-                            className={`relative p-4 rounded-lg border text-left transition-all hover:scale-105 flex flex-col justify-between h-32 ${
-                                model.riskLevel === 'RED' ? 'bg-red-500 text-white border-red-600 shadow-red-200' :
-                                model.riskLevel === 'YELLOW' ? 'bg-yellow-400 text-slate-900 border-yellow-500 shadow-yellow-200' :
-                                model.riskLevel === 'GREEN' ? 'bg-green-500 text-white border-green-600 shadow-green-200' :
-                                'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-                            } shadow-lg`}
+                            className={`relative p-3 rounded-lg border text-left transition-all duration-200 hover:scale-[1.02] flex flex-col justify-between h-28 ${
+                                model.riskLevel === 'RED' ? 'bg-red-500 text-white border-red-600 shadow-lg shadow-red-200' :
+                                model.riskLevel === 'YELLOW' ? 'bg-amber-400 text-slate-900 border-amber-500 shadow-lg shadow-amber-200' :
+                                model.riskLevel === 'GREEN' ? 'bg-emerald-500 text-white border-emerald-600 shadow-lg shadow-emerald-200' :
+                                'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                            } `}
                         >
                             <div>
-                                <div className="text-xs opacity-80 mb-1">{model.category}</div>
-                                <div className="font-bold text-sm leading-tight">{model.modelName}</div>
+                                <div className="text-[10px] opacity-80 uppercase tracking-wider mb-0.5">{model.category}</div>
+                                <div className="font-bold text-xs leading-tight line-clamp-2">{model.modelName}</div>
                             </div>
                             
-                            <div className="mt-2">
+                            <div className="mt-1">
                                 {model.riskLevel === 'UNKNOWN' ? (
-                                    <div className="flex items-center gap-1 text-xs font-bold text-slate-400">
-                                        <span>📝</span> 点击补全
+                                    <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-white/50 px-2 py-1 rounded w-fit">
+                                        <span>✏️</span> 待补全
                                     </div>
                                 ) : (
                                     <>
-                                        <div className="text-2xl font-black">{model.riskLabel}</div>
-                                        <div className="text-[10px] opacity-90 truncate">{model.score !== 'NA' && model.score}</div>
+                                        <div className="text-xl font-black tracking-tight">{model.riskLabel}</div>
+                                        <div className="text-[10px] opacity-90 truncate font-mono">{model.score !== 'NA' && model.score}</div>
                                     </>
                                 )}
                             </div>

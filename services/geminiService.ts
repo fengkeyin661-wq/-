@@ -1,5 +1,3 @@
-
-
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 
 // DeepSeek API Configuration
@@ -50,14 +48,14 @@ const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode:
                 'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-                model: "deepseek-chat", // 使用 DeepSeek-V3
+                model: "deepseek-chat", 
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userContent }
                 ],
                 // 启用 JSON 模式以保证输出格式稳定
                 response_format: jsonMode ? { type: "json_object" } : undefined,
-                temperature: 0.1, // 低温度以保证医学数据的严谨性
+                temperature: 0.1, 
                 stream: false
             })
         });
@@ -94,74 +92,7 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     4. 既往病史请特别注意提取"类风湿性关节炎"，这对于骨折风险模型至关重要。
     5. 吸烟史中，如果能计算或提取到"包年数"(Pack-Years)，请务必填入。
     
-    输出必须是严格的 JSON 格式，结构如下:
-    {
-      "profile": {
-        "checkupId": "Q2", "name": "Q1", "gender": "Q3(男/女)", "department": "Q4", "phone": "电话", "checkupDate": "YYYY-MM-DD", "dob": "出生日期", "age": 数字
-      },
-      "checkup": {
-        "basics": { "height": 0, "weight": 0, "bmi": 0, "sbp": 0, "dbp": 0, "waist": 0 },
-        "labBasic": {
-           "liver": { "ALT": "数值", "AST": "数值", "GGT": "数值", "TBIL": "数值", "DBIL": "数值", "IBIL": "数值", "TP": "数值", "ALB": "数值", "GLB": "数值" }, 
-           "ck": "肌酸激酶", "lipids": { "tc": "总胆固醇", "tg": "甘油三酯", "ldl": "低密度", "hdl": "高密度" },
-           "renal": { "urea": "尿素", "creatinine": "肌酐", "ua": "尿酸" },
-           "bloodRoutine": { "wbc": "白细胞", "hgb": "血红蛋白", "plt": "血小板", "summary": "摘要" },
-           "glucose": { "fasting": "空腹血糖" },
-           "urineRoutine": { "protein": "尿蛋白(如+)", "summary": "摘要" },
-           "thyroidFunction": { "t3": "数值", "t4": "数值", "tsh": "数值" }
-        },
-        "imagingBasic": {
-           "ecg": "心电图结论",
-           "ultrasound": { "thyroid": "", "abdomen": "", "breast": "", "uterusAdnexa": "", "prostate": "" }
-        },
-        "optional": {
-           "tct": "", "hpv": "", "homocysteine": "", "immuneSet": "", "tcd": "", "c13": "", "mammography": "", "carotidUltrasound": "", "ct": "", "boneDensity": "", "fundusPhoto": "", "hba1c": "", "gastrin": "", "adiponectin": "", "vitD": "",
-           "tumorMarkers4": { "cea": "", "afp": "", "ca199": "", "cy211": "" },
-           "tumorMarkers2": { "ca125": "", "ca153": "", "psa": "", "fpsa": "" }
-        },
-        "abnormalities": [ { "category": "", "item": "", "result": "", "clinicalSig": "" } ]
-      },
-      "questionnaire": {
-        "history": {
-           "diseases": ["高血压", "冠心病", "脑卒中", "糖尿病", "慢阻肺", "肿瘤", "类风湿性关节炎" 等],
-           "details": { "hypertensionYear": "年份", "cadTypes": [], "strokeYear": "年份", "diabetesYear": "年份", "otherHistory": "文本" },
-           "surgeries": "文本"
-        },
-        "femaleHealth": {
-           "menarcheAge": 数字, "firstBirthAge": "选填项文本(<20, 20-24等)", "menopauseStatus": "未绝经/已绝经", "menopauseAge": 数字,
-           "breastBiopsy": boolean(有乳腺活检史?), "gdmHistory": boolean(妊娠期糖尿病?), "pcosHistory": boolean(多囊卵巢?)
-        },
-        "familyHistory": {
-           "fatherCvdEarly": boolean(父亲冠心病<55?), "motherCvdEarly": boolean(母亲冠心病<65?), 
-           "diabetes": boolean(直系亲属糖尿病?), "hypertension": boolean(直系亲属高血压?), "stroke": boolean(父母脑卒中?),
-           "parentHipFracture": boolean(父母髋部骨折?), "lungCancer": boolean(直系亲属肺癌?), "colonCancer": boolean(直系亲属肠癌?), "breastCancer": boolean(母/女/姐妹乳腺癌?)
-        },
-        "medication": { 
-           "isRegular": "是/否", "list": "文本",
-           "details": { 
-               "antihypertensive": boolean(正在服降压药?), "hypoglycemic": boolean(降糖药?), "lipidLowering": boolean(降脂药?), 
-               "antiplatelet": boolean(阿司匹林/抗凝?), "steroids": boolean(长期激素?) 
-           }
-        },
-        "respiratory": {
-            "chronicCough": boolean(经常咳嗽?), "chronicPhlegm": boolean(经常咳痰?), "shortBreath": boolean(活动后气短?)
-        },
-        "mentalScales": {
-            "phq9Score": 数字(根据PHQ-9矩阵题计算总分), 
-            "gad7Score": 数字(根据GAD-7矩阵题计算总分), 
-            "selfHarmIdea": 数字(0-3, 第9题得分)
-        },
-        "diet": { "habits": [], "dailyStaple": "", "dailyVeg": "", "dailyFruit": "", "dailyMeat": "", "dailyDairy": "", "dailyBeanNut": "" },
-        "exercise": { "frequency": "", "duration": "" },
-        "sleep": { "hours": "文本", "quality": "", "monitorResult": "" },
-        "substances": {
-           "smoking": { "status": "从不/已戒/吸烟", "dailyAmount": 数字(支), "years": 数字(年), "quitYear": "年份", "packYears": 数字(包年数) },
-           "alcohol": { "status": "", "freq": "", "amount": "" }
-        },
-        "mental": { "stressLevel": "文本", "stressSource": [] },
-        "needs": { "concerns": [], "followUpWillingness": "" }
-      }
-    }
+    输出必须是严格的 JSON 格式。
   `;
 
   return await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
@@ -173,7 +104,8 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
 export const generateHealthAssessment = async (record: HealthRecord): Promise<HealthAssessment> => {
   const systemPrompt = `
     你是全科主任医师。基于详细的体检数据(Objective)和问卷数据(Subjective)生成风险评估。
-    
+    当前时间: ${new Date().toISOString()} (请根据最新时间评估)
+
     【重要】请严格依据以下“重要异常结果分层管理标准”判断危急值（A类）和重大异常（B类）。
     如果符合以下任意条件，必须将 riskLevel 设为 RED，将 isCritical 设为 true，并在 criticalWarning 中注明具体类别（如“A类危急值”或“B类重大异常”）和原因。
 
@@ -374,7 +306,7 @@ export const generateHospitalBusinessAnalysis = async (
     const userContent = `全院异常项统计汇总: ${JSON.stringify(aggregatedIssues)}`;
 
     const result = await callDeepSeek(systemPrompt, userContent, true);
-    return result.departments || result; // Handle potential wrapper object if AI adds one
+    return result.departments || result; 
 };
 
 /**
