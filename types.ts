@@ -199,6 +199,8 @@ export interface HealthRecord {
   profile: HealthProfile;
   checkup: CheckupData;
   questionnaire: QuestionnaireData;
+  // 用于存储模型计算时的补充变量 (如父母髋骨骨折史等不在常规问卷中的)
+  riskModelExtras?: { [key: string]: any }; 
 }
 
 // --- 5. 评估与计划 ---
@@ -214,8 +216,8 @@ export interface HealthPlanTask {
 export interface HealthAssessment {
   riskLevel: RiskLevel;
   summary: string;
-  isCritical?: boolean; // 新增：是否危急值
-  criticalWarning?: string; // 新增：危急值详情
+  isCritical?: boolean; 
+  criticalWarning?: string; 
   risks: {
     red: string[]; 
     yellow: string[];
@@ -257,11 +259,10 @@ export interface FollowUpRecord {
     glucose: number;
     glucoseType?: string; 
     weight: number;
-    // 新增：血脂四项
-    tc?: number; // 总胆固醇
-    tg?: number; // 甘油三酯
-    ldl?: number; // 低密度
-    hdl?: number; // 高密度
+    tc?: number; 
+    tg?: number; 
+    ldl?: number; 
+    hdl?: number; 
   };
   
   organRisks: {
@@ -271,11 +272,10 @@ export interface FollowUpRecord {
       otherFindings: string; otherStatus: string;
   };
 
-  // 新增: 医学复查执行核对
   medicalCompliance?: {
-      item: string; // e.g. "复查甲状腺彩超"
+      item: string; 
       status: 'checked_normal' | 'checked_abnormal' | 'not_checked';
-      result?: string; // e.g. "结节增大1mm"
+      result?: string; 
   }[];
 
   medication: {
@@ -302,7 +302,7 @@ export interface FollowUpRecord {
       note?: string;
   }[];
   
-  otherInfo?: string; // 新增：其他有效信息
+  otherInfo?: string; 
 
   assessment: {
     riskLevel: RiskLevel;
@@ -311,35 +311,55 @@ export interface FollowUpRecord {
     referral: boolean;
     nextCheckPlan: string;
     lifestyleGoals: string[];
-    doctorMessage?: string; // 给患者的医生寄语
+    doctorMessage?: string; 
   };
 }
 
-// --- 6. 危急值管理记录 (新) ---
+// --- 6. 危急值管理记录 ---
 export interface CriticalTrackRecord {
     id: string;
-    status: 'pending_initial' | 'pending_secondary' | 'archived'; // 状态: 待初次处理 | 待二次回访 | 已归档
-    
-    // 自动提取的异常信息
-    critical_item: string; // e.g. "[A类] 空腹血糖"
-    critical_desc: string; // e.g. "18.28mmol/L"
+    status: 'pending_initial' | 'pending_secondary' | 'archived'; 
+    critical_item: string; 
+    critical_desc: string; 
     critical_level: 'A类' | 'B类';
-
-    // 初次干预 (立即处理)
-    initial_notify_time: string; // 通知时间
-    initial_feedback: string; // 反馈结果
-
-    // 二次回访 (1个月后)
-    secondary_due_date: string; // 计划回访时间
-    secondary_notify_time?: string; // 实际回访时间
-    secondary_feedback?: string; // 回访结果
+    initial_notify_time: string; 
+    initial_feedback: string; 
+    secondary_due_date: string; 
+    secondary_notify_time?: string; 
+    secondary_feedback?: string; 
 }
 
 // --- 7. 医疗业务热力图数据 ---
 export interface DepartmentAnalytics {
-    departmentName: string; // e.g. "心血管内科"
-    patientCount: number;   // 关联的潜在患者数
-    riskLevel: 'HIGH' | 'MEDIUM' | 'LOW'; // 业务需求等级
-    suggestedServices: string[]; // 建议开展的业务, e.g. ["24小时动态血压", "冠脉CT"]
-    keyConditions: string[]; // 主要关联病种, e.g. ["高血压3级", "心律失常"]
+    departmentName: string; 
+    patientCount: number;   
+    riskLevel: 'HIGH' | 'MEDIUM' | 'LOW'; 
+    suggestedServices: string[]; 
+    keyConditions: string[]; 
+}
+
+// --- 8. 风险画像与模型评估数据 (NEW) ---
+export interface SystemRiskPortrait {
+    systemName: string; // e.g., "心脑血管系统"
+    icon: string;
+    status: 'High' | 'Medium' | 'Low' | 'Normal'; // 综合状态
+    keyFindings: string[]; // 主要发现
+    focusAreas: string[]; // 核心关注点
+}
+
+export interface PredictionModelResult {
+    modelId: string;
+    modelName: string; // e.g., "China-PAR"
+    category: string; // e.g., "心脑血管"
+    score?: string | number; // 评分结果
+    riskLabel: '高风险' | '中风险' | '低风险' | '一般' | '未知';
+    riskLevel: RiskLevel | 'UNKNOWN';
+    description: string; // 结果解读
+    missingParams: { key: string; label: string }[]; // 缺失的输入变量
+    lastCalculated: string;
+}
+
+export interface RiskAnalysisData {
+    portraits: SystemRiskPortrait[];
+    models: PredictionModelResult[];
 }

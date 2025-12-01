@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; 
-import { analyzeFollowUpRecord, generateFollowUpSMS } from '../services/geminiService';
+import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface Props {
@@ -45,6 +45,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const [showSmsModal, setShowSmsModal] = useState(false);
   const [smsContent, setSmsContent] = useState('');
   const [isGeneratingSms, setIsGeneratingSms] = useState(false);
+
+  // State for Annual Report Generation
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   // State for Chart View
   const [activeChart, setActiveChart] = useState<'bp' | 'metabolic' | 'lipids'>('bp');
@@ -369,111 +372,134 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
 
   // --- Annual Report Generation Logic ---
-  const handleGenerateAnnualReport = () => {
+  const handleGenerateAnnualReport = async () => {
       if (sortedRecords.length < 2) return;
+      
+      setIsGeneratingReport(true);
       
       const baseline = sortedRecords[0];
       const current = sortedRecords[sortedRecords.length - 1];
-      
-      const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
-      if (!printWindow) return;
 
-      const calcDiff = (curr: number, base: number) => {
-          if (!curr || !base) return '-';
-          const diff = curr - base;
-          return diff > 0 ? `+${diff}` : `${diff}`;
-      };
+      try {
+          // Call AI to generate summary
+          const aiResult = await generateAnnualReportSummary(baseline, current);
+          const aiSummary = aiResult.summary || "分析服务暂不可用，请参考具体指标变化。";
 
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html lang="zh-CN">
-        <head>
-            <meta charset="UTF-8">
-            <title>年度随访成效报告</title>
-            <style>
-                body { font-family: "PingFang SC", sans-serif; padding: 40px; color: #333; }
-                h1 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; }
-                .meta { text-align: center; margin-bottom: 40px; color: #666; }
-                table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-                th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
-                th { background-color: #f8f9fa; color: #444; }
-                .highlight { color: #16a34a; font-weight: bold; }
-                .neg { color: #dc2626; }
-                .section-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-left: 5px solid #0d9488; padding-left: 10px; }
-            </style>
-        </head>
-        <body>
-            <h1>年度健康管理成效报告</h1>
-            <div class="meta">
-                受检者: ${currentPatientName} | 随访周期: ${baseline.date} 至 ${current.date}
-            </div>
+          const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
+          if (!printWindow) {
+              alert("请允许弹窗以查看报告");
+              return;
+          }
 
-            <div class="section-title">核心指标变化对比</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>指标</th>
-                        <th>基线值 (${baseline.date})</th>
-                        <th>当前值 (${current.date})</th>
-                        <th>变化情况</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>收缩压 (mmHg)</td>
-                        <td>${baseline.indicators.sbp || '-'}</td>
-                        <td>${current.indicators.sbp || '-'}</td>
-                        <td class="${(current.indicators.sbp < baseline.indicators.sbp) ? 'highlight' : ''}">
-                            ${calcDiff(current.indicators.sbp, baseline.indicators.sbp)}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>舒张压 (mmHg)</td>
-                        <td>${baseline.indicators.dbp || '-'}</td>
-                        <td>${current.indicators.dbp || '-'}</td>
-                        <td class="${(current.indicators.dbp < baseline.indicators.dbp) ? 'highlight' : ''}">
-                            ${calcDiff(current.indicators.dbp, baseline.indicators.dbp)}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>体重 (kg)</td>
-                        <td>${baseline.indicators.weight || '-'}</td>
-                        <td>${current.indicators.weight || '-'}</td>
-                        <td class="${(current.indicators.weight < baseline.indicators.weight) ? 'highlight' : ''}">
-                            ${calcDiff(current.indicators.weight, baseline.indicators.weight)}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>空腹血糖 (mmol/L)</td>
-                        <td>${baseline.indicators.glucose || '-'}</td>
-                        <td>${current.indicators.glucose || '-'}</td>
-                        <td>${calcDiff(current.indicators.glucose, baseline.indicators.glucose)}</td>
-                    </tr>
-                </tbody>
-            </table>
+          const calcDiff = (curr: number, base: number) => {
+              if (!curr || !base) return '-';
+              const diff = curr - base;
+              const formatted = diff > 0 ? `+${diff}` : `${diff}`;
+              // For weight/glucose/bp, lower is usually better (unless too low), but simplified here
+              return formatted; 
+          };
 
-            <div class="section-title">管理成效评估</div>
-            <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; border: 1px solid #bbf7d0; margin-bottom: 30px;">
-                <p><strong>风险等级变化：</strong> 
-                    ${baseline.assessment.riskLevel} ➔ 
-                    <span style="font-weight:bold; font-size:1.2em;">${current.assessment.riskLevel}</span>
-                </p>
-                <p><strong>年度随访次数：</strong> ${sortedRecords.length} 次</p>
-                <p><strong>医生总评：</strong> ${current.assessment.doctorMessage || '患者依从性良好，核心指标控制稳定。'}</p>
-            </div>
+          const htmlContent = `
+            <!DOCTYPE html>
+            <html lang="zh-CN">
+            <head>
+                <meta charset="UTF-8">
+                <title>年度随访成效报告</title>
+                <style>
+                    body { font-family: "PingFang SC", sans-serif; padding: 40px; color: #333; }
+                    h1 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; }
+                    .meta { text-align: center; margin-bottom: 40px; color: #666; }
+                    table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+                    th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
+                    th { background-color: #f8f9fa; color: #444; }
+                    .highlight { color: #16a34a; font-weight: bold; }
+                    .neg { color: #dc2626; }
+                    .section-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-left: 5px solid #0d9488; padding-left: 10px; }
+                    .ai-summary { background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; padding: 15px; border-radius: 8px; margin-top: 15px; font-style: italic; }
+                    .ai-label { font-weight: bold; font-style: normal; margin-bottom: 5px; display: block; }
+                </style>
+            </head>
+            <body>
+                <h1>年度健康管理成效报告</h1>
+                <div class="meta">
+                    受检者: ${currentPatientName} | 随访周期: ${baseline.date} 至 ${current.date}
+                </div>
 
-            <div class="section-title">下年度建议</div>
-            <ul>
-                ${(current.assessment.lifestyleGoals || ['继续保持当前健康生活方式']).map(g => `<li>${g}</li>`).join('')}
-            </ul>
+                <div class="section-title">核心指标变化对比</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>指标</th>
+                            <th>基线值 (${baseline.date})</th>
+                            <th>当前值 (${current.date})</th>
+                            <th>变化情况</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>收缩压 (mmHg)</td>
+                            <td>${baseline.indicators.sbp || '-'}</td>
+                            <td>${current.indicators.sbp || '-'}</td>
+                            <td class="${(current.indicators.sbp < baseline.indicators.sbp) ? 'highlight' : ''}">
+                                ${calcDiff(current.indicators.sbp, baseline.indicators.sbp)}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>舒张压 (mmHg)</td>
+                            <td>${baseline.indicators.dbp || '-'}</td>
+                            <td>${current.indicators.dbp || '-'}</td>
+                            <td class="${(current.indicators.dbp < baseline.indicators.dbp) ? 'highlight' : ''}">
+                                ${calcDiff(current.indicators.dbp, baseline.indicators.dbp)}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>体重 (kg)</td>
+                            <td>${baseline.indicators.weight || '-'}</td>
+                            <td>${current.indicators.weight || '-'}</td>
+                            <td class="${(current.indicators.weight < baseline.indicators.weight) ? 'highlight' : ''}">
+                                ${calcDiff(current.indicators.weight, baseline.indicators.weight)}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>空腹血糖 (mmol/L)</td>
+                            <td>${baseline.indicators.glucose || '-'}</td>
+                            <td>${current.indicators.glucose || '-'}</td>
+                            <td>${calcDiff(current.indicators.glucose, baseline.indicators.glucose)}</td>
+                        </tr>
+                    </tbody>
+                </table>
 
-            <script>window.print();</script>
-        </body>
-        </html>
-      `;
-      
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
+                <div class="section-title">管理成效评估</div>
+                <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; border: 1px solid #bbf7d0; margin-bottom: 30px;">
+                    <p><strong>风险等级变化：</strong> 
+                        ${baseline.assessment.riskLevel} ➔ 
+                        <span style="font-weight:bold; font-size:1.2em;">${current.assessment.riskLevel}</span>
+                    </p>
+                    <p><strong>年度随访次数：</strong> ${sortedRecords.length} 次</p>
+                    
+                    <div class="ai-summary">
+                        <span class="ai-label">🤖 AI 智能综合评估：</span>
+                        ${aiSummary}
+                    </div>
+                </div>
+
+                <div class="section-title">下年度建议</div>
+                <ul>
+                    ${(current.assessment.lifestyleGoals || ['继续保持当前健康生活方式']).map(g => `<li>${g}</li>`).join('')}
+                </ul>
+
+                <script>window.print();</script>
+            </body>
+            </html>
+          `;
+          
+          printWindow.document.write(htmlContent);
+          printWindow.document.close();
+      } catch (e) {
+          alert("生成报告失败，请重试");
+      } finally {
+          setIsGeneratingReport(false);
+      }
   };
 
   // --- Completely Standalone Print Window Logic ---
@@ -884,9 +910,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     {isEligibleForAnnualReport && (
                         <button 
                             onClick={handleGenerateAnnualReport}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white w-full py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 font-bold transition-all"
+                            disabled={isGeneratingReport}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white w-full py-2.5 rounded-lg flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 font-bold transition-all disabled:opacity-50"
                         >
-                            <span>📜</span> 生成年度成效报告
+                            {isGeneratingReport ? (
+                                <><span>⏳</span> 生成中...</>
+                            ) : (
+                                <><span>📜</span> 生成年度成效报告</>
+                            )}
                         </button>
                     )}
                 </div>
@@ -918,10 +949,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       ) : (
                            <>
                              {/* Only allow editing if a record exists (to attach edit to). If fresh assessment, must log record first. */}
-                             {latestRecord && (
+                             {latestRecord && !isAssessmentNewer && (
                                 <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
                                     ✏️ 修订内容
                                 </button>
+                             )}
+                             {isAssessmentNewer && (
+                                 <div className="text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-200 self-center">
+                                     💡 如需修改计划，请先录入本次随访记录
+                                 </div>
                              )}
                              <button onClick={handlePrintGuide} className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-sm">
                                 🖨️ 打印执行单

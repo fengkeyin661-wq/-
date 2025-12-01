@@ -432,3 +432,40 @@ export const generateHospitalBusinessAnalysis = async (
     const result = await callDeepSeek(systemPrompt, userContent, true);
     return result.departments || result; // Handle potential wrapper object if AI adds one
 };
+
+/**
+ * 7. 生成年度随访总结报告
+ */
+export const generateAnnualReportSummary = async (
+    baseline: FollowUpRecord,
+    current: FollowUpRecord
+): Promise<{ summary: string }> => {
+    const systemPrompt = `
+    你是一名资深健康管理医生。请对比患者一年前的基线数据（Baseline）和当前的最新随访数据（Current），生成一份简短的年度健康改善评估总结。
+    
+    要求：
+    1. 重点对比核心指标（血压、血糖、体重）的变化趋势。
+    2. 评估风险等级的变化（如从高危降为中危）。
+    3. 给出整体评价（如“健康状况显著改善”、“指标平稳”、“需持续关注”）。
+    4. 语言精练、专业、亲切，字数控制在100字左右。
+    5. 使用中文。
+    
+    输出 JSON: { "summary": "你的总结内容..." }
+    `;
+
+    const userContent = `
+    基线数据 (${baseline.date}):
+    - 风险等级: ${baseline.assessment.riskLevel}
+    - 血压: ${baseline.indicators.sbp}/${baseline.indicators.dbp}
+    - 血糖: ${baseline.indicators.glucose}
+    - 体重: ${baseline.indicators.weight}
+    
+    当前数据 (${current.date}):
+    - 风险等级: ${current.assessment.riskLevel}
+    - 血压: ${current.indicators.sbp}/${current.indicators.dbp}
+    - 血糖: ${current.indicators.glucose}
+    - 体重: ${current.indicators.weight}
+    `;
+
+    return await callDeepSeek(systemPrompt, userContent, true);
+};

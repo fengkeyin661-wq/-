@@ -5,28 +5,26 @@ import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
 import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
-import { LoginModal } from './components/LoginModal'; // Import LoginModal
-import { HospitalHeatmap } from './components/HospitalHeatmap'; // Import Heatmap
-import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp } from './types'; 
+import { LoginModal } from './components/LoginModal';
+import { HospitalHeatmap } from './components/HospitalHeatmap';
+import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // New Import
+import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('followup');
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
   const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
+  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); // New State
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
   
-  // --- Auth State ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-
-  // Lifted State: All Archives (for Global Dashboard Reminders)
   const [archives, setArchives] = useState<HealthArchive[]>([]);
 
-  // Fetch all data (Global State)
   const refreshArchives = async () => {
       try {
           const data = await fetchArchives();
@@ -36,17 +34,16 @@ const App: React.FC = () => {
       }
   };
 
-  // Initial Load
   useEffect(() => {
       refreshArchives();
   }, []);
 
-  // Function to handle patient selection
   const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
       setSchedule(archive.follow_up_schedule || []);
       setFollowUps(archive.follow_ups || []);
+      setRiskAnalysis(archive.risk_analysis); // Load risk analysis
       
       if (mode === 'edit') {
           setActiveTab('survey');
@@ -57,26 +54,20 @@ const App: React.FC = () => {
       }
   };
 
-  // Main Save Logic: Triggered when Survey is submitted (both New and Edit)
   const handleSurveySubmit = async (data: HealthRecord) => {
     setHealthRecord(data);
     setIsGenerating(true);
     try {
-      // 1. Generate AI Assessment
       const result = await generateHealthAssessment(data);
       setAssessment(result);
       
-      // 2. Generate Schedule (if new) or preserve existing logic if needed
       const newSchedule = generateFollowUpSchedule(result);
       setSchedule(newSchedule);
       
-      // 3. Save to Cloud Immediately
+      // Save (Risk analysis will be auto-generated in saveArchive if missing)
       await saveArchive(data, result, newSchedule, followUps);
-      
-      // 4. Refresh Global List
       await refreshArchives();
 
-      // 5. Navigate to Report
       setActiveTab('assessment');
     } catch (error) {
       alert("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
@@ -85,12 +76,11 @@ const App: React.FC = () => {
     }
   };
 
-  // Handle Manual Assessment Update (Doctor Edit)
   const handleSaveAssessment = async (updatedAssessment: HealthAssessment) => {
       if (!healthRecord) return;
       setAssessment(updatedAssessment);
       try {
-          await saveArchive(healthRecord, updatedAssessment, schedule, followUps);
+          await saveArchive(healthRecord, updatedAssessment, schedule, followUps, riskAnalysis);
           await refreshArchives();
           alert("评估方案已更新保存");
       } catch (e) {
@@ -98,16 +88,12 @@ const App: React.FC = () => {
       }
   };
 
-  // Handle Adding Follow-up (and saving it)
   const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
     const newRecord = { ...record, id: Date.now().toString() };
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
     
-    // 1. Mark current pending schedules as completed
     let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
-    
-    // 2. Auto-generate NEXT schedule
     const nextItem = generateNextScheduleItem(
         newRecord.date, 
         newRecord.assessment.nextCheckPlan || "", 
@@ -117,20 +103,15 @@ const App: React.FC = () => {
 
     setSchedule(updatedSchedule);
 
-    // 3. Sync to Cloud
     if (healthRecord?.profile.checkupId) {
         await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
-        await refreshArchives(); // Refresh global reminders
+        await refreshArchives();
     }
   };
 
-  // Handle Manual Data Update (Edit Record + Schedule)
   const handleManualDataUpdate = async (updatedRecord: FollowUpRecord, updatedSchedule: ScheduledFollowUp[]) => {
-      // Update FollowUps
       const updatedFollowUps = followUps.map(r => r.id === updatedRecord.id ? updatedRecord : r);
       setFollowUps(updatedFollowUps);
-      
-      // Update Schedule
       setSchedule(updatedSchedule);
 
       if (healthRecord?.profile.checkupId) {
@@ -152,7 +133,7 @@ const App: React.FC = () => {
         onClose={() => setShowLoginModal(false)}
         onLoginSuccess={() => {
             setIsAuthenticated(true);
-            refreshArchives(); // Refresh data on login
+            refreshArchives();
         }}
       />
 
@@ -169,11 +150,8 @@ const App: React.FC = () => {
                 </button>
                 <button 
                   onClick={() => {
-                      if (isAuthenticated) {
-                          setActiveTab('admin');
-                      } else {
-                          setShowLoginModal(true);
-                      }
+                      if (isAuthenticated) setActiveTab('admin');
+                      else setShowLoginModal(true);
                   }} 
                   className="bg-teal-600 text-white px-8 py-3 rounded-lg shadow-lg hover:bg-teal-700 transition-all transform hover:scale-105"
                 >
@@ -185,23 +163,16 @@ const App: React.FC = () => {
       
       {activeTab === 'admin' && (
         <AdminConsole 
-            isAuthenticated={isAuthenticated} // Pass auth state
+            isAuthenticated={isAuthenticated}
             onSelectPatient={handleSelectPatient} 
             onDataUpdate={refreshArchives} 
         />
       )}
       
       {activeTab === 'heatmap' && (
-          <HospitalHeatmap 
-              archives={archives} 
-              onRefresh={refreshArchives}
-          />
+          <HospitalHeatmap archives={archives} onRefresh={refreshArchives} />
       )}
       
-      {/* 
-        修改：使用 hidden 类来控制显示/隐藏，而不是条件渲染。
-        这样组件实例会一直保持挂载状态，后台的 API 请求不会中断。
-      */}
       <div className={activeTab === 'survey' ? 'block h-full' : 'hidden'}>
           <HealthSurvey onSubmit={handleSurveySubmit} initialData={healthRecord} isLoading={isGenerating} />
       </div>
@@ -210,10 +181,19 @@ const App: React.FC = () => {
         <AssessmentReport 
             assessment={assessment} 
             patientName={healthRecord.profile.name} 
-            profile={healthRecord.profile} // Pass profile
+            profile={healthRecord.profile}
             onSave={handleSaveAssessment}
             onReevaluate={() => setActiveTab('survey')}
         />
+      )}
+      
+      {/* New Risk Portrait Tab */}
+      {activeTab === 'risk_portrait' && healthRecord && (
+          <SystemRiskPortrait 
+            record={healthRecord} 
+            existingAnalysis={riskAnalysis} 
+            onUpdate={refreshArchives} 
+          />
       )}
       
       {activeTab === 'followup' && (
