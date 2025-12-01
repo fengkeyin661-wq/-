@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
@@ -15,6 +14,10 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   const [rawText, setRawText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [data, setData] = useState<HealthRecord | null>(initialData || null);
+  
+  // Edit Mode State
+  const [isEditing, setIsEditing] = useState(false);
+  
   const [activeTab, setActiveTab] = useState<'profile' | 'clinical' | 'questionnaire'>('profile');
   const [clinicalSubTab, setClinicalSubTab] = useState<'lab' | 'imaging' | 'optional'>('lab');
   const [surveySubTab, setSurveySubTab] = useState<'history' | 'lifestyle' | 'mental'>('history');
@@ -27,6 +30,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
         setMode('input');
         setRawText('');
     }
+    setIsEditing(false);
   }, [initialData]);
 
   const handleParse = async () => {
@@ -36,6 +40,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
         const result = await parseHealthDataFromText(rawText);
         setData(result);
         setMode('review');
+        setIsEditing(false); 
     } catch (e) {
         alert("AI 解析失败，请检查网络或 Key 配置");
         console.error(e);
@@ -79,7 +84,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
 
   return (
     <div className="bg-white rounded-xl shadow-lg border border-slate-100 overflow-hidden flex flex-col h-[800px]">
-        {/* Main Tabs */}
+        {/* Main Tabs & Toolbar */}
         <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex justify-between items-center shrink-0">
             <div className="flex gap-2">
                 {[
@@ -98,30 +103,59 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                     </button>
                 ))}
             </div>
-            <button onClick={() => setMode('input')} className="text-sm text-slate-500 hover:text-teal-600">重新录入</button>
+            
+            <div className="flex gap-3 items-center">
+                {isEditing ? (
+                    <>
+                        <button 
+                            onClick={() => setIsEditing(false)} 
+                            className="bg-teal-600 text-white border border-teal-600 px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm hover:bg-teal-700"
+                        >
+                            💾 保存修改
+                        </button>
+                    </>
+                ) : (
+                    <button 
+                        onClick={() => setIsEditing(true)} 
+                        className="bg-white text-teal-700 border border-teal-200 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-teal-50 flex items-center gap-1"
+                    >
+                        ✏️ 修改数据
+                    </button>
+                )}
+                <div className="w-px h-6 bg-slate-300 mx-1"></div>
+                <button onClick={() => {setIsEditing(false); setMode('input');}} className="text-sm text-slate-500 hover:text-teal-600">
+                    重新录入
+                </button>
+            </div>
         </div>
 
         {/* Content Area */}
         <div className="p-8 flex-1 overflow-y-auto">
+            {isEditing && (
+                <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-2 rounded-lg mb-4 text-sm flex items-center gap-2 animate-fadeIn">
+                    <span>⚠️ 编辑模式开启：请直接点击下方输入框修改内容，修改完成后点击右上角“保存”。</span>
+                </div>
+            )}
             
             {/* 1. Profile Tab */}
             {activeTab === 'profile' && (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                    <Field label="姓名" value={data.profile.name} />
-                    <Field label="体检编号" value={data.profile.checkupId} />
-                    <Field label="性别" value={data.profile.gender} />
-                    <Field label="年龄" value={data.profile.age} />
-                    <Field label="部门" value={data.profile.department} />
-                    <Field label="电话" value={data.profile.phone} />
+                    <Field label="姓名" value={data.profile.name} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, name: v}})} />
+                    <Field label="体检编号" value={data.profile.checkupId} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, checkupId: v}})} />
+                    <Field label="性别" value={data.profile.gender} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, gender: v}})} />
+                    <Field label="年龄" value={data.profile.age} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, age: Number(v)}})} />
+                    <Field label="部门" value={data.profile.department} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, department: v}})} />
+                    <Field label="电话" value={data.profile.phone} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, phone: v}})} />
                     
                     <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
                         <h4 className="font-bold text-slate-700 mb-4">基础指标</h4>
                         <div className="grid grid-cols-5 gap-4">
-                            <Field label="身高(cm)" value={data.checkup.basics.height} />
-                            <Field label="体重(kg)" value={data.checkup.basics.weight} />
-                            <Field label="BMI" value={data.checkup.basics.bmi} />
-                            <Field label="血压(mmHg)" value={`${data.checkup.basics.sbp || '-'}/${data.checkup.basics.dbp || '-'}`} />
-                            <Field label="腰围(cm)" value={data.checkup.basics.waist} />
+                            <Field label="身高(cm)" value={data.checkup.basics.height} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, height: Number(v)}}})} />
+                            <Field label="体重(kg)" value={data.checkup.basics.weight} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, weight: Number(v)}}})} />
+                            <Field label="BMI" value={data.checkup.basics.bmi} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, bmi: Number(v)}}})} />
+                            <Field label="收缩压(mmHg)" value={data.checkup.basics.sbp} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, sbp: Number(v)}}})} />
+                            <Field label="舒张压(mmHg)" value={data.checkup.basics.dbp} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, dbp: Number(v)}}})} />
+                            <Field label="腰围(cm)" value={data.checkup.basics.waist} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, waist: Number(v)}}})} />
                         </div>
                     </div>
                 </div>
@@ -146,31 +180,51 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
 
                     {clinicalSubTab === 'lab' && (
                         <div className="space-y-6">
-                            <Section title="肝功能" data={data.checkup.labBasic.liver} />
-                            <Section title="肾功能" data={data.checkup.labBasic.renal} />
-                            <Section title="血脂" data={data.checkup.labBasic.lipids} />
-                            <Section title="甲功" data={data.checkup.labBasic.thyroidFunction} />
+                            <Section 
+                                title="肝功能" 
+                                data={data.checkup.labBasic.liver} 
+                                isEditing={isEditing}
+                                onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, liver: {...data.checkup.labBasic.liver, [k]: v}}}})}
+                            />
+                            <Section 
+                                title="肾功能" 
+                                data={data.checkup.labBasic.renal} 
+                                isEditing={isEditing}
+                                onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, renal: {...data.checkup.labBasic.renal, [k]: v}}}})}
+                            />
+                            <Section 
+                                title="血脂" 
+                                data={data.checkup.labBasic.lipids} 
+                                isEditing={isEditing}
+                                onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, lipids: {...data.checkup.labBasic.lipids, [k]: v}}}})}
+                            />
+                            <Section 
+                                title="甲功" 
+                                data={data.checkup.labBasic.thyroidFunction} 
+                                isEditing={isEditing}
+                                onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, thyroidFunction: {...data.checkup.labBasic.thyroidFunction, [k]: v}}}})}
+                            />
                             <div className="grid grid-cols-2 gap-6">
-                                <Field label="肌酸激酶" value={data.checkup.labBasic.ck} />
-                                <Field label="空腹血糖" value={data.checkup.labBasic.glucose?.fasting} />
+                                <Field label="肌酸激酶" value={data.checkup.labBasic.ck} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, ck: v}}})} />
+                                <Field label="空腹血糖" value={data.checkup.labBasic.glucose?.fasting} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, glucose: {...data.checkup.labBasic.glucose, fasting: v}}}})} />
                             </div>
                         </div>
                     )}
-                    {/* ... Imaging and Optional tabs remain similar ... */}
+                    {/* ... Imaging and Optional tabs ... */}
                     {clinicalSubTab === 'imaging' && (
                         <div className="grid grid-cols-2 gap-6">
-                            <Field label="心电图" value={data.checkup.imagingBasic.ecg} fullWidth />
-                            <Field label="甲状腺彩超" value={data.checkup.imagingBasic.ultrasound.thyroid} fullWidth />
-                            <Field label="腹部彩超" value={data.checkup.imagingBasic.ultrasound.abdomen} fullWidth />
-                            <Field label="乳腺彩超" value={data.checkup.imagingBasic.ultrasound.breast} fullWidth />
+                            <Field label="心电图" value={data.checkup.imagingBasic.ecg} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ecg: v}}})} />
+                            <Field label="甲状腺彩超" value={data.checkup.imagingBasic.ultrasound.thyroid} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, thyroid: v}}}})} />
+                            <Field label="腹部彩超" value={data.checkup.imagingBasic.ultrasound.abdomen} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, abdomen: v}}}})} />
+                            <Field label="乳腺彩超" value={data.checkup.imagingBasic.ultrasound.breast} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, breast: v}}}})} />
                         </div>
                     )}
                     {clinicalSubTab === 'optional' && (
                          <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
-                                <Field label="TCT" value={data.checkup.optional.tct} />
-                                <Field label="HPV" value={data.checkup.optional.hpv} />
-                                <Field label="骨密度" value={data.checkup.optional.boneDensity} />
+                                <Field label="TCT" value={data.checkup.optional.tct} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, tct: v}}})} />
+                                <Field label="HPV" value={data.checkup.optional.hpv} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, hpv: v}}})} />
+                                <Field label="骨密度" value={data.checkup.optional.boneDensity} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, boneDensity: v}}})} />
                             </div>
                         </div>
                     )}
@@ -199,38 +253,46 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                             <div className="bg-blue-50 p-4 rounded border border-blue-100">
                                 <h5 className="font-bold text-blue-800 mb-3">既往病史与用药</h5>
                                 <div className="flex flex-wrap gap-2 mb-4">
-                                    {data.questionnaire.history.diseases.map((d,i) => <span key={i} className="bg-white px-2 py-1 rounded text-sm text-blue-600 border">{d}</span>)}
+                                    {isEditing ? (
+                                        <input 
+                                            className="w-full border border-blue-300 rounded p-2 text-sm"
+                                            value={data.questionnaire.history.diseases.join(', ')}
+                                            onChange={e => setData({...data, questionnaire: {...data.questionnaire, history: {...data.questionnaire.history, diseases: e.target.value.split(',').map(s=>s.trim())}}})}
+                                        />
+                                    ) : (
+                                        data.questionnaire.history.diseases.map((d,i) => <span key={i} className="bg-white px-2 py-1 rounded text-sm text-blue-600 border">{d}</span>)
+                                    )}
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 text-xs">
-                                     <div className="flex items-center gap-2"><input type="checkbox" checked={data.questionnaire.medication.details.antihypertensive} readOnly/> 服降压药</div>
-                                     <div className="flex items-center gap-2"><input type="checkbox" checked={data.questionnaire.medication.details.hypoglycemic} readOnly/> 服降糖药</div>
-                                     <div className="flex items-center gap-2"><input type="checkbox" checked={data.questionnaire.medication.details.lipidLowering} readOnly/> 服降脂药</div>
+                                     <BoolField label="服降压药" val={data.questionnaire.medication.details.antihypertensive} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, medication: {...data.questionnaire.medication, details: {...data.questionnaire.medication.details, antihypertensive: v}}}})} />
+                                     <BoolField label="服降糖药" val={data.questionnaire.medication.details.hypoglycemic} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, medication: {...data.questionnaire.medication, details: {...data.questionnaire.medication.details, hypoglycemic: v}}}})} />
+                                     <BoolField label="服降脂药" val={data.questionnaire.medication.details.lipidLowering} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, medication: {...data.questionnaire.medication, details: {...data.questionnaire.medication.details, lipidLowering: v}}}})} />
                                 </div>
                             </div>
                             
                             <div className="bg-orange-50 p-4 rounded border border-orange-100">
                                 <h5 className="font-bold text-orange-800 mb-3">家族病史 (一级亲属)</h5>
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                                    <BoolField label="父亲早发冠心病" val={data.questionnaire.familyHistory.fatherCvdEarly} />
-                                    <BoolField label="母亲早发冠心病" val={data.questionnaire.familyHistory.motherCvdEarly} />
-                                    <BoolField label="糖尿病" val={data.questionnaire.familyHistory.diabetes} />
-                                    <BoolField label="高血压" val={data.questionnaire.familyHistory.hypertension} />
-                                    <BoolField label="父母脑卒中" val={data.questionnaire.familyHistory.stroke} />
-                                    <BoolField label="父母髋骨骨折" val={data.questionnaire.familyHistory.parentHipFracture} />
-                                    <BoolField label="直系亲属肺癌" val={data.questionnaire.familyHistory.lungCancer} />
-                                    <BoolField label="直系亲属肠癌" val={data.questionnaire.familyHistory.colonCancer} />
+                                    <BoolField label="父亲早发冠心病" val={data.questionnaire.familyHistory.fatherCvdEarly} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, familyHistory: {...data.questionnaire.familyHistory, fatherCvdEarly: v}}})} />
+                                    <BoolField label="母亲早发冠心病" val={data.questionnaire.familyHistory.motherCvdEarly} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, familyHistory: {...data.questionnaire.familyHistory, motherCvdEarly: v}}})} />
+                                    <BoolField label="糖尿病" val={data.questionnaire.familyHistory.diabetes} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, familyHistory: {...data.questionnaire.familyHistory, diabetes: v}}})} />
+                                    <BoolField label="高血压" val={data.questionnaire.familyHistory.hypertension} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, familyHistory: {...data.questionnaire.familyHistory, hypertension: v}}})} />
+                                    <BoolField label="父母脑卒中" val={data.questionnaire.familyHistory.stroke} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, familyHistory: {...data.questionnaire.familyHistory, stroke: v}}})} />
+                                    <BoolField label="父母髋骨骨折" val={data.questionnaire.familyHistory.parentHipFracture} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, familyHistory: {...data.questionnaire.familyHistory, parentHipFracture: v}}})} />
+                                    <BoolField label="直系亲属肺癌" val={data.questionnaire.familyHistory.lungCancer} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, familyHistory: {...data.questionnaire.familyHistory, lungCancer: v}}})} />
+                                    <BoolField label="直系亲属肠癌" val={data.questionnaire.familyHistory.colonCancer} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, familyHistory: {...data.questionnaire.familyHistory, colonCancer: v}}})} />
                                 </div>
                             </div>
 
-                            {data.profile.gender === '女' && (
+                            {(data.profile.gender === '女' || isEditing) && (
                                 <div className="bg-pink-50 p-4 rounded border border-pink-100">
                                     <h5 className="font-bold text-pink-800 mb-3">女性健康史</h5>
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <Field label="初潮年龄" value={data.questionnaire.femaleHealth.menarcheAge} />
-                                        <Field label="首胎年龄" value={data.questionnaire.femaleHealth.firstBirthAge} />
-                                        <Field label="绝经状态" value={data.questionnaire.femaleHealth.menopauseStatus} />
-                                        <BoolField label="乳腺活检史" val={data.questionnaire.femaleHealth.breastBiopsy} />
-                                        <BoolField label="妊娠糖尿病" val={data.questionnaire.femaleHealth.gdmHistory} />
+                                        <Field label="初潮年龄" value={data.questionnaire.femaleHealth.menarcheAge} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, femaleHealth: {...data.questionnaire.femaleHealth, menarcheAge: Number(v)}}})} />
+                                        <Field label="首胎年龄" value={data.questionnaire.femaleHealth.firstBirthAge} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, femaleHealth: {...data.questionnaire.femaleHealth, firstBirthAge: v}}})} />
+                                        <Field label="绝经状态" value={data.questionnaire.femaleHealth.menopauseStatus} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, femaleHealth: {...data.questionnaire.femaleHealth, menopauseStatus: v}}})} />
+                                        <BoolField label="乳腺活检史" val={data.questionnaire.femaleHealth.breastBiopsy} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, femaleHealth: {...data.questionnaire.femaleHealth, breastBiopsy: v}}})} />
+                                        <BoolField label="妊娠糖尿病" val={data.questionnaire.femaleHealth.gdmHistory} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, femaleHealth: {...data.questionnaire.femaleHealth, gdmHistory: v}}})} />
                                     </div>
                                 </div>
                             )}
@@ -242,23 +304,23 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="border p-4 rounded">
                                     <h5 className="font-bold mb-2 text-sm">吸烟情况</h5>
-                                    <Field label="吸烟包年数" value={data.questionnaire.substances.smoking.packYears || '未计算'} />
-                                    <Field label="每日支数" value={data.questionnaire.substances.smoking.dailyAmount} />
-                                    <Field label="吸烟年限" value={data.questionnaire.substances.smoking.years} />
+                                    <Field label="吸烟包年数" value={data.questionnaire.substances.smoking.packYears || '0'} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, substances: {...data.questionnaire.substances, smoking: {...data.questionnaire.substances.smoking, packYears: Number(v)}}}})} />
+                                    <Field label="每日支数" value={data.questionnaire.substances.smoking.dailyAmount} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, substances: {...data.questionnaire.substances, smoking: {...data.questionnaire.substances.smoking, dailyAmount: Number(v)}}}})} />
+                                    <Field label="吸烟年限" value={data.questionnaire.substances.smoking.years} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, substances: {...data.questionnaire.substances, smoking: {...data.questionnaire.substances.smoking, years: Number(v)}}}})} />
                                 </div>
                                 <div className="border p-4 rounded">
                                     <h5 className="font-bold mb-2 text-sm">呼吸道症状 (COPD筛查)</h5>
-                                    <BoolField label="经常咳嗽" val={data.questionnaire.respiratory.chronicCough} />
-                                    <BoolField label="经常咳痰" val={data.questionnaire.respiratory.chronicPhlegm} />
-                                    <BoolField label="活动后气短" val={data.questionnaire.respiratory.shortBreath} />
+                                    <BoolField label="经常咳嗽" val={data.questionnaire.respiratory.chronicCough} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, respiratory: {...data.questionnaire.respiratory, chronicCough: v}}})} />
+                                    <BoolField label="经常咳痰" val={data.questionnaire.respiratory.chronicPhlegm} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, respiratory: {...data.questionnaire.respiratory, chronicPhlegm: v}}})} />
+                                    <BoolField label="活动后气短" val={data.questionnaire.respiratory.shortBreath} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, respiratory: {...data.questionnaire.respiratory, shortBreath: v}}})} />
                                 </div>
                             </div>
                             <div className="border p-4 rounded bg-white">
                                 <h5 className="font-bold text-teal-700 mb-3 text-sm">膳食与运动</h5>
                                 <div className="grid grid-cols-3 gap-4">
-                                    <Field label="饮食偏好" value={data.questionnaire.diet.habits.join(', ')} />
-                                    <Field label="运动频率" value={data.questionnaire.exercise.frequency} />
-                                    <Field label="睡眠时长" value={data.questionnaire.sleep.hours} />
+                                    <Field label="饮食偏好" value={data.questionnaire.diet.habits.join(', ')} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, diet: {...data.questionnaire.diet, habits: v.split(',').map(s=>s.trim())}}})} />
+                                    <Field label="运动频率" value={data.questionnaire.exercise.frequency} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, exercise: {...data.questionnaire.exercise, frequency: v}}})} />
+                                    <Field label="睡眠时长" value={data.questionnaire.sleep.hours} isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, sleep: {...data.questionnaire.sleep, hours: v}}})} />
                                 </div>
                             </div>
                         </div>
@@ -270,11 +332,19 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                                 <h5 className="font-bold text-purple-800 mb-3">心理量表评分 (PHQ/GAD)</h5>
                                 <div className="grid grid-cols-3 gap-6 text-center">
                                     <div>
-                                        <div className="text-2xl font-bold text-purple-700">{data.questionnaire.mentalScales.phq9Score ?? '-'}</div>
+                                        {isEditing ? (
+                                             <input className="w-20 text-center border rounded p-1" type="number" value={data.questionnaire.mentalScales.phq9Score || 0} onChange={e => setData({...data, questionnaire: {...data.questionnaire, mentalScales: {...data.questionnaire.mentalScales, phq9Score: Number(e.target.value)}}})} />
+                                        ) : (
+                                            <div className="text-2xl font-bold text-purple-700">{data.questionnaire.mentalScales.phq9Score ?? '-'}</div>
+                                        )}
                                         <div className="text-xs text-purple-500">PHQ-9 抑郁总分</div>
                                     </div>
                                     <div>
-                                        <div className="text-2xl font-bold text-purple-700">{data.questionnaire.mentalScales.gad7Score ?? '-'}</div>
+                                        {isEditing ? (
+                                             <input className="w-20 text-center border rounded p-1" type="number" value={data.questionnaire.mentalScales.gad7Score || 0} onChange={e => setData({...data, questionnaire: {...data.questionnaire, mentalScales: {...data.questionnaire.mentalScales, gad7Score: Number(e.target.value)}}})} />
+                                        ) : (
+                                            <div className="text-2xl font-bold text-purple-700">{data.questionnaire.mentalScales.gad7Score ?? '-'}</div>
+                                        )}
                                         <div className="text-xs text-purple-500">GAD-7 焦虑总分</div>
                                     </div>
                                     <div>
@@ -285,8 +355,8 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                                     </div>
                                 </div>
                             </div>
-                            <Field label="主诉压力源" value={data.questionnaire.mental.stressSource?.join(', ')} fullWidth />
-                            <Field label="最关心的健康问题" value={data.questionnaire.needs.concerns?.join(', ')} fullWidth />
+                            <Field label="主诉压力源" value={data.questionnaire.mental.stressSource?.join(', ')} fullWidth isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, mental: {...data.questionnaire.mental, stressSource: v.split(',').map(s=>s.trim())}}})} />
+                            <Field label="最关心的健康问题" value={data.questionnaire.needs.concerns?.join(', ')} fullWidth isEditing={isEditing} onChange={v => setData({...data, questionnaire: {...data.questionnaire, needs: {...data.questionnaire.needs, concerns: v.split(',').map(s=>s.trim())}}})} />
                         </div>
                     )}
                 </div>
@@ -297,43 +367,61 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
         <div className="p-6 border-t border-slate-200 flex justify-end shrink-0">
             <button 
                 onClick={() => onSubmit(data)}
-                disabled={isLoading}
+                disabled={isLoading || isEditing}
                 className="bg-teal-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-teal-700 shadow-lg disabled:opacity-50"
             >
-                {isLoading ? '正在生成管理方案...' : '确认存档并评估'}
+                {isLoading ? '正在生成管理方案...' : isEditing ? '请先保存修改' : '确认存档并评估'}
             </button>
         </div>
     </div>
   );
 };
 
-// UI Helpers
-const Field: React.FC<{label: string, value: any, fullWidth?: boolean}> = ({label, value, fullWidth}) => (
+// UI Helpers (Updated for Edit Mode)
+const Field: React.FC<{label: string, value: any, fullWidth?: boolean, isEditing?: boolean, onChange?: (val: string) => void}> = ({label, value, fullWidth, isEditing, onChange}) => (
     <div className={`bg-slate-50 p-3 rounded border border-slate-200 ${fullWidth ? 'col-span-full' : ''}`}>
         <div className="text-xs text-slate-500 mb-1">{label}</div>
-        <div className="font-medium text-slate-800 text-sm truncate" title={String(value || '')}>
-            {value || '-'}
-        </div>
+        {isEditing && onChange ? (
+            <input 
+                type="text" 
+                className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-teal-500"
+                value={value || ''}
+                onChange={(e) => onChange(e.target.value)}
+            />
+        ) : (
+            <div className="font-medium text-slate-800 text-sm truncate" title={String(value || '')}>
+                {value || '-'}
+            </div>
+        )}
     </div>
 );
 
-const BoolField: React.FC<{label: string, val?: boolean}> = ({label, val}) => (
-    <div className="flex items-center gap-2">
-        <div className={`w-3 h-3 rounded-full ${val ? 'bg-red-500' : 'bg-slate-200'}`}></div>
+const BoolField: React.FC<{label: string, val?: boolean, isEditing?: boolean, onChange?: (val: boolean) => void}> = ({label, val, isEditing, onChange}) => (
+    <div className={`flex items-center gap-2 ${isEditing ? 'cursor-pointer hover:bg-slate-100 p-1 rounded' : ''}`} 
+         onClick={() => isEditing && onChange && onChange(!val)}>
+        <div className={`w-3 h-3 rounded-full ${val ? 'bg-red-500' : 'bg-slate-200 border border-slate-300'}`}></div>
         <span className={`${val ? 'text-slate-800 font-bold' : 'text-slate-400'}`}>{label}</span>
     </div>
 );
 
-const Section: React.FC<{title: string, data?: {[key:string]: any}}> = ({title, data}) => {
-    if (!data || Object.keys(data).length === 0) return null;
+const Section: React.FC<{title: string, data?: {[key:string]: any}, isEditing?: boolean, onItemChange?: (key: string, val: string) => void}> = ({title, data, isEditing, onItemChange}) => {
+    if ((!data || Object.keys(data).length === 0) && !isEditing) return null;
     return (
         <div className="border border-slate-200 rounded-lg p-4">
             <h5 className="font-bold text-slate-700 mb-3 text-sm">{title}</h5>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {Object.entries(data).map(([k, v]) => (
-                    v && <div key={k} className="text-xs">
+                {data && Object.entries(data).map(([k, v]) => (
+                    (v || isEditing) && <div key={k} className="text-xs">
                         <span className="text-slate-500 block uppercase">{k}</span>
-                        <span className="font-medium">{String(v)}</span>
+                        {isEditing && onItemChange ? (
+                             <input 
+                                className="w-full border border-slate-300 rounded px-1 py-0.5 mt-0.5"
+                                value={v || ''}
+                                onChange={e => onItemChange(k, e.target.value)}
+                             />
+                        ) : (
+                             <span className="font-medium">{String(v)}</span>
+                        )}
                     </div>
                 ))}
             </div>
