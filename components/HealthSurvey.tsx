@@ -9,17 +9,10 @@ import * as XLSX from 'xlsx';
 // @ts-ignore
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF Worker
-if (typeof window !== 'undefined' && (window as any).pdfjsLib) {
-    (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-} else {
-    // Fallback if imported as module
-    try {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-    } catch(e) {
-        console.warn("PDF Worker setup warning:", e);
-    }
-}
+// Fix PDF Worker configuration
+// Use cdnjs for the worker script to ensure it is loaded as a standalone script, 
+// preventing "fake worker" errors caused by module wrapping in other CDNs.
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 interface Props {
   onSubmit: (data: HealthRecord) => void;
@@ -90,7 +83,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
               const arrayBuffer = await file.arrayBuffer();
               const workbook = XLSX.read(arrayBuffer, { type: 'array' });
               // Iterate all sheets
-              workbook.SheetNames.forEach(sheetName => {
+              workbook.SheetNames.forEach((sheetName: string) => {
                   const sheet = workbook.Sheets[sheetName];
                   text += `--- Sheet: ${sheetName} ---\n`;
                   text += XLSX.utils.sheet_to_csv(sheet);
@@ -99,10 +92,13 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
           }
           else if (fileType === 'pdf') {
               const arrayBuffer = await file.arrayBuffer();
+              
+              // Load PDF
               const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
               const pdf = await loadingTask.promise;
               let fullText = "";
               
+              // Iterate pages
               for (let i = 1; i <= pdf.numPages; i++) {
                   const page = await pdf.getPage(i);
                   const textContent = await page.getTextContent();
