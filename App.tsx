@@ -7,10 +7,10 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { HospitalHeatmap } from './components/HospitalHeatmap';
-// import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // Removed Standalone
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
+import { useToast } from './components/Toast';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('followup');
@@ -25,6 +25,8 @@ const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [archives, setArchives] = useState<HealthArchive[]>([]);
+  
+  const toast = useToast();
 
   const refreshArchives = async () => {
       try {
@@ -32,6 +34,7 @@ const App: React.FC = () => {
           setArchives(data);
       } catch (e) {
           console.error("Failed to refresh archives:", e);
+          toast.error("刷新数据失败，请检查网络");
       }
   };
 
@@ -73,8 +76,9 @@ const App: React.FC = () => {
 
       await refreshArchives();
       setActiveTab('assessment');
+      toast.success("建档成功，评估报告已生成");
     } catch (error) {
-      alert("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
+      toast.error("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
     } finally {
       setIsGenerating(false);
     }
@@ -88,15 +92,15 @@ const App: React.FC = () => {
           if (!res.success) throw new Error(res.message);
           
           await refreshArchives();
-          alert("评估方案已更新保存");
+          toast.success("评估方案已更新保存");
       } catch (e: any) {
-          alert("保存失败: " + e.message);
+          toast.error("保存失败: " + e.message);
       }
   };
 
   const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
     if (!healthRecord || !assessment) {
-        alert("错误：缺少基础健康档案，无法保存。");
+        toast.error("错误：缺少基础健康档案，无法保存。");
         return;
     }
 
@@ -135,12 +139,12 @@ const App: React.FC = () => {
         // 4. Refresh background data (optional, to keep sync)
         refreshArchives();
         
-        alert(`✅ 随访记录已保存。\n\n下阶段健康管理执行单已更新。`);
+        toast.success("随访记录已保存，执行单已更新");
         // Stay on Dashboard to see the updated sheet
         
     } catch (e) {
         console.error("Save failed:", e);
-        alert("保存失败: " + (e instanceof Error ? e.message : "未知错误"));
+        toast.error("保存失败: " + (e instanceof Error ? e.message : "未知错误"));
     }
   };
 
@@ -152,6 +156,7 @@ const App: React.FC = () => {
       if (healthRecord?.profile.checkupId) {
           await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
           await refreshArchives();
+          toast.success("数据已手动更新");
       }
   };
 
@@ -161,7 +166,10 @@ const App: React.FC = () => {
       onTabChange={setActiveTab}
       isAuthenticated={isAuthenticated}
       onLoginClick={() => setShowLoginModal(true)}
-      onLogoutClick={() => setIsAuthenticated(false)}
+      onLogoutClick={() => {
+          setIsAuthenticated(false);
+          toast.info("已退出登录");
+      }}
     >
       <LoginModal 
         isOpen={showLoginModal} 
@@ -169,6 +177,7 @@ const App: React.FC = () => {
         onLoginSuccess={() => {
             setIsAuthenticated(true);
             refreshArchives();
+            toast.success("管理员登录成功");
         }}
       />
 
@@ -240,13 +249,6 @@ const App: React.FC = () => {
       
       {activeTab === 'risk_portrait' && healthRecord && (
           <div className="bg-white p-6 rounded-xl shadow border border-slate-200 h-full overflow-y-auto">
-               {/* Reusing existing component in a dedicated tab */}
-               {/* Note: In a real app we would import SystemRiskPortrait here, but I commented it out in imports per original file */}
-               {/* <SystemRiskPortrait 
-                  record={healthRecord} 
-                  existingAnalysis={riskAnalysis} 
-                  onUpdate={refreshArchives} 
-              /> */}
               <div className="text-center text-slate-400 mt-20">请在“评估报告”中查看画像</div>
           </div>
       )}

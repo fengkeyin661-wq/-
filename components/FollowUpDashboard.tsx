@@ -4,6 +4,7 @@ import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '
 import { HealthArchive } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
+import { useToast } from './Toast';
 
 interface Props {
   records: FollowUpRecord[];
@@ -60,6 +61,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onUpdateData
 }) => {
   const [showModal, setShowModal] = useState(false);
+  const toast = useToast();
   
   // State for editing the bottom Guide
   const [isEditingGuide, setIsEditingGuide] = useState(false);
@@ -321,7 +323,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
         setShowModal(false);
     } catch (e) {
         console.error(e);
-        alert(`自动分析保存失败: ${e instanceof Error ? e.message : '未知错误'}。请重试。`);
+        toast.error(`自动分析保存失败: ${e instanceof Error ? e.message : '未知错误'}`);
     } finally {
         setIsSubmitting(false);
     }
@@ -331,7 +333,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       if (!onUpdateData) return;
       
       if (!latestRecord) {
-          alert("请先录入一次随访记录，才能保存修订的执行单。");
+          toast.error("请先录入一次随访记录，才能保存修订的执行单。");
           return;
       }
 
@@ -366,7 +368,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
       
       if (!printWindow) {
-          alert("浏览器拦截了弹窗，请允许本站弹出窗口以便打印。");
+          toast.error("浏览器拦截了弹窗，请允许本站弹出窗口以便打印。");
           return;
       }
 
@@ -522,9 +524,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
       if (latestRecord) {
           onUpdateData(latestRecord, updatedSchedule);
-          alert(`短信模拟发送成功！\n随访日期已自动延期至 ${newDateStr}`);
+          toast.success(`短信模拟发送成功！\n随访日期已自动延期至 ${newDateStr}`);
       } else {
-         alert("无法更新：缺少基础记录");
+         toast.error("无法更新：缺少基础记录");
       }
       setShowSmsModal(false);
   };
