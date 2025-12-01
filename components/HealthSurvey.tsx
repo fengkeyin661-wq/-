@@ -60,35 +60,26 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   }, []);
 
   useEffect(() => {
-    // If initialData is updated (e.g. from parent), sync it
+    setData(initialData || null);
     if (initialData) {
-        setData(initialData);
         setMode('review');
-        setIsEditing(false);
     } else {
-        // Don't reset if we are just loading
-        if (!isLoading && !data) {
-             setMode('input');
-             setRawText('');
-        }
+        setMode('input');
+        setRawText('');
     }
-  }, [initialData, isLoading]);
+    setIsEditing(false);
+  }, [initialData]);
 
   const handleParse = async () => {
     if (!rawText) return;
     setIsParsing(true);
     try {
         const result = await parseHealthDataFromText(rawText);
-        // Ensure result is not null before setting
-        if (result) {
-            setData(result);
-            setMode('review');
-            setIsEditing(false); 
-        } else {
-            alert("解析结果为空，请检查输入内容");
-        }
-    } catch (e: any) {
-        alert("AI 解析失败: " + e.message);
+        setData(result);
+        setMode('review');
+        setIsEditing(false); 
+    } catch (e) {
+        alert("AI 解析失败，请检查网络或 Key 配置");
         console.error(e);
     } finally {
         setIsParsing(false);
@@ -150,7 +141,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
           if (text) {
               setRawText(prev => prev ? prev + "\n\n" + text : text);
           } else {
-              alert("未能从文件中提取到有效文本。请确认文件不加密且包含可读文字。");
+              alert("未能从文件中提取到有效文本。");
           }
 
       } catch (error) {
@@ -167,9 +158,12 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
       fileInputRef.current?.click();
   };
 
+  // Helper to calculate BMI automatically
   const calculateBmi = (height?: number, weight?: number) => {
       if (height && weight && height > 0 && weight > 0) {
+          // Height is in cm, convert to m
           const h = height / 100;
+          // BMI = kg / m^2
           const bmi = weight / (h * h);
           return parseFloat(bmi.toFixed(1));
       }
@@ -199,6 +193,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                     onChange={e => setRawText(e.target.value)}
                 />
                 
+                {/* Floating Upload Button inside/near Textarea */}
                 <div className="absolute bottom-4 right-4 flex gap-2">
                      <input 
                         type="file" 
@@ -231,13 +226,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
     );
   }
 
-  // Safe check before rendering review mode
-  if (!data) return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-400">
-          <div className="text-4xl animate-spin mb-4">⏳</div>
-          <p>正在加载数据...</p>
-      </div>
-  );
+  if (!data) return null;
 
   return (
     <div className="bg-white rounded-xl shadow-lg border border-slate-100 overflow-hidden flex flex-col h-[800px]">
@@ -297,12 +286,12 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
             {/* 1. Profile Tab */}
             {activeTab === 'profile' && (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                    <Field label="姓名" value={data.profile?.name} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, name: v}})} />
-                    <Field label="体检编号" value={data.profile?.checkupId} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, checkupId: v}})} />
-                    <Field label="性别" value={data.profile?.gender} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, gender: v}})} />
-                    <Field label="年龄" value={data.profile?.age} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, age: Number(v)}})} />
-                    <Field label="部门" value={data.profile?.department} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, department: v}})} />
-                    <Field label="电话" value={data.profile?.phone} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, phone: v}})} />
+                    <Field label="姓名" value={data.profile.name} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, name: v}})} />
+                    <Field label="体检编号" value={data.profile.checkupId} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, checkupId: v}})} />
+                    <Field label="性别" value={data.profile.gender} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, gender: v}})} />
+                    <Field label="年龄" value={data.profile.age} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, age: Number(v)}})} />
+                    <Field label="部门" value={data.profile.department} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, department: v}})} />
+                    <Field label="电话" value={data.profile.phone} isEditing={isEditing} onChange={v => setData({...data, profile: {...data.profile, phone: v}})} />
                     
                     <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
                         <h4 className="font-bold text-slate-700 mb-4">基础指标</h4>

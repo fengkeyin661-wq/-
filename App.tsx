@@ -12,28 +12,19 @@ import { generateHealthAssessment, generateFollowUpSchedule } from './services/g
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
 import { useToast } from './components/Toast';
 
-// H5 Components
-import { PatientLogin } from './components/h5/PatientLogin';
-import { PatientApp } from './components/h5/PatientApp';
-
 const App: React.FC = () => {
-  // Global Mode State
-  const [appMode, setAppMode] = useState<'landing' | 'admin' | 'patient'>('landing');
-  
-  // Admin State
   const [activeTab, setActiveTab] = useState('followup');
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
   const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
   const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); 
+  
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
+  
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [archives, setArchives] = useState<HealthArchive[]>([]);
-  
-  // Patient State
-  const [patientArchive, setPatientArchive] = useState<HealthArchive | null>(null);
   
   const toast = useToast();
 
@@ -48,10 +39,9 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-      if (appMode === 'admin') refreshArchives();
-  }, [appMode]);
+      refreshArchives();
+  }, []);
 
-  // --- Admin Handlers ---
   const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
@@ -115,12 +105,15 @@ const App: React.FC = () => {
     }
 
     const newRecord = { ...record, id: Date.now().toString() };
+    // 1. Update Local State
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
 
+    // 2. Update Schedule (Mark current pending as done, add next one)
     const currentPending = schedule.find(s => s.status === 'pending');
     let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
     
+    // Generate new next item based on current record date + risk level
     const nextItem = generateNextScheduleItem(
         newRecord.date, 
         newRecord.assessment.nextCheckPlan || assessment.followUpPlan.nextCheckItems.join(','), 
@@ -130,6 +123,7 @@ const App: React.FC = () => {
     setSchedule(updatedSchedule);
 
     try {
+        // 3. Save to DB (Only save updated follow-ups and schedule. Do NOT modify HealthRecord or Assessment)
         const saveResult = await saveArchive(
             healthRecord, 
             assessment,       
@@ -138,15 +132,22 @@ const App: React.FC = () => {
             riskAnalysis         
         );
 
-        if (!saveResult.success) throw new Error(saveResult.message);
+        if (!saveResult.success) {
+            throw new Error(saveResult.message);
+        }
 
+        // 4. Refresh background data (optional, to keep sync)
         refreshArchives();
+        
         toast.success("随访记录已保存，执行单已更新");
+        // Stay on Dashboard to see the updated sheet
+        
     } catch (e) {
+        console.error("Save failed:", e);
         toast.error("保存失败: " + (e instanceof Error ? e.message : "未知错误"));
     }
   };
-  
+
   const handleManualDataUpdate = async (updatedRecord: FollowUpRecord, updatedSchedule: ScheduledFollowUp[]) => {
       const updatedFollowUps = followUps.map(r => r.id === updatedRecord.id ? updatedRecord : r);
       setFollowUps(updatedFollowUps);
@@ -159,75 +160,6 @@ const App: React.FC = () => {
       }
   };
 
-  // --- Render Logic ---
-
-  if (appMode === 'landing') {
-      return (
-          <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center p-6 text-white animate-fadeIn">
-              <div className="w-24 h-24 bg-teal-500 rounded-3xl flex items-center justify-center text-5xl font-bold mb-8 shadow-2xl shadow-teal-500/20">Z</div>
-              <h1 className="text-3xl font-bold mb-2 text-center">郑州大学医院健康管理中心</h1>
-              <p className="text-slate-400 mb-12 text-center max-w-md">Comprehensive Health Management System v3.0</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-lg">
-                  <button 
-                    onClick={() => setAppMode('patient')}
-                    className="group bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-sm p-6 rounded-2xl flex flex-col items-center gap-4 transition-all hover:-translate-y-1"
-                  >
-                      <span className="text-4xl">📱</span>
-                      <div>
-                          <div className="font-bold text-lg">我是受检者</div>
-                          <div className="text-xs text-slate-400 mt-1">查询档案 / 个人中心</div>
-                      </div>
-                  </button>
-
-                  <button 
-                    onClick={() => {
-                        setShowLoginModal(true);
-                        // We set mode after login success
-                    }}
-                    className="group bg-teal-600 hover:bg-teal-500 border border-teal-400/30 p-6 rounded-2xl flex flex-col items-center gap-4 transition-all hover:-translate-y-1 shadow-lg shadow-teal-900/50"
-                  >
-                      <span className="text-4xl">👨🏻‍⚕️</span>
-                      <div>
-                          <div className="font-bold text-lg">我是医生/管理员</div>
-                          <div className="text-xs text-teal-100 mt-1">进入管理控制台</div>
-                      </div>
-                  </button>
-              </div>
-
-              {/* Shared Login Modal for Admin Trigger */}
-              <LoginModal 
-                isOpen={showLoginModal} 
-                onClose={() => setShowLoginModal(false)}
-                onLoginSuccess={() => {
-                    setIsAuthenticated(true);
-                    setAppMode('admin');
-                    setActiveTab('dashboard');
-                    toast.success("管理员登录成功");
-                }}
-              />
-          </div>
-      );
-  }
-
-  if (appMode === 'patient') {
-      if (!patientArchive) {
-          return (
-             <PatientLogin 
-                onLoginSuccess={(data) => setPatientArchive(data)} 
-                onBack={() => setAppMode('landing')}
-             />
-          );
-      }
-      return (
-          <PatientApp 
-            archive={patientArchive} 
-            onLogout={() => { setPatientArchive(null); setAppMode('landing'); }} 
-          />
-      );
-  }
-
-  // Admin Mode
   return (
     <Layout 
       activeTab={activeTab} 
@@ -236,13 +168,22 @@ const App: React.FC = () => {
       onLoginClick={() => setShowLoginModal(true)}
       onLogoutClick={() => {
           setIsAuthenticated(false);
-          setAppMode('landing');
           toast.info("已退出登录");
       }}
     >
+      <LoginModal 
+        isOpen={showLoginModal} 
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={() => {
+            setIsAuthenticated(true);
+            refreshArchives();
+            toast.success("管理员登录成功");
+        }}
+      />
+
       {activeTab === 'dashboard' && (
          <div className="text-center py-20 animate-fadeIn">
-            <h2 className="text-4xl font-bold text-slate-800 mb-6 tracking-tight">管理控制台</h2>
+            <h2 className="text-4xl font-bold text-slate-800 mb-6 tracking-tight">郑州大学医院健康管理系统 v3.0</h2>
             <p className="text-slate-500 mb-10 text-lg max-w-2xl mx-auto">
                 基于 DeepSeek AI 引擎构建。<br/>
                 集成 11项基础体检 + 20项自选项目 + 59项详细健康问卷的全维度健康档案。
@@ -251,8 +192,14 @@ const App: React.FC = () => {
                 <button onClick={() => { setHealthRecord(null); setActiveTab('survey'); }} className="bg-white text-teal-600 border border-teal-200 px-8 py-3 rounded-lg hover:bg-teal-50 shadow-sm transition-all">
                     开始单人建档
                 </button>
-                <button onClick={() => setActiveTab('admin')} className="bg-teal-600 text-white px-8 py-3 rounded-lg hover:bg-teal-700 shadow transition-all">
-                    查看档案列表
+                <button 
+                  onClick={() => {
+                      if (isAuthenticated) setActiveTab('admin');
+                      else setShowLoginModal(true);
+                  }} 
+                  className="bg-teal-600 text-white px-8 py-3 rounded-lg shadow-lg hover:bg-teal-700 transition-all transform hover:scale-105"
+                >
+                    {isAuthenticated ? '进入管理控制台' : '管理员登录'}
                 </button>
             </div>
          </div>

@@ -1,3 +1,5 @@
+
+
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
@@ -260,31 +262,6 @@ export const fetchArchives = async (): Promise<HealthArchive[]> => {
         return [];
     }
 };
-
-/**
- * H5 Patient Login: Verify CheckupID and Name
- */
-export const verifyPatientLogin = async (checkupId: string, name: string): Promise<HealthArchive | null> => {
-    if (!isSupabaseConfigured()) return null;
-    try {
-        const { data, error } = await supabase
-            .from('health_archives')
-            .select('*')
-            .eq('checkup_id', checkupId)
-            .single(); // Assuming Checkup ID is unique
-
-        if (error || !data) return null;
-        
-        // Simple fuzzy match for name (contains or equals) to be user friendly
-        if (data.name.includes(name) || name.includes(data.name)) {
-            return data as HealthArchive;
-        }
-        return null;
-    } catch (e) {
-        console.error("Patient Login Error", e);
-        return null;
-    }
-}
 
 /**
  * Helper: Generate the next scheduled follow-up item based on current completion
