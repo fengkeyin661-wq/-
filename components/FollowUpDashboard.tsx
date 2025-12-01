@@ -298,14 +298,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setFormData(prev => ({ ...prev, taskCompliance: newList }));
   };
 
-  const handleSmartAnalyze = async () => {
+  const handleSubmit = async () => {
     setIsAnalyzing(true);
     try {
+        // Run AI Analysis in background
         const result = await analyzeFollowUpRecord(formData, assessment, latestRecord);
-        setFormData(prev => ({
-            ...prev,
+        
+        // Merge AI result into formData
+        const finalData = {
+            ...formData,
             assessment: {
-                ...prev.assessment,
+                ...formData.assessment,
                 riskLevel: result.riskLevel,
                 riskJustification: result.riskJustification,
                 doctorMessage: result.doctorMessage, 
@@ -313,34 +316,20 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 nextCheckPlan: result.nextCheckPlan,
                 lifestyleGoals: result.lifestyleGoals
             }
-        }));
+        };
+
+        onAddRecord(finalData);
+        setShowModal(false);
     } catch (e) {
-        alert(`智能分析失败: ${e instanceof Error ? e.message : '未知错误'}。`);
+        alert(`自动分析失败: ${e instanceof Error ? e.message : '未知错误'}。`);
     } finally {
         setIsAnalyzing(false);
     }
   };
 
-  const handleSubmit = () => {
-    // 校验：确保评估报告已生成（即风险理由或医生寄语不为空）
-    if (!formData.assessment.riskJustification?.trim() || !formData.assessment.doctorMessage?.trim()) {
-        alert("⚠️ 无法提交：随访评估报告为空。\n\n请点击“✨ 生成报告”按钮由AI辅助生成，或手动完善“临床评估”与“医生寄语”内容后再提交。");
-        return;
-    }
-
-    onAddRecord(formData);
-    setShowModal(false);
-  };
-
   const handleSaveGuideEdit = () => {
       if (!onUpdateData) return;
       
-      // If Assessment is newer, we are technically editing the "template" derived from assessment, 
-      // but to save it, we need a record. 
-      // However, usually we edit the guide AFTER a record exists.
-      // If no record exists yet (just re-evaluated), we can't save to a record.
-      // But the UI button "Save" is only shown if `latestRecord` exists (see render below).
-      // So we are safe to update `latestRecord`.
       if (!latestRecord) {
           alert("请先录入一次随访记录，才能保存修订的执行单。");
           return;
@@ -1296,47 +1285,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
                              onChange={e => updateForm('otherInfo', '', e.target.value)}
                          />
                     </section>
-                    
-                    {/* Section 5: AI 分析 */}
-                    <section className="bg-gradient-to-br from-slate-50 to-slate-100 p-4 rounded-lg border border-slate-200">
-                         <div className="flex justify-between items-center mb-4">
-                            <h4 className="text-sm font-bold text-slate-800">随访评估报告 (AI 生成)</h4>
-                            <button onClick={handleSmartAnalyze} disabled={isAnalyzing}
-                                className="text-xs bg-teal-600 text-white px-4 py-2 rounded-full hover:bg-teal-700 transition-colors shadow-lg shadow-teal-200">
-                                {isAnalyzing ? '分析中...' : '✨ 生成报告'}
-                            </button>
-                         </div>
-                         <div className="space-y-3">
-                            <div>
-                                <label className="text-xs font-bold text-slate-600 mb-1 block">临床评估 (医生专用)</label>
-                                <textarea className="w-full border border-slate-300 rounded p-3 text-sm focus:ring-1 focus:ring-teal-500" rows={3}
-                                    placeholder="风险判定理由 (Clinical Justification)"
-                                    value={formData.assessment.riskJustification} onChange={e => updateForm('assessment', 'riskJustification', e.target.value)} />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-slate-600 mb-1 block">医生寄语 (患者可见)</label>
-                                <textarea className="w-full border border-slate-300 rounded p-3 text-sm focus:ring-1 focus:ring-teal-500" rows={3}
-                                    placeholder="温馨提示与核心建议 (Patient Message)"
-                                    value={formData.assessment.doctorMessage} onChange={e => updateForm('assessment', 'doctorMessage', e.target.value)} />
-                            </div>
-                            
-                            <div className="flex items-center gap-2 text-sm pt-2">
-                                <span className="font-bold text-slate-700">本次风险:</span>
-                                <div className="flex gap-1">
-                                    {['GREEN', 'YELLOW', 'RED'].map((level) => (
-                                        <button key={level} onClick={() => updateForm('assessment', 'riskLevel', level)}
-                                            className={`w-6 h-6 rounded-full border-2 ${formData.assessment.riskLevel === level ? (level==='RED'?'bg-red-500':level==='YELLOW'?'bg-yellow-500':'bg-green-500') : 'bg-white'}`} />
-                                    ))}
-                                </div>
-                            </div>
-                         </div>
-                    </section>
-
                 </div>
 
                 <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 sticky bottom-0">
-                     <button onClick={() => setShowModal(false)} className="px-6 py-2 text-slate-600 hover:bg-slate-200 rounded-lg">取消</button>
-                     <button onClick={handleSubmit} className="px-6 py-2 bg-teal-600 text-white font-bold rounded-lg shadow-lg">提交</button>
+                     <button onClick={() => setShowModal(false)} disabled={isAnalyzing} className="px-6 py-2 text-slate-600 hover:bg-slate-200 rounded-lg">取消</button>
+                     <button onClick={handleSubmit} disabled={isAnalyzing} className="px-6 py-2 bg-teal-600 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
+                        {isAnalyzing ? '🤖 正在分析并存档...' : '提交'}
+                     </button>
                 </div>
             </div>
         </div>
