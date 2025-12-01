@@ -7,35 +7,23 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { HospitalHeatmap } from './components/HospitalHeatmap';
+// import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // Removed Standalone
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
-import { useToast } from './components/Toast';
-
-// H5 Components
-import { PatientLogin } from './components/h5/PatientLogin';
-import { PatientApp } from './components/h5/PatientApp';
 
 const App: React.FC = () => {
-  // Global Mode State
-  const [appMode, setAppMode] = useState<'landing' | 'admin' | 'patient'>('landing');
-  
-  // Admin State
   const [activeTab, setActiveTab] = useState('followup');
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
   const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
-  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); 
+  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); // New State
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
+  
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [archives, setArchives] = useState<HealthArchive[]>([]);
-  
-  // Patient State
-  const [patientArchive, setPatientArchive] = useState<HealthArchive | null>(null);
-  
-  const toast = useToast();
 
   const refreshArchives = async () => {
       try {
@@ -43,21 +31,19 @@ const App: React.FC = () => {
           setArchives(data);
       } catch (e) {
           console.error("Failed to refresh archives:", e);
-          toast.error("刷新数据失败，请检查网络");
       }
   };
 
   useEffect(() => {
-      if (appMode === 'admin') refreshArchives();
-  }, [appMode]);
+      refreshArchives();
+  }, []);
 
-  // --- Admin Handlers ---
   const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
       setSchedule(archive.follow_up_schedule || []);
       setFollowUps(archive.follow_ups || []);
-      setRiskAnalysis(archive.risk_analysis); 
+      setRiskAnalysis(archive.risk_analysis); // Load risk analysis
       
       if (mode === 'edit') {
           setActiveTab('survey');
@@ -78,6 +64,7 @@ const App: React.FC = () => {
       const newSchedule = generateFollowUpSchedule(result);
       setSchedule(newSchedule);
       
+      // Save (Risk analysis will be auto-generated in saveArchive if missing)
       const saveResult = await saveArchive(data, result, newSchedule, followUps);
       
       if (!saveResult.success) {
@@ -86,9 +73,8 @@ const App: React.FC = () => {
 
       await refreshArchives();
       setActiveTab('assessment');
-      toast.success("建档成功，评估报告已生成");
     } catch (error) {
-      toast.error("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
+      alert("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
     } finally {
       setIsGenerating(false);
     }
@@ -102,147 +88,121 @@ const App: React.FC = () => {
           if (!res.success) throw new Error(res.message);
           
           await refreshArchives();
-          toast.success("评估方案已更新保存");
+          alert("评估方案已更新保存");
       } catch (e: any) {
-          toast.error("保存失败: " + e.message);
+          alert("保存失败: " + e.message);
       }
   };
 
-  const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
-    if (!healthRecord || !assessment) {
-        toast.error("错误：缺少基础健康档案，无法保存。");
-        return;
-    }
+  // Helper: Synchronize Follow-up Data back to Main Health Record
+  const syncFollowUpToHealthRecord = (original: HealthRecord, latest: FollowUpRecord): HealthRecord => {
+      const updated = JSON.parse(JSON.stringify(original)); // Deep copy
+      
+      // 1. Sync Basics (Weight, BP)
+      if (latest.indicators.weight && latest.indicators.weight > 0) {
+          updated.checkup.basics.weight = latest.indicators.weight;
+      }
+      if (latest.indicators.sbp && latest.indicators.sbp > 0) {
+          updated.checkup.basics.sbp = latest.indicators.sbp;
+      }
+      if (latest.indicators.dbp && latest.indicators.dbp > 0) {
+          updated.checkup.basics.dbp = latest.indicators.dbp;
+      }
+      
+      // 2. Recalculate BMI if possible
+      if (updated.checkup.basics.weight && updated.checkup.basics.height) {
+          const h = updated.checkup.basics.height / 100;
+          updated.checkup.basics.bmi = parseFloat((updated.checkup.basics.weight / (h * h)).toFixed(1));
+      }
 
+      // 3. Sync Glucose
+      if (latest.indicators.glucose && latest.indicators.glucose > 0) {
+          if (!updated.checkup.labBasic.glucose) updated.checkup.labBasic.glucose = {};
+          // If the follow-up record is specifically Fasting (or not specified, assume fasting for simplicity in updates)
+          if (latest.indicators.glucoseType === '空腹') {
+               updated.checkup.labBasic.glucose.fasting = latest.indicators.glucose.toString();
+          }
+      }
+
+      // 4. Sync Lipids
+      if (latest.indicators.tc || latest.indicators.tg || latest.indicators.ldl || latest.indicators.hdl) {
+          if (!updated.checkup.labBasic.lipids) updated.checkup.labBasic.lipids = {};
+          if (latest.indicators.tc) updated.checkup.labBasic.lipids.tc = latest.indicators.tc.toString();
+          if (latest.indicators.tg) updated.checkup.labBasic.lipids.tg = latest.indicators.tg.toString();
+          if (latest.indicators.ldl) updated.checkup.labBasic.lipids.ldl = latest.indicators.ldl.toString();
+          if (latest.indicators.hdl) updated.checkup.labBasic.lipids.hdl = latest.indicators.hdl.toString();
+      }
+
+      return updated;
+  };
+
+  const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
     const newRecord = { ...record, id: Date.now().toString() };
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
-
-    const currentPending = schedule.find(s => s.status === 'pending');
-    let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
     
+    // Update Schedule
+    let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
     const nextItem = generateNextScheduleItem(
         newRecord.date, 
-        newRecord.assessment.nextCheckPlan || assessment.followUpPlan.nextCheckItems.join(','), 
-        assessment.riskLevel
+        newRecord.assessment.nextCheckPlan || "", 
+        newRecord.assessment.riskLevel
     );
     updatedSchedule = [...updatedSchedule, nextItem];
     setSchedule(updatedSchedule);
 
-    try {
-        const saveResult = await saveArchive(
-            healthRecord, 
-            assessment,       
-            updatedSchedule,      
-            updatedFollowUps,    
-            riskAnalysis         
+    // Sync Data to Health Archive
+    let updatedHealthRecord = healthRecord;
+    if (healthRecord) {
+        // Create a synchronized version of the health record
+        updatedHealthRecord = syncFollowUpToHealthRecord(healthRecord, newRecord);
+        setHealthRecord(updatedHealthRecord); // Update local state immediately
+    }
+
+    if (healthRecord?.profile.checkupId) {
+        await updateArchiveData(
+            healthRecord.profile.checkupId, 
+            updatedFollowUps, 
+            updatedSchedule,
+            updatedHealthRecord || undefined // Pass the updated record for persistence
         );
-
-        if (!saveResult.success) throw new Error(saveResult.message);
-
-        refreshArchives();
-        toast.success("随访记录已保存，执行单已更新");
-    } catch (e) {
-        toast.error("保存失败: " + (e instanceof Error ? e.message : "未知错误"));
+        await refreshArchives();
     }
   };
-  
+
   const handleManualDataUpdate = async (updatedRecord: FollowUpRecord, updatedSchedule: ScheduledFollowUp[]) => {
       const updatedFollowUps = followUps.map(r => r.id === updatedRecord.id ? updatedRecord : r);
       setFollowUps(updatedFollowUps);
       setSchedule(updatedSchedule);
 
       if (healthRecord?.profile.checkupId) {
+          // Note: We typically don't sync back on manual edits of old records to avoid overwriting newer data inadvertently,
+          // unless we explicitely want to. For now, we just update the follow-up list.
           await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
           await refreshArchives();
-          toast.success("数据已手动更新");
       }
   };
 
-  // --- Render Logic ---
-
-  if (appMode === 'landing') {
-      return (
-          <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center p-6 text-white animate-fadeIn">
-              <div className="w-24 h-24 bg-teal-500 rounded-3xl flex items-center justify-center text-5xl font-bold mb-8 shadow-2xl shadow-teal-500/20">Z</div>
-              <h1 className="text-3xl font-bold mb-2 text-center">郑州大学医院健康管理中心</h1>
-              <p className="text-slate-400 mb-12 text-center max-w-md">Comprehensive Health Management System v3.0</p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-lg">
-                  <button 
-                    onClick={() => setAppMode('patient')}
-                    className="group bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-sm p-6 rounded-2xl flex flex-col items-center gap-4 transition-all hover:-translate-y-1"
-                  >
-                      <span className="text-4xl">📱</span>
-                      <div>
-                          <div className="font-bold text-lg">我是受检者</div>
-                          <div className="text-xs text-slate-400 mt-1">查询档案 / 个人中心</div>
-                      </div>
-                  </button>
-
-                  <button 
-                    onClick={() => {
-                        setShowLoginModal(true);
-                        // We set mode after login success
-                    }}
-                    className="group bg-teal-600 hover:bg-teal-500 border border-teal-400/30 p-6 rounded-2xl flex flex-col items-center gap-4 transition-all hover:-translate-y-1 shadow-lg shadow-teal-900/50"
-                  >
-                      <span className="text-4xl">👨🏻‍⚕️</span>
-                      <div>
-                          <div className="font-bold text-lg">我是医生/管理员</div>
-                          <div className="text-xs text-teal-100 mt-1">进入管理控制台</div>
-                      </div>
-                  </button>
-              </div>
-
-              {/* Shared Login Modal for Admin Trigger */}
-              <LoginModal 
-                isOpen={showLoginModal} 
-                onClose={() => setShowLoginModal(false)}
-                onLoginSuccess={() => {
-                    setIsAuthenticated(true);
-                    setAppMode('admin');
-                    setActiveTab('dashboard');
-                    toast.success("管理员登录成功");
-                }}
-              />
-          </div>
-      );
-  }
-
-  if (appMode === 'patient') {
-      if (!patientArchive) {
-          return (
-             <PatientLogin 
-                onLoginSuccess={(data) => setPatientArchive(data)} 
-                onBack={() => setAppMode('landing')}
-             />
-          );
-      }
-      return (
-          <PatientApp 
-            archive={patientArchive} 
-            onLogout={() => { setPatientArchive(null); setAppMode('landing'); }} 
-          />
-      );
-  }
-
-  // Admin Mode
   return (
     <Layout 
       activeTab={activeTab} 
       onTabChange={setActiveTab}
       isAuthenticated={isAuthenticated}
       onLoginClick={() => setShowLoginModal(true)}
-      onLogoutClick={() => {
-          setIsAuthenticated(false);
-          setAppMode('landing');
-          toast.info("已退出登录");
-      }}
+      onLogoutClick={() => setIsAuthenticated(false)}
     >
+      <LoginModal 
+        isOpen={showLoginModal} 
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={() => {
+            setIsAuthenticated(true);
+            refreshArchives();
+        }}
+      />
+
       {activeTab === 'dashboard' && (
          <div className="text-center py-20 animate-fadeIn">
-            <h2 className="text-4xl font-bold text-slate-800 mb-6 tracking-tight">管理控制台</h2>
+            <h2 className="text-4xl font-bold text-slate-800 mb-6 tracking-tight">郑州大学医院健康管理系统 v3.0</h2>
             <p className="text-slate-500 mb-10 text-lg max-w-2xl mx-auto">
                 基于 DeepSeek AI 引擎构建。<br/>
                 集成 11项基础体检 + 20项自选项目 + 59项详细健康问卷的全维度健康档案。
@@ -251,8 +211,14 @@ const App: React.FC = () => {
                 <button onClick={() => { setHealthRecord(null); setActiveTab('survey'); }} className="bg-white text-teal-600 border border-teal-200 px-8 py-3 rounded-lg hover:bg-teal-50 shadow-sm transition-all">
                     开始单人建档
                 </button>
-                <button onClick={() => setActiveTab('admin')} className="bg-teal-600 text-white px-8 py-3 rounded-lg hover:bg-teal-700 shadow transition-all">
-                    查看档案列表
+                <button 
+                  onClick={() => {
+                      if (isAuthenticated) setActiveTab('admin');
+                      else setShowLoginModal(true);
+                  }} 
+                  className="bg-teal-600 text-white px-8 py-3 rounded-lg shadow-lg hover:bg-teal-700 transition-all transform hover:scale-105"
+                >
+                    {isAuthenticated ? '进入管理控制台' : '管理员登录'}
                 </button>
             </div>
          </div>
@@ -298,12 +264,6 @@ const App: React.FC = () => {
             onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
             currentPatientId={healthRecord?.profile.checkupId}
         />
-      )}
-      
-      {activeTab === 'risk_portrait' && healthRecord && (
-          <div className="bg-white p-6 rounded-xl shadow border border-slate-200 h-full overflow-y-auto">
-              <div className="text-center text-slate-400 mt-20">请在“评估报告”中查看画像</div>
-          </div>
       )}
     </Layout>
   );
