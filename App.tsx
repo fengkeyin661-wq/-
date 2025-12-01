@@ -94,11 +94,54 @@ const App: React.FC = () => {
       }
   };
 
+  // Helper: Synchronize Follow-up Data back to Main Health Record
+  const syncFollowUpToHealthRecord = (original: HealthRecord, latest: FollowUpRecord): HealthRecord => {
+      const updated = JSON.parse(JSON.stringify(original)); // Deep copy
+      
+      // 1. Sync Basics (Weight, BP)
+      if (latest.indicators.weight && latest.indicators.weight > 0) {
+          updated.checkup.basics.weight = latest.indicators.weight;
+      }
+      if (latest.indicators.sbp && latest.indicators.sbp > 0) {
+          updated.checkup.basics.sbp = latest.indicators.sbp;
+      }
+      if (latest.indicators.dbp && latest.indicators.dbp > 0) {
+          updated.checkup.basics.dbp = latest.indicators.dbp;
+      }
+      
+      // 2. Recalculate BMI if possible
+      if (updated.checkup.basics.weight && updated.checkup.basics.height) {
+          const h = updated.checkup.basics.height / 100;
+          updated.checkup.basics.bmi = parseFloat((updated.checkup.basics.weight / (h * h)).toFixed(1));
+      }
+
+      // 3. Sync Glucose
+      if (latest.indicators.glucose && latest.indicators.glucose > 0) {
+          if (!updated.checkup.labBasic.glucose) updated.checkup.labBasic.glucose = {};
+          // If the follow-up record is specifically Fasting (or not specified, assume fasting for simplicity in updates)
+          if (latest.indicators.glucoseType === '空腹') {
+               updated.checkup.labBasic.glucose.fasting = latest.indicators.glucose.toString();
+          }
+      }
+
+      // 4. Sync Lipids
+      if (latest.indicators.tc || latest.indicators.tg || latest.indicators.ldl || latest.indicators.hdl) {
+          if (!updated.checkup.labBasic.lipids) updated.checkup.labBasic.lipids = {};
+          if (latest.indicators.tc) updated.checkup.labBasic.lipids.tc = latest.indicators.tc.toString();
+          if (latest.indicators.tg) updated.checkup.labBasic.lipids.tg = latest.indicators.tg.toString();
+          if (latest.indicators.ldl) updated.checkup.labBasic.lipids.ldl = latest.indicators.ldl.toString();
+          if (latest.indicators.hdl) updated.checkup.labBasic.lipids.hdl = latest.indicators.hdl.toString();
+      }
+
+      return updated;
+  };
+
   const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
     const newRecord = { ...record, id: Date.now().toString() };
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
     
+    // Update Schedule
     let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
     const nextItem = generateNextScheduleItem(
         newRecord.date, 
@@ -106,11 +149,23 @@ const App: React.FC = () => {
         newRecord.assessment.riskLevel
     );
     updatedSchedule = [...updatedSchedule, nextItem];
-
     setSchedule(updatedSchedule);
 
+    // Sync Data to Health Archive
+    let updatedHealthRecord = healthRecord;
+    if (healthRecord) {
+        // Create a synchronized version of the health record
+        updatedHealthRecord = syncFollowUpToHealthRecord(healthRecord, newRecord);
+        setHealthRecord(updatedHealthRecord); // Update local state immediately
+    }
+
     if (healthRecord?.profile.checkupId) {
-        await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
+        await updateArchiveData(
+            healthRecord.profile.checkupId, 
+            updatedFollowUps, 
+            updatedSchedule,
+            updatedHealthRecord || undefined // Pass the updated record for persistence
+        );
         await refreshArchives();
     }
   };
@@ -121,6 +176,8 @@ const App: React.FC = () => {
       setSchedule(updatedSchedule);
 
       if (healthRecord?.profile.checkupId) {
+          // Note: We typically don't sync back on manual edits of old records to avoid overwriting newer data inadvertently,
+          // unless we explicitely want to. For now, we just update the follow-up list.
           await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
           await refreshArchives();
       }

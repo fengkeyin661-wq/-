@@ -158,6 +158,18 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
       fileInputRef.current?.click();
   };
 
+  // Helper to calculate BMI automatically
+  const calculateBmi = (height?: number, weight?: number) => {
+      if (height && weight && height > 0 && weight > 0) {
+          // Height is in cm, convert to m
+          const h = height / 100;
+          // BMI = kg / m^2
+          const bmi = weight / (h * h);
+          return parseFloat(bmi.toFixed(1));
+      }
+      return undefined;
+  };
+
   if (mode === 'input') {
     return (
         <div className="bg-white p-8 rounded-xl shadow-lg border border-slate-100 h-full overflow-y-auto">
@@ -284,8 +296,48 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                     <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
                         <h4 className="font-bold text-slate-700 mb-4">基础指标</h4>
                         <div className="grid grid-cols-5 gap-4">
-                            <Field label="身高(cm)" value={data.checkup.basics.height} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, height: Number(v)}}})} />
-                            <Field label="体重(kg)" value={data.checkup.basics.weight} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, weight: Number(v)}}})} />
+                            <Field 
+                                label="身高(cm)" 
+                                value={data.checkup.basics.height} 
+                                isEditing={isEditing} 
+                                onChange={v => {
+                                    const h = Number(v);
+                                    const w = data.checkup.basics.weight;
+                                    const bmi = calculateBmi(h, w);
+                                    setData({
+                                        ...data, 
+                                        checkup: {
+                                            ...data.checkup, 
+                                            basics: {
+                                                ...data.checkup.basics, 
+                                                height: h,
+                                                bmi: bmi !== undefined ? bmi : data.checkup.basics.bmi
+                                            }
+                                        }
+                                    });
+                                }} 
+                            />
+                            <Field 
+                                label="体重(kg)" 
+                                value={data.checkup.basics.weight} 
+                                isEditing={isEditing} 
+                                onChange={v => {
+                                    const w = Number(v);
+                                    const h = data.checkup.basics.height;
+                                    const bmi = calculateBmi(h, w);
+                                    setData({
+                                        ...data, 
+                                        checkup: {
+                                            ...data.checkup, 
+                                            basics: {
+                                                ...data.checkup.basics, 
+                                                weight: w,
+                                                bmi: bmi !== undefined ? bmi : data.checkup.basics.bmi
+                                            }
+                                        }
+                                    });
+                                }} 
+                            />
                             <Field label="BMI" value={data.checkup.basics.bmi} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, bmi: Number(v)}}})} />
                             <Field label="收缩压(mmHg)" value={data.checkup.basics.sbp} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, sbp: Number(v)}}})} />
                             <Field label="舒张压(mmHg)" value={data.checkup.basics.dbp} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, dbp: Number(v)}}})} />
@@ -304,7 +356,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                                 key={st.id}
                                 onClick={() => setClinicalSubTab(st.id as any)}
                                 className={`px-4 py-2 text-sm font-medium border-b-2 ${
-                                    clinicalSubTab === st.id ? 'border-teal-600 text-teal-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+                                    clinicalSubTab === st.id ? 'border-teal-600 text-teal-600' : 'border-transparent text-slate-500 hover:text-slate-500'
                                 }`}
                             >
                                 {st.label}

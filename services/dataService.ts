@@ -1,4 +1,5 @@
 
+
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
@@ -205,31 +206,89 @@ export const updateCriticalTrack = async (
     }
 };
 
-export const processBatchUpload = async (rawText: string, onProgress: (log: string, progress: number) => void): Promise<void> => {
-    // ... existing implementation ...
-    onProgress('此功能已禁用', 100);
-};
+export const updateArchiveData = async (
+    checkupId: string, 
+    followUps: FollowUpRecord[],
+    schedule: ScheduledFollowUp[],
+    updatedHealthRecord?: HealthRecord // Support optional health record sync
+): Promise<{ success: boolean; message?: string }> => {
+    if (!isSupabaseConfigured()) return { success: false, message: "Config Error" };
+    try {
+        const payload: any = {
+            follow_ups: followUps,
+            follow_up_schedule: schedule,
+            updated_at: new Date().toISOString()
+        };
 
-export const fetchArchives = async (): Promise<HealthArchive[]> => {
-    if (!isSupabaseConfigured()) return [];
-    const { data, error } = await supabase.from('health_archives').select('*').order('updated_at', { ascending: false });
-    if (error) throw new Error(error.message);
-    return data as HealthArchive[];
-};
+        // If provided, we update the main health record to reflect the latest follow-up data (closing the loop)
+        if (updatedHealthRecord) {
+            payload.health_record = updatedHealthRecord;
+        }
 
-export const updateArchiveData = async (checkupId: string, followUps: FollowUpRecord[], schedule: ScheduledFollowUp[]): Promise<boolean> => {
-    if (!isSupabaseConfigured()) return false;
-    const { error } = await supabase.from('health_archives').update({ follow_ups: followUps, follow_up_schedule: schedule, updated_at: new Date().toISOString() }).eq('checkup_id', checkupId);
-    return !error;
+        const { error } = await supabase
+            .from('health_archives')
+            .update(payload)
+            .eq('checkup_id', checkupId);
+
+        if (error) throw error;
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, message: e.message };
+    }
 };
 
 export const deleteArchive = async (id: string): Promise<boolean> => {
     if (!isSupabaseConfigured()) return false;
-    const { error } = await supabase.from('health_archives').delete().eq('id', id);
-    return !error;
+    try {
+        const { error } = await supabase.from('health_archives').delete().eq('id', id);
+        return !error;
+    } catch (e) {
+        return false;
+    }
 };
 
-export const generateNextScheduleItem = (currentDate: string, nextCheckPlanText: string, currentRisk: RiskLevel): ScheduledFollowUp => {
-    // ... existing implementation ...
-    return { id: `sch_${Date.now()}`, date: currentDate, status: 'pending', riskLevelAtSchedule: currentRisk, focusItems: [] };
+export const fetchArchives = async (): Promise<HealthArchive[]> => {
+    if (!isSupabaseConfigured()) return [];
+    try {
+        const { data, error } = await supabase
+            .from('health_archives')
+            .select('*')
+            .order('updated_at', { ascending: false });
+        
+        if (error) throw error;
+        return data || [];
+    } catch (e) {
+        console.error("Fetch Error:", e);
+        return [];
+    }
+};
+
+/**
+ * Helper: Generate the next scheduled follow-up item based on current completion
+ */
+export const generateNextScheduleItem = (
+    lastDate: string,
+    focusItemsStr: string,
+    riskLevel: RiskLevel
+): ScheduledFollowUp => {
+    const d = new Date(lastDate);
+    // Determine interval based on risk
+    let monthsToAdd = 6;
+    if (riskLevel === RiskLevel.RED) monthsToAdd = 1;
+    else if (riskLevel === RiskLevel.YELLOW) monthsToAdd = 3;
+    
+    d.setMonth(d.getMonth() + monthsToAdd);
+    
+    // Parse focus items string into array
+    const focusItems = focusItemsStr 
+        ? focusItemsStr.split(/[，,、;；\n]/).map(s => s.trim()).filter(s => s.length > 0) 
+        : ['常规复查'];
+
+    return {
+        id: `sch_${Date.now()}`,
+        date: d.toISOString().split('T')[0],
+        status: 'pending',
+        riskLevelAtSchedule: riskLevel,
+        focusItems: focusItems
+    };
 };
