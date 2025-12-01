@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -17,7 +16,11 @@ const App: React.FC = () => {
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
   const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
-  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); // New State
+  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); 
+  
+  // New State: Track when the assessment was last updated locally to force UI refresh
+  const [lastAssessmentUpdate, setLastAssessmentUpdate] = useState<number>(0);
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
   
@@ -43,7 +46,8 @@ const App: React.FC = () => {
       setAssessment(archive.assessment_data);
       setSchedule(archive.follow_up_schedule || []);
       setFollowUps(archive.follow_ups || []);
-      setRiskAnalysis(archive.risk_analysis); // Load risk analysis
+      setRiskAnalysis(archive.risk_analysis); 
+      setLastAssessmentUpdate(new Date(archive.updated_at || archive.created_at).getTime()); // Sync timestamp
       
       if (mode === 'edit') {
           setActiveTab('survey');
@@ -60,11 +64,11 @@ const App: React.FC = () => {
     try {
       const result = await generateHealthAssessment(data);
       setAssessment(result);
+      setLastAssessmentUpdate(Date.now()); // Update timestamp
       
       const newSchedule = generateFollowUpSchedule(result);
       setSchedule(newSchedule);
       
-      // Save (Risk analysis will be auto-generated in saveArchive if missing)
       const saveResult = await saveArchive(data, result, newSchedule, followUps);
       
       if (!saveResult.success) {
@@ -83,6 +87,7 @@ const App: React.FC = () => {
   const handleSaveAssessment = async (updatedAssessment: HealthAssessment) => {
       if (!healthRecord) return;
       setAssessment(updatedAssessment);
+      setLastAssessmentUpdate(Date.now()); // Update timestamp
       try {
           const res = await saveArchive(healthRecord, updatedAssessment, schedule, followUps, riskAnalysis);
           if (!res.success) throw new Error(res.message);
@@ -123,7 +128,6 @@ const App: React.FC = () => {
       // 3. Sync Glucose
       if (latest.indicators.glucose && latest.indicators.glucose > 0) {
           if (!updated.checkup.labBasic.glucose) updated.checkup.labBasic.glucose = {};
-          // If the follow-up record is specifically Fasting (or not specified, assume fasting for simplicity in updates)
           if (latest.indicators.glucoseType === '空腹') {
                updated.checkup.labBasic.glucose.fasting = latest.indicators.glucose.toString();
           }
@@ -147,44 +151,41 @@ const App: React.FC = () => {
         return;
     }
 
-    // 1. 本地状态立即更新 (Optimistic UI)
     const newRecord = { ...record, id: Date.now().toString() };
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
 
-    setIsGenerating(true); // 开启加载状态，提示用户正在进行AI计算
+    setIsGenerating(true); 
 
     try {
         console.log("🔄 开始闭环更新流程...");
 
-        // 2. 数据闭环第一步: 同步最新生理指标到主档案 (HealthRecord)
+        // 2. Sync Data
         const updatedHealthRecord = syncFollowUpToHealthRecord(healthRecord, newRecord);
         setHealthRecord(updatedHealthRecord); 
-        console.log("✅ 1. 档案数据已同步 (BP, Weight, etc.)");
+        console.log("✅ 1. 档案数据已同步");
 
-        // 3. 数据闭环第二步: AI 重新评估风险 (Re-Assessment)
-        // CRITICAL: 使用刚生成的 updatedHealthRecord 变量，而不是 state
+        // 3. Re-Assessment
         const newAssessment = await generateHealthAssessment(updatedHealthRecord);
         setAssessment(newAssessment); 
+        // CRITICAL: Force the UI to know there is a newer assessment than the record
+        setLastAssessmentUpdate(Date.now()); 
         console.log("✅ 2. AI 风险重评估完成", newAssessment.riskLevel);
 
-        // 4. 数据闭环第三步: 动态调整随访计划
-        // 4a. 将当前"计划中"的任务标记为"已完成"
+        // 4. Update Schedule
         const completedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
-        // 4b. 基于新的评估结果，生成未来的随访日程
         const futureScheduleItems = generateFollowUpSchedule(newAssessment);
-        // 4c. 合并日程表
         const finalSchedule = [...completedSchedule, ...futureScheduleItems];
         setSchedule(finalSchedule); 
         console.log("✅ 3. 随访计划已更新");
 
-        // 5. 数据闭环第四步: 全量保存至数据库
+        // 5. Save to DB
         const saveResult = await saveArchive(
-            updatedHealthRecord, // 使用同步后的档案
-            newAssessment,       // 使用新的评估结果
-            finalSchedule,       // 使用新的日程
-            updatedFollowUps,    // 使用包含新记录的随访列表
-            riskAnalysis         // 保持风险画像数据
+            updatedHealthRecord, 
+            newAssessment,       
+            finalSchedule,      
+            updatedFollowUps,    
+            riskAnalysis         
         );
 
         if (!saveResult.success) {
@@ -192,10 +193,12 @@ const App: React.FC = () => {
         }
         console.log("✅ 4. 数据库全量保存成功");
 
-        // 6. 反馈与刷新
-        alert(`✅ 随访录入成功！\n\n系统已完成以下闭环操作：\n1. 更新健康档案指标\n2. AI重新评估风险等级: ${newAssessment.riskLevel === 'RED' ? '高危' : newAssessment.riskLevel === 'YELLOW' ? '中危' : '低危'}\n3. 生成新的随访日程`);
-        
+        // 6. Refresh and Switch Tab
         await refreshArchives();
+        
+        // Automatically switch to Assessment tab to show the new plan immediately
+        setActiveTab('assessment');
+        alert(`✅ 随访录入成功！\n\n已自动跳转至最新生成的“风险评估与健康方案”。`);
 
     } catch (e) {
         console.error("Auto-assessment loop failed:", e);
@@ -211,8 +214,6 @@ const App: React.FC = () => {
       setSchedule(updatedSchedule);
 
       if (healthRecord?.profile.checkupId) {
-          // Note: We typically don't sync back on manual edits of old records to avoid overwriting newer data inadvertently,
-          // unless we explicitely want to. For now, we just update the follow-up list.
           await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
           await refreshArchives();
       }
@@ -298,6 +299,7 @@ const App: React.FC = () => {
             allArchives={archives}
             onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
             currentPatientId={healthRecord?.profile.checkupId}
+            lastAssessmentUpdate={lastAssessmentUpdate} // Pass the timestamp
         />
       )}
     </Layout>

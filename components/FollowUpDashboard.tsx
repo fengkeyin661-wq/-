@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; 
@@ -16,6 +15,8 @@ interface Props {
   currentPatientId?: string;
   // Updated prop for generic data update (Record + Schedule)
   onUpdateData?: (record: FollowUpRecord | null, schedule: ScheduledFollowUp[]) => void;
+  // New prop to track if assessment is newer than records
+  lastAssessmentUpdate?: number;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -26,7 +27,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
     allArchives = [], 
     onPatientChange, 
     currentPatientId,
-    onUpdateData
+    onUpdateData,
+    lastAssessmentUpdate = 0
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -38,7 +40,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       issues: string;
       goals: string;
       message: string; 
-      suggestedDate: string; // New field for date editing
+      suggestedDate: string; 
   }>({ plan: '', issues: '', goals: '', message: '', suggestedDate: '' });
 
   // State for SMS Modal
@@ -58,21 +60,25 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const currentPatientName = currentArchive?.name || '受检者';
 
   // --- CORE LOGIC: Determine Source of Truth (Record vs Assessment) ---
-  // If the archive was updated (Re-evaluated) significantly LATER than the last record was created,
-  // we prioritize the Assessment data (New Year Checkup) over the old Follow-up Record.
   const isAssessmentNewer = React.useMemo(() => {
-      if (!currentArchive || !assessment) return false;
+      if (!assessment) return false;
       if (!latestRecord) return true; // No records yet, so Assessment is definitely newer
 
-      // latestRecord.id is generated via Date.now().toString()
       const recordTime = Number(latestRecord.id); 
-      // currentArchive.updated_at is ISO string
-      const archiveTime = new Date(currentArchive.updated_at || currentArchive.created_at).getTime();
+
+      // 1. Prioritize Local Timestamp passed from App.tsx (Immediate UI Update)
+      if (lastAssessmentUpdate && lastAssessmentUpdate > recordTime) {
+          return true;
+      }
+
+      // 2. Fallback to Database Timestamp (Persistence)
+      const archiveTime = currentArchive 
+        ? new Date(currentArchive.updated_at || currentArchive.created_at).getTime()
+        : 0;
 
       // If Archive update is > 2 seconds newer than record creation, treat as Re-evaluated
-      // (Buffer to avoid race conditions when saving a record updates the archive time too)
       return archiveTime > (recordTime + 2000);
-  }, [currentArchive, latestRecord, assessment]);
+  }, [currentArchive, latestRecord, assessment, lastAssessmentUpdate]);
 
   // Derived Active Data for Display (Execution Sheet)
   const activeRiskLevel = isAssessmentNewer && assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
@@ -100,7 +106,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setGuideEditData({
           plan: activePlanText,
           issues: activeIssues || '',
-          goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : activeGoals, // Handle potential type mismatch safely
+          goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : activeGoals, 
           message: activeMessage,
           suggestedDate: nextScheduled ? nextScheduled.date : ''
       });
@@ -121,7 +127,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       const diffTime = taskDate.getTime() - today.getTime();
                       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-                      // Include Overdue or Upcoming <= 7 days
                       if (diffDays <= 7) {
                           list.push({
                               archive: arch,
@@ -147,7 +152,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     mainComplaint: '无',
     indicators: {
       sbp: 0, dbp: 0, heartRate: 0, glucose: 0, glucoseType: '空腹', weight: 0,
-      tc: 0, tg: 0, ldl: 0, hdl: 0 // Initialize lipids
+      tc: 0, tg: 0, ldl: 0, hdl: 0 
     },
     organRisks: {
       carotidPlaque: '无', carotidStatus: '无',
@@ -180,23 +185,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   const [formData, setFormData] = useState<Omit<FollowUpRecord, 'id'>>(initialFormState);
 
-  // 辅助函数：解析复查计划文本为清单项
   const extractCheckItems = (text: string): string[] => {
       if (!text) return [];
-      // 简单分词逻辑：按逗号、顿号、分号或换行分割
       return text.split(/[，,、;；\n]/)
                  .map(s => s.trim())
-                 // 移除常见的非项目词汇，如“建议”、“定期”、“复查”、“监测”、“评估”等
                  .map(s => s.replace(/建议|定期|复查|监测|检查|评估|关注|前往|专科|就诊|完善/g, ''))
                  .map(s => s.trim())
                  .filter(s => s.length > 1);
   };
 
-  // 智能预填充表单
   const handleOpenSmartModal = () => {
     const baseState = { ...initialFormState };
     
-    // 1. 继承基础静态数据 (从上次记录继承，比较方便)
+    // 1. Inherit static data
     if (latestRecord) {
         baseState.medication.currentDrugs = latestRecord.medication.currentDrugs;
         baseState.organRisks.carotidPlaque = latestRecord.organRisks.carotidPlaque;
@@ -205,32 +206,30 @@ export const FollowUpDashboard: React.FC<Props> = ({
         baseState.organRisks.thyroidStatus = '稳定';
     }
 
-    // 2. 生成“医学复查计划核对”清单 (Medical Compliance)
-    // 关键逻辑：如果是刚评估完(isAssessmentNewer)，必须从 activePlanText 生成，而不是 latestRecord
+    // 2. Generate Medical Compliance list
     const itemsToCheck = extractCheckItems(activePlanText);
     
     if (itemsToCheck.length > 0) {
         baseState.medicalCompliance = itemsToCheck.map(item => ({
             item: item,
-            status: 'not_checked', // 默认未查
+            status: 'not_checked', 
             result: ''
         }));
     } else {
         baseState.medicalCompliance = [{ item: '常规复查项目', status: 'not_checked', result: '' }];
     }
 
-    // 3. 生活方式任务 (Task Compliance)
-    // 如果是新评估，直接使用 Assessment 的 Tasks。否则，如果上次有记录，可以尝试继承状态(可选)，这里选择重置为 Assessment 任务
+    // 3. Task Compliance
     if (assessment?.structuredTasks) {
         baseState.taskCompliance = assessment.structuredTasks.map(task => ({
             taskId: task.id,
             description: task.description,
-            status: 'achieved', // 默认为达标，鼓励式
+            status: 'achieved', 
             note: task.targetValue ? `目标: ${task.targetValue}` : ''
         }));
     }
 
-    // 4. 预填充 AI 评估草稿
+    // 4. Pre-fill drafts
     if (isAssessmentNewer && assessment) {
         baseState.assessment.riskJustification = `基于最新评估：${assessment.summary.slice(0, 50)}...`;
         baseState.assessment.majorIssues = activeIssues;
@@ -263,7 +262,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setFormData(prev => ({ ...prev, medicalCompliance: newList }));
   };
 
-  // Remove Medical Compliance Item
   const removeMedicalComplianceItem = (index: number) => {
       if (!formData.medicalCompliance) return;
       const newList = [...formData.medicalCompliance];
@@ -278,7 +276,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setFormData(prev => ({ ...prev, taskCompliance: newTasks }));
   };
   
-  // Remove Task Compliance Item
   const removeTaskComplianceItem = (index: number) => {
       if (!formData.taskCompliance) return;
       const newList = [...formData.taskCompliance];
@@ -310,7 +307,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
 
   const handleSubmit = () => {
-    // 校验：确保评估报告已生成（即风险理由或医生寄语不为空）
     if (!formData.assessment.riskJustification?.trim() || !formData.assessment.doctorMessage?.trim()) {
         alert("⚠️ 无法提交：随访评估报告为空。\n\n请点击“✨ 生成报告”按钮由AI辅助生成，或手动完善“临床评估”与“医生寄语”内容后再提交。");
         return;
@@ -323,12 +319,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handleSaveGuideEdit = () => {
       if (!onUpdateData) return;
       
-      // If Assessment is newer, we are technically editing the "template" derived from assessment, 
-      // but to save it, we need a record. 
-      // However, usually we edit the guide AFTER a record exists.
-      // If no record exists yet (just re-evaluated), we can't save to a record.
-      // But the UI button "Save" is only shown if `latestRecord` exists (see render below).
-      // So we are safe to update `latestRecord`.
       if (!latestRecord) {
           alert("请先录入一次随访记录，才能保存修订的执行单。");
           return;
@@ -359,12 +349,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setIsEditingGuide(false);
   };
 
-  // --- Completely Standalone Print Window Logic ---
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
-      
-      // If Assessment is newer, we print the ASSESSMENT data. If Record is newer, we print RECORD data.
-      // We use the 'active*' variables we calculated.
       
       const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
       
@@ -380,7 +366,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
         .map(goal => `<li class="goal-item"><span class="check-icon">✓</span>${goal}</li>`)
         .join('') : '';
 
-      // 3. Construct the HTML String with Inline CSS
       const htmlContent = `
         <!DOCTYPE html>
         <html lang="zh-CN">
@@ -500,7 +485,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       if (printWindow.focus) printWindow.focus();
   };
 
-  // --- SMS & Delay Logic ---
   const handleGenerateSms = async () => {
     setIsGeneratingSms(true);
     setShowSmsModal(true);
@@ -549,7 +533,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   return (
     <div className="animate-fadeIn pb-10">
-
       {/* --- Patient Basic Info Header --- */}
       {currentArchive && (
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
@@ -780,7 +763,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       <p className="text-sm text-slate-500 mt-1">请受检者保存，用于指导日常生活与下次复查</p>
                       {isAssessmentNewer && (
                           <span className="inline-block mt-2 text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200 font-bold">
-                              ✨ 已加载最新年度评估方案
+                              ✨ 已加载最新年度评估方案 (同步于: {new Date(lastAssessmentUpdate || new Date().getTime()).toLocaleTimeString()})
                           </span>
                       )}
                   </div>
