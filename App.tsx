@@ -98,6 +98,11 @@ const App: React.FC = () => {
   const syncFollowUpToHealthRecord = (original: HealthRecord, latest: FollowUpRecord): HealthRecord => {
       const updated = JSON.parse(JSON.stringify(original)); // Deep copy
       
+      // Ensure basic structure exists
+      if (!updated.checkup) updated.checkup = {};
+      if (!updated.checkup.basics) updated.checkup.basics = {};
+      if (!updated.checkup.labBasic) updated.checkup.labBasic = {};
+
       // 1. Sync Basics (Weight, BP)
       if (latest.indicators.weight && latest.indicators.weight > 0) {
           updated.checkup.basics.weight = latest.indicators.weight;
@@ -137,58 +142,64 @@ const App: React.FC = () => {
   };
 
   const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
-    // 1. 本地状态立即更新 (Optimistic UI) - 创建随访记录
+    if (!healthRecord) {
+        alert("错误：缺少基础健康档案，无法进行数据同步与评估。");
+        return;
+    }
+
+    // 1. 本地状态立即更新 (Optimistic UI)
     const newRecord = { ...record, id: Date.now().toString() };
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
 
-    if (!healthRecord) {
-        console.error("Missing health record for sync");
-        alert("错误：缺少基础健康档案，无法进行闭环评估。");
-        return;
-    }
-
-    setIsGenerating(true); // 开启加载状态 (虽然目前只在建档页显示loading，但逻辑上我们在处理)
+    setIsGenerating(true); // 开启加载状态，提示用户正在进行AI计算
 
     try {
-        // 2. 数据闭环第一步: 同步最新生理指标到主档案
+        console.log("🔄 开始闭环更新流程...");
+
+        // 2. 数据闭环第一步: 同步最新生理指标到主档案 (HealthRecord)
         const updatedHealthRecord = syncFollowUpToHealthRecord(healthRecord, newRecord);
-        setHealthRecord(updatedHealthRecord); // 更新本地 State
+        setHealthRecord(updatedHealthRecord); 
+        console.log("✅ 1. 档案数据已同步 (BP, Weight, etc.)");
 
         // 3. 数据闭环第二步: AI 重新评估风险 (Re-Assessment)
-        // 使用更新后的档案数据调用 AI
+        // CRITICAL: 使用刚生成的 updatedHealthRecord 变量，而不是 state
         const newAssessment = await generateHealthAssessment(updatedHealthRecord);
-        setAssessment(newAssessment); // 更新本地 Assessment State
+        setAssessment(newAssessment); 
+        console.log("✅ 2. AI 风险重评估完成", newAssessment.riskLevel);
 
         // 4. 数据闭环第三步: 动态调整随访计划
         // 4a. 将当前"计划中"的任务标记为"已完成"
         const completedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
         // 4b. 基于新的评估结果，生成未来的随访日程
         const futureScheduleItems = generateFollowUpSchedule(newAssessment);
-        // 4c. 合并日程表 (保留历史，追加未来)
+        // 4c. 合并日程表
         const finalSchedule = [...completedSchedule, ...futureScheduleItems];
-        setSchedule(finalSchedule); // 更新本地 Schedule State
+        setSchedule(finalSchedule); 
+        console.log("✅ 3. 随访计划已更新");
 
-        // 5. 数据闭环第四步: 全量保存至数据库 (自动归档旧版本)
+        // 5. 数据闭环第四步: 全量保存至数据库
         const saveResult = await saveArchive(
-            updatedHealthRecord,
-            newAssessment,
-            finalSchedule,
-            updatedFollowUps,
-            riskAnalysis // 保持原有的风险画像分析数据
+            updatedHealthRecord, // 使用同步后的档案
+            newAssessment,       // 使用新的评估结果
+            finalSchedule,       // 使用新的日程
+            updatedFollowUps,    // 使用包含新记录的随访列表
+            riskAnalysis         // 保持风险画像数据
         );
 
         if (!saveResult.success) {
             throw new Error(saveResult.message);
         }
+        console.log("✅ 4. 数据库全量保存成功");
 
         // 6. 反馈与刷新
-        alert("✅ 随访录入成功！\n\n系统已自动执行：\n🔄 健康档案指标更新\n📊 AI 风险重新评估\n📅 下阶段随访方案生成");
+        alert(`✅ 随访录入成功！\n\n系统已完成以下闭环操作：\n1. 更新健康档案指标\n2. AI重新评估风险等级: ${newAssessment.riskLevel === 'RED' ? '高危' : newAssessment.riskLevel === 'YELLOW' ? '中危' : '低危'}\n3. 生成新的随访日程`);
+        
         await refreshArchives();
 
     } catch (e) {
         console.error("Auto-assessment loop failed:", e);
-        alert("随访录入成功，但自动评估流程遇到错误: " + (e instanceof Error ? e.message : "网络或服务异常"));
+        alert("⚠️ 随访记录已保存，但AI自动评估流程失败: " + (e instanceof Error ? e.message : "网络超时"));
     } finally {
         setIsGenerating(false);
     }
