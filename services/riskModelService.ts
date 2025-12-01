@@ -416,7 +416,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
 
     // Push valid models
     const results = [
-        run('cv_chinapar', 'China-PAR 心脑血管病', '心脑血管', chinaParCalc),
+        run('cv_chinapar', 'China-PAR (北方版)', '心脑血管', chinaParCalc),
         run('meta_ada', 'ADA 糖尿病风险', '代谢免疫', adaCalc),
         run('bone_frax', 'FRAX 骨折风险', '骨骼肌肉', fraxCalc),
         run('resp_copd', 'COPD-SQ 慢阻肺筛查', '呼吸系统', copdCalc),
