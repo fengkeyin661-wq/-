@@ -1,4 +1,5 @@
 
+
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 
 // DeepSeek API Configuration
@@ -85,137 +86,78 @@ const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode:
 export const parseHealthDataFromText = async (rawText: string): Promise<HealthRecord> => {
   const systemPrompt = `
     你是一个医疗数据结构化专家。请从混合了【体检报告】和【59项教职工健康问卷】的文本中提取数据。
-    请忽略无关文本，尽可能提取有效信息。如果某项未提及，请留空或null。
     
-    输出必须是严格的 JSON 格式，符合以下结构:
+    【重要解析规则】
+    1. 请仔细识别教职工健康问卷中新增的“家族史”、“女性健康”、“呼吸道症状”、“心理量表”部分。
+    2. 数值型字段(如年龄、支数、评分)请提取为 Number 类型，若未提及则为 null。
+    3. Boolean 类型字段(如是否服用降压药)，"是"->true, "否"->false, 未提及->null。
+    
+    输出必须是严格的 JSON 格式，结构如下:
     {
       "profile": {
-        "checkupId": "体检编号(Q2)", "name": "姓名(Q1)", "gender": "男/女(Q3)", "department": "部门(Q4)", "phone": "电话", "checkupDate": "YYYY-MM-DD", "dob": "出生日期", "age": 数字
+        "checkupId": "Q2", "name": "Q1", "gender": "Q3(男/女)", "department": "Q4", "phone": "电话", "checkupDate": "YYYY-MM-DD", "dob": "出生日期", "age": 数字
       },
       "checkup": {
-        "basics": { "height": 0, "weight": 0, "bmi": 0, "sbp": 0, "dbp": 0 },
+        "basics": { "height": 0, "weight": 0, "bmi": 0, "sbp": 0, "dbp": 0, "waist": 0 },
         "labBasic": {
            "liver": { "ALT": "数值", "AST": "数值", "GGT": "数值", "TBIL": "数值", "DBIL": "数值", "IBIL": "数值", "TP": "数值", "ALB": "数值", "GLB": "数值" }, 
-           "ck": "肌酸激酶数值",
-           "lipids": { "tc": "总胆固醇", "tg": "甘油三酯", "ldl": "低密度", "hdl": "高密度" },
+           "ck": "肌酸激酶", "lipids": { "tc": "总胆固醇", "tg": "甘油三酯", "ldl": "低密度", "hdl": "高密度" },
            "renal": { "urea": "尿素", "creatinine": "肌酐", "ua": "尿酸" },
-           "bloodRoutine": "血常规摘要/异常",
+           "bloodRoutine": { "wbc": "白细胞", "hgb": "血红蛋白", "plt": "血小板", "summary": "摘要" },
            "glucose": { "fasting": "空腹血糖" },
-           "urineRoutine": "尿常规摘要",
+           "urineRoutine": { "protein": "尿蛋白(如+)", "summary": "摘要" },
            "thyroidFunction": { "t3": "数值", "t4": "数值", "tsh": "数值" }
         },
         "imagingBasic": {
            "ecg": "心电图结论",
-           "ultrasound": {
-              "thyroid": "甲状腺超声结论",
-              "abdomen": "肝胆胰脾肾输尿管膀胱超声结论",
-              "breast": "乳腺超声结论",
-              "uterusAdnexa": "子宫附件超声结论",
-              "prostate": "前列腺超声结论"
-           }
+           "ultrasound": { "thyroid": "", "abdomen": "", "breast": "", "uterusAdnexa": "", "prostate": "" }
         },
         "optional": {
-           "tct": "TCT结果", "hpv": "HPV结果",
-           "tumorMarkers4": { "cea": "数值", "afp": "数值", "ca199": "数值", "cy211": "数值" },
-           "tumorMarkers2": { "ca125": "数值", "ca153": "数值", "psa": "数值", "fpsa": "数值" },
-           "afpCeaQuant": "AFP/CEA定量",
-           "heartUltrasound": "心脏彩超结论",
-           "rheumatoid": { "esr": "血沉", "rf": "类风湿因子", "aso": "抗O" },
-           "homocysteine": "同型半胱氨酸结果",
-           "immuneSet": "免疫全套结果",
-           "tcd": "TCD颅内多普勒结论",
-           "c13": "碳13结果",
-           "mammography": "乳腺钼靶结论",
-           "carotidUltrasound": "颈部血管彩超结论",
-           "ct": "CT部位及结论",
-           "boneDensity": "骨密度结果",
-           "fundusPhoto": "眼底照相结果",
-           "hba1c": "糖化血红蛋白",
-           "gastrin": "胃功能三项(胃泌素17等)",
-           "adiponectin": "脂联素",
-           "vitD": "维生素D"
+           "tct": "", "hpv": "", "homocysteine": "", "immuneSet": "", "tcd": "", "c13": "", "mammography": "", "carotidUltrasound": "", "ct": "", "boneDensity": "", "fundusPhoto": "", "hba1c": "", "gastrin": "", "adiponectin": "", "vitD": "",
+           "tumorMarkers4": { "cea": "", "afp": "", "ca199": "", "cy211": "" },
+           "tumorMarkers2": { "ca125": "", "ca153": "", "psa": "", "fpsa": "" }
         },
-        "abnormalities": [
-           { "category": "分类", "item": "项目名", "result": "异常结果", "clinicalSig": "提示(偏高/偏低/结节)" }
-        ]
+        "abnormalities": [ { "category": "", "item": "", "result": "", "clinicalSig": "" } ]
       },
       "questionnaire": {
         "history": {
-           "diseases": ["Q5既往史: 高血压/冠心病/心律失常/脑卒中/糖尿病/高脂血症/高尿酸/脂肪肝/慢肺/甲状腺/肾病/胃病/骨质疏松/肿瘤"],
-           "details": {
-               "hypertensionYear": "Q6高血压年份", 
-               "cadTypes": ["Q7冠心病类型: 心绞痛/心肌梗死/支架/搭桥"], 
-               "arrhythmiaType": "Q8心律失常类型", 
-               "strokeTypes": ["Q9脑卒中类型: 脑梗/脑出血"], 
-               "strokeYear": "Q10年份",
-               "diabetesYear": "Q11糖尿病年份", 
-               "tumorSite": "Q12肿瘤部位", 
-               "tumorYear": "Q13年份", 
-               "otherHistory": "Q14其他病史"
-           },
-           "surgeries": "Q15手术及外伤史"
+           "diseases": ["高血压", "冠心病", "脑卒中", "糖尿病", "慢阻肺", "肿瘤" 等],
+           "details": { "hypertensionYear": "年份", "cadTypes": [], "strokeYear": "年份", "diabetesYear": "年份", "otherHistory": "文本" },
+           "surgeries": "文本"
         },
-        "medication": { "isRegular": "Q16(是/否)", "list": "Q17规律用药情况" },
-        "diet": {
-           "habits": ["Q18: 外卖/不规律/偏咸/偏油/偏甜"], 
-           "stapleType": "Q19: 精米白面/粗粮杂豆", 
-           "coarseGrainFreq": "Q20: 每天/每周3-5次/每周1-2次",
-           "dailyStaple": "Q21: ≥500g/400g/300g/200g/100g", 
-           "dailyVeg": "Q22: ≥300g/150-300g/<150g", 
-           "dailyFruit": "Q23: ≥200g/100-200g/<100g", 
-           "dailyMeat": "Q24: ≥200g/100-200g/<100g", 
-           "meatTypes": ["Q25: 牛羊猪/鸡鸭鹅/鱼海鲜/鸡蛋"], 
-           "dailyDairy": "Q26: 每天/每周3-5次/偶尔/几乎不", 
-           "dailyBeanNut": "Q27: 经常/偶尔/几乎不"
+        "femaleHealth": {
+           "menarcheAge": 数字, "firstBirthAge": "选填项文本(<20, 20-24等)", "menopauseStatus": "未绝经/已绝经", "menopauseAge": 数字,
+           "breastBiopsy": boolean(有乳腺活检史?), "gdmHistory": boolean(妊娠期糖尿病?), "pcosHistory": boolean(多囊卵巢?)
         },
-        "hydration": { 
-            "dailyAmount": "Q28: 杯数或ml", 
-            "types": ["Q29: 白开水/茶/咖啡/含糖饮料"] 
+        "familyHistory": {
+           "fatherCvdEarly": boolean(父亲冠心病<55?), "motherCvdEarly": boolean(母亲冠心病<65?), 
+           "diabetes": boolean(直系亲属糖尿病?), "hypertension": boolean(直系亲属高血压?), "stroke": boolean(父母脑卒中?),
+           "parentHipFracture": boolean(父母髋部骨折?), "lungCancer": boolean(直系亲属肺癌?), "colonCancer": boolean(直系亲属肠癌?), "breastCancer": boolean(母/女/姐妹乳腺癌?)
         },
-        "exercise": { 
-            "frequency": "Q30: 几乎不/每周1-2/3-5/5次以上", 
-            "types": ["Q31: 散步/快走/跑步/游泳/球类/力量/太极瑜伽/其他"], 
-            "otherType": "Q32", 
-            "duration": "Q33: <30min/30-60min/>60min" 
-        },
-        "sleep": { 
-            "hours": "Q34: 小时", 
-            "quality": "Q35: 好/一般/差", 
-            "nap": "Q36: 每天/偶尔/从不", 
-            "snore": "Q37: 无/偶尔/经常/已做监测", 
-            "monitorResult": "Q38" 
-        },
-        "substances": {
-           "smoking": { 
-               "status": "Q39: 从不/已戒/吸烟", 
-               "quitYear": "Q40", 
-               "dailyAmount": "Q41支", 
-               "years": "Q42年", 
-               "passive": ["Q43: 无/家/办/公共"] 
-           },
-           "alcohol": { 
-               "status": "Q44: 从不/已戒/饮酒", 
-               "types": ["Q45: 啤/红/白"], 
-               "freq": "Q46次/周", 
-               "amount": "Q47两/杯", 
-               "drunkHistory": "Q48: 0/1-2/≥3次", 
-               "quitIntent": "Q49: 无/想/已试" 
+        "medication": { 
+           "isRegular": "是/否", "list": "文本",
+           "details": { 
+               "antihypertensive": boolean(正在服降压药?), "hypoglycemic": boolean(降糖药?), "lipidLowering": boolean(降脂药?), 
+               "antiplatelet": boolean(阿司匹林/抗凝?), "steroids": boolean(长期激素?) 
            }
         },
-        "mental": { 
-            "stressLevel": "Q50: 很小/一般/较大/很大", 
-            "stressSource": ["Q51: 家庭/人际/教学/科研/职称/行政"], 
-            "otherSource": "Q52", 
-            "reliefMethod": ["Q53: 运动/娱乐/沟通"], 
-            "otherRelief": "Q54" 
+        "respiratory": {
+            "chronicCough": boolean(经常咳嗽?), "chronicPhlegm": boolean(经常咳痰?), "shortBreath": boolean(活动后气短?)
         },
-        "needs": { 
-            "concerns": ["Q55: 血压/血糖/血脂/颈腰/睡眠/胃肠/肿瘤/心理"], 
-            "otherConcern": "Q56", 
-            "followUpWillingness": "Q57: 是/否", 
-            "desiredSupport": ["Q58: 饮食/运动/慢病/急救/心理/中医"], 
-            "otherSupport": "Q59" 
-        }
+        "mentalScales": {
+            "phq9Score": 数字(根据PHQ-9矩阵题计算总分), 
+            "gad7Score": 数字(根据GAD-7矩阵题计算总分), 
+            "selfHarmIdea": 数字(0-3, 第9题得分)
+        },
+        "diet": { "habits": [], "dailyStaple": "", "dailyVeg": "", "dailyFruit": "", "dailyMeat": "", "dailyDairy": "", "dailyBeanNut": "" },
+        "exercise": { "frequency": "", "duration": "" },
+        "sleep": { "hours": "文本", "quality": "", "monitorResult": "" },
+        "substances": {
+           "smoking": { "status": "从不/已戒/吸烟", "dailyAmount": 数字(支), "years": 数字(年), "quitYear": "年份" },
+           "alcohol": { "status": "", "freq": "", "amount": "" }
+        },
+        "mental": { "stressLevel": "文本", "stressSource": [] },
+        "needs": { "concerns": [], "followUpWillingness": "" }
       }
     }
   `;

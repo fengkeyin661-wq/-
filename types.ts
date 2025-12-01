@@ -33,6 +33,7 @@ export interface CheckupData {
     bmi?: number;
     sbp?: number;
     dbp?: number;
+    waist?: number; // 腰围 (China-PAR需要)
   };
 
   // 2-8, 11. 实验室检查 (基础)
@@ -41,9 +42,9 @@ export interface CheckupData {
     ck?: string; // 3. 肌酸激酶
     lipids?: { tc?: string; tg?: string; hdl?: string; ldl?: string; }; // 4. 血脂四项
     renal?: { urea?: string; creatinine?: string; ua?: string; }; // 5. 肾功能三项
-    bloodRoutine?: string; // 6. 血常规 (摘要或异常)
+    bloodRoutine?: { wbc?: string; hgb?: string; plt?: string; summary?: string }; // 6. 血常规
     glucose?: { fasting?: string; }; // 7. 血糖
-    urineRoutine?: string; // 8. 尿常规 (摘要)
+    urineRoutine?: { protein?: string; summary?: string }; // 8. 尿常规 (蛋白定性用于KDIGO)
     thyroidFunction?: { t3?: string; t4?: string; tsh?: string; }; // 11. 甲功三项
   };
 
@@ -95,7 +96,7 @@ export interface CheckupAbnormality {
   clinicalSig: string;
 }
 
-// --- 3. 健康问卷数据 (Subjective Data - 59 Questions) ---
+// --- 3. 健康问卷数据 (Subjective Data - Updated) ---
 export interface QuestionnaireData {
   // Q5-Q15 既往史
   history: {
@@ -113,11 +114,43 @@ export interface QuestionnaireData {
     };
     surgeries?: string; // Q15
   };
+  
+  // [NEW] 女性健康史 (Gail & ADA 模型必须)
+  femaleHealth: {
+      menarcheAge?: number; // 初潮年龄
+      firstBirthAge?: string; // 首次活产年龄 (<20, 20-24, 25-29, >=30, 未生育)
+      menopauseStatus?: string; // 未绝经/已绝经
+      menopauseAge?: number; // 绝经年龄
+      breastBiopsy?: boolean; // 乳腺活检史
+      gdmHistory?: boolean; // 妊娠期糖尿病史
+      pcosHistory?: boolean; // PCOS史
+  };
 
-  // Q16-Q17 用药
+  // [NEW] 家族史 (China-PAR, FRAX, 肿瘤模型必须)
+  familyHistory: {
+      fatherCvdEarly?: boolean; // 父亲早发CVD (<55)
+      motherCvdEarly?: boolean; // 母亲早发CVD (<65)
+      diabetes?: boolean; // 父母兄弟姐妹
+      hypertension?: boolean; // 父母兄弟姐妹
+      stroke?: boolean; // 父母
+      parentHipFracture?: boolean; // 父母髋部骨折 (FRAX)
+      lungCancer?: boolean; // 肺癌
+      colonCancer?: boolean; // 结直肠癌
+      breastCancer?: boolean; // 乳腺癌 (母亲/姐妹/女儿)
+  };
+
+  // Q16-Q17 用药 (Updated: 结构化细节)
   medication: {
     isRegular: string; // Q16 是/否
-    list?: string; // Q17
+    list?: string; // Q17 文本描述
+    // [NEW] 结构化药物分类
+    details: {
+        antihypertensive?: boolean; // 降压药
+        hypoglycemic?: boolean; // 降糖药/胰岛素
+        lipidLowering?: boolean; // 降脂药
+        antiplatelet?: boolean; // 阿司匹林/抗凝
+        steroids?: boolean; // 长期激素 (FRAX)
+    };
   };
 
   // Q18-Q27 膳食
@@ -157,14 +190,22 @@ export interface QuestionnaireData {
       monitorResult?: string; // Q38
   };
 
+  // [NEW] 呼吸系统症状 (COPD-SQ 模型)
+  respiratory: {
+      chronicCough?: boolean; // 经常咳嗽
+      chronicPhlegm?: boolean; // 经常咳痰
+      shortBreath?: boolean; // 活动后气短
+  };
+
   // Q39-Q49 烟酒
   substances: {
     smoking: {
         status?: string; // Q39
         quitYear?: string; // Q40
-        dailyAmount?: string; // Q41
-        years?: string; // Q42
+        dailyAmount?: number; // Q41 (Updated to number for calculation)
+        years?: number; // Q42 (Updated to number)
         passive?: string[]; // Q43
+        packYears?: number; // [NEW] 自动计算: (daily/20)*years
     };
     alcohol: {
         status?: string; // Q44
@@ -176,7 +217,14 @@ export interface QuestionnaireData {
     };
   };
 
-  // Q50-Q54 心理压力
+  // [NEW] 心理量表 (PHQ-9 & GAD-7)
+  mentalScales: {
+      phq9Score?: number; // 0-27
+      gad7Score?: number; // 0-21
+      selfHarmIdea?: number; // PHQ-9 Q9 (0-3)
+  };
+
+  // Q50-Q54 心理压力 (Legacy text fields)
   mental: {
     stressLevel?: string; // Q50
     stressSource?: string[]; // Q51
@@ -353,7 +401,7 @@ export interface PredictionModelResult {
     modelName: string; // e.g., "China-PAR"
     category: string; // e.g., "心脑血管"
     score?: string | number; // 评分结果
-    riskLabel: '高风险' | '中风险' | '低风险' | '一般' | '未知' | '需关注' | '良好'; // Added more labels
+    riskLabel: '高风险' | '中风险' | '低风险' | '一般' | '未知' | '需关注' | '良好'; 
     riskLevel: RiskLevel | 'UNKNOWN';
     description: string; // 结果解读
     missingParams: { key: string; label: string }[]; // 缺失的输入变量

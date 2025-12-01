@@ -1,4 +1,5 @@
 
+
 import { HealthRecord, RiskAnalysisData, SystemRiskPortrait, PredictionModelResult, RiskLevel } from '../types';
 
 /**
@@ -40,8 +41,7 @@ export const generateSystemPortraits = (record: HealthRecord): SystemRiskPortrai
         if (t.includes('癌') || t.includes('瘤') || t.includes('占位') || t.includes('afp') || t.includes('cea') || t.includes('ca1') || t.includes('结节') || t.includes('bi-rads')) add('tumor', `${ab.item}: ${ab.result}`);
     });
 
-    // 2. Scan Questionnaire
-    // History
+    // 2. Scan Questionnaire (Legacy & New)
     record.questionnaire.history.diseases.forEach(d => {
         if (d.includes('高血压') || d.includes('冠心病') || d.includes('卒中')) add('cv', `既往史: ${d}`);
         if (d.includes('糖尿病') || d.includes('痛风') || d.includes('甲状腺')) add('meta', `既往史: ${d}`);
@@ -49,17 +49,19 @@ export const generateSystemPortraits = (record: HealthRecord): SystemRiskPortrai
         if (d.includes('胃病') || d.includes('脂肪肝')) add('dig', `既往史: ${d}`);
         if (d.includes('肿瘤')) add('tumor', `既往史: ${d}`);
     });
-    // Mental
-    if (record.questionnaire.mental.stressLevel === '较大' || record.questionnaire.mental.stressLevel === '很大') add('psych', '自述压力较大');
-    if (record.questionnaire.sleep.quality === '差') add('psych', '睡眠质量差');
-    if (record.questionnaire.sleep.hours && parseInt(record.questionnaire.sleep.hours) < 5) add('psych', '睡眠时间不足');
+    
+    // Mental Scales Integration
+    const { phq9Score, gad7Score, selfHarmIdea } = record.questionnaire.mentalScales || {};
+    if (phq9Score && phq9Score >= 5) add('psych', `PHQ-9抑郁评分:${phq9Score}`);
+    if (gad7Score && gad7Score >= 5) add('psych', `GAD-7焦虑评分:${gad7Score}`);
+    if (selfHarmIdea && selfHarmIdea > 0) add('psych', `存在自伤念头 (高危)`);
 
     // 3. Construct Portraits
     const buildPortrait = (name: string, icon: string, keyItems: string[], focus: string[]): SystemRiskPortrait => ({
         systemName: name,
         icon,
-        status: keyItems.length > 2 ? 'High' : keyItems.length > 0 ? 'Medium' : 'Normal',
-        keyFindings: keyItems.slice(0, 4), // Top 4
+        status: keyItems.length > 2 || (name === '心理与精神' && (selfHarmIdea || 0) > 0) ? 'High' : keyItems.length > 0 ? 'Medium' : 'Normal',
+        keyFindings: keyItems.slice(0, 4), 
         focusAreas: focus
     });
 
@@ -80,347 +82,291 @@ export const generateSystemPortraits = (record: HealthRecord): SystemRiskPortrai
 export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[] => {
     const models: PredictionModelResult[] = [];
     const extras = record.riskModelExtras || {};
+    const q = record.questionnaire;
 
-    // Helper to get value securely from various parts of the record
-    const getVal = (path: string) => {
-        // 1. Try extras first (Manual input overrides)
-        if (extras[path] !== undefined && extras[path] !== '') {
-            const val = extras[path];
-            return !isNaN(Number(val)) ? Number(val) : val;
-        }
-        
-        // 2. Try structured record mapping
-        switch(path) {
+    // Helper: Smart Get Value
+    const getVal = (key: string): any => {
+        // 1. Manual override from riskModelExtras
+        if (extras[key] !== undefined && extras[key] !== '') return extras[key];
+
+        // 2. Structured mappings
+        switch(key) {
             case 'age': return record.profile.age;
             case 'gender': return record.profile.gender;
             case 'sbp': return record.checkup.basics.sbp;
             case 'bmi': return record.checkup.basics.bmi;
             case 'tc': return parseFloat(record.checkup.labBasic.lipids?.tc || '0') || undefined;
-            case 'hdl': return parseFloat(record.checkup.labBasic.lipids?.hdl || '0') || undefined;
-            case 'ldl': return parseFloat(record.checkup.labBasic.lipids?.ldl || '0') || undefined;
-            case 'creatinine': return parseFloat(record.checkup.labBasic.renal?.creatinine || '0') || undefined;
-            case 'ua': return parseFloat(record.checkup.labBasic.renal?.ua || '0') || undefined;
-            case 'glucose': return parseFloat(record.checkup.labBasic.glucose?.fasting || '0') || undefined;
-            case 'ast': return parseFloat(record.checkup.labBasic.liver?.AST || '0') || undefined;
-            case 'alt': return parseFloat(record.checkup.labBasic.liver?.ALT || '0') || undefined;
-            case 'alb': return parseFloat(record.checkup.labBasic.liver?.ALB || '0') || undefined;
-            case 'smoking': return record.questionnaire.substances.smoking.status === '吸烟' ? '是' : '否';
-            case 'diabetes': return record.questionnaire.history.diseases.some(d => d.includes('糖尿病')) ? '是' : '否';
+            case 'waist': return record.checkup.basics.waist;
+            case 'isSmoking': return q.substances.smoking.status === '吸烟' || q.substances.smoking.status === '目前吸烟' ? true : false;
+            case 'hasDiabetes': return q.history.diseases.some(d => d.includes('糖尿病')) || q.history.details.diabetesYear ? true : false;
+            case 'takingBpMeds': return q.medication.details.antihypertensive;
+            // China-PAR specific
+            case 'north': return true; // Default to North per request
+            case 'familyCvd': return q.familyHistory.fatherCvdEarly || q.familyHistory.motherCvdEarly || q.familyHistory.stroke;
+            
+            // ADA specific
+            case 'familyDb': return q.familyHistory.diabetes;
+            case 'gdm': return q.femaleHealth.gdmHistory;
+            case 'pcos': return q.femaleHealth.pcosHistory;
+            case 'takingBpMedsBoolean': return q.medication.details.antihypertensive === true;
+            
+            // FRAX specific
+            case 'parentHip': return q.familyHistory.parentHipFracture;
+            case 'steroids': return q.medication.details.steroids;
+            case 'ra': return record.checkup.optional.rheumatoid?.rf && parseFloat(record.checkup.optional.rheumatoid.rf) > 20;
+
+            // COPD specific
+            case 'packYears': return q.substances.smoking.packYears; // From AI calculation
+            case 'chronicCough': return q.respiratory.chronicCough;
+            case 'chronicPhlegm': return q.respiratory.chronicPhlegm;
+            case 'shortBreath': return q.respiratory.shortBreath;
+            
+            // Gail specific
+            case 'menarcheAge': return q.femaleHealth.menarcheAge;
+            case 'firstBirthAge': return q.femaleHealth.firstBirthAge;
+            case 'breastBiopsy': return q.femaleHealth.breastBiopsy;
+            case 'familyBc': return q.familyHistory.breastCancer;
+            
             default: return undefined;
         }
     };
 
-    // --- 1. China-PAR (心血管) ---
+    // --- 1. China-PAR (心血管 - 北方版) ---
     const chinaParCalc = () => {
-        const missing: {key:string, label:string}[] = [];
-        const age = getVal('age') as number;
-        const sbp = getVal('sbp') as number;
-        const tc = getVal('tc') as number;
-        const waist = getVal('waist') as number; // Extra
-        const familyHistory = getVal('familyCv'); // Extra (是/否)
-
+        const missing = [];
+        const age = getVal('age');
+        const sbp = getVal('sbp');
+        const tc = getVal('tc');
+        const waist = getVal('waist');
+        
         if (!age) missing.push({key: 'age', label: '年龄'});
         if (!sbp) missing.push({key: 'sbp', label: '收缩压'});
         if (!tc) missing.push({key: 'tc', label: '总胆固醇'});
-        if (waist === undefined) missing.push({key: 'waist', label: '腰围(cm)'});
-        if (familyHistory === undefined) missing.push({key: 'familyCv', label: '心血管病家族史(是/否)'});
+        if (!waist) missing.push({key: 'waist', label: '腰围(cm)'});
 
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少关键变量，无法计算' };
+        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少体检基础数据' };
 
-        // Mock Calculation Logic (Simplified)
-        let riskScore = 0;
-        if (age > 60) riskScore += 2;
-        if (sbp > 140) riskScore += 2;
-        if (tc > 6.0) riskScore += 1;
-        if (getVal('smoking') === '是') riskScore += 1;
-        if (getVal('diabetes') === '是') riskScore += 2;
-        if (familyHistory === '是') riskScore += 1;
-        if (waist && waist > 90) riskScore += 1;
+        // Simplified Point Scoring mimicking China-PAR (North)
+        let score = 0;
+        // Age
+        if (age >= 40) score += 1;
+        if (age >= 50) score += 2;
+        if (age >= 60) score += 3;
+        // SBP
+        if (sbp >= 130) score += 1;
+        if (sbp >= 140) score += 2;
+        if (sbp >= 160) score += 3;
+        // TC
+        if (tc >= 5.2) score += 1;
+        if (tc >= 6.2) score += 2;
+        // Waist (M>90, F>85)
+        const isMale = getVal('gender') === '男';
+        if (waist >= (isMale ? 90 : 85)) score += 1;
+        // Factors
+        if (getVal('isSmoking')) score += 1;
+        if (getVal('hasDiabetes')) score += 1;
+        if (getVal('familyCvd')) score += 1;
+        if (getVal('north')) score += 1; // Region risk
 
-        const level = riskScore >= 5 ? RiskLevel.RED : riskScore >= 3 ? RiskLevel.YELLOW : RiskLevel.GREEN;
-        const label = level === RiskLevel.RED ? '高风险' : level === RiskLevel.YELLOW ? '中风险' : '低风险';
+        const level = score >= 8 ? RiskLevel.RED : score >= 5 ? RiskLevel.YELLOW : RiskLevel.GREEN;
+        const label = level === 'RED' ? '高风险' : level === 'YELLOW' ? '中风险' : '低风险';
         
-        return { score: `${riskScore * 1.5}% (10年)`, riskLevel: level, riskLabel: label, missing: [], desc: `基于China-PAR模型预测，您未来10年发生心血管疾病的风险为 ${label}` };
+        return { score: `${score}分`, riskLevel: level, riskLabel: label, missing: [], desc: `基于China-PAR(北方版)因子评分: ${score}分` };
     };
 
     // --- 2. ADA Diabetes (糖尿病) ---
     const adaCalc = () => {
         const missing = [];
-        const bmi = getVal('bmi') as number;
-        const famDb = getVal('familyDb'); // Extra
-        const activity = getVal('physicalActivity'); // Extra
+        const age = getVal('age');
+        const bmi = getVal('bmi');
         
+        if (!age) missing.push({key: 'age', label: '年龄'});
         if (!bmi) missing.push({key: 'bmi', label: 'BMI'});
-        if (famDb === undefined) missing.push({key: 'familyDb', label: '糖尿病家族史(是/否)'});
-        if (activity === undefined) missing.push({key: 'physicalActivity', label: '体力活动活跃(是/否)'});
 
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少关键变量' };
+        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少基础数据' };
 
         let score = 0;
-        if ((getVal('age') as number) >= 40) score += 1;
+        if (age >= 40) score += 1;
+        if (age >= 50) score += 2;
+        if (age >= 60) score += 3;
+        
         if (getVal('gender') === '男') score += 1;
-        if (famDb === '是') score += 1;
-        if ((getVal('sbp') as number) > 130) score += 1;
-        if (activity === '否') score += 1;
-        if (bmi > 24) score += 1;
+        if (getVal('familyDb')) score += 1;
+        if (getVal('takingBpMedsBoolean')) score += 1; // High BP treatment
+        if (bmi >= 24) score += 1;
+        if (bmi >= 28) score += 2;
+        
+        // Female specific
+        if (getVal('gdm')) score += 1;
 
         const level = score >= 5 ? RiskLevel.RED : score >= 4 ? RiskLevel.YELLOW : RiskLevel.GREEN;
-        return { score: `${score}分`, riskLevel: level, riskLabel: level===RiskLevel.RED?'高风险':level===RiskLevel.YELLOW?'中风险':'低风险', missing: [], desc: `ADA评分 ${score}分 (>=5分提示高危)` };
+        return { score: `${score}分`, riskLevel: level, riskLabel: level==='RED'?'高风险':level==='YELLOW'?'中风险':'低风险', missing: [], desc: `ADA风险评分: ${score}分 (≥5分高危)` };
     };
 
     // --- 3. FRAX (骨折) ---
     const fraxCalc = () => {
         const missing = [];
-        const prevFracture = getVal('prevFracture'); 
-        const parentHip = getVal('parentHip'); 
-        const steroids = getVal('steroids'); 
+        const parentHip = getVal('parentHip');
+        const steroids = getVal('steroids');
 
-        if (prevFracture === undefined) missing.push({key: 'prevFracture', label: '既往骨折史(是/否)'});
         if (parentHip === undefined) missing.push({key: 'parentHip', label: '父母髋骨骨折史(是/否)'});
         if (steroids === undefined) missing.push({key: 'steroids', label: '长期使用激素(是/否)'});
 
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少关键变量' };
+        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少问卷关键因子' };
         
         let risk = '低风险';
         let rLevel = RiskLevel.GREEN;
-        if (prevFracture === '是' || parentHip === '是') { risk = '高风险'; rLevel = RiskLevel.RED; }
-        else if ((getVal('age') as number) > 70 || steroids === '是') { risk = '中风险'; rLevel = RiskLevel.YELLOW; }
+        
+        // Simplified Logic without Fracture Index Tool
+        if (parentHip || (getVal('ra') && getVal('age') > 60)) {
+             risk = '高风险'; rLevel = RiskLevel.RED;
+        } else if (steroids || getVal('age') > 70) {
+             risk = '中风险'; rLevel = RiskLevel.YELLOW;
+        }
 
-        return { score: 'NA', riskLevel: rLevel, riskLabel: risk as any, missing: [], desc: `基于FRAX关键因子，您的骨折风险评估为 ${risk}` };
+        return { score: 'NA', riskLevel: rLevel, riskLabel: risk as any, missing: [], desc: `基于FRAX因子评估: ${risk}` };
     };
 
-    // --- 4. KDIGO (慢性肾病) ---
-    const kdigoCalc = () => {
-        const missing = [];
-        const age = getVal('age') as number;
-        const gender = getVal('gender') as string;
-        const scr = getVal('creatinine') as number; // umol/L
-        const proteinuria = getVal('proteinuria'); // Extra: 尿蛋白定性 or ACR
-
-        if (!age) missing.push({key: 'age', label: '年龄'});
-        if (!scr) missing.push({key: 'creatinine', label: '血肌酐(μmol/L)'});
-        if (proteinuria === undefined) missing.push({key: 'proteinuria', label: '尿蛋白(阴性/阳性)'});
-
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少关键变量' };
-
-        // eGFR Calculation (Simplified MDRD/CKD-EPI approximation for demo)
-        // eGFR = 186 * (Scr/88.4)^-1.154 * Age^-0.203 * (0.742 if female)
-        let egfr = 186 * Math.pow(scr / 88.4, -1.154) * Math.pow(age, -0.203);
-        if (gender === '女') egfr *= 0.742;
-        egfr = Math.round(egfr);
-
-        let stage = '';
-        let level = RiskLevel.GREEN;
-
-        if (egfr >= 90) stage = 'G1 (正常)';
-        else if (egfr >= 60) stage = 'G2 (轻度降低)';
-        else if (egfr >= 45) { stage = 'G3a (轻中度)'; level = RiskLevel.YELLOW; }
-        else if (egfr >= 30) { stage = 'G3b (中重度)'; level = RiskLevel.YELLOW; }
-        else { stage = 'G4/G5 (肾衰竭风险)'; level = RiskLevel.RED; }
-
-        if (proteinuria === '阳性' && level === RiskLevel.GREEN) level = RiskLevel.YELLOW;
-
-        return { 
-            score: `eGFR: ${egfr}`, 
-            riskLevel: level, 
-            riskLabel: level === RiskLevel.RED ? '高风险' : level === RiskLevel.YELLOW ? '中风险' : '低风险', 
-            missing: [], 
-            desc: `KDIGO分期: ${stage}。${proteinuria === '阳性' ? '合并蛋白尿，风险增加。' : ''}` 
-        };
-    };
-    
-    // --- 5. Gastric Cancer (新型胃癌筛查评分) ---
-    const gastricCalc = () => {
-        const missing = [];
-        const hp = getVal('hpStatus'); // Extra: 幽门螺杆菌
-        const pgr = getVal('pgr'); // Extra: 胃蛋白酶原比值 (PGI/PGII)
-
-        if (hp === undefined) missing.push({key: 'hpStatus', label: '幽门螺杆菌感染(是/否)'});
-        if (pgr === undefined) missing.push({key: 'pgr', label: 'PGI/PGII 比值(<3为异常)'});
-
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '建议进行Hp呼气试验及胃功能四项检查' };
-
-        // A群: Hp(-) PG(-) -> 低危
-        // B群: Hp(+) PG(-) -> 中危
-        // C群: Hp(+) PG(+) -> 高危 (注意：PGR低为阳性)
-        // D群: Hp(-) PG(+) -> 高危 (萎缩严重)
-        
-        let group = 'A群';
-        let level = RiskLevel.GREEN;
-        
-        const isHpPos = hp === '是';
-        const isPgPos = (pgr as number) < 3.0; // PGR low is bad
-
-        if (!isHpPos && !isPgPos) { group = 'A群 (健康)'; level = RiskLevel.GREEN; }
-        else if (isHpPos && !isPgPos) { group = 'B群 (主要因Hp感染)'; level = RiskLevel.YELLOW; }
-        else if (isHpPos && isPgPos) { group = 'C群 (萎缩伴感染)'; level = RiskLevel.RED; }
-        else if (!isHpPos && isPgPos) { group = 'D群 (严重萎缩)'; level = RiskLevel.RED; }
-
-        return { score: group, riskLevel: level, riskLabel: level === 'RED' ? '高风险' : level === 'YELLOW' ? '中风险' : '低风险', missing: [], desc: `胃癌筛查分群: ${group}，建议${level === 'RED' ? '立即胃镜检查' : '定期随访'}` };
-    };
-
-    // --- 6. APCS (亚太结直肠癌筛查) ---
-    const colorectalCalc = () => {
-        const missing = [];
-        const famColon = getVal('famColon'); // Extra
-
-        if (famColon === undefined) missing.push({key: 'famColon', label: '一级亲属肠癌史(是/否)'});
-
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少关键变量' };
-
-        let score = 0;
-        const age = getVal('age') as number;
-        if (age >= 50 && age < 70) score += 2; // Simplified age score
-        else if (age >= 70) score += 3;
-        
-        if (getVal('gender') === '男') score += 1;
-        if (famColon === '是') score += 2;
-        if (getVal('smoking') === '是') score += 1;
-
-        const level = score >= 4 ? RiskLevel.RED : score >= 2 ? RiskLevel.YELLOW : RiskLevel.GREEN;
-        
-        return { score: `${score}分`, riskLevel: level, riskLabel: level === 'RED' ? '高风险' : level === 'YELLOW' ? '中风险' : '低风险', missing: [], desc: `APCS评分 ${score}分，${level === 'RED' ? '强烈建议肠镜筛查' : '建议FIT便隐血测试'}` };
-    };
-
-    // --- 7. NAFLD Fibrosis Score (脂肪肝纤维化) ---
-    const nafldCalc = () => {
-        const missing = [];
-        const plt = getVal('plt'); // Extra: 血小板
-        const alb = getVal('alb'); // Albumin
-        const ast = getVal('ast');
-        const alt = getVal('alt');
-        
-        if (!plt) missing.push({key: 'plt', label: '血小板计数(10^9/L)'});
-        if (!alb) missing.push({key: 'alb', label: '白蛋白(g/L)'});
-        if (!ast) missing.push({key: 'ast', label: 'AST(U/L)'});
-        if (!alt) missing.push({key: 'alt', label: 'ALT(U/L)'});
-
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少肝功或血常规指标' };
-
-        // NFS formula: -1.675 + 0.037*age + 0.094*BMI + 1.13*IFG/Diabetes(yes=1,no=0) + 0.99*AST/ALT - 0.013*PLT - 0.66*Alb
-        const age = getVal('age') as number;
-        const bmi = getVal('bmi') as number;
-        const hasDb = getVal('diabetes') === '是' ? 1 : 0;
-        
-        const score = -1.675 + 0.037 * age + 0.094 * bmi + 1.13 * hasDb + 0.99 * ((ast as number)/(alt as number)) - 0.013 * (plt as number) - 0.66 * (alb as number);
-        
-        let level = RiskLevel.GREEN;
-        let label = '低风险';
-        if (score > 0.676) { level = RiskLevel.RED; label = '高风险(F3-F4)'; }
-        else if (score > -1.455) { level = RiskLevel.YELLOW; label = '中风险'; }
-
-        return { score: score.toFixed(2), riskLevel: level, riskLabel: label as any, missing: [], desc: `NFS评分 ${score.toFixed(2)}，提示肝纤维化风险: ${label}` };
-    };
-
-    // --- 8. SCL-90 (心理健康简筛) ---
-    const mentalCalc = () => {
-        // 由于 SCL-90 是90项量表，无法自动计算。此处模拟“简易心理筛查”。
-        // 基于问卷中的压力、睡眠、焦虑关键词。
-        const missing = [];
-        const stress = getVal('stressSelf') || record.questionnaire.mental.stressLevel; // Q50
-        const sleepQ = getVal('sleepQual') || record.questionnaire.sleep.quality; // Q35
-        
-        if (!stress) missing.push({key: 'stressSelf', label: '自我压力感(小/一般/大)'});
-        if (!sleepQ) missing.push({key: 'sleepQual', label: '睡眠质量(好/一般/差)'});
-
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少问卷数据' };
-
-        let score = 0;
-        if (stress === '较大' || stress === '很大') score += 2;
-        if (sleepQ === '差') score += 2;
-        else if (sleepQ === '一般') score += 1;
-
-        const level = score >= 3 ? RiskLevel.RED : score >= 1 ? RiskLevel.YELLOW : RiskLevel.GREEN;
-        const label = level === 'RED' ? '需关注' : level === 'YELLOW' ? '一般' : '良好';
-
-        return { score: 'NA', riskLevel: level, riskLabel: label as any, missing: [], desc: `基于压力与睡眠的心理初筛状态: ${label}` };
-    };
-
-    // --- 9. Gout (高尿酸/痛风) ---
-    const goutCalc = () => {
-        const ua = getVal('ua') as number;
-        if (!ua) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing: [{key:'ua', label:'血尿酸(μmol/L)'}], desc: '缺少血尿酸值' };
-
-        const gender = getVal('gender');
-        let limit = gender === '男' ? 420 : 360;
-        
-        let level = RiskLevel.GREEN;
-        let desc = '尿酸正常';
-
-        if (ua > 540) { level = RiskLevel.RED; desc = '重度高尿酸，痛风风险极高'; }
-        else if (ua > limit) { level = RiskLevel.YELLOW; desc = '高尿酸血症'; }
-
-        return { score: `${ua}`, riskLevel: level, riskLabel: level===RiskLevel.RED?'高风险':level===RiskLevel.YELLOW?'中风险':'低风险', missing: [], desc };
-    };
-    
-    // --- 10. Gail (乳腺癌 - 已有) ---
-    const gailCalc = () => {
-        if (getVal('gender') !== '女') return { score: 'NA', riskLevel: RiskLevel.GREEN, riskLabel: '一般' as const, missing: [], desc: '仅适用于女性' };
-        const missing = [];
-        const firstPeriod = getVal('firstPeriodAge'); 
-        const firstBirth = getVal('firstBirthAge'); 
-        const relativesBc = getVal('relativesBc'); 
-
-        if (firstPeriod === undefined) missing.push({key: 'firstPeriodAge', label: '初潮年龄'});
-        if (firstBirth === undefined) missing.push({key: 'firstBirthAge', label: '初次生育年龄(或未育)'});
-        if (relativesBc === undefined) missing.push({key: 'relativesBc', label: '直系亲属乳腺癌史(是/否)'});
-
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少关键变量' };
-
-        let highRisk = relativesBc === '是';
-        return { score: highRisk ? '>1.67%' : '<1.0%', riskLevel: highRisk ? RiskLevel.YELLOW : RiskLevel.GREEN, riskLabel: highRisk ? '中风险' : '低风险', missing: [], desc: `5年风险评估: ${highRisk ? '需关注' : '一般'}` };
-    };
-    
-    // --- 11. COPD-SQ (慢阻肺 - 已有) ---
+    // --- 4. COPD-SQ (慢阻肺) ---
     const copdCalc = () => {
         const missing = [];
+        const packYears = getVal('packYears'); // from AI
         const cough = getVal('chronicCough');
-        if (getVal('smoking') === undefined) missing.push({key: 'smoking_status', label: '吸烟状态'}); 
-        if (cough === undefined) missing.push({key: 'chronicCough', label: '经常咳嗽咳痰(是/否)'});
+        const phlegm = getVal('chronicPhlegm');
+        const shortBreath = getVal('shortBreath');
+
+        // Allow fallback if AI calculated packYears is missing but raw data exists? 
+        // For now, treat as missing to prompt user check.
+        if (getVal('isSmoking') && packYears === undefined) missing.push({key: 'packYears', label: '吸烟包年数'});
+        if (cough === undefined) missing.push({key: 'chronicCough', label: '经常咳嗽?'});
+
+        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善呼吸道症状' };
+
+        let score = 0;
+        const age = getVal('age');
         
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少关键变量' };
+        // Age
+        if (age >= 40 && age < 50) score += 2;
+        if (age >= 50 && age < 60) score += 4;
+        if (age >= 60) score += 6;
         
-        let pts = 0;
-        if ((getVal('age') as number) > 40) pts += 5;
-        if (getVal('smoking') === '是') pts += 6;
-        if (cough === '是') pts += 4;
+        // Smoking
+        if (packYears) {
+            if (packYears >= 5 && packYears < 15) score += 3;
+            if (packYears >= 15 && packYears < 25) score += 4;
+            if (packYears >= 25) score += 6;
+        } else if (getVal('isSmoking')) {
+            score += 3; // minimal score for current smoker unknown amount
+        }
         
-        const r = pts > 16 ? RiskLevel.RED : RiskLevel.GREEN;
-        return { score: `${pts}分`, riskLevel: r, riskLabel: r===RiskLevel.RED?'高风险':'低风险', missing: [], desc: `COPD-SQ 筛查得分` };
+        // Symptoms
+        if (cough) score += 2;
+        if (phlegm) score += 2;
+        if (shortBreath) score += 3;
+        
+        const r = score >= 16 ? RiskLevel.RED : RiskLevel.GREEN;
+        return { score: `${score}分`, riskLevel: r, riskLabel: r===RiskLevel.RED?'高风险':'低风险', missing: [], desc: `COPD-SQ得分: ${score} (≥16高危)` };
     };
 
-    // Helper to build result
+    // --- 5. Gail (乳腺癌) ---
+    const gailCalc = () => {
+        if (getVal('gender') !== '女') return { score: 'NA', riskLevel: RiskLevel.GREEN, riskLabel: '一般' as const, missing: [], desc: '仅女性适用' };
+        
+        const missing = [];
+        const menarche = getVal('menarcheAge');
+        const firstBirthStr = getVal('firstBirthAge'); // string "<20", etc.
+        const biopsy = getVal('breastBiopsy');
+        const familyBc = getVal('familyBc');
+
+        if (!menarche) missing.push({key: 'menarcheAge', label: '初潮年龄'});
+        if (!firstBirthStr) missing.push({key: 'firstBirthAge', label: '首次生育年龄'});
+        if (biopsy === undefined) missing.push({key: 'breastBiopsy', label: '乳腺活检史'});
+        if (familyBc === undefined) missing.push({key: 'familyBc', label: '直系亲属乳腺癌史'});
+
+        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少女性健康史' };
+
+        let riskFactor = 0;
+        if (menarche < 12) riskFactor += 1;
+        if (firstBirthStr === '≥30岁' || firstBirthStr === '未生育') riskFactor += 1;
+        if (familyBc) riskFactor += 2;
+        if (biopsy) riskFactor += 1;
+
+        const level = riskFactor >= 3 ? RiskLevel.RED : riskFactor >= 1 ? RiskLevel.YELLOW : RiskLevel.GREEN;
+        return { score: `${riskFactor}因子`, riskLevel: level, riskLabel: level==='RED'?'高风险':level==='YELLOW'?'中风险':'低风险', missing: [], desc: `Gail模型风险因子数: ${riskFactor}` };
+    };
+
+    // --- 6. Mental (PHQ-9/GAD-7) ---
+    const mentalCalc = () => {
+        const phq = q.mentalScales.phq9Score;
+        const gad = q.mentalScales.gad7Score;
+        const harm = q.mentalScales.selfHarmIdea || 0;
+
+        if (phq === undefined || gad === undefined) {
+             return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing: [{key:'phq9', label:'PHQ-9评分'}], desc: '需完成心理量表' };
+        }
+
+        let level = RiskLevel.GREEN;
+        let label = '良好';
+        let desc = '';
+
+        if (harm > 0) {
+            level = RiskLevel.RED;
+            label = '高危预警';
+            desc = '存在自伤念头，需立即干预！';
+        } else if (phq >= 15 || gad >= 15) {
+            level = RiskLevel.RED;
+            label = '重度风险';
+            desc = `PHQ-9:${phq}, GAD-7:${gad} (重度)`;
+        } else if (phq >= 10 || gad >= 10) {
+            level = RiskLevel.YELLOW;
+            label = '中度风险';
+            desc = `PHQ-9:${phq}, GAD-7:${gad} (中度)`;
+        } else {
+            desc = `PHQ-9:${phq}, GAD-7:${gad} (正常)`;
+        }
+
+        return { score: `${phq}/${gad}`, riskLevel: level, riskLabel: label as any, missing: [], desc };
+    };
+
+    // --- 7. APCS (结直肠癌) ---
+    const colonCalc = () => {
+        const missing = [];
+        if (getVal('colonCancer') === undefined) missing.push({key: 'colonCancer', label: '亲属肠癌史'});
+        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少家族史' };
+
+        let score = 0;
+        const age = getVal('age');
+        if (age >= 50 && age < 70) score += 2;
+        if (age >= 70) score += 3;
+        if (getVal('gender') === '男') score += 1;
+        if (q.familyHistory.colonCancer) score += 2;
+        if (getVal('isSmoking')) score += 1;
+
+        const r = score >= 4 ? RiskLevel.RED : score >= 2 ? RiskLevel.YELLOW : RiskLevel.GREEN;
+        return { score: `${score}分`, riskLevel: r, riskLabel: r==='RED'?'高风险':r==='YELLOW'?'中风险':'低风险', missing: [], desc: `APCS评分: ${score}` };
+    };
+
+    // Execute
+    // Re-use helper
     const run = (id: string, name: string, cat: string, fn: Function): PredictionModelResult => {
         const res = fn();
         return {
-            modelId: id,
-            modelName: name,
-            category: cat,
-            score: res.score,
-            riskLevel: res.riskLevel,
-            riskLabel: res.riskLabel,
-            description: res.desc,
-            missingParams: res.missing,
-            lastCalculated: new Date().toISOString()
+            modelId: id, modelName: name, category: cat, score: res.score, riskLevel: res.riskLevel, 
+            riskLabel: res.riskLabel, description: res.desc, missingParams: res.missing, lastCalculated: new Date().toISOString()
         };
     };
 
-    models.push(run('cv_chinapar', 'China-PAR 模型', '心脑血管', chinaParCalc));
+    models.push(run('cv_chinapar', 'China-PAR (北方版)', '心脑血管', chinaParCalc));
     models.push(run('meta_ada', 'ADA 糖尿病风险', '代谢免疫', adaCalc));
-    models.push(run('renal_kdigo', 'KDIGO 慢性肾病', '代谢免疫', kdigoCalc));
-    models.push(run('meta_gout', '痛风/高尿酸风险', '代谢免疫', goutCalc));
-    models.push(run('resp_copd', 'COPD-SQ 慢阻肺筛查', '呼吸系统', copdCalc));
-    models.push(run('dig_nafld', 'NAFLD 肝纤维化评分', '消化系统', nafldCalc));
-    models.push(run('tumor_gastric', '新型胃癌筛查评分', '肿瘤风险', gastricCalc));
-    models.push(run('tumor_colon', '亚太结直肠癌评分', '肿瘤风险', colorectalCalc));
-    models.push(run('tumor_gail', 'Gail 乳腺癌风险', '肿瘤风险', gailCalc));
     models.push(run('bone_frax', 'FRAX 骨折风险', '骨骼肌肉', fraxCalc));
-    models.push(run('psych_scl', '心理健康初筛', '心理精神', mentalCalc));
+    models.push(run('resp_copd', 'COPD-SQ 慢阻肺筛查', '呼吸系统', copdCalc));
+    models.push(run('tumor_gail', 'Gail 乳腺癌风险', '肿瘤风险', gailCalc));
+    models.push(run('psych_scales', '心理健康 (PHQ/GAD)', '心理精神', mentalCalc));
+    models.push(run('tumor_colon', '亚太结直肠癌评分', '肿瘤风险', colonCalc));
     
-    // Placeholder models (waiting for implementation or data)
-    models.push({ modelId: 'cv_ascvd', modelName: 'ASCVD 风险', category: '心脑血管', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '缺少LDL-C数据', missingParams: [{key:'ldl', label:'LDL-C'}], lastCalculated: '' });
-    models.push({ modelId: 'tumor_lung', modelName: 'NLST 肺癌筛查', category: '肿瘤风险', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '缺少吸烟包年数', missingParams: [{key:'packYears', label:'吸烟包年数'}], lastCalculated: '' });
-    models.push({ modelId: 'psych_ad', modelName: 'ANU-ADRI 阿尔茨海默', category: '心理精神', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '缺少认知自评', missingParams: [{key:'cogSelf', label:'记忆力减退自评'}], lastCalculated: '' });
-    
+    // Legacy Placeholders for others (can be expanded similarly)
+    models.push({ modelId: 'dig_nafld', modelName: 'NAFLD 肝纤维化', category: '消化系统', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '待接入生化指标', missingParams: [], lastCalculated: '' });
+    models.push({ modelId: 'tumor_gastric', modelName: '新型胃癌筛查', category: '肿瘤风险', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '待接入Hp结果', missingParams: [], lastCalculated: '' });
+
     return models;
 };
