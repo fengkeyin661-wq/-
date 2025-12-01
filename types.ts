@@ -1,4 +1,5 @@
 
+
 // Enums
 export enum RiskLevel {
   GREEN = 'GREEN',
@@ -352,7 +353,7 @@ export interface PredictionModelResult {
     modelName: string; // e.g., "China-PAR"
     category: string; // e.g., "心脑血管"
     score?: string | number; // 评分结果
-    riskLabel: '高风险' | '中风险' | '低风险' | '一般' | '未知';
+    riskLabel: '高风险' | '中风险' | '低风险' | '一般' | '未知' | '需关注' | '良好'; // Added more labels
     riskLevel: RiskLevel | 'UNKNOWN';
     description: string; // 结果解读
     missingParams: { key: string; label: string }[]; // 缺失的输入变量
