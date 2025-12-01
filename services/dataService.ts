@@ -1,5 +1,4 @@
 
-
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
@@ -261,6 +260,24 @@ export const fetchArchives = async (): Promise<HealthArchive[]> => {
         console.error("Fetch Error:", e);
         return [];
     }
+};
+
+/**
+ * Mobile Client: Fetch single patient by name/phone for login
+ */
+export const fetchPatientArchive = async (name: string, phone: string): Promise<HealthArchive | null> => {
+    if (!isSupabaseConfigured()) throw new Error("Database not connected");
+    
+    // Note: In production, use stricter exact matching or ID verification
+    const { data, error } = await supabase
+        .from('health_archives')
+        .select('*')
+        .eq('name', name)
+        .ilike('phone', `%${phone}%`) // Allow partial match for demo ease, strict eq in prod
+        .single();
+
+    if (error) return null;
+    return data;
 };
 
 /**

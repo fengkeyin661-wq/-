@@ -1,5 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
@@ -7,24 +8,26 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { HospitalHeatmap } from './components/HospitalHeatmap';
+import { MobilePatientApp } from './components/MobilePatientApp'; // New import
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
 import { useToast } from './components/Toast';
 
-const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('followup');
-  const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
-  const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
-  const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
-  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); 
+// --- Admin App Component (The original App logic encapsulated) ---
+const AdminApp: React.FC = () => {
+  const [activeTab, setActiveTab] = React.useState('dashboard');
+  const [healthRecord, setHealthRecord] = React.useState<HealthRecord | null>(null);
+  const [assessment, setAssessment] = React.useState<HealthAssessment | null>(null);
+  const [schedule, setSchedule] = React.useState<ScheduledFollowUp[]>([]);
+  const [riskAnalysis, setRiskAnalysis] = React.useState<RiskAnalysisData | undefined>(undefined); 
   
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
+  const [isGenerating, setIsGenerating] = React.useState(false);
+  const [followUps, setFollowUps] = React.useState<FollowUpRecord[]>([]);
   
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [archives, setArchives] = useState<HealthArchive[]>([]);
+  const [isAuthenticated, setIsAuthenticated] = React.useState(false);
+  const [showLoginModal, setShowLoginModal] = React.useState(false);
+  const [archives, setArchives] = React.useState<HealthArchive[]>([]);
   
   const toast = useToast();
 
@@ -38,7 +41,7 @@ const App: React.FC = () => {
       }
   };
 
-  useEffect(() => {
+  React.useEffect(() => {
       refreshArchives();
   }, []);
 
@@ -105,15 +108,10 @@ const App: React.FC = () => {
     }
 
     const newRecord = { ...record, id: Date.now().toString() };
-    // 1. Update Local State
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
 
-    // 2. Update Schedule (Mark current pending as done, add next one)
-    const currentPending = schedule.find(s => s.status === 'pending');
     let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
-    
-    // Generate new next item based on current record date + risk level
     const nextItem = generateNextScheduleItem(
         newRecord.date, 
         newRecord.assessment.nextCheckPlan || assessment.followUpPlan.nextCheckItems.join(','), 
@@ -123,27 +121,11 @@ const App: React.FC = () => {
     setSchedule(updatedSchedule);
 
     try {
-        // 3. Save to DB (Only save updated follow-ups and schedule. Do NOT modify HealthRecord or Assessment)
-        const saveResult = await saveArchive(
-            healthRecord, 
-            assessment,       
-            updatedSchedule,      
-            updatedFollowUps,    
-            riskAnalysis         
-        );
-
-        if (!saveResult.success) {
-            throw new Error(saveResult.message);
-        }
-
-        // 4. Refresh background data (optional, to keep sync)
+        const saveResult = await saveArchive(healthRecord, assessment, updatedSchedule, updatedFollowUps, riskAnalysis);
+        if (!saveResult.success) throw new Error(saveResult.message);
         refreshArchives();
-        
         toast.success("随访记录已保存，执行单已更新");
-        // Stay on Dashboard to see the updated sheet
-        
     } catch (e) {
-        console.error("Save failed:", e);
         toast.error("保存失败: " + (e instanceof Error ? e.message : "未知错误"));
     }
   };
@@ -254,6 +236,22 @@ const App: React.FC = () => {
       )}
     </Layout>
   );
+}
+
+// --- Main Router ---
+const App: React.FC = () => {
+    return (
+        <Routes>
+            {/* Mobile App Route */}
+            <Route path="/mobile/*" element={<MobilePatientApp />} />
+            
+            {/* Admin App Route (Default) */}
+            <Route path="/admin/*" element={<AdminApp />} />
+            
+            {/* Landing/Root Redirect */}
+            <Route path="/" element={<Navigate to="/admin" replace />} />
+        </Routes>
+    );
 };
 
 export default App;
