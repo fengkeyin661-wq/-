@@ -1,88 +1,124 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import { HealthArchive } from '../../services/dataService';
 
 export const PatientServices: React.FC<{ archive: HealthArchive }> = ({ archive }) => {
-  // Logic to determine recommended services based on risks
+  const [activeTab, setActiveTab] = useState<'services' | 'knowledge'>('services');
+
+  // Logic to determine recommended services
   const recommendations = [];
   const riskStr = JSON.stringify(archive.assessment_data).toLowerCase();
   
-  // Rule-based recommendations
-  if (riskStr.includes('血压') || riskStr.includes('心脏') || riskStr.includes('冠心病')) {
-      recommendations.push({ dept: '心血管内科', service: '24小时动态血压监测', reason: '发现血压异常或心血管风险' });
-  }
-  if (riskStr.includes('血糖') || riskStr.includes('糖尿病')) {
-      recommendations.push({ dept: '内分泌科', service: '胰岛功能测定', reason: '血糖代谢异常' });
-  }
-  if (riskStr.includes('肺结节') || riskStr.includes('磨玻璃')) {
-      recommendations.push({ dept: '呼吸内科', service: '低剂量螺旋CT复查', reason: '肺部结节筛查' });
-  }
-  if (riskStr.includes('胃') || riskStr.includes('幽门') || riskStr.includes('肠')) {
-      recommendations.push({ dept: '消化内科', service: 'C13呼气试验 / 胃肠镜', reason: '消化系统风险提示' });
-  }
+  if (riskStr.includes('血压') || riskStr.includes('心脏')) recommendations.push({ title: '24h动态血压', dept: '心内科', icon: '💓', color: 'bg-red-50 text-red-600' });
+  if (riskStr.includes('血糖') || riskStr.includes('糖尿病')) recommendations.push({ title: '胰岛功能测定', dept: '内分泌', icon: '🩸', color: 'bg-blue-50 text-blue-600' });
+  if (riskStr.includes('肺') || riskStr.includes('呼吸')) recommendations.push({ title: '肺部CT复查', dept: '呼吸科', icon: '🫁', color: 'bg-cyan-50 text-cyan-600' });
+  if (riskStr.includes('胃') || riskStr.includes('肠')) recommendations.push({ title: '无痛胃肠镜', dept: '消化科', icon: '🥔', color: 'bg-orange-50 text-orange-600' });
   
-  // Default recommendation if no specific risks found or as a general item
-  if (recommendations.length === 0) {
-      recommendations.push({ dept: '健康管理中心', service: '年度常规体检套餐', reason: '定期健康监测' });
-  } else {
-      recommendations.push({ dept: '中医科', service: '体质辨识与调理', reason: '亚健康状态干预' });
-  }
+  // Knowledge Articles (Mock)
+  const articles = [
+      { title: '体检报告里的“结节”都要切吗？', tag: '科普', readTime: '3min', image: '🩺' },
+      { title: '地中海饮食：降压护心的最佳选择', tag: '饮食', readTime: '5min', image: '🥗' },
+      { title: '失眠多梦？试试这3个助眠动作', tag: '生活', readTime: '2min', image: '🌙' },
+  ];
 
   return (
-    <div className="p-6 min-h-full bg-slate-50 space-y-6 animate-fadeIn pb-24">
-        <div>
-            <h2 className="text-2xl font-bold text-slate-800">医疗服务推荐</h2>
-            <p className="text-sm text-slate-500 mt-1">基于您的健康画像智能匹配</p>
+    <div className="bg-slate-50 min-h-full pb-24 animate-fadeIn">
+        <div className="bg-white px-5 pt-6 pb-2 sticky top-0 z-10">
+            <h2 className="text-2xl font-bold text-slate-800 mb-4">发现与服务</h2>
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+                <button 
+                    onClick={() => setActiveTab('services')}
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'services' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'}`}
+                >
+                    医疗服务
+                </button>
+                <button 
+                    onClick={() => setActiveTab('knowledge')}
+                    className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'knowledge' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'}`}
+                >
+                    健康百科
+                </button>
+            </div>
         </div>
 
-        {/* AI Recommendation Cards */}
-        <div className="space-y-4">
-            {recommendations.map((rec, i) => (
-                <div key={i} className="bg-white p-5 rounded-2xl shadow-sm border border-indigo-50 relative overflow-hidden group transition-all hover:shadow-md">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-50 rounded-bl-full -mr-6 -mt-6 transition-transform group-hover:scale-110"></div>
-                    <div className="relative z-10">
-                        <div className="flex justify-between items-start">
-                            <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-md mb-2 inline-block">
-                                ✦ 智能导诊
-                            </span>
-                            <span className="text-4xl opacity-20">🏥</span>
+        <div className="p-5 space-y-6">
+            {activeTab === 'services' && (
+                <>
+                    {/* Personalized Recommendations */}
+                    {recommendations.length > 0 && (
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                                <span>✨</span> 专属推荐
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                {recommendations.map((rec, i) => (
+                                    <div key={i} className={`p-4 rounded-2xl border border-transparent hover:border-slate-200 transition-all ${rec.color.replace('text-', 'bg-').replace('50', '50/50')}`}>
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl mb-3 bg-white shadow-sm`}>
+                                            {rec.icon}
+                                        </div>
+                                        <div className="font-bold text-slate-800 text-sm mb-1">{rec.title}</div>
+                                        <div className="text-xs opacity-70">{rec.dept}</div>
+                                        <button className="mt-3 w-full py-1.5 bg-white rounded-lg text-xs font-bold shadow-sm hover:shadow text-slate-700">
+                                            预约
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                        <h3 className="text-lg font-bold text-slate-800 mt-1">{rec.service}</h3>
-                        <div className="text-sm text-slate-500 mb-3 font-medium">
-                             {rec.dept}
+                    )}
+
+                    {/* Department Grid */}
+                    <div>
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-800 mb-3">
+                            <span>🏥</span> 全科挂号
                         </div>
-                        <div className="text-xs text-indigo-600 mb-4 bg-indigo-50/50 p-2 rounded border border-indigo-100/50 flex items-start gap-1">
-                            <span>💡</span> 推荐原因: {rec.reason}
+                        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 grid grid-cols-4 gap-y-6">
+                            {[
+                                {name:'内科', icon:'🩺'}, {name:'外科', icon:'🔪'}, {name:'妇科', icon:'🌸'}, {name:'儿科', icon:'👶'},
+                                {name:'眼科', icon:'👁️'}, {name:'口腔', icon:'🦷'}, {name:'皮肤', icon:'✨'}, {name:'中医', icon:'🌿'}
+                            ].map(d => (
+                                <button key={d.name} className="flex flex-col items-center gap-2">
+                                    <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-2xl hover:bg-slate-100 transition-colors">
+                                        {d.icon}
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-600">{d.name}</span>
+                                </button>
+                            ))}
                         </div>
-                        <button className="w-full py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2">
-                            <span>📅</span> 立即预约
-                        </button>
+                    </div>
+                </>
+            )}
+
+            {activeTab === 'knowledge' && (
+                <div className="space-y-4 animate-slideInRight">
+                    {/* Featured Article */}
+                    <div className="relative h-48 rounded-2xl overflow-hidden shadow-md group cursor-pointer">
+                        <img src="https://images.unsplash.com/photo-1505751172876-fa1923c5c528?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" alt="Health" className="absolute w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-5">
+                            <span className="bg-teal-500 text-white text-[10px] font-bold px-2 py-0.5 rounded w-fit mb-2">每日精选</span>
+                            <h3 className="text-white font-bold text-lg leading-tight">运动是良医：如何科学制定个人的运动处方？</h3>
+                        </div>
+                    </div>
+
+                    {/* Article List */}
+                    <div className="space-y-3">
+                        {articles.map((art, i) => (
+                            <div key={i} className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex gap-4 cursor-pointer hover:border-teal-200 transition-colors">
+                                <div className="w-20 h-20 bg-slate-100 rounded-lg flex items-center justify-center text-3xl shrink-0">
+                                    {art.image}
+                                </div>
+                                <div className="flex flex-col justify-between py-1">
+                                    <h4 className="font-bold text-slate-800 text-sm line-clamp-2">{art.title}</h4>
+                                    <div className="flex items-center gap-3 text-xs text-slate-400">
+                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{art.tag}</span>
+                                        <span>{art.readTime} 阅读</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
-            ))}
-        </div>
-
-        {/* Common Departments Grid */}
-        <div>
-            <h3 className="font-bold text-slate-700 mb-4 text-sm flex items-center gap-2">
-                <span>⚡</span> 快速挂号
-            </h3>
-            <div className="grid grid-cols-4 gap-3">
-                {[
-                    {name:'内科', icon:'🩺'}, 
-                    {name:'外科', icon:'🔪'}, 
-                    {name:'妇科', icon:'🌸'}, 
-                    {name:'眼科', icon:'👁️'}, 
-                    {name:'口腔', icon:'🦷'}, 
-                    {name:'耳鼻喉', icon:'👂'}, 
-                    {name:'皮肤', icon:'✨'}, 
-                    {name:'中医', icon:'🌿'}
-                ].map(d => (
-                    <button key={d.name} className="bg-white flex flex-col items-center justify-center p-3 rounded-xl shadow-sm border border-slate-100 active:scale-95 transition-colors hover:border-teal-200">
-                        <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center mb-1 text-xl">{d.icon}</div>
-                        <span className="text-xs font-medium text-slate-600">{d.name}</span>
-                    </button>
-                ))}
-            </div>
+            )}
         </div>
     </div>
   );
