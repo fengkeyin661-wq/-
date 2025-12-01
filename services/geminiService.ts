@@ -121,7 +121,7 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
       },
       "questionnaire": {
         "history": {
-           "diseases": ["高血压", "冠心病", "脑卒中", "糖尿病", "慢阻肺", "肿瘤" 等],
+           "diseases": ["高血压", "冠心病", "脑卒中", "糖尿病", "慢阻肺", "肿瘤", "类风湿性关节炎" 等],
            "details": { "hypertensionYear": "年份", "cadTypes": [], "strokeYear": "年份", "diabetesYear": "年份", "otherHistory": "文本" },
            "surgeries": "文本"
         },
@@ -153,7 +153,7 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
         "exercise": { "frequency": "", "duration": "" },
         "sleep": { "hours": "文本", "quality": "", "monitorResult": "" },
         "substances": {
-           "smoking": { "status": "从不/已戒/吸烟", "dailyAmount": 数字(支), "years": 数字(年), "quitYear": "年份" },
+           "smoking": { "status": "从不/已戒/吸烟", "dailyAmount": 数字(支), "years": 数字(年), "quitYear": "年份", "packYears": 数字(包年数) },
            "alcohol": { "status": "", "freq": "", "amount": "" }
         },
         "mental": { "stressLevel": "文本", "stressSource": [] },

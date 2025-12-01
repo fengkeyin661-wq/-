@@ -113,10 +113,20 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
             // FRAX specific
             case 'parentHip': return q.familyHistory.parentHipFracture;
             case 'steroids': return q.medication.details.steroids;
-            case 'ra': return record.checkup.optional.rheumatoid?.rf && parseFloat(record.checkup.optional.rheumatoid.rf) > 20;
+            case 'ra': 
+                // Check questionnaire history for "Rheumatoid" OR check RF Lab value
+                return q.history.diseases.some(d => d.includes('类风湿')) || (record.checkup.optional.rheumatoid?.rf && parseFloat(record.checkup.optional.rheumatoid.rf) > 20);
 
-            // COPD specific
-            case 'packYears': return q.substances.smoking.packYears; // From AI calculation
+            // COPD & Lung Cancer specific
+            case 'packYears': 
+                const py = q.substances.smoking.packYears;
+                if (py !== undefined && py !== null && py > 0) return py;
+                // Fallback calc: (Daily / 20) * Years
+                const daily = q.substances.smoking.dailyAmount;
+                const years = q.substances.smoking.years;
+                if (daily && years) return (daily / 20) * years;
+                return undefined;
+
             case 'chronicCough': return q.respiratory.chronicCough;
             case 'chronicPhlegm': return q.respiratory.chronicPhlegm;
             case 'shortBreath': return q.respiratory.shortBreath;
@@ -230,17 +240,15 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
     // --- 4. COPD-SQ (慢阻肺) ---
     const copdCalc = () => {
         const missing = [];
-        const packYears = getVal('packYears'); // from AI
+        const packYears = getVal('packYears'); // from AI or Calc
         const cough = getVal('chronicCough');
         const phlegm = getVal('chronicPhlegm');
         const shortBreath = getVal('shortBreath');
 
-        // Allow fallback if AI calculated packYears is missing but raw data exists? 
-        // For now, treat as missing to prompt user check.
-        if (getVal('isSmoking') && packYears === undefined) missing.push({key: 'packYears', label: '吸烟包年数'});
+        if (packYears === undefined && getVal('isSmoking') === undefined) missing.push({key: 'packYears', label: '吸烟包年数'});
         if (cough === undefined) missing.push({key: 'chronicCough', label: '经常咳嗽?'});
 
-        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善呼吸道症状' };
+        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善呼吸道症状/吸烟史' };
 
         let score = 0;
         const age = getVal('age');
@@ -346,6 +354,51 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         return { score: `${score}分`, riskLevel: r, riskLabel: r==='RED'?'高风险':r==='YELLOW'?'中风险':'低风险', missing: [], desc: `APCS评分: ${score}` };
     };
 
+    // --- 8. NLST (肺癌筛查 - New) ---
+    const nlstCalc = () => {
+        const missing = [];
+        const age = getVal('age');
+        const packYears = getVal('packYears');
+        const isSmoking = getVal('isSmoking'); 
+        const quitYearStr = q.substances.smoking.quitYear;
+        
+        if (!age) missing.push({key: 'age', label: '年龄'});
+        if (packYears === undefined) missing.push({key: 'packYears', label: '吸烟包年数'});
+        
+        if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需吸烟量细节' };
+
+        // NLST Criteria:
+        // 1. Age 55-74
+        // 2. Pack-years >= 30
+        // 3. Current smoker OR Quit <= 15 years ago
+
+        if (age < 50) return { score: 'NA', riskLevel: RiskLevel.GREEN, riskLabel: '低风险' as const, missing: [], desc: '年龄<50岁' };
+
+        let criteria = 0;
+        if (age >= 55 && age <= 74) criteria++;
+        if (packYears && packYears >= 30) criteria++;
+        
+        let smokingCriteria = false;
+        if (isSmoking) {
+            smokingCriteria = true;
+        } else if (quitYearStr) {
+            // Parse year roughly
+            const qYear = parseInt(quitYearStr.replace(/[^0-9]/g, ''));
+            const currentYear = new Date().getFullYear();
+            if (!isNaN(qYear) && (currentYear - qYear) <= 15) {
+                smokingCriteria = true;
+            }
+        }
+
+        if (smokingCriteria) criteria++;
+
+        if (criteria === 3) {
+             return { score: '符合', riskLevel: RiskLevel.RED, riskLabel: '高风险' as const, missing: [], desc: '符合NLST高危筛查标准(建议LDCT)' };
+        }
+        
+        return { score: '不符合', riskLevel: RiskLevel.GREEN, riskLabel: '一般' as const, missing: [], desc: '未达NLST高危标准' };
+    };
+
     // Execute
     // Re-use helper
     const run = (id: string, name: string, cat: string, fn: Function): PredictionModelResult => {
@@ -361,6 +414,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
     models.push(run('bone_frax', 'FRAX 骨折风险', '骨骼肌肉', fraxCalc));
     models.push(run('resp_copd', 'COPD-SQ 慢阻肺筛查', '呼吸系统', copdCalc));
     models.push(run('tumor_gail', 'Gail 乳腺癌风险', '肿瘤风险', gailCalc));
+    models.push(run('tumor_nlst', 'NLST 肺癌筛查', '肿瘤风险', nlstCalc)); // Added
     models.push(run('psych_scales', '心理健康 (PHQ/GAD)', '心理精神', mentalCalc));
     models.push(run('tumor_colon', '亚太结直肠癌评分', '肿瘤风险', colonCalc));
     
