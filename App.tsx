@@ -7,7 +7,7 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { HospitalHeatmap } from './components/HospitalHeatmap';
-import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // New Import
+// import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // Removed Standalone
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
@@ -188,18 +188,12 @@ const App: React.FC = () => {
             assessment={assessment} 
             patientName={healthRecord.profile.name} 
             profile={healthRecord.profile}
+            healthRecord={healthRecord}
+            riskAnalysis={riskAnalysis}
             onSave={handleSaveAssessment}
             onReevaluate={() => setActiveTab('survey')}
+            onUpdateRiskAnalysis={refreshArchives}
         />
-      )}
-      
-      {/* New Risk Portrait Tab */}
-      {activeTab === 'risk_portrait' && healthRecord && (
-          <SystemRiskPortrait 
-            record={healthRecord} 
-            existingAnalysis={riskAnalysis} 
-            onUpdate={refreshArchives} 
-          />
       )}
       
       {activeTab === 'followup' && (

@@ -1,14 +1,18 @@
 
 import React, { useState, useEffect } from 'react';
-import { HealthAssessment, RiskLevel, HealthProfile } from '../types';
+import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { SystemRiskPortrait } from './SystemRiskPortrait';
 
 interface Props {
   assessment: HealthAssessment;
   patientName?: string;
   profile?: HealthProfile;
+  healthRecord?: HealthRecord; // Needed for SystemRiskPortrait
+  riskAnalysis?: RiskAnalysisData; // New Prop
   onSave?: (newAssessment: HealthAssessment) => void;
-  onReevaluate?: () => void; // New prop for re-evaluation navigation
+  onReevaluate?: () => void;
+  onUpdateRiskAnalysis?: () => void; // Prop to refresh archives if models are updated
 }
 
 const COLORS = {
@@ -17,7 +21,16 @@ const COLORS = {
   [RiskLevel.RED]: '#ef4444',
 };
 
-export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, profile, onSave, onReevaluate }) => {
+export const AssessmentReport: React.FC<Props> = ({ 
+    assessment, 
+    patientName, 
+    profile, 
+    healthRecord,
+    riskAnalysis, 
+    onSave, 
+    onReevaluate,
+    onUpdateRiskAnalysis
+}) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
 
@@ -35,7 +48,7 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
     { name: '正常', value: Math.max(1, 5 - editData.risks.red.length), color: COLORS[RiskLevel.GREEN] },
   ];
 
-  // Standalone Print Window Logic
+  // Combined Print Window Logic
   const handlePrint = () => {
       setIsEditing(false);
       
@@ -70,6 +83,60 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
       const pAge = profile?.age ? `${profile.age}岁` : '';
       const pDept = profile?.department || '';
 
+      // --- New: Generate HTML for Risk Portrait and Models ---
+      let portraitHtml = '';
+      let modelsHtml = '';
+
+      if (riskAnalysis) {
+          // Portraits HTML
+          const portraitsContent = riskAnalysis.portraits.map(p => `
+            <div class="portrait-card">
+                <div class="sys-name">
+                    ${p.icon} ${p.systemName}
+                    <span class="status-tag status-${p.status}">${p.status === 'High' ? '重点关注' : p.status === 'Medium' ? '一般关注' : '健康'}</span>
+                </div>
+                <ul>
+                    ${p.keyFindings.length > 0 ? p.keyFindings.map(f => `<li>${f}</li>`).join('') : '<li style="color:#999">未见明显异常</li>'}
+                </ul>
+            </div>
+          `).join('');
+
+          portraitHtml = `
+            <div class="section-title">🧘 人体六大系统健康画像</div>
+            <div class="portrait-grid">${portraitsContent}</div>
+          `;
+
+          // Models HTML
+          const modelsRows = riskAnalysis.models.map(m => `
+            <tr>
+                <td>${m.category}</td>
+                <td><strong>${m.modelName}</strong></td>
+                <td>${m.score}</td>
+                <td class="${m.riskLevel === 'RED' ? 'risk-red' : m.riskLevel === 'YELLOW' ? 'risk-yellow' : 'risk-green'}">
+                    ${m.riskLabel}
+                </td>
+                <td>${m.description}</td>
+            </tr>
+          `).join('');
+
+          modelsHtml = `
+            <div class="section-title">📊 疾病风险预测模型评估</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 20%">类别</th>
+                        <th style="width: 25%">模型</th>
+                        <th style="width: 15%">评分</th>
+                        <th style="width: 15%">等级</th>
+                        <th>解读</th>
+                    </tr>
+                </thead>
+                <tbody>${modelsRows}</tbody>
+            </table>
+          `;
+      }
+      // -----------------------------------------------------
+
       const htmlContent = `
         <!DOCTYPE html>
         <html lang="zh-CN">
@@ -95,26 +162,9 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
                     padding-bottom: 20px;
                     margin-bottom: 30px;
                 }
-                .header h1 {
-                    font-size: 20px;
-                    color: #4b5563;
-                    margin-bottom: 5px;
-                    font-weight: normal;
-                }
-                .header h2 {
-                    font-size: 28px;
-                    font-weight: 800;
-                    margin: 0;
-                    letter-spacing: 2px;
-                    color: #111827;
-                }
-                .meta-row {
-                    display: flex;
-                    justify-content: space-between;
-                    margin-top: 15px;
-                    font-size: 14px;
-                    color: #4b5563;
-                }
+                .header h1 { font-size: 20px; color: #4b5563; margin-bottom: 5px; font-weight: normal; }
+                .header h2 { font-size: 28px; font-weight: 800; margin: 0; letter-spacing: 2px; color: #111827; }
+                .meta-row { display: flex; justify-content: space-between; margin-top: 15px; font-size: 14px; color: #4b5563; }
 
                 /* Risk Banner */
                 .risk-banner {
@@ -126,15 +176,9 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
                     margin-bottom: 30px;
                     border: 1px solid currentColor;
                 }
-                .risk-label {
-                    font-size: 24px;
-                    font-weight: 900;
-                    display: block;
-                    margin-bottom: 5px;
-                }
+                .risk-label { font-size: 24px; font-weight: 900; display: block; margin-bottom: 5px; }
                 .risk-desc { font-size: 14px; opacity: 0.9; }
 
-                /* Critical Banner */
                 .critical-banner {
                     background-color: #fef2f2;
                     color: #b91c1c;
@@ -150,22 +194,13 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
                 /* Sections */
                 .section { margin-bottom: 25px; }
                 .section-title {
-                    font-size: 16px;
-                    font-weight: bold;
-                    border-left: 5px solid #0d9488;
-                    padding-left: 10px;
-                    margin-bottom: 12px;
-                    color: #111827;
-                    background-color: #f0fdfa;
-                    padding-top: 5px;
-                    padding-bottom: 5px;
+                    font-size: 16px; font-weight: bold; border-left: 5px solid #0d9488;
+                    padding-left: 10px; margin-bottom: 12px; color: #111827;
+                    background-color: #f0fdfa; padding-top: 5px; padding-bottom: 5px;
+                    margin-top: 25px;
                 }
                 
-                .content-box {
-                    border: 1px solid #e5e7eb;
-                    border-radius: 6px;
-                    padding: 15px;
-                }
+                .content-box { border: 1px solid #e5e7eb; border-radius: 6px; padding: 15px; }
 
                 /* Summary */
                 .summary-text { font-size: 15px; text-align: justify; white-space: pre-line; }
@@ -178,53 +213,41 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
                 .rh-yellow { background-color: #fefce8; color: #854d0e; }
                 .risk-body { padding: 15px; }
 
-                /* Management Matrix */
+                /* Plan */
                 .plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
                 .plan-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 15px; }
                 .plan-title { font-weight: bold; color: #0f766e; margin-bottom: 10px; font-size: 15px; border-bottom: 1px solid #ccfbf1; padding-bottom: 5px; }
-                
                 ul.list { padding-left: 20px; margin: 0; }
                 ul.list li { margin-bottom: 4px; color: #374151; }
                 .empty-text { color: #9ca3af; font-style: italic; }
 
-                /* Footer */
-                .footer {
-                    margin-top: 40px;
-                    padding-top: 20px;
-                    border-top: 1px solid #e5e7eb;
-                    display: flex;
-                    justify-content: space-between;
-                    font-weight: bold;
-                    margin-bottom: 20px;
-                }
+                /* Risk Portrait Grid */
+                .portrait-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+                .portrait-card { border: 1px solid #ddd; padding: 12px; border-radius: 6px; break-inside: avoid; }
+                .sys-name { font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+                .status-tag { font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid; margin-left: auto; }
+                .status-High { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
+                .status-Medium { background: #fefce8; color: #d97706; border-color: #fcd34d; }
+                .status-Normal { background: #f0fdf4; color: #16a34a; border-color: #86efac; }
                 
-                .disclaimer-box {
-                    border-top: 2px solid #374151;
-                    padding-top: 15px;
-                    margin-top: 20px;
-                    text-align: center;
-                }
-                .disclaimer {
-                    font-weight: bold;
-                    font-size: 14px;
-                    color: #dc2626;
-                    margin-bottom: 8px;
-                }
-                .contact-info {
-                    font-size: 12px;
-                    color: #4b5563;
-                    display: flex;
-                    justify-content: center;
-                    gap: 15px;
-                    flex-wrap: wrap;
-                }
-                .contact-info span {
-                    display: inline-block;
-                }
+                /* Models Table */
+                table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }
+                th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
+                th { background: #f9fafb; font-weight: bold; }
+                .risk-red { color: #dc2626; font-weight: bold; }
+                .risk-yellow { color: #d97706; font-weight: bold; }
+                .risk-green { color: #16a34a; }
+
+                /* Footer */
+                .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 20px; }
+                .disclaimer-box { border-top: 2px solid #374151; padding-top: 15px; margin-top: 20px; text-align: center; }
+                .disclaimer { font-weight: bold; font-size: 14px; color: #dc2626; margin-bottom: 8px; }
+                .contact-info { font-size: 12px; color: #4b5563; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
+                .contact-info span { display: inline-block; }
 
                 @media print {
                     body { padding: 0; -webkit-print-color-adjust: exact; }
-                    .plan-card, .risk-col, .disclaimer-box { break-inside: avoid; }
+                    .plan-card, .risk-col, .portrait-card, .disclaimer-box { break-inside: avoid; }
                 }
             </style>
         </head>
@@ -232,7 +255,7 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
             <div class="container">
                 <div class="header">
                     <h1>郑州大学医院健康管理中心</h1>
-                    <h2>健康风险评估报告</h2>
+                    <h2>健康风险评估与健康方案</h2>
                     <div class="meta-row">
                         <span>受检人: <strong>${pName}</strong> ${pGender} ${pAge}</span>
                         <span>部门: ${pDept}</span>
@@ -247,6 +270,10 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
                     <span class="risk-desc">根据您的体检数据与健康问卷综合判定</span>
                 </div>
 
+                <!-- Injected Portrait & Models -->
+                ${portraitHtml}
+                ${modelsHtml}
+
                 <div class="section">
                     <div class="section-title">综合评估综述</div>
                     <div class="content-box summary-text">${editData.summary}</div>
@@ -255,15 +282,11 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
                 <div class="risk-grid">
                     <div class="risk-col">
                         <div class="risk-header rh-red">🔴 高危因素</div>
-                        <div class="risk-body">
-                            ${renderList(editData.risks.red)}
-                        </div>
+                        <div class="risk-body">${renderList(editData.risks.red)}</div>
                     </div>
                     <div class="risk-col">
                         <div class="risk-header rh-yellow">🟡 中危因素</div>
-                        <div class="risk-body">
-                            ${renderList(editData.risks.yellow)}
-                        </div>
+                        <div class="risk-body">${renderList(editData.risks.yellow)}</div>
                     </div>
                 </div>
 
@@ -318,9 +341,7 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
             </div>
             <script>
                 window.onload = function() {
-                    setTimeout(function() {
-                        window.print();
-                    }, 500);
+                    setTimeout(function() { window.print(); }, 500);
                 };
             </script>
         </body>
@@ -352,7 +373,6 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
           } else if (section === 'managementPlan') {
               return { ...prev, managementPlan: { ...prev.managementPlan, [subKey]: array } };
           } else if (section === 'followUpPlan') {
-               // Special handling for followUpPlan keys if needed, currently nextCheckItems is array
                if (subKey === 'nextCheckItems') {
                    return { ...prev, followUpPlan: { ...prev.followUpPlan, nextCheckItems: array } };
                }
@@ -389,7 +409,7 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
          )}
       </div>
       
-      {/* NEW: Patient Profile Card (Screen Only) */}
+      {/* Patient Profile Card (Screen Only) */}
       {profile && (
         <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
              <div className="flex items-center gap-4 w-full md:w-auto">
@@ -434,8 +454,20 @@ export const AssessmentReport: React.FC<Props> = ({ assessment, patientName, pro
         </div>
       )}
 
+      {/* Embedded Risk Portrait Section */}
+      {healthRecord && (
+          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6 print:hidden">
+              <SystemRiskPortrait 
+                  record={healthRecord} 
+                  existingAnalysis={riskAnalysis} 
+                  onUpdate={onUpdateRiskAnalysis || (() => {})} 
+                  hidePrintButton={true} // Hide internal print button
+              />
+          </div>
+      )}
+
       <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-8">
-          <h1 className="text-3xl font-bold">健康风险评估报告</h1>
+          <h1 className="text-3xl font-bold">健康风险评估与方案</h1>
           <div className="mt-4 text-sm">受检人: <span className="font-bold text-lg">{patientName}</span></div>
       </div>
 
@@ -627,11 +659,11 @@ const PlanSection: React.FC<{
                 className={`w-full border border-${color}-200 rounded p-2 text-sm h-32 focus:ring-1 focus:ring-${color}-500`}
                 value={items.join('\n')}
                 onChange={e => onChange(e.target.value)}
-                placeholder="每行一条建议"
+                placeholder="每行输入一项"
             />
         ) : (
-            <ul className="list-disc pl-5 space-y-1 text-slate-700">
-                {items.map((x,i)=><li key={i}>{x}</li>)}
+            <ul className={`list-disc pl-5 text-sm text-${color}-800 space-y-1`}>
+                {items.length > 0 ? items.map((item, i) => <li key={i}>{item}</li>) : <li className="text-slate-400 italic">无特定建议</li>}
             </ul>
         )}
     </div>

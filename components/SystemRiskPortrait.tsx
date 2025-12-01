@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { HealthRecord, RiskAnalysisData, PredictionModelResult } from '../types';
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
@@ -9,9 +8,10 @@ interface Props {
     record: HealthRecord;
     existingAnalysis?: RiskAnalysisData;
     onUpdate: () => void; // Callback to refresh parent data
+    hidePrintButton?: boolean; // New prop to control print button visibility
 }
 
-export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, onUpdate }) => {
+export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, onUpdate, hidePrintButton = false }) => {
     const [analysis, setAnalysis] = useState<RiskAnalysisData | null>(null);
     const [activeModel, setActiveModel] = useState<PredictionModelResult | null>(null);
     const [missingInputs, setMissingInputs] = useState<{ [key: string]: string | number }>({});
@@ -46,9 +46,6 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
         
         try {
             // 1. Merge new inputs into a temporary record object
-            // Convert inputs: try parse as number, else keep string, map '是'/'否' to boolean if needed by model logic (but getVal handles logic usually)
-            // Ideally getVal in riskModelService parses strings. We updated getVal there to handle it.
-            
             const tempExtras = { ...(record.riskModelExtras || {}), ...missingInputs };
             const tempRecord = { ...record, riskModelExtras: tempExtras };
 
@@ -181,17 +178,20 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
     return (
         <div className="animate-fadeIn pb-10 space-y-8">
             <div className="flex justify-between items-center">
+                 {/* Empty div for spacing or title if needed */}
                  <div></div>
-                 <button 
-                    onClick={handlePrint}
-                    className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-sm"
-                 >
-                    <span>🖨️</span> 打印评估报告
-                 </button>
+                 {!hidePrintButton && (
+                    <button 
+                        onClick={handlePrint}
+                        className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-sm"
+                    >
+                        <span>🖨️</span> 打印评估报告
+                    </button>
+                 )}
             </div>
             
             {/* 1. 系统健康画像 (System Portraits) */}
-            <section>
+            <section className="print:break-inside-avoid">
                 <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                     <span className="text-2xl">🧘</span> 人体六大系统健康画像
                 </h2>
@@ -241,10 +241,10 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
             </section>
 
             {/* 2. 风险预测矩阵 (Risk Prediction Matrix) */}
-            <section>
+            <section className="print:break-inside-avoid">
                  <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                     <span className="text-2xl">📊</span> 疾病风险预测模型矩阵
-                    <span className="text-xs font-normal text-slate-400 ml-2 bg-slate-100 px-2 py-1 rounded">点击灰色卡片可补全数据进行评估</span>
+                    <span className="text-xs font-normal text-slate-400 ml-2 bg-slate-100 px-2 py-1 rounded no-print">点击灰色卡片可补全数据进行评估</span>
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                     {analysis.models.map((model) => (
