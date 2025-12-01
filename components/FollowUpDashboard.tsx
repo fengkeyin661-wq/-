@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS } from '../services/geminiService';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
 
 interface Props {
   records: FollowUpRecord[];
@@ -17,6 +17,37 @@ interface Props {
   // Updated prop for generic data update (Record + Schedule)
   onUpdateData?: (record: FollowUpRecord | null, schedule: ScheduledFollowUp[]) => void;
 }
+
+// --- Custom Tooltip Component for Charts ---
+const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+        return (
+            <div className="bg-white/95 backdrop-blur-sm p-3 border border-slate-200 shadow-xl rounded-lg text-xs z-50">
+                <p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1">{label}</p>
+                <div className="space-y-1.5">
+                    {payload.map((p: any) => {
+                        // Determine Unit based on data name
+                        let unit = '';
+                        if (['收缩压', '舒张压'].includes(p.name)) unit = 'mmHg';
+                        else if (p.name === '心率') unit = 'bpm';
+                        else if (p.name === '体重(kg)') unit = 'kg';
+                        else unit = 'mmol/L'; // Glucose, Lipids
+
+                        return (
+                            <div key={p.name} className="flex items-center gap-2 min-w-[120px]">
+                                <div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: p.color }}></div>
+                                <span className="text-slate-500 flex-1">{p.name}:</span>
+                                <span className="font-bold font-mono text-sm" style={{ color: p.color }}>{p.value}</span>
+                                <span className="text-slate-400 scale-90">{unit}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+    return null;
+};
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
     records, 
@@ -619,7 +650,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       {/* 顶部：随访时间轴与图表区 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* 左侧：趋势图 (New) */}
-          <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
+          <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[450px]">
              <div className="flex justify-between items-center mb-4">
                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <span>📈</span> 核心指标监测
@@ -640,31 +671,32 @@ export const FollowUpDashboard: React.FC<Props> = ({
              <div className="flex-1 w-full min-h-0">
                  {chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                            <XAxis dataKey="date" fontSize={12} stroke="#9ca3af" tickMargin={10} />
-                            <YAxis fontSize={12} stroke="#9ca3af" />
-                            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                            <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                        <LineChart data={chartData} margin={{ top: 10, right: 30, bottom: 0, left: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="date" fontSize={12} stroke="#94a3b8" tickMargin={10} minTickGap={30} />
+                            <YAxis fontSize={12} stroke="#94a3b8" />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
+                            <Brush dataKey="date" height={30} stroke="#cbd5e1" tickFormatter={() => ''} alwaysShowText={false} />
                             
                             {activeChart === 'bp' && (
                                 <>
-                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                    <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
+                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 6, strokeWidth: 0 }} connectNulls animationDuration={1000} />
+                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 6, strokeWidth: 0 }} connectNulls animationDuration={1000} />
+                                    <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls animationDuration={1000} />
                                 </>
                             )}
                             {activeChart === 'metabolic' && (
                                 <>
-                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6, strokeWidth: 0 }} connectNulls animationDuration={1000} />
+                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6, strokeWidth: 0 }} connectNulls animationDuration={1000} />
                                 </>
                             )}
                             {activeChart === 'lipids' && (
                                 <>
-                                    <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} connectNulls />
-                                    <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} connectNulls />
-                                    <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} connectNulls />
+                                    <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2.5} activeDot={{ r: 5 }} connectNulls animationDuration={1000} />
+                                    <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2.5} activeDot={{ r: 5 }} connectNulls animationDuration={1000} />
+                                    <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2.5} activeDot={{ r: 5 }} connectNulls animationDuration={1000} />
                                 </>
                             )}
                         </LineChart>
@@ -678,7 +710,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
 
           {/* 右侧：时间轴 */}
-          <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
+          <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[450px]">
             <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 justify-between">
                 <div className="flex items-center gap-2">
                     <span>📅</span> 随访路径
