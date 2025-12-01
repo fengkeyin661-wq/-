@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { HealthArchive } from '../../services/dataService';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';

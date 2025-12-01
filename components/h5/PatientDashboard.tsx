@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { HealthArchive } from '../../services/dataService';
 import { RiskLevel } from '../../types';
@@ -33,10 +32,6 @@ export const PatientDashboard: React.FC<Props> = ({ archive, onViewReport }) => 
 
     const nextTask = archive.follow_up_schedule?.find(s => s.status === 'pending');
     
-    // Quick extract portraits for dashboard summary
-    const portraits = archive.risk_analysis?.portraits || [];
-    const highRisks = portraits.filter(p => p.status === 'High');
-
     return (
         <div className="bg-slate-50 min-h-full">
             {/* Hero Header with Score */}
@@ -154,3 +149,8 @@ export const PatientDashboard: React.FC<Props> = ({ archive, onViewReport }) => 
                             </div>
                         </div>
                     </div>
+                )}
+            </div>
+        </div>
+    );
+};
