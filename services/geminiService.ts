@@ -91,6 +91,8 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     1. 请仔细识别教职工健康问卷中新增的“家族史”、“女性健康”、“呼吸道症状”、“心理量表”部分。
     2. 数值型字段(如年龄、支数、评分)请提取为 Number 类型，若未提及则为 null。
     3. Boolean 类型字段(如是否服用降压药)，"是"->true, "否"->false, 未提及->null。
+    4. 既往病史请特别注意提取"类风湿性关节炎"，这对于骨折风险模型至关重要。
+    5. 吸烟史中，如果能计算或提取到"包年数"(Pack-Years)，请务必填入。
     
     输出必须是严格的 JSON 格式，结构如下:
     {

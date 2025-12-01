@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { HealthRecord, RiskAnalysisData, PredictionModelResult } from '../types';
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
@@ -14,6 +15,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
     const [analysis, setAnalysis] = useState<RiskAnalysisData | null>(null);
     const [activeModel, setActiveModel] = useState<PredictionModelResult | null>(null);
     const [missingInputs, setMissingInputs] = useState<{ [key: string]: string | number }>({});
+    const [isSaving, setIsSaving] = useState(false);
 
     // Initialize or Calculate
     useEffect(() => {
@@ -40,29 +42,153 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
 
     const handleSaveInputs = async () => {
         if (!activeModel || !analysis) return;
+        setIsSaving(true);
         
-        // 1. Merge new inputs into a temporary record object
-        const tempExtras = { ...(record.riskModelExtras || {}), ...missingInputs };
-        const tempRecord = { ...record, riskModelExtras: tempExtras };
+        try {
+            // 1. Merge new inputs into a temporary record object
+            // Convert inputs: try parse as number, else keep string, map '是'/'否' to boolean if needed by model logic (but getVal handles logic usually)
+            // Ideally getVal in riskModelService parses strings. We updated getVal there to handle it.
+            
+            const tempExtras = { ...(record.riskModelExtras || {}), ...missingInputs };
+            const tempRecord = { ...record, riskModelExtras: tempExtras };
 
-        // 2. Re-evaluate models locally
-        const newModels = evaluateRiskModels(tempRecord);
-        const newPortraits = generateSystemPortraits(tempRecord);
-        
-        const newAnalysis = { portraits: newPortraits, models: newModels };
-        setAnalysis(newAnalysis);
+            // 2. Re-evaluate models locally
+            const newModels = evaluateRiskModels(tempRecord);
+            const newPortraits = generateSystemPortraits(tempRecord);
+            
+            const newAnalysis = { portraits: newPortraits, models: newModels };
+            setAnalysis(newAnalysis);
 
-        // 3. Persist to DB
-        await updateRiskAnalysis(record.profile.checkupId, newAnalysis, missingInputs);
+            // 3. Persist to DB
+            await updateRiskAnalysis(record.profile.checkupId, newAnalysis, missingInputs);
+            
+            setActiveModel(null);
+            onUpdate(); // Notify parent
+        } catch (e) {
+            alert("保存失败，请重试");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handlePrint = () => {
+        if (!analysis) return;
         
-        setActiveModel(null);
-        onUpdate(); // Notify parent
+        const printWindow = window.open('', '_blank', 'height=900,width=800');
+        if (!printWindow) {
+             alert("请允许弹窗以打印报告");
+             return;
+        }
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html lang="zh-CN">
+            <head>
+                <meta charset="UTF-8">
+                <title>健康风险画像与系统评估报告</title>
+                <style>
+                    body { font-family: "PingFang SC", sans-serif; padding: 40px; color: #333; }
+                    h1 { text-align: center; font-size: 24px; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
+                    .meta { text-align: center; margin-bottom: 30px; color: #666; font-size: 14px; }
+                    .section-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-left: 5px solid #0d9488; padding-left: 10px; margin-top: 30px; }
+                    
+                    /* Grid for Portraits */
+                    .portrait-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+                    .portrait-card { border: 1px solid #ddd; padding: 15px; border-radius: 8px; break-inside: avoid; }
+                    .sys-name { font-weight: bold; font-size: 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+                    .status-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; border: 1px solid; margin-left: auto; }
+                    .status-High { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
+                    .status-Medium { background: #fefce8; color: #d97706; border-color: #fcd34d; }
+                    .status-Normal { background: #f0fdf4; color: #16a34a; border-color: #86efac; }
+                    ul { padding-left: 20px; margin: 5px 0; font-size: 13px; }
+                    
+                    /* Table for Models */
+                    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+                    th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
+                    th { background: #f9fafb; font-weight: bold; }
+                    .risk-red { color: #dc2626; font-weight: bold; }
+                    .risk-yellow { color: #d97706; font-weight: bold; }
+                    .risk-green { color: #16a34a; }
+                    
+                    @media print { .no-print { display: none; } }
+                </style>
+            </head>
+            <body>
+                <h1>健康风险画像与系统评估报告</h1>
+                <div class="meta">
+                    受检者: <strong>${record.profile.name}</strong> | 
+                    性别: ${record.profile.gender} | 
+                    年龄: ${record.profile.age}岁 | 
+                    日期: ${new Date().toLocaleDateString()}
+                </div>
+
+                <div class="section-title">🧘 人体六大系统健康画像</div>
+                <div class="portrait-grid">
+                    ${analysis.portraits.map(p => `
+                        <div class="portrait-card">
+                            <div class="sys-name">
+                                ${p.icon} ${p.systemName}
+                                <span class="status-tag status-${p.status}">${p.status === 'High' ? '重点关注' : p.status === 'Medium' ? '一般关注' : '健康'}</span>
+                            </div>
+                            <ul>
+                                ${p.keyFindings.length > 0 ? p.keyFindings.map(f => `<li>${f}</li>`).join('') : '<li style="color:#999">未见明显异常</li>'}
+                            </ul>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="section-title">📊 疾病风险预测模型评估</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 20%">模型类别</th>
+                            <th style="width: 25%">评估模型</th>
+                            <th style="width: 15%">评分</th>
+                            <th style="width: 15%">风险等级</th>
+                            <th>结果解读</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${analysis.models.map(m => `
+                            <tr>
+                                <td>${m.category}</td>
+                                <td><strong>${m.modelName}</strong></td>
+                                <td>${m.score}</td>
+                                <td class="${m.riskLevel === 'RED' ? 'risk-red' : m.riskLevel === 'YELLOW' ? 'risk-yellow' : 'risk-green'}">
+                                    ${m.riskLabel}
+                                </td>
+                                <td>${m.description}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                
+                <div style="margin-top: 50px; text-align: right; font-size: 14px;">
+                    评估医师签名: ___________________
+                </div>
+                
+                <script>window.print();</script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
     };
 
     if (!analysis) return <div className="p-10 text-center">正在生成画像...</div>;
 
     return (
         <div className="animate-fadeIn pb-10 space-y-8">
+            <div className="flex justify-between items-center">
+                 <div></div>
+                 <button 
+                    onClick={handlePrint}
+                    className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-sm"
+                 >
+                    <span>🖨️</span> 打印评估报告
+                 </button>
+            </div>
             
             {/* 1. 系统健康画像 (System Portraits) */}
             <section>
@@ -195,9 +321,10 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
                             <button onClick={() => setActiveModel(null)} className="px-4 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">取消</button>
                             <button 
                                 onClick={handleSaveInputs}
-                                className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow text-sm"
+                                disabled={isSaving}
+                                className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow text-sm disabled:opacity-50"
                             >
-                                提交并重新评估
+                                {isSaving ? '正在评估...' : '提交并重新评估'}
                             </button>
                         </div>
                     </div>

@@ -137,6 +137,9 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
             case 'breastBiopsy': return q.femaleHealth.breastBiopsy;
             case 'familyBc': return q.familyHistory.breastCancer;
             
+            // Colon
+            case 'colonCancer': return q.familyHistory.colonCancer;
+
             default: return undefined;
         }
     };
@@ -278,7 +281,8 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
 
     // --- 5. Gail (乳腺癌) ---
     const gailCalc = () => {
-        if (getVal('gender') !== '女') return { score: 'NA', riskLevel: RiskLevel.GREEN, riskLabel: '一般' as const, missing: [], desc: '仅女性适用' };
+        // Condition: Only for females
+        if (getVal('gender') !== '女') return null; // Return null to indicate N/A
         
         const missing = [];
         const menarche = getVal('menarcheAge');
@@ -401,26 +405,31 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
 
     // Execute
     // Re-use helper
-    const run = (id: string, name: string, cat: string, fn: Function): PredictionModelResult => {
+    const run = (id: string, name: string, cat: string, fn: Function): PredictionModelResult | null => {
         const res = fn();
+        if (res === null) return null; // Skip if model not applicable (e.g. Gail for men)
         return {
             modelId: id, modelName: name, category: cat, score: res.score, riskLevel: res.riskLevel, 
             riskLabel: res.riskLabel, description: res.desc, missingParams: res.missing, lastCalculated: new Date().toISOString()
         };
     };
 
-    models.push(run('cv_chinapar', 'China-PAR (北方版)', '心脑血管', chinaParCalc));
-    models.push(run('meta_ada', 'ADA 糖尿病风险', '代谢免疫', adaCalc));
-    models.push(run('bone_frax', 'FRAX 骨折风险', '骨骼肌肉', fraxCalc));
-    models.push(run('resp_copd', 'COPD-SQ 慢阻肺筛查', '呼吸系统', copdCalc));
-    models.push(run('tumor_gail', 'Gail 乳腺癌风险', '肿瘤风险', gailCalc));
-    models.push(run('tumor_nlst', 'NLST 肺癌筛查', '肿瘤风险', nlstCalc)); // Added
-    models.push(run('psych_scales', '心理健康 (PHQ/GAD)', '心理精神', mentalCalc));
-    models.push(run('tumor_colon', '亚太结直肠癌评分', '肿瘤风险', colonCalc));
-    
-    // Legacy Placeholders for others (can be expanded similarly)
-    models.push({ modelId: 'dig_nafld', modelName: 'NAFLD 肝纤维化', category: '消化系统', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '待接入生化指标', missingParams: [], lastCalculated: '' });
-    models.push({ modelId: 'tumor_gastric', modelName: '新型胃癌筛查', category: '肿瘤风险', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '待接入Hp结果', missingParams: [], lastCalculated: '' });
+    // Push valid models
+    const results = [
+        run('cv_chinapar', 'China-PAR (北方版)', '心脑血管', chinaParCalc),
+        run('meta_ada', 'ADA 糖尿病风险', '代谢免疫', adaCalc),
+        run('bone_frax', 'FRAX 骨折风险', '骨骼肌肉', fraxCalc),
+        run('resp_copd', 'COPD-SQ 慢阻肺筛查', '呼吸系统', copdCalc),
+        run('tumor_gail', 'Gail 乳腺癌风险', '肿瘤风险', gailCalc),
+        run('tumor_nlst', 'NLST 肺癌筛查', '肿瘤风险', nlstCalc),
+        run('psych_scales', '心理健康 (PHQ/GAD)', '心理精神', mentalCalc),
+        run('tumor_colon', '亚太结直肠癌评分', '肿瘤风险', colonCalc),
+        
+        // Placeholders
+        { modelId: 'dig_nafld', modelName: 'NAFLD 肝纤维化', category: '消化系统', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '待接入生化指标', missingParams: [], lastCalculated: '' },
+        { modelId: 'tumor_gastric', modelName: '新型胃癌筛查', category: '肿瘤风险', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '待接入Hp结果', missingParams: [], lastCalculated: '' }
+    ];
 
-    return models;
+    // Filter out nulls (not applicable models)
+    return results.filter(m => m !== null) as PredictionModelResult[];
 };
