@@ -65,9 +65,13 @@ const App: React.FC = () => {
       setSchedule(newSchedule);
       
       // Save (Risk analysis will be auto-generated in saveArchive if missing)
-      await saveArchive(data, result, newSchedule, followUps);
-      await refreshArchives();
+      const saveResult = await saveArchive(data, result, newSchedule, followUps);
+      
+      if (!saveResult.success) {
+          throw new Error("保存失败: " + saveResult.message);
+      }
 
+      await refreshArchives();
       setActiveTab('assessment');
     } catch (error) {
       alert("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
@@ -80,11 +84,13 @@ const App: React.FC = () => {
       if (!healthRecord) return;
       setAssessment(updatedAssessment);
       try {
-          await saveArchive(healthRecord, updatedAssessment, schedule, followUps, riskAnalysis);
+          const res = await saveArchive(healthRecord, updatedAssessment, schedule, followUps, riskAnalysis);
+          if (!res.success) throw new Error(res.message);
+          
           await refreshArchives();
           alert("评估方案已更新保存");
-      } catch (e) {
-          alert("保存失败");
+      } catch (e: any) {
+          alert("保存失败: " + e.message);
       }
   };
 

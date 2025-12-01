@@ -286,6 +286,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <pre className="bg-black/50 p-4 rounded overflow-x-auto text-xs font-mono text-green-400 border border-slate-700">
 {`-- [修复] 如果出现 "Could not find critical_track column" 错误，请运行：
 ALTER TABLE public.health_archives ADD COLUMN IF NOT EXISTS critical_track jsonb;
+ALTER TABLE public.health_archives ADD COLUMN IF NOT EXISTS risk_analysis jsonb;
 
 -- 1. 启用 UUID 扩展
 create extension if not exists "pgcrypto";
@@ -305,6 +306,7 @@ create table if not exists public.health_archives (
   follow_up_schedule jsonb,
   follow_ups jsonb default '[]'::jsonb,
   critical_track jsonb, -- 新增字段
+  risk_analysis jsonb, -- 新增字段 (风险画像)
   history_versions jsonb default '[]'::jsonb,
   created_at timestamptz default now(),
   updated_at timestamptz default now()

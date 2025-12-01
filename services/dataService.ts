@@ -57,7 +57,7 @@ export const saveArchive = async (
             .from('health_archives')
             .select('history_versions, health_record, assessment_data, critical_track, risk_analysis')
             .eq('checkup_id', checkupId)
-            .single();
+            .maybeSingle();
 
         if (existing) {
             historyVersions = existing.history_versions || [];
