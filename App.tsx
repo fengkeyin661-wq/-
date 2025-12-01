@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -18,9 +19,6 @@ const App: React.FC = () => {
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
   const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); 
   
-  // New State: Track when the assessment was last updated locally to force UI refresh
-  const [lastAssessmentUpdate, setLastAssessmentUpdate] = useState<number>(0);
-
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
   
@@ -47,7 +45,6 @@ const App: React.FC = () => {
       setSchedule(archive.follow_up_schedule || []);
       setFollowUps(archive.follow_ups || []);
       setRiskAnalysis(archive.risk_analysis); 
-      setLastAssessmentUpdate(new Date(archive.updated_at || archive.created_at).getTime()); // Sync timestamp
       
       if (mode === 'edit') {
           setActiveTab('survey');
@@ -64,7 +61,6 @@ const App: React.FC = () => {
     try {
       const result = await generateHealthAssessment(data);
       setAssessment(result);
-      setLastAssessmentUpdate(Date.now()); // Update timestamp
       
       const newSchedule = generateFollowUpSchedule(result);
       setSchedule(newSchedule);
@@ -87,7 +83,6 @@ const App: React.FC = () => {
   const handleSaveAssessment = async (updatedAssessment: HealthAssessment) => {
       if (!healthRecord) return;
       setAssessment(updatedAssessment);
-      setLastAssessmentUpdate(Date.now()); // Update timestamp
       try {
           const res = await saveArchive(healthRecord, updatedAssessment, schedule, followUps, riskAnalysis);
           if (!res.success) throw new Error(res.message);
@@ -99,91 +94,36 @@ const App: React.FC = () => {
       }
   };
 
-  // Helper: Synchronize Follow-up Data back to Main Health Record
-  const syncFollowUpToHealthRecord = (original: HealthRecord, latest: FollowUpRecord): HealthRecord => {
-      const updated = JSON.parse(JSON.stringify(original)); // Deep copy
-      
-      // Ensure basic structure exists
-      if (!updated.checkup) updated.checkup = {};
-      if (!updated.checkup.basics) updated.checkup.basics = {};
-      if (!updated.checkup.labBasic) updated.checkup.labBasic = {};
-
-      // 1. Sync Basics (Weight, BP)
-      if (latest.indicators.weight && latest.indicators.weight > 0) {
-          updated.checkup.basics.weight = latest.indicators.weight;
-      }
-      if (latest.indicators.sbp && latest.indicators.sbp > 0) {
-          updated.checkup.basics.sbp = latest.indicators.sbp;
-      }
-      if (latest.indicators.dbp && latest.indicators.dbp > 0) {
-          updated.checkup.basics.dbp = latest.indicators.dbp;
-      }
-      
-      // 2. Recalculate BMI if possible
-      if (updated.checkup.basics.weight && updated.checkup.basics.height) {
-          const h = updated.checkup.basics.height / 100;
-          updated.checkup.basics.bmi = parseFloat((updated.checkup.basics.weight / (h * h)).toFixed(1));
-      }
-
-      // 3. Sync Glucose
-      if (latest.indicators.glucose && latest.indicators.glucose > 0) {
-          if (!updated.checkup.labBasic.glucose) updated.checkup.labBasic.glucose = {};
-          if (latest.indicators.glucoseType === '空腹') {
-               updated.checkup.labBasic.glucose.fasting = latest.indicators.glucose.toString();
-          }
-      }
-
-      // 4. Sync Lipids
-      if (latest.indicators.tc || latest.indicators.tg || latest.indicators.ldl || latest.indicators.hdl) {
-          if (!updated.checkup.labBasic.lipids) updated.checkup.labBasic.lipids = {};
-          if (latest.indicators.tc) updated.checkup.labBasic.lipids.tc = latest.indicators.tc.toString();
-          if (latest.indicators.tg) updated.checkup.labBasic.lipids.tg = latest.indicators.tg.toString();
-          if (latest.indicators.ldl) updated.checkup.labBasic.lipids.ldl = latest.indicators.ldl.toString();
-          if (latest.indicators.hdl) updated.checkup.labBasic.lipids.hdl = latest.indicators.hdl.toString();
-      }
-
-      return updated;
-  };
-
   const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
-    if (!healthRecord) {
-        alert("错误：缺少基础健康档案，无法进行数据同步与评估。");
+    if (!healthRecord || !assessment) {
+        alert("错误：缺少基础健康档案，无法保存。");
         return;
     }
 
     const newRecord = { ...record, id: Date.now().toString() };
+    // 1. Update Local State
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
 
-    setIsGenerating(true); 
+    // 2. Update Schedule (Mark current pending as done, add next one)
+    const currentPending = schedule.find(s => s.status === 'pending');
+    let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
+    
+    // Generate new next item based on current record date + risk level
+    const nextItem = generateNextScheduleItem(
+        newRecord.date, 
+        newRecord.assessment.nextCheckPlan || assessment.followUpPlan.nextCheckItems.join(','), 
+        assessment.riskLevel
+    );
+    updatedSchedule = [...updatedSchedule, nextItem];
+    setSchedule(updatedSchedule);
 
     try {
-        console.log("🔄 开始闭环更新流程...");
-
-        // 2. Sync Data
-        const updatedHealthRecord = syncFollowUpToHealthRecord(healthRecord, newRecord);
-        setHealthRecord(updatedHealthRecord); 
-        console.log("✅ 1. 档案数据已同步");
-
-        // 3. Re-Assessment
-        const newAssessment = await generateHealthAssessment(updatedHealthRecord);
-        setAssessment(newAssessment); 
-        // CRITICAL: Force the UI to know there is a newer assessment than the record
-        setLastAssessmentUpdate(Date.now()); 
-        console.log("✅ 2. AI 风险重评估完成", newAssessment.riskLevel);
-
-        // 4. Update Schedule
-        const completedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
-        const futureScheduleItems = generateFollowUpSchedule(newAssessment);
-        const finalSchedule = [...completedSchedule, ...futureScheduleItems];
-        setSchedule(finalSchedule); 
-        console.log("✅ 3. 随访计划已更新");
-
-        // 5. Save to DB
+        // 3. Save to DB (Only save updated follow-ups and schedule. Do NOT modify HealthRecord or Assessment)
         const saveResult = await saveArchive(
-            updatedHealthRecord, 
-            newAssessment,       
-            finalSchedule,      
+            healthRecord, 
+            assessment,       
+            updatedSchedule,      
             updatedFollowUps,    
             riskAnalysis         
         );
@@ -191,20 +131,16 @@ const App: React.FC = () => {
         if (!saveResult.success) {
             throw new Error(saveResult.message);
         }
-        console.log("✅ 4. 数据库全量保存成功");
 
-        // 6. Refresh and Switch Tab
-        await refreshArchives();
+        // 4. Refresh background data (optional, to keep sync)
+        refreshArchives();
         
-        // Automatically switch to Assessment tab to show the new plan immediately
-        setActiveTab('assessment');
-        alert(`✅ 随访录入成功！\n\n已自动跳转至最新生成的“风险评估与健康方案”。`);
-
+        alert(`✅ 随访记录已保存。\n\n下阶段健康管理执行单已更新。`);
+        // Stay on Dashboard to see the updated sheet
+        
     } catch (e) {
-        console.error("Auto-assessment loop failed:", e);
-        alert("⚠️ 随访记录已保存，但AI自动评估流程失败: " + (e instanceof Error ? e.message : "网络超时"));
-    } finally {
-        setIsGenerating(false);
+        console.error("Save failed:", e);
+        alert("保存失败: " + (e instanceof Error ? e.message : "未知错误"));
     }
   };
 
@@ -299,8 +235,20 @@ const App: React.FC = () => {
             allArchives={archives}
             onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
             currentPatientId={healthRecord?.profile.checkupId}
-            lastAssessmentUpdate={lastAssessmentUpdate} // Pass the timestamp
         />
+      )}
+      
+      {activeTab === 'risk_portrait' && healthRecord && (
+          <div className="bg-white p-6 rounded-xl shadow border border-slate-200 h-full overflow-y-auto">
+               {/* Reusing existing component in a dedicated tab */}
+               {/* Note: In a real app we would import SystemRiskPortrait here, but I commented it out in imports per original file */}
+               {/* <SystemRiskPortrait 
+                  record={healthRecord} 
+                  existingAnalysis={riskAnalysis} 
+                  onUpdate={refreshArchives} 
+              /> */}
+              <div className="text-center text-slate-400 mt-20">请在“评估报告”中查看画像</div>
+          </div>
       )}
     </Layout>
   );

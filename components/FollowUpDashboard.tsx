@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; 
@@ -15,8 +16,6 @@ interface Props {
   currentPatientId?: string;
   // Updated prop for generic data update (Record + Schedule)
   onUpdateData?: (record: FollowUpRecord | null, schedule: ScheduledFollowUp[]) => void;
-  // New prop to track if assessment is newer than records
-  lastAssessmentUpdate?: number;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -27,8 +26,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     allArchives = [], 
     onPatientChange, 
     currentPatientId,
-    onUpdateData,
-    lastAssessmentUpdate = 0
+    onUpdateData
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -59,52 +57,35 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const currentArchive = allArchives.find(a => a.checkup_id === currentPatientId);
   const currentPatientName = currentArchive?.name || '受检者';
 
-  // --- CORE LOGIC: Determine Source of Truth (Record vs Assessment) ---
-  const isAssessmentNewer = React.useMemo(() => {
-      if (!assessment) return false;
-      if (!latestRecord) return true; // No records yet, so Assessment is definitely newer
+  // --- LOGIC: Prioritize Latest Follow-up Record for the Bottom Sheet ---
+  // If a record exists, we show its advice (it's the most recent instruction).
+  // If no record exists, we show the baseline Assessment.
+  const isUsingRecordData = latestRecord !== null;
 
-      const recordTime = Number(latestRecord.id); 
-
-      // 1. Prioritize Local Timestamp passed from App.tsx (Immediate UI Update)
-      if (lastAssessmentUpdate && lastAssessmentUpdate > recordTime) {
-          return true;
-      }
-
-      // 2. Fallback to Database Timestamp (Persistence)
-      const archiveTime = currentArchive 
-        ? new Date(currentArchive.updated_at || currentArchive.created_at).getTime()
-        : 0;
-
-      // If Archive update is > 2 seconds newer than record creation, treat as Re-evaluated
-      return archiveTime > (recordTime + 2000);
-  }, [currentArchive, latestRecord, assessment, lastAssessmentUpdate]);
-
-  // Derived Active Data for Display (Execution Sheet)
-  const activeRiskLevel = isAssessmentNewer && assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
+  const activeRiskLevel = isUsingRecordData ? latestRecord!.assessment.riskLevel : (assessment?.riskLevel || RiskLevel.GREEN);
   
-  const activePlanText = isAssessmentNewer && assessment 
-      ? assessment.followUpPlan.nextCheckItems.join('、') // From Assessment Array
-      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan.nextCheckItems.join('、') || ''); // From Record String or Fallback
+  const activePlanText = isUsingRecordData 
+      ? latestRecord!.assessment.nextCheckPlan 
+      : (assessment?.followUpPlan.nextCheckItems.join('、') || '');
 
-  const activeIssues = isAssessmentNewer && assessment 
-      ? (assessment.isCritical ? assessment.criticalWarning : assessment.summary) // From Assessment Summary/Critical
-      : (latestRecord?.assessment.majorIssues || assessment?.summary || '');
+  const activeIssues = isUsingRecordData 
+      ? latestRecord!.assessment.majorIssues 
+      : (assessment?.isCritical ? assessment.criticalWarning : assessment?.summary || '');
 
-  const activeGoals = isAssessmentNewer && assessment
-      ? assessment.managementPlan.dietary.concat(assessment.managementPlan.exercise).slice(0, 5) // Pick top 5 from plan
-      : (latestRecord?.assessment.lifestyleGoals || []);
+  const activeGoals = isUsingRecordData
+      ? (latestRecord!.assessment.lifestyleGoals || [])
+      : (assessment ? assessment.managementPlan.dietary.concat(assessment.managementPlan.exercise).slice(0, 5) : []);
 
-  const activeMessage = isAssessmentNewer && assessment
-      ? "新的一年评估已完成，请遵照新的管理方案执行。" 
-      : (latestRecord?.assessment.doctorMessage || latestRecord?.assessment.riskJustification || '');
+  const activeMessage = isUsingRecordData
+      ? (latestRecord!.assessment.doctorMessage || '')
+      : "初次评估已完成，请遵照年度管理方案执行。";
 
   const nextScheduled = schedule.find(s => s.status === 'pending');
 
   // Sync state for Editing Guide when data source changes
   useEffect(() => {
       setGuideEditData({
-          plan: activePlanText,
+          plan: activePlanText || '',
           issues: activeIssues || '',
           goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : activeGoals, 
           message: activeMessage,
@@ -229,9 +210,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
         }));
     }
 
-    // 4. Pre-fill drafts
-    if (isAssessmentNewer && assessment) {
-        baseState.assessment.riskJustification = `基于最新评估：${assessment.summary.slice(0, 50)}...`;
+    // 4. Pre-fill drafts: Use Active Issues/Plan
+    if (assessment) {
         baseState.assessment.majorIssues = activeIssues;
         baseState.assessment.lifestyleGoals = Array.isArray(activeGoals) ? activeGoals : [];
         baseState.assessment.nextCheckPlan = activePlanText;
@@ -418,7 +398,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>健康管理执行单 (${isAssessmentNewer ? '年度评估方案' : '随访记录'})</h1>
+                    <h1>健康管理执行单 (${isUsingRecordData ? '本次随访更新' : '年度评估方案'})</h1>
                     <h2>郑州大学医院健康管理中心</h2>
                     <div class="meta-info">
                         <span>生成日期: ${new Date().toLocaleDateString()}</span>
@@ -761,9 +741,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
                          <span>📋</span> 下阶段健康管理执行单
                       </h2>
                       <p className="text-sm text-slate-500 mt-1">请受检者保存，用于指导日常生活与下次复查</p>
-                      {isAssessmentNewer && (
+                      
+                      {isUsingRecordData ? (
+                          <span className="inline-block mt-2 text-xs bg-teal-50 text-teal-600 px-2 py-0.5 rounded border border-teal-200 font-bold">
+                              ✨ 基于本次随访记录 ({latestRecord!.date})
+                          </span>
+                      ) : (
                           <span className="inline-block mt-2 text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200 font-bold">
-                              ✨ 已加载最新年度评估方案 (同步于: {new Date(lastAssessmentUpdate || new Date().getTime()).toLocaleTimeString()})
+                              📋 基于年度评估方案 (Baseline)
                           </span>
                       )}
                   </div>
@@ -775,16 +760,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                            </>
                       ) : (
                            <>
-                             {/* Only allow editing if a record exists (to attach edit to). If fresh assessment, must log record first. */}
-                             {latestRecord && !isAssessmentNewer && (
+                             {/* Allow editing if a record exists (to attach edit to). */}
+                             {latestRecord && (
                                 <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
                                     ✏️ 修订内容
                                 </button>
-                             )}
-                             {isAssessmentNewer && (
-                                 <div className="text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-200 self-center">
-                                     💡 如需修改计划，请先录入本次随访记录
-                                 </div>
                              )}
                              <button onClick={handlePrintGuide} className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-bold shadow-sm">
                                 🖨️ 打印执行单
