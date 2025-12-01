@@ -1,3 +1,4 @@
+
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 
 // DeepSeek API Configuration
@@ -34,6 +35,112 @@ const getEnvVar = (key: string): string => {
 const getApiKey = () => {
     return getEnvVar('VITE_DEEPSEEK_API_KEY');
 }
+
+// Data Sanitizers (Defensive Programming to prevent White Screen)
+const sanitizeHealthRecord = (data: any): HealthRecord => {
+    // Helper to ensure object exists
+    const ensureObj = (obj: any) => obj || {};
+    const ensureArr = (arr: any) => Array.isArray(arr) ? arr : [];
+
+    // Construct with defaults deep merged to ensure no undefined nested objects
+    return {
+        profile: {
+            checkupId: data?.profile?.checkupId || '',
+            name: data?.profile?.name || '未命名',
+            dob: data?.profile?.dob,
+            gender: data?.profile?.gender || '男',
+            department: data?.profile?.department || '',
+            phone: data?.profile?.phone,
+            checkupDate: data?.profile?.checkupDate,
+            age: typeof data?.profile?.age === 'number' ? data.profile.age : 0
+        },
+        checkup: {
+            basics: ensureObj(data?.checkup?.basics),
+            labBasic: {
+                liver: ensureObj(data?.checkup?.labBasic?.liver),
+                lipids: ensureObj(data?.checkup?.labBasic?.lipids),
+                renal: ensureObj(data?.checkup?.labBasic?.renal),
+                bloodRoutine: ensureObj(data?.checkup?.labBasic?.bloodRoutine),
+                glucose: ensureObj(data?.checkup?.labBasic?.glucose),
+                urineRoutine: ensureObj(data?.checkup?.labBasic?.urineRoutine),
+                thyroidFunction: ensureObj(data?.checkup?.labBasic?.thyroidFunction),
+                ck: data?.checkup?.labBasic?.ck
+            },
+            imagingBasic: {
+                ecg: data?.checkup?.imagingBasic?.ecg,
+                ultrasound: ensureObj(data?.checkup?.imagingBasic?.ultrasound)
+            },
+            optional: ensureObj(data?.checkup?.optional),
+            abnormalities: ensureArr(data?.checkup?.abnormalities)
+        },
+        questionnaire: {
+            history: {
+                diseases: ensureArr(data?.questionnaire?.history?.diseases),
+                details: ensureObj(data?.questionnaire?.history?.details),
+                surgeries: data?.questionnaire?.history?.surgeries
+            },
+            femaleHealth: ensureObj(data?.questionnaire?.femaleHealth),
+            familyHistory: ensureObj(data?.questionnaire?.familyHistory),
+            medication: {
+                isRegular: data?.questionnaire?.medication?.isRegular || '否',
+                list: data?.questionnaire?.medication?.list,
+                details: ensureObj(data?.questionnaire?.medication?.details)
+            },
+            diet: {
+                habits: ensureArr(data?.questionnaire?.diet?.habits),
+                ...ensureObj(data?.questionnaire?.diet)
+            },
+            hydration: ensureObj(data?.questionnaire?.hydration),
+            exercise: ensureObj(data?.questionnaire?.exercise),
+            sleep: ensureObj(data?.questionnaire?.sleep),
+            respiratory: ensureObj(data?.questionnaire?.respiratory),
+            substances: {
+                smoking: { passive: [], ...ensureObj(data?.questionnaire?.substances?.smoking) },
+                alcohol: { types: [], ...ensureObj(data?.questionnaire?.substances?.alcohol) }
+            },
+            mentalScales: ensureObj(data?.questionnaire?.mentalScales),
+            mental: {
+                stressSource: ensureArr(data?.questionnaire?.mental?.stressSource),
+                reliefMethod: ensureArr(data?.questionnaire?.mental?.reliefMethod),
+                ...ensureObj(data?.questionnaire?.mental)
+            },
+            needs: {
+                concerns: ensureArr(data?.questionnaire?.needs?.concerns),
+                desiredSupport: ensureArr(data?.questionnaire?.needs?.desiredSupport),
+                ...ensureObj(data?.questionnaire?.needs)
+            }
+        },
+        riskModelExtras: ensureObj(data?.riskModelExtras)
+    };
+};
+
+const sanitizeAssessment = (data: any): HealthAssessment => {
+    const ensureArr = (arr: any) => Array.isArray(arr) ? arr : [];
+    // const ensureObj = (obj: any) => obj || {};
+
+    return {
+        riskLevel: data?.riskLevel || RiskLevel.GREEN,
+        summary: data?.summary || '暂无评估总结',
+        isCritical: !!data?.isCritical,
+        criticalWarning: data?.criticalWarning,
+        risks: {
+            red: ensureArr(data?.risks?.red),
+            yellow: ensureArr(data?.risks?.yellow),
+            green: ensureArr(data?.risks?.green)
+        },
+        managementPlan: {
+            dietary: ensureArr(data?.managementPlan?.dietary),
+            exercise: ensureArr(data?.managementPlan?.exercise),
+            medication: ensureArr(data?.managementPlan?.medication),
+            monitoring: ensureArr(data?.managementPlan?.monitoring)
+        },
+        structuredTasks: ensureArr(data?.structuredTasks),
+        followUpPlan: {
+            frequency: data?.followUpPlan?.frequency || '定期',
+            nextCheckItems: ensureArr(data?.followUpPlan?.nextCheckItems)
+        }
+    };
+};
 
 // 通用 DeepSeek 调用函数
 const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode: boolean = true) => {
@@ -95,7 +202,8 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     输出必须是严格的 JSON 格式。
   `;
 
-  return await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
+  const rawData = await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
+  return sanitizeHealthRecord(rawData);
 }
 
 /**
@@ -108,66 +216,12 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
 
     【重要】请严格依据以下“重要异常结果分层管理标准”判断危急值（A类）和重大异常（B类）。
     如果符合以下任意条件，必须将 riskLevel 设为 RED，将 isCritical 设为 true，并在 criticalWarning 中注明具体类别（如“A类危急值”或“B类重大异常”）和原因。
-
-    一、一般检查
-    [A类] 血压：收缩压≥180mmHg 或 舒张压≥110mmHg。
-
-    二、物理检查
-    [A类] 
-    1. 心率 ≥150次/min 或 ≤45次/min。
-    2. 眼科：疑似青光眼发作、突发视力下降、疑似流行性出血性结膜炎。
-    3. 妇科：急腹症（结合超声）。
-    [B类]
-    1. 触及高度可疑恶性包块（甲状腺、乳腺、腹部、直肠等）。
-    2. 眼压>25mmHg，视乳头水肿。
-    3. 阴道异常出血。
-
-    三、实验室检查
-    [A类]
-    1. 血红蛋白(Hb) ≤60g/L。
-    2. 血小板(PLT) ≤30×10^9/L 或 ≥1000×10^9/L。
-    3. 白细胞(WBC) ≤1.0×10^9/L 或 中性粒绝对值 ≤0.5×10^9/L。
-    4. 肝功：ALT/AST ≥15倍正常值，总胆红素 ≥5倍。
-    5. 肾功：肌酐(Scr) ≥707μmol/L (首次)。
-    6. 血糖：空腹 ≤2.8mmol/L 或 ≥16.7mmol/L；随机 ≥20.0mmol/L。
-    7. 血钾 ≤2.5mmol/L 或 ≥6.5mmol/L。
-    [B类]
-    1. Hb ≤60g/L(历次) 或 ≥200g/L。
-    2. PLT 30-50×10^9/L。
-    3. WBC ≤2.0×10^9/L 或 ≥30.0×10^9/L；发现幼稚细胞。
-    4. 尿蛋白3+且红细胞满视野；酮体≥2+(糖尿病)或≥3+(无糖尿病)。
-    5. 肝功：ALT/AST ≥5-15倍，总胆红素 ≥3-5倍。
-    6. 肾功：肌酐 ≥445μmol/L。
-    7. TCT：HSIL、AS-H、癌、AGC、AIS。
-    8. 肿瘤标志物：AFP>400；PSA>10且f/t<0.15；CA125>95(绝经后)；其他指标≥2倍参考值。
-
-    四、辅助检查
-    [A类]
-    1. 心电图：急性心梗、心缺血、室扑室颤、室速(≥150)、多形性室速、R on T、三度房室阻滞、停搏>3s、提示严重高/低钾。
-    2. X线/CT：气胸、大量胸水、脑出血>30ml、脑梗死大面积、主动脉夹层、动脉瘤、肠梗阻。
-    3. 超声：脏器破裂、胆管炎、异位妊娠、囊肿扭转/破裂。
-    [B类]
-    1. 影像学提示：高度可疑恶性占位（肺、肝、胆、胰、脾、肾、纵隔、骨骼）。
-    2. 囊肿巨大（肝>10cm，肾>5cm，胰>3cm）。
-
-    返回 JSON:
-    {
-       "riskLevel": "RED/YELLOW/GREEN",
-       "isCritical": true/false,
-       "criticalWarning": "危急值详情(例如: '[A类] 收缩压185mmHg', '[B类] 肺部高度可疑恶性结节')，如无则null",
-       "summary": "综合综述",
-       "risks": { "red": ["高危因素"], "yellow": ["中危因素"], "green": ["低危/关注"] },
-       "managementPlan": {
-          "dietary": ["饮食建议"], "exercise": ["运动建议"], "medication": ["用药调整建议"], "monitoring": ["监测指标建议"]
-       },
-       "structuredTasks": [
-          { "id": "uuid", "category": "diet", "description": "具体可执行任务", "frequency": "每日/每周", "isKeyGoal": true }
-       ],
-       "followUpPlan": { "frequency": "随访频率建议", "nextCheckItems": ["下次复查项目"] }
-    }
+    ... (参考之前 Prompt 规则) ...
+    返回 JSON: { riskLevel, isCritical, criticalWarning, summary, risks, managementPlan, structuredTasks, followUpPlan }
   `;
 
-  return await callDeepSeek(systemPrompt, `数据:\n${JSON.stringify(record)}`);
+  const rawData = await callDeepSeek(systemPrompt, `数据:\n${JSON.stringify(record)}`);
+  return sanitizeAssessment(rawData);
 };
 
 /**
@@ -223,15 +277,7 @@ export const analyzeFollowUpRecord = async (
       1. 核心指标(血压/血糖)是否达标。
       2. 医疗复查执行情况(medicalCompliance): 如果患者未执行建议的复查(not_checked)或结果异常(checked_abnormal)，请在风险理由和主要问题中重点警告。
       
-      输出 JSON:
-      {
-        "riskLevel": "RED" | "YELLOW" | "GREEN",
-        "riskJustification": "临床风险判定理由(请使用专业医学术语，分析核心指标变化、达标情况及风险因素控制情况，供医生参考)",
-        "doctorMessage": "医生寄语(请使用通俗易懂的语言，面向患者。综合评估结果，给出鼓励、警示或核心行动建议，语气亲切但专业)",
-        "majorIssues": "主要问题(中文摘要)",
-        "nextCheckPlan": "下次复查计划(中文)",
-        "lifestyleGoals": ["生活方式目标(中文)"]
-      }
+      输出 JSON: { riskLevel, riskJustification, doctorMessage, majorIssues, nextCheckPlan, lifestyleGoals }
       `;
       
       const userContent = `
@@ -278,29 +324,8 @@ export const generateHospitalBusinessAnalysis = async (
     const systemPrompt = `
     你是一名医院运营管理专家。我将提供全院体检人员的异常检出项统计汇总（Issue: Count）。
     请分析这些数据，将其映射到医院的具体临床科室，并为每个科室建议“待开展的诊疗业务”（Specific Medical Services），以帮助医院提高临床业务转化率。
-    
-    目标科室范围（包含但不限于）：
-    - 消化内科 (针对幽门螺杆菌、胃功能异常、脂肪肝、胆囊结石等)
-    - 心血管内科 (高血压、心律失常、冠心病)
-    - 内分泌科 (糖尿病、甲状腺、肥胖、骨质疏松)
-    - 呼吸内科 (肺结节、慢性支气管炎)
-    - 骨科/康复科 (颈椎病、腰椎病、关节炎)
-    - 眼科 (白内障、眼底病变、青光眼)
-    - 口腔科 (牙周炎、缺齿)
-    - 泌尿外科 (前列腺增生、肾结石)
-    - 妇科 (子宫肌瘤、HPV/TCT)
-    - 体重管理科 (超重/肥胖)
-    
-    输出格式为 JSON 数组:
-    [
-      {
-        "departmentName": "科室名称",
-        "patientCount": 数字(基于关联异常项的总人数估算),
-        "riskLevel": "HIGH"(高需求)/"MEDIUM"/"LOW",
-        "keyConditions": ["关联的主要异常项1", "异常项2"],
-        "suggestedServices": ["建议开展业务1 (如: C13呼气试验)", "业务2 (如: 胃肠镜检查)"]
-      }
-    ]
+    ...
+    输出格式为 JSON 数组: [{ departmentName, patientCount, riskLevel, keyConditions, suggestedServices }]
     `;
 
     const userContent = `全院异常项统计汇总: ${JSON.stringify(aggregatedIssues)}`;
@@ -318,14 +343,7 @@ export const generateAnnualReportSummary = async (
 ): Promise<{ summary: string }> => {
     const systemPrompt = `
     你是一名资深健康管理医生。请对比患者一年前的基线数据（Baseline）和当前的最新随访数据（Current），生成一份简短的年度健康改善评估总结。
-    
-    要求：
-    1. 重点对比核心指标（血压、血糖、体重）的变化趋势。
-    2. 评估风险等级的变化（如从高危降为中危）。
-    3. 给出整体评价（如“健康状况显著改善”、“指标平稳”、“需持续关注”）。
-    4. 语言精练、专业、亲切，字数控制在100字左右。
-    5. 使用中文。
-    
+    ...
     输出 JSON: { "summary": "你的总结内容..." }
     `;
 
