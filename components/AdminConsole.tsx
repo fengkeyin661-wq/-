@@ -45,9 +45,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     // Smart Batch Import Modal State (PDF/Word + AI)
     const [isSmartBatchModalOpen, setIsSmartBatchModalOpen] = useState(false);
 
-    // Questionnaire Batch Supplement Modal
-    const [isQuestionnaireModalOpen, setIsQuestionnaireModalOpen] = useState(false);
-
     const configured = isSupabaseConfigured();
 
     // --- Effects ---
@@ -406,12 +403,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs font-bold text-white flex items-center gap-1 transition-colors shadow-sm"
                      >
                         ✨ 批量智能建档 (PDF)
-                     </button>
-                     <button 
-                        onClick={() => setIsQuestionnaireModalOpen(true)}
-                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-bold text-white flex items-center gap-1 transition-colors shadow-sm"
-                     >
-                        📝 批量补全问卷 (Excel)
                      </button>
                      <button 
                         onClick={() => setIsBatchModalOpen(true)}
@@ -827,19 +818,6 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                     onClose={() => setIsSmartBatchModalOpen(false)}
                     onComplete={() => {
                         setIsSmartBatchModalOpen(false);
-                        loadData();
-                        if(onDataUpdate) onDataUpdate();
-                    }}
-                />
-            )}
-
-            {/* Questionnaire Batch Supplement Modal */}
-            {isQuestionnaireModalOpen && (
-                <BatchQuestionnaireImportModal 
-                    archives={archives}
-                    onClose={() => setIsQuestionnaireModalOpen(false)}
-                    onComplete={() => {
-                        setIsQuestionnaireModalOpen(false);
                         loadData();
                         if(onDataUpdate) onDataUpdate();
                     }}
@@ -1392,232 +1370,6 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                         className="px-6 py-2 bg-teal-600 text-white font-bold rounded-lg shadow-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
                     >
                         {importing ? `正在导入 ${progress}%` : '🚀 开始批量导入'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- Batch Questionnaire Import Modal ---
-const BatchQuestionnaireImportModal = ({ archives, onClose, onComplete }: { archives: HealthArchive[], onClose: () => void, onComplete: () => void }) => {
-    const [file, setFile] = useState<File | null>(null);
-    const [importing, setImporting] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [logs, setLogs] = useState<string[]>([]);
-    
-    // Template for Questionnaire
-    const downloadTemplate = () => {
-        const headers = [[
-            '体检编号', '姓名', '联系电话', 
-            '既往病史(逗号分隔)', '服降压药(是/否)', '服降糖药(是/否)', 
-            '家族病史(逗号分隔,如:高血压,糖尿病)', 
-            '吸烟状态(不吸/吸烟/已戒)', '吸烟包年数', '日吸烟量',
-            '饮酒状态(不饮/饮酒/已戒)', '每周饮酒次数',
-            '运动频率(次/周)', '睡眠时长(小时)',
-            '心理压力(低/中/高)', 'PHQ9得分', 'GAD7得分'
-        ]];
-        const ws = XLSX.utils.aoa_to_sheet(headers);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "问卷补全");
-        XLSX.writeFile(wb, "健康问卷补全模板.xlsx");
-    };
-
-    const processRow = async (row: any, archive: HealthArchive) => {
-        const hr = archive.health_record;
-        
-        // 1. Merge Profile Updates (Phone mainly)
-        if (row['联系电话']) hr.profile.phone = String(row['联系电话']);
-        
-        // 2. Merge Questionnaire
-        const q = hr.questionnaire;
-        
-        // History
-        if (row['既往病史(逗号分隔)']) q.history.diseases = String(row['既往病史(逗号分隔)']).split(/[,，、]/).map(s=>s.trim());
-        
-        // Meds
-        if (row['服降压药(是/否)'] === '是') q.medication.details.antihypertensive = true;
-        if (row['服降糖药(是/否)'] === '是') q.medication.details.hypoglycemic = true;
-        
-        // Family
-        if (row['家族病史(逗号分隔,如:高血压,糖尿病)']) {
-            const fam = String(row['家族病史(逗号分隔,如:高血压,糖尿病)']);
-            if (fam.includes('高血压')) q.familyHistory.hypertension = true;
-            if (fam.includes('糖尿病')) q.familyHistory.diabetes = true;
-            if (fam.includes('冠心病')) q.familyHistory.fatherCvdEarly = true; // simplified mapping
-            if (fam.includes('卒中') || fam.includes('中风')) q.familyHistory.stroke = true;
-            if (fam.includes('肿瘤') || fam.includes('癌')) q.familyHistory.lungCancer = true; // generic mapping to one cancer for now
-        }
-        
-        // Substances
-        if (row['吸烟状态(不吸/吸烟/已戒)']) q.substances.smoking.status = row['吸烟状态(不吸/吸烟/已戒)'];
-        if (row['吸烟包年数']) q.substances.smoking.packYears = Number(row['吸烟包年数']);
-        if (row['日吸烟量']) q.substances.smoking.dailyAmount = Number(row['日吸烟量']);
-        
-        if (row['饮酒状态(不饮/饮酒/已戒)']) q.substances.alcohol.status = row['饮酒状态(不饮/饮酒/已戒)'];
-        if (row['每周饮酒次数']) q.substances.alcohol.freq = String(row['每周饮酒次数']);
-        
-        // Lifestyle
-        if (row['运动频率(次/周)']) q.exercise.frequency = String(row['运动频率(次/周)']);
-        if (row['睡眠时长(小时)']) q.sleep.hours = String(row['睡眠时长(小时)']);
-        
-        // Mental
-        if (row['心理压力(低/中/高)']) q.mental.stressLevel = row['心理压力(低/中/高)'];
-        if (row['PHQ9得分']) q.mentalScales.phq9Score = Number(row['PHQ9得分']);
-        if (row['GAD7得分']) q.mentalScales.gad7Score = Number(row['GAD7得分']);
-
-        // 3. Re-Evaluate with AI
-        const newAssessment = await generateHealthAssessment(hr);
-        const newSchedule = generateFollowUpSchedule(newAssessment);
-
-        // 4. Save
-        const res = await saveArchive(hr, newAssessment, newSchedule, archive.follow_ups);
-        return res;
-    };
-
-    const handleImport = async () => {
-        if (!file) return;
-        setImporting(true);
-        setLogs(['🚀 开始读取问卷数据...']);
-        setProgress(0);
-
-        try {
-            const data = await file.arrayBuffer();
-            const workbook = XLSX.read(data);
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(sheet);
-            
-            if (jsonData.length === 0) {
-                setLogs(prev => [...prev, '❌ 文件为空']);
-                setImporting(false);
-                return;
-            }
-
-            setLogs(prev => [...prev, `📋 读取到 ${jsonData.length} 条问卷记录，开始匹配并更新...`]);
-
-            let successCount = 0;
-            let skipCount = 0;
-
-            for (let i = 0; i < jsonData.length; i++) {
-                const row: any = jsonData[i];
-                const id = row['体检编号'] ? String(row['体检编号']).trim() : null;
-                const name = row['姓名'];
-
-                if (!id) {
-                    setLogs(prev => [...prev, `⚠️ 跳过第 ${i+1} 行：无体检编号`]);
-                    skipCount++;
-                    continue;
-                }
-
-                // Match with existing archives (Passed from parent props for speed, or could fetch one by one)
-                // Note: For large datasets, fetching individually by ID from DB is safer, but searching local prop is faster for UI.
-                // Given the context, we search locally first.
-                const targetArchive = archives.find(a => String(a.checkup_id) === id);
-
-                if (!targetArchive) {
-                    setLogs(prev => [...prev, `🔸 未找到档案: ${id} (${name})，跳过`]);
-                    skipCount++;
-                } else {
-                    try {
-                        // Process
-                        const res = await processRow(row, targetArchive);
-                        if (res.success) {
-                            // setLogs(prev => [...prev, `✅ 更新成功: ${name} (${id})`]); // Optional verbose log
-                            successCount++;
-                        } else {
-                            setLogs(prev => [...prev, `❌ 更新失败: ${name} - ${res.message}`]);
-                            skipCount++;
-                        }
-                    } catch (e: any) {
-                        setLogs(prev => [...prev, `❌ 处理异常: ${name} - ${e.message}`]);
-                        skipCount++;
-                    }
-                }
-
-                // Update Progress
-                setProgress(Math.round(((i + 1) / jsonData.length) * 100));
-                // Delay for UI and Rate Limits
-                await new Promise(r => setTimeout(r, 100)); // AI call needs time
-            }
-
-            setLogs(prev => [...prev, `🏁 批量补全完成！成功更新: ${successCount}, 未找到/失败: ${skipCount}`]);
-            setTimeout(() => {
-                if (successCount > 0) onComplete();
-            }, 2000);
-
-        } catch (e: any) {
-            setLogs(prev => [...prev, `❌ 严重错误: ${e.message}`]);
-        } finally {
-            setImporting(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[80] backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-scaleIn">
-                <div className="flex justify-between items-center mb-6 border-b pb-4">
-                    <div>
-                        <h3 className="text-xl font-bold text-blue-700">📝 批量补全问卷 (Excel)</h3>
-                        <p className="text-xs text-slate-500 mt-1">匹配体检编号 &rarr; 合并问卷数据 &rarr; AI重新评估 &rarr; 更新档案</p>
-                    </div>
-                    {!importing && <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>}
-                </div>
-
-                <div className="space-y-4">
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
-                        <div className="text-sm text-blue-800">
-                            <strong>第一步：</strong> 下载问卷数据模板
-                            <p className="text-xs text-blue-600 mt-1">包含：病史、吸烟饮酒、运动睡眠、心理评分等</p>
-                        </div>
-                        <button 
-                            onClick={downloadTemplate}
-                            className="bg-white border border-blue-300 text-blue-700 px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-100 shadow-sm"
-                        >
-                            ⬇️ 下载模板
-                        </button>
-                    </div>
-
-                    <div className="border-2 border-dashed border-blue-200 rounded-xl p-6 text-center hover:bg-blue-50 transition-colors">
-                        <input 
-                            type="file" 
-                            accept=".xlsx, .xls, .csv" 
-                            onChange={e => setFile(e.target.files?.[0] || null)}
-                            className="hidden" 
-                            id="q-upload-input"
-                            disabled={importing}
-                        />
-                        <label htmlFor="q-upload-input" className="cursor-pointer flex flex-col items-center">
-                            <span className="text-4xl mb-2">📊</span>
-                            {file ? (
-                                <span className="font-bold text-blue-700">{file.name}</span>
-                            ) : (
-                                <span className="text-slate-500 text-sm">上传 Excel 问卷数据表</span>
-                            )}
-                        </label>
-                    </div>
-
-                    {(importing || logs.length > 0) && (
-                        <div className="bg-slate-900 rounded-lg p-4 text-xs font-mono text-green-400 h-40 overflow-y-auto shadow-inner">
-                            {logs.map((log, i) => <div key={i}>{log}</div>)}
-                            <div ref={el => el?.scrollIntoView({ behavior: 'smooth' })}></div>
-                        </div>
-                    )}
-                    
-                    {importing && (
-                         <div className="w-full bg-slate-200 rounded-full h-2.5">
-                            <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
-                         </div>
-                    )}
-                </div>
-
-                <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
-                    <button onClick={onClose} disabled={importing} className="px-4 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm font-medium">关闭</button>
-                    <button 
-                        onClick={handleImport}
-                        disabled={!file || importing}
-                        className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                    >
-                        {importing ? `AI 重评中 ${progress}%` : '🚀 开始合并并重评'}
                     </button>
                 </div>
             </div>
