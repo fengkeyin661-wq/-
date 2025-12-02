@@ -1165,7 +1165,8 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
     
     // Sample Template Generator
     const downloadTemplate = () => {
-        const headers = [['姓名', '体检编号', '性别', '年龄', '部门', '电话', '身高', '体重', '收缩压', '舒张压']];
+        // Updated headers: 部门、体检编号、姓名、性别、年龄、联系电话、体检结果
+        const headers = [['部门', '体检编号', '姓名', '性别', '年龄', '联系电话', '体检结果']];
         const ws = XLSX.utils.aoa_to_sheet(headers);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
@@ -1198,8 +1199,15 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
             // Sequential processing to allow UI updates and prevent DB rate limits
             for (let i = 0; i < jsonData.length; i++) {
                 const row: any = jsonData[i];
+                
+                // Map based on new headers: 部门、体检编号、姓名、性别、年龄、联系电话、体检结果
                 const name = row['姓名'];
                 const id = row['体检编号'];
+                const dept = row['部门'];
+                const gender = row['性别'];
+                const age = row['年龄'];
+                const phone = row['联系电话'];
+                const resultText = row['体检结果'];
 
                 if (!name || !id) {
                     setLogs(prev => [...prev, `⚠️ 第 ${i+1} 行跳过：缺少姓名或体检编号`]);
@@ -1213,19 +1221,20 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                         profile: {
                             checkupId: String(id),
                             name: String(name),
-                            gender: row['性别'] || '男',
-                            age: Number(row['年龄']) || 0,
-                            department: row['部门'] || '待定',
-                            phone: row['电话'] ? String(row['电话']) : '',
+                            gender: gender || '男',
+                            age: Number(age) || 0,
+                            department: dept || '待定',
+                            phone: phone ? String(phone) : '',
                             checkupDate: new Date().toISOString().split('T')[0]
                         },
                         checkup: {
                             basics: {
-                                height: Number(row['身高']) || undefined,
-                                weight: Number(row['体重']) || undefined,
-                                sbp: Number(row['收缩压']) || undefined,
-                                dbp: Number(row['舒张压']) || undefined,
-                                bmi: (row['身高'] && row['体重']) ? parseFloat((row['体重'] / ((row['身高']/100) ** 2)).toFixed(1)) : undefined
+                                // Basic metrics removed from direct import as they are not in the new template
+                                height: undefined,
+                                weight: undefined,
+                                sbp: undefined,
+                                dbp: undefined,
+                                bmi: undefined
                             },
                             labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} },
                             imagingBasic: { ultrasound: {} },
@@ -1254,7 +1263,8 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                         riskLevel: RiskLevel.GREEN,
                         isCritical: false,
                         criticalWarning: null,
-                        summary: '批量导入档案，等待完善详细体检数据与问卷。',
+                        // Store the checkup result in the summary
+                        summary: resultText ? `【导入结果摘要】${resultText}` : '批量导入档案，等待完善详细体检数据与问卷。',
                         risks: { red: [], yellow: [], green: [] },
                         managementPlan: { dietary: [], exercise: [], medication: [], monitoring: [] },
                         followUpPlan: { frequency: '6个月', nextCheckItems: ['常规健康复查'] }
