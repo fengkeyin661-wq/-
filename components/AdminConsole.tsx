@@ -1156,7 +1156,7 @@ const SmartBatchImportModal = ({ onClose, onComplete }: { onClose: () => void, o
     );
 };
 
-// --- Batch Import Modal (Excel/CSV) ---
+// --- Batch Import Modal (CSV/Excel) ---
 const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComplete: () => void }) => {
     const [file, setFile] = useState<File | null>(null);
     const [importing, setImporting] = useState(false);
@@ -1165,8 +1165,7 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
     
     // Sample Template Generator
     const downloadTemplate = () => {
-        // Updated Columns
-        const headers = [['部门', '体检编号', '姓名', '性别', '年龄', '联系电话', '体检结果']];
+        const headers = [['姓名', '体检编号', '性别', '年龄', '部门', '电话', '身高', '体重', '收缩压', '舒张压']];
         const ws = XLSX.utils.aoa_to_sheet(headers);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
@@ -1191,17 +1190,16 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                 return;
             }
 
-            setLogs(prev => [...prev, `📋 发现 ${jsonData.length} 条记录，开始导入并进行AI分析...`]);
+            setLogs(prev => [...prev, `📋 解析成功，共发现 ${jsonData.length} 条记录，开始导入...`]);
 
             let successCount = 0;
             let failCount = 0;
 
-            // Sequential processing to allow AI Analysis & DB writes
+            // Sequential processing to allow UI updates and prevent DB rate limits
             for (let i = 0; i < jsonData.length; i++) {
                 const row: any = jsonData[i];
                 const name = row['姓名'];
                 const id = row['体检编号'];
-                const resultText = row['体检结果'] || '';
 
                 if (!name || !id) {
                     setLogs(prev => [...prev, `⚠️ 第 ${i+1} 行跳过：缺少姓名或体检编号`]);
@@ -1209,55 +1207,70 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                     continue;
                 }
 
-                setLogs(prev => [...prev, `🤖 分析中 [${i+1}/${jsonData.length}]: ${name}...`]);
-
                 try {
-                    let healthRecord: HealthRecord;
-                    let assessment: HealthAssessment;
-                    let schedule;
-
-                    // 1. AI Parsing or Basic Creation
-                    if (resultText && resultText.length > 5) {
-                        // Use AI to parse the result text into structured data
-                        healthRecord = await parseHealthDataFromText(resultText);
-                    } else {
-                        // Create skeleton if no result text
-                        healthRecord = {
-                            profile: { checkupId: '', name: '', gender: '男', department: '', age: 0 },
-                            checkup: { basics: {}, labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} }, imagingBasic: { ultrasound: {} }, optional: {}, abnormalities: [] },
-                            questionnaire: { history: { diseases: [], details: {} }, femaleHealth: {}, familyHistory: {}, medication: { isRegular: '否', details: {} }, diet: { habits: [] }, hydration: {}, exercise: {}, sleep: {}, respiratory: {}, substances: { smoking: {}, alcohol: {} }, mentalScales: {}, mental: {}, needs: {} }
-                        };
-                    }
-
-                    // 2. Overwrite Profile with Authoritative Excel Columns
-                    healthRecord.profile = {
-                        ...healthRecord.profile,
-                        checkupId: String(id),
-                        name: String(name),
-                        department: String(row['部门'] || healthRecord.profile.department || '待定'),
-                        gender: String(row['性别'] || healthRecord.profile.gender || '男'),
-                        age: Number(row['年龄']) || healthRecord.profile.age || 0,
-                        phone: String(row['联系电话'] || healthRecord.profile.phone || ''),
-                        checkupDate: new Date().toISOString().split('T')[0]
+                    // Create Default HealthRecord
+                    const newRecord: HealthRecord = {
+                        profile: {
+                            checkupId: String(id),
+                            name: String(name),
+                            gender: row['性别'] || '男',
+                            age: Number(row['年龄']) || 0,
+                            department: row['部门'] || '待定',
+                            phone: row['电话'] ? String(row['电话']) : '',
+                            checkupDate: new Date().toISOString().split('T')[0]
+                        },
+                        checkup: {
+                            basics: {
+                                height: Number(row['身高']) || undefined,
+                                weight: Number(row['体重']) || undefined,
+                                sbp: Number(row['收缩压']) || undefined,
+                                dbp: Number(row['舒张压']) || undefined,
+                                bmi: (row['身高'] && row['体重']) ? parseFloat((row['体重'] / ((row['身高']/100) ** 2)).toFixed(1)) : undefined
+                            },
+                            labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} },
+                            imagingBasic: { ultrasound: {} },
+                            optional: {},
+                            abnormalities: []
+                        },
+                        questionnaire: {
+                            history: { diseases: [], details: {} },
+                            femaleHealth: {},
+                            familyHistory: {},
+                            medication: { isRegular: '否', details: {} },
+                            diet: { habits: [] },
+                            hydration: {},
+                            exercise: {},
+                            sleep: {},
+                            respiratory: {},
+                            substances: { smoking: {}, alcohol: {} },
+                            mentalScales: {},
+                            mental: {},
+                            needs: {}
+                        }
                     };
 
-                    // 3. Generate Assessment & Schedule
-                    if (resultText && resultText.length > 5) {
-                        assessment = await generateHealthAssessment(healthRecord);
-                    } else {
-                        // Default Empty Assessment
-                        assessment = {
-                            riskLevel: RiskLevel.GREEN, isCritical: false, criticalWarning: null,
-                            summary: '批量导入档案，等待完善详细体检数据与问卷。',
-                            risks: { red: [], yellow: [], green: [] },
-                            managementPlan: { dietary: [], exercise: [], medication: [], monitoring: [] },
-                            followUpPlan: { frequency: '6个月', nextCheckItems: ['常规健康复查'] }
-                        };
-                    }
-                    schedule = generateFollowUpSchedule(assessment);
+                    // Default Assessment
+                    const defaultAssessment: HealthAssessment = {
+                        riskLevel: RiskLevel.GREEN,
+                        isCritical: false,
+                        criticalWarning: null,
+                        summary: '批量导入档案，等待完善详细体检数据与问卷。',
+                        risks: { red: [], yellow: [], green: [] },
+                        managementPlan: { dietary: [], exercise: [], medication: [], monitoring: [] },
+                        followUpPlan: { frequency: '6个月', nextCheckItems: ['常规健康复查'] }
+                    };
 
-                    // 4. Save to DB
-                    const res = await saveArchive(healthRecord, assessment, schedule);
+                    // Default Schedule
+                    const defaultSchedule = [{
+                        id: `sch_${Date.now()}_${i}`,
+                        date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // +6 months
+                        status: 'pending' as const,
+                        riskLevelAtSchedule: RiskLevel.GREEN,
+                        focusItems: ['常规复查']
+                    }];
+
+                    // Save
+                    const res = await saveArchive(newRecord, defaultAssessment, defaultSchedule);
                     
                     if (res.success) {
                         successCount++;
@@ -1272,14 +1285,14 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                 
                 // Update Progress
                 setProgress(Math.round(((i + 1) / jsonData.length) * 100));
-                // Delay to prevent rate limiting
-                await new Promise(r => setTimeout(r, 1000));
+                // Small delay to allow UI render
+                await new Promise(r => setTimeout(r, 50));
             }
 
             setLogs(prev => [...prev, `🏁 导入完成！成功: ${successCount}, 失败: ${failCount}`]);
             setTimeout(() => {
                 if (successCount > 0) onComplete();
-            }, 2000);
+            }, 1500);
 
         } catch (e: any) {
             setLogs(prev => [...prev, `❌ 文件解析致命错误: ${e.message}`]);
@@ -1356,7 +1369,7 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                         disabled={!file || importing}
                         className="px-6 py-2 bg-teal-600 text-white font-bold rounded-lg shadow-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
                     >
-                        {importing ? `分析中 ${progress}%` : '🚀 开始批量导入'}
+                        {importing ? `正在导入 ${progress}%` : '🚀 开始批量导入'}
                     </button>
                 </div>
             </div>
