@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { HealthArchive } from '../services/dataService';
 import { generateHospitalBusinessAnalysis } from '../services/geminiService';
@@ -22,7 +23,8 @@ const downloadFile = (content: string, filename: string, mimeType: string) => {
     URL.revokeObjectURL(url);
 };
 
-const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V2';
+// Updated Cache Key to force refresh with new structure
+const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V3';
 
 export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
     const [analytics, setAnalytics] = useState<DepartmentAnalytics[]>([]);
@@ -204,7 +206,12 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
             reportContent += `   - 核心病种: ${dept.keyConditions.join(', ')}\n`;
             reportContent += `   - 💡 建议开展/强化业务:\n`;
             dept.suggestedServices.forEach(s => {
-                reportContent += `     • ${s}\n`;
+                // Compatible with both old string array and new object array
+                if (typeof s === 'string') {
+                    reportContent += `     • ${s}\n`;
+                } else {
+                    reportContent += `     • ${s.name} (预计覆盖: ${s.count}人)\n       说明: ${s.description}\n`;
+                }
             });
             reportContent += `------------------------------------------------`;
         });
@@ -334,17 +341,31 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
                                             <span>💡</span> 建议开展/强化诊疗业务
                                         </h4>
                                         <ul className="space-y-3">
-                                            {selectedDept.suggestedServices.map((srv, i) => (
-                                                <li key={i} className="flex flex-col gap-1 bg-teal-50 p-3 rounded-lg border border-teal-100">
-                                                    <div className="flex items-start gap-3">
-                                                        <span className="text-teal-500 font-bold text-sm mt-[2px]">●</span>
-                                                        <span className="text-slate-800 font-bold text-sm flex-1">{srv}</span>
-                                                    </div>
-                                                    <div className="pl-6 text-xs text-teal-600/80">
-                                                        预计覆盖潜在人群: <span className="font-bold">{Math.round(selectedDept.patientCount * 0.8)} - {selectedDept.patientCount}</span> 人
-                                                    </div>
-                                                </li>
-                                            ))}
+                                            {selectedDept.suggestedServices.map((srv, i) => {
+                                                // Handle new Object structure vs old String structure safely
+                                                const sName = typeof srv === 'string' ? srv : srv.name;
+                                                const sCount = typeof srv === 'string' ? Math.round(selectedDept.patientCount * 0.8) : srv.count;
+                                                const sDesc = typeof srv === 'string' ? '' : srv.description;
+
+                                                return (
+                                                    <li key={i} className="flex flex-col gap-1 bg-teal-50 p-3 rounded-lg border border-teal-100">
+                                                        <div className="flex items-start gap-3">
+                                                            <span className="text-teal-500 font-bold text-sm mt-[2px]">●</span>
+                                                            <div className="flex-1">
+                                                                <span className="text-slate-800 font-bold text-sm block">{sName}</span>
+                                                                {sDesc && <span className="text-xs text-slate-500 block mt-1">{sDesc}</span>}
+                                                            </div>
+                                                        </div>
+                                                        <div className="pl-6 text-xs text-teal-600/80 mt-1 flex items-center justify-between">
+                                                            <span>预计覆盖潜在人群: <span className="font-bold">{sCount}</span> 人</span>
+                                                            {/* Simple visual bar */}
+                                                            <div className="w-16 h-1.5 bg-teal-200 rounded-full overflow-hidden">
+                                                                <div className="h-full bg-teal-500" style={{ width: `${Math.min((sCount / selectedDept.patientCount) * 100, 100)}%` }}></div>
+                                                            </div>
+                                                        </div>
+                                                    </li>
+                                                );
+                                            })}
                                         </ul>
                                     </div>
                                 </div>
