@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, HealthArchive } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
@@ -13,7 +12,7 @@ import * as mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 
 interface Props {
-    onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup') => void;
+    onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup' | 'assessment') => void;
     onDataUpdate?: () => void;
     isAuthenticated: boolean;
 }

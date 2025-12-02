@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -77,7 +76,7 @@ const App: React.FC = () => {
       refreshArchives();
   }, []);
 
-  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' = 'view') => {
+  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' | 'assessment' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
       setSchedule(archive.follow_up_schedule || []);
@@ -442,7 +441,11 @@ const App: React.FC = () => {
       )}
       
       {activeTab === 'heatmap' && (
-          <HospitalHeatmap archives={archives} onRefresh={refreshArchives} />
+          <HospitalHeatmap 
+              archives={archives} 
+              onRefresh={refreshArchives} 
+              onSelectPatient={(arch) => handleSelectPatient(arch, 'assessment')}
+          />
       )}
       
       {activeTab === 'external_survey' && (

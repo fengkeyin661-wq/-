@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { HealthArchive } from '../services/dataService';
 import { generateHospitalBusinessAnalysis } from '../services/geminiService';
@@ -8,6 +6,7 @@ import { DepartmentAnalytics } from '../types';
 interface Props {
     archives: HealthArchive[];
     onRefresh?: () => void;
+    onSelectPatient?: (archive: HealthArchive) => void;
 }
 
 // Helper for exporting data
@@ -26,13 +25,18 @@ const downloadFile = (content: string, filename: string, mimeType: string) => {
 // Updated Cache Key to force refresh with new structure
 const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V3';
 
-export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
+export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelectPatient }) => {
     const [analytics, setAnalytics] = useState<DepartmentAnalytics[]>([]);
     const [loading, setLoading] = useState(false);
     const [selectedDept, setSelectedDept] = useState<DepartmentAnalytics | null>(null);
     const [lastUpdated, setLastUpdated] = useState<string>('');
     const [isCachedData, setIsCachedData] = useState(false);
     
+    // State for Potential Patient List Modal
+    const [showPatientModal, setShowPatientModal] = useState(false);
+    const [patientList, setPatientList] = useState<HealthArchive[]>([]);
+    const [targetService, setTargetService] = useState('');
+
     // Initial Load: Check Cache First
     useEffect(() => {
         const cached = localStorage.getItem(CACHE_KEY);
@@ -177,6 +181,31 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
         analyze();
     }
 
+    // --- Reverse Search Logic ---
+    const handleServiceDoubleClick = (serviceName: string, serviceDesc: string) => {
+        // Simple heuristic matching
+        const cleanName = serviceName.replace(/建议|开展|强化|检查|筛查|评估|管理|干预|专科|门诊/g, '');
+        // Split by common delimiters to get keywords
+        const keywords = [cleanName, ...serviceDesc.split(/[,，;；]/)].filter(k => k.trim().length > 1);
+
+        const matched = archives.filter(arch => {
+            // Build searchable corpus for this patient
+            const corpus = [
+                ...arch.assessment_data.risks.red,
+                ...arch.assessment_data.risks.yellow,
+                ...(arch.health_record.checkup.abnormalities?.map(a => a.item + a.result) || []),
+                arch.assessment_data.summary
+            ].join(' ').toLowerCase();
+
+            // Check if any keyword matches
+            return keywords.some(k => corpus.includes(k.trim().toLowerCase()));
+        });
+
+        setTargetService(serviceName);
+        setPatientList(matched);
+        setShowPatientModal(true);
+    };
+
     // --- New Global Export Function ---
     const handleExportGlobalReport = () => {
         if (analytics.length === 0) {
@@ -222,7 +251,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
     };
 
     return (
-        <div className="bg-white w-full h-full rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden animate-fadeIn">
+        <div className="bg-white w-full h-full rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden animate-fadeIn relative">
             {/* Header */}
             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                 <div>
@@ -337,8 +366,9 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
                                     </div>
                                     
                                     <div>
-                                        <h4 className="font-bold text-teal-700 mb-3 text-xs uppercase tracking-wider flex items-center gap-2">
-                                            <span>💡</span> 建议开展/强化诊疗业务
+                                        <h4 className="font-bold text-teal-700 mb-3 text-xs uppercase tracking-wider flex items-center justify-between">
+                                            <span className="flex items-center gap-2"><span>💡</span> 建议开展/强化业务</span>
+                                            <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">双击卡片查看名单</span>
                                         </h4>
                                         <ul className="space-y-3">
                                             {selectedDept.suggestedServices.map((srv, i) => {
@@ -348,7 +378,12 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
                                                 const sDesc = typeof srv === 'string' ? '' : srv.description;
 
                                                 return (
-                                                    <li key={i} className="flex flex-col gap-1 bg-teal-50 p-3 rounded-lg border border-teal-100">
+                                                    <li 
+                                                        key={i} 
+                                                        className="flex flex-col gap-1 bg-teal-50 p-3 rounded-lg border border-teal-100 cursor-pointer hover:bg-teal-100 hover:shadow-md transition-all select-none"
+                                                        title="双击查看潜在患者名单"
+                                                        onDoubleClick={() => handleServiceDoubleClick(sName, sDesc)}
+                                                    >
                                                         <div className="flex items-start gap-3">
                                                             <span className="text-teal-500 font-bold text-sm mt-[2px]">●</span>
                                                             <div className="flex-1">
@@ -377,6 +412,80 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
                                 <p className="text-xs mt-2 max-w-[200px]">点击左侧热力图块，查看该科室的详细业务建议与潜在患者规模分析</p>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* Potential Patient List Modal */}
+            {showPatientModal && (
+                <div className="absolute inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center animate-fadeIn">
+                    <div className="bg-white w-full max-w-2xl h-[80%] rounded-xl shadow-2xl flex flex-col animate-scaleIn">
+                        <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-xl">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                    🔍 潜在目标人群分析
+                                </h3>
+                                <div className="text-xs text-teal-700 font-medium mt-1 bg-teal-50 px-2 py-0.5 rounded border border-teal-100 inline-block">
+                                    业务方向: {targetService}
+                                </div>
+                            </div>
+                            <button onClick={() => setShowPatientModal(false)} className="text-slate-400 hover:text-slate-600 font-bold text-xl px-2">×</button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto p-4">
+                            {patientList.length > 0 ? (
+                                <table className="w-full text-sm text-left border-collapse">
+                                    <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0">
+                                        <tr>
+                                            <th className="px-4 py-2 border-b">姓名</th>
+                                            <th className="px-4 py-2 border-b">性别/年龄</th>
+                                            <th className="px-4 py-2 border-b">部门</th>
+                                            <th className="px-4 py-2 border-b">风险等级</th>
+                                            <th className="px-4 py-2 border-b text-right">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {patientList.map(p => (
+                                            <tr key={p.id} className="hover:bg-blue-50/50 transition-colors">
+                                                <td className="px-4 py-3 font-bold text-slate-700">{p.name}</td>
+                                                <td className="px-4 py-3 text-slate-600">{p.gender} / {p.age}</td>
+                                                <td className="px-4 py-3 text-slate-600">{p.department}</td>
+                                                <td className="px-4 py-3">
+                                                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
+                                                        p.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                                                        p.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' : 'bg-green-50 text-green-600 border-green-200'
+                                                    }`}>
+                                                        {p.risk_level === 'RED' ? '高危' : p.risk_level === 'YELLOW' ? '中危' : '低危'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-right">
+                                                    <button 
+                                                        onClick={() => {
+                                                            if (onSelectPatient) {
+                                                                onSelectPatient(p);
+                                                                setShowPatientModal(false);
+                                                            }
+                                                        }}
+                                                        className="text-xs bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-3 py-1.5 rounded font-bold border border-indigo-200 transition-colors"
+                                                    >
+                                                        查看方案 👉
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            ) : (
+                                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                                    <div className="text-4xl mb-2">🤷‍♂️</div>
+                                    <p>未找到匹配该业务关键词的潜在患者</p>
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div className="p-3 border-t bg-slate-50 text-xs text-slate-500 text-center rounded-b-xl">
+                            共筛选出 {patientList.length} 位潜在目标人员
+                        </div>
                     </div>
                 </div>
             )}
