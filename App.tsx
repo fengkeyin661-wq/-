@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -7,17 +6,17 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { HospitalHeatmap } from './components/HospitalHeatmap';
-// import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // Removed Standalone
-import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData } from './types'; 
+import { NativeSurveyForm } from './components/NativeSurveyForm'; // New Import
+import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId } from './services/dataService'; // Imported findArchiveByCheckupId
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('followup');
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
   const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
-  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); // New State
+  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); 
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
   
@@ -55,7 +54,7 @@ const App: React.FC = () => {
       setAssessment(archive.assessment_data);
       setSchedule(archive.follow_up_schedule || []);
       setFollowUps(archive.follow_ups || []);
-      setRiskAnalysis(archive.risk_analysis); // Load risk analysis
+      setRiskAnalysis(archive.risk_analysis); 
       
       if (mode === 'edit') {
           setActiveTab('survey');
@@ -76,7 +75,6 @@ const App: React.FC = () => {
       const newSchedule = generateFollowUpSchedule(result);
       setSchedule(newSchedule);
       
-      // Save (Risk analysis will be auto-generated in saveArchive if missing)
       const saveResult = await saveArchive(data, result, newSchedule, followUps);
       
       if (!saveResult.success) {
@@ -90,6 +88,64 @@ const App: React.FC = () => {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // --- New Logic: Handle Native Questionnaire Supplement ---
+  const handleQuestionnaireSupplement = async (qData: QuestionnaireData, checkupId: string, profileInfo: {gender: string, dept: string}) => {
+      setIsGenerating(true);
+      try {
+          // 1. Find existing archive by Checkup ID
+          const existingArchive = await findArchiveByCheckupId(checkupId);
+          
+          if (!existingArchive) {
+              // Option A: Reject if no base data found (as requested "supplement")
+              alert(`未找到体检编号为 ${checkupId} 的档案。请先导入体检报告，或使用“健康调查建档”功能创建新档案。`);
+              setIsGenerating(false);
+              return;
+          }
+
+          // 2. Merge Data
+          const updatedRecord: HealthRecord = {
+              ...existingArchive.health_record,
+              questionnaire: qData,
+              profile: {
+                  ...existingArchive.health_record.profile,
+                  gender: profileInfo.gender || existingArchive.health_record.profile.gender,
+                  department: profileInfo.dept || existingArchive.health_record.profile.department
+              }
+          };
+
+          // 3. Re-Assess
+          const newAssessment = await generateHealthAssessment(updatedRecord);
+          const newSchedule = generateFollowUpSchedule(newAssessment);
+
+          // 4. Save
+          const saveResult = await saveArchive(
+              updatedRecord, 
+              newAssessment, 
+              newSchedule, 
+              existingArchive.follow_ups || [], 
+              undefined // Force regeneration of risk analysis models
+          );
+
+          if (!saveResult.success) throw new Error(saveResult.message);
+
+          // 5. Update UI
+          await refreshArchives();
+          
+          // Switch to view this patient
+          const freshArchive = await findArchiveByCheckupId(checkupId);
+          if (freshArchive) {
+              handleSelectPatient(freshArchive, 'view');
+              alert(`问卷已提交！档案 ${checkupId} 已自动补全并完成 AI 重新评估。`);
+          }
+
+      } catch (error) {
+          console.error(error);
+          alert("提交失败: " + (error instanceof Error ? error.message : "未知错误"));
+      } finally {
+          setIsGenerating(false);
+      }
   };
 
   const handleSaveAssessment = async (updatedAssessment: HealthAssessment) => {
@@ -110,7 +166,6 @@ const App: React.FC = () => {
   const syncFollowUpToHealthRecord = (original: HealthRecord, latest: FollowUpRecord): HealthRecord => {
       const updated = JSON.parse(JSON.stringify(original)); // Deep copy
       
-      // 1. Sync Basics (Weight, BP)
       if (latest.indicators.weight && latest.indicators.weight > 0) {
           updated.checkup.basics.weight = latest.indicators.weight;
       }
@@ -121,22 +176,18 @@ const App: React.FC = () => {
           updated.checkup.basics.dbp = latest.indicators.dbp;
       }
       
-      // 2. Recalculate BMI if possible
       if (updated.checkup.basics.weight && updated.checkup.basics.height) {
           const h = updated.checkup.basics.height / 100;
           updated.checkup.basics.bmi = parseFloat((updated.checkup.basics.weight / (h * h)).toFixed(1));
       }
 
-      // 3. Sync Glucose
       if (latest.indicators.glucose && latest.indicators.glucose > 0) {
           if (!updated.checkup.labBasic.glucose) updated.checkup.labBasic.glucose = {};
-          // If the follow-up record is specifically Fasting (or not specified, assume fasting for simplicity in updates)
           if (latest.indicators.glucoseType === '空腹') {
                updated.checkup.labBasic.glucose.fasting = latest.indicators.glucose.toString();
           }
       }
 
-      // 4. Sync Lipids
       if (latest.indicators.tc || latest.indicators.tg || latest.indicators.ldl || latest.indicators.hdl) {
           if (!updated.checkup.labBasic.lipids) updated.checkup.labBasic.lipids = {};
           if (latest.indicators.tc) updated.checkup.labBasic.lipids.tc = latest.indicators.tc.toString();
@@ -153,7 +204,6 @@ const App: React.FC = () => {
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
     
-    // Update Schedule
     let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
     const nextItem = generateNextScheduleItem(
         newRecord.date, 
@@ -163,12 +213,10 @@ const App: React.FC = () => {
     updatedSchedule = [...updatedSchedule, nextItem];
     setSchedule(updatedSchedule);
 
-    // Sync Data to Health Archive
     let updatedHealthRecord = healthRecord;
     if (healthRecord) {
-        // Create a synchronized version of the health record
         updatedHealthRecord = syncFollowUpToHealthRecord(healthRecord, newRecord);
-        setHealthRecord(updatedHealthRecord); // Update local state immediately
+        setHealthRecord(updatedHealthRecord); 
     }
 
     if (healthRecord?.profile.checkupId) {
@@ -176,7 +224,7 @@ const App: React.FC = () => {
             healthRecord.profile.checkupId, 
             updatedFollowUps, 
             updatedSchedule,
-            updatedHealthRecord || undefined // Pass the updated record for persistence
+            updatedHealthRecord || undefined
         );
         await refreshArchives();
     }
@@ -188,8 +236,6 @@ const App: React.FC = () => {
       setSchedule(updatedSchedule);
 
       if (healthRecord?.profile.checkupId) {
-          // Note: We typically don't sync back on manual edits of old records to avoid overwriting newer data inadvertently,
-          // unless we explicitely want to. For now, we just update the follow-up list.
           await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
           await refreshArchives();
       }
@@ -248,40 +294,12 @@ const App: React.FC = () => {
           <HospitalHeatmap archives={archives} onRefresh={refreshArchives} />
       )}
       
-      {/* New Tab Content: Online Survey Iframe */}
+      {/* Replaced External Iframe with Native Form */}
       {activeTab === 'external_survey' && (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full flex flex-col animate-fadeIn">
-              <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
-                  <div>
-                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                          <span>🌐</span> 在线健康问卷
-                      </h2>
-                      <p className="text-xs text-slate-500">
-                          请指导受检者在此完成详细健康问卷。数据可导出后通过“管理控制台”批量导入系统。
-                      </p>
-                  </div>
-                  <a 
-                    href="https://wj.qq.com/s2/24904310/1834/" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                  >
-                      在新窗口打开 ↗
-                  </a>
-              </div>
-              <div className="flex-1 w-full bg-slate-50 overflow-hidden relative">
-                 <iframe 
-                    id='idy_frame' 
-                    height="100%" 
-                    width="100%" 
-                    src="https://wj.qq.com/s2/24904310/1834/" 
-                    frameBorder="0" 
-                    style={{minHeight: '650px'}} 
-                    allowFullScreen 
-                    sandbox="allow-same-origin allow-scripts allow-modals allow-downloads allow-forms allow-popups"
-                ></iframe>
-              </div>
-          </div>
+          <NativeSurveyForm 
+              onSubmit={handleQuestionnaireSupplement} 
+              isLoading={isGenerating} 
+          />
       )}
 
       <div className={activeTab === 'survey' ? 'block h-full' : 'hidden'}>

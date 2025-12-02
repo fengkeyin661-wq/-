@@ -1,5 +1,3 @@
-
-
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
@@ -31,6 +29,27 @@ export interface HealthArchive {
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// --- New Helper for Survey Matching ---
+export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthArchive | null> => {
+    if (!isSupabaseConfigured()) return null;
+    try {
+        const { data, error } = await supabase
+            .from('health_archives')
+            .select('*')
+            .eq('checkup_id', checkupId)
+            .maybeSingle();
+        
+        if (error) {
+            console.error("Find archive error:", error);
+            return null;
+        }
+        return data;
+    } catch (e) {
+        console.error("Find archive exception:", e);
+        return null;
+    }
+};
 
 /**
  * Persist a full archive to Supabase (Create or Update)
