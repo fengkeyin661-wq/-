@@ -351,22 +351,22 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const upcomingTasks = getUpcomingTasks();
     const activeCriticalPatients = getActiveCriticalPatients();
 
-    const StatsCard = ({ label, value, color, icon }: any) => (
-        <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl ${color}`}>
-                {icon}
-            </div>
+    const StatsCard = ({ label, value, color, icon, bg }: any) => (
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
             <div>
-                <p className="text-slate-500 text-xs uppercase font-bold tracking-wider">{label}</p>
-                <p className="text-2xl font-bold text-slate-800">{value}</p>
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">{label}</p>
+                <p className="text-3xl font-black text-slate-800 tracking-tight">{value}</p>
+            </div>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${bg} ${color}`}>
+                {icon}
             </div>
         </div>
     );
 
     // Helper for Sort Icons
     const SortIcon = ({ colKey }: { colKey: string }) => {
-        if (sortConfig?.key !== colKey) return <span className="text-slate-300 ml-1">⇅</span>;
-        return <span className="text-teal-600 ml-1 font-bold">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
+        if (sortConfig?.key !== colKey) return <span className="text-slate-300 ml-1 text-[10px]">▼</span>;
+        return <span className="text-teal-600 ml-1 font-bold text-xs">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>;
     };
 
     if (!isAuthenticated) {
@@ -383,37 +383,39 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     }
 
     return (
-        <div className="space-y-6 animate-fadeIn pb-10">
-            {/* Top Bar: Connection Status */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm">
-                <div className="flex items-center gap-3">
-                    <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border ${configured && !fetchError ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                        <div className={`w-2 h-2 rounded-full ${configured && !fetchError ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                        {configured ? (fetchError ? '数据库连接异常' : 'Supabase 已连接') : '环境变量未配置'}
-                    </div>
-                    {fetchError && (
-                        <button onClick={() => setShowSqlHelp(!showSqlHelp)} className="text-xs text-blue-600 underline">
-                            查看修复指南 (SQL)
-                        </button>
-                    )}
-                </div>
-                <div className="flex gap-2">
+        <div className="space-y-8 animate-fadeIn pb-10">
+            {/* Top Bar: Connection Status & Actions */}
+            <div className="flex justify-between items-center">
+                 <h2 className="text-2xl font-bold text-slate-800 tracking-tight">管理控制台</h2>
+                 <div className="flex gap-3">
                      <button 
                         onClick={() => setIsSmartBatchModalOpen(true)}
-                        className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs font-bold text-white flex items-center gap-1 transition-colors shadow-sm"
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-bold text-white flex items-center gap-2 transition-all shadow-sm active:scale-95"
                      >
-                        ✨ 批量智能建档 (PDF)
+                        <span>✨</span> 批量智能建档 (PDF)
                      </button>
                      <button 
                         onClick={() => setIsBatchModalOpen(true)}
-                        className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-xs font-bold text-white flex items-center gap-1 transition-colors shadow-sm"
+                        className="px-4 py-2 bg-teal-600 hover:bg-teal-700 rounded-lg text-sm font-bold text-white flex items-center gap-2 transition-all shadow-sm active:scale-95"
                      >
-                        📂 批量导入 (Excel)
+                        <span>📂</span> 批量导入 (Excel)
                      </button>
-                     <button onClick={loadData} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-bold text-slate-600 flex items-center gap-1 transition-colors">
-                        🔄 刷新数据
+                     <button onClick={loadData} className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-sm font-bold text-slate-600 flex items-center gap-2 transition-colors shadow-sm">
+                        <span>🔄</span> 刷新
                      </button>
                 </div>
+            </div>
+
+            <div className="flex items-center gap-2 mb-2">
+                 <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border ${configured && !fetchError ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                    <div className={`w-2 h-2 rounded-full ${configured && !fetchError ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                    {configured ? (fetchError ? '数据库异常' : 'Database Connected') : 'Env Not Configured'}
+                </div>
+                {fetchError && (
+                    <button onClick={() => setShowSqlHelp(!showSqlHelp)} className="text-xs text-blue-600 underline">
+                        SQL修复指南
+                    </button>
+                )}
             </div>
 
             {/* SQL Help Area */}
@@ -461,20 +463,28 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                 </div>
             )}
 
+            {/* Dashboard Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <StatsCard label="总建档量" value={archives.length} color="text-blue-600" bg="bg-blue-100" icon="📂" />
+                <StatsCard label="高风险 (红)" value={archives.filter(a => a.risk_level === 'RED').length} color="text-red-600" bg="bg-red-100" icon="🔴" />
+                <StatsCard label="中风险 (黄)" value={archives.filter(a => a.risk_level === 'YELLOW').length} color="text-yellow-600" bg="bg-yellow-100" icon="🟡" />
+                <StatsCard label="今日更新" value={archives.filter(a => new Date(a.created_at).toDateString() === new Date().toDateString()).length} color="text-teal-600" bg="bg-teal-100" icon="⚡" />
+            </div>
+
             {/* Critical Value Warning List */}
             {activeCriticalPatients.length > 0 && (
-                <div className="bg-red-50 border-l-4 border-red-500 rounded-xl shadow-sm p-5 animate-pulse-slow">
-                    <div className="flex justify-between items-center mb-3">
+                <div className="bg-white border-l-4 border-red-500 rounded-xl shadow-sm p-6 animate-pulse-slow ring-1 ring-slate-100">
+                    <div className="flex justify-between items-center mb-4">
                         <h3 className="text-red-800 font-bold flex items-center gap-2 text-lg">
-                            🚨 危急值预警名单 (独立闭环管理)
+                            🚨 危急值预警名单
                         </h3>
                         <div className="flex items-center gap-3">
-                            <span className="text-xs bg-red-200 text-red-900 px-2 py-1 rounded-full font-bold">
+                            <span className="text-xs bg-red-100 text-red-800 px-3 py-1 rounded-full font-bold">
                                 {activeCriticalPatients.length} 人待处理
                             </span>
                             <button 
                                 onClick={handleExportCritical}
-                                className="bg-white border border-red-300 text-red-700 px-3 py-1 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 shadow-sm"
+                                className="bg-white border border-red-200 text-red-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-50 flex items-center gap-1 shadow-sm transition-colors"
                             >
                                 📤 导出危急值报告
                             </button>
@@ -483,29 +493,26 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {activeCriticalPatients.map((arch) => {
                             const isPendingSecondary = arch.critical_track?.status === 'pending_secondary';
-                            
                             return (
-                                <div key={arch.id} className="bg-white border border-red-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
+                                <div key={arch.id} className="bg-red-50/50 border border-red-100 rounded-xl p-4 flex justify-between items-center hover:shadow-md transition-shadow cursor-pointer" onClick={() => setCriticalModalArchive(arch)}>
                                     <div>
                                         <div className="flex items-center gap-2">
                                             <span className="font-bold text-slate-800">{arch.name}</span>
-                                            <span className="text-xs text-red-500 font-bold border border-red-200 px-1 rounded bg-red-50">危急</span>
+                                            <span className="text-[10px] text-red-600 font-bold border border-red-200 px-1.5 py-0.5 rounded bg-white uppercase">Critical</span>
                                         </div>
-                                        <div className="text-xs text-red-700 mt-1 max-w-[200px] truncate" title={arch.assessment_data.criticalWarning || '危急值筛查异常'}>
+                                        <div className="text-xs text-red-700 mt-1 max-w-[180px] truncate" title={arch.assessment_data.criticalWarning || '危急值筛查异常'}>
                                             ⚠️ {arch.assessment_data.criticalWarning || '存在危急指标'}
                                         </div>
-                                        <div className="text-xs text-slate-500 mt-1">📞 {arch.phone || '无电话'}</div>
                                     </div>
                                     
                                     <button 
-                                        onClick={() => setCriticalModalArchive(arch)}
-                                        className={`text-white text-xs px-3 py-1.5 rounded font-bold shadow-sm transition-transform hover:scale-105 ${
+                                        className={`text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm ${
                                             isPendingSecondary 
-                                            ? 'bg-yellow-600 hover:bg-yellow-700' 
-                                            : 'bg-red-600 hover:bg-red-700 animate-pulse'
+                                            ? 'bg-yellow-500 hover:bg-yellow-600' 
+                                            : 'bg-red-500 hover:bg-red-600'
                                         }`}
                                     >
-                                        {isPendingSecondary ? '🕒 二次回访' : '⚡ 立即处理'}
+                                        {isPendingSecondary ? '🕒 二次回访' : '⚡ 处理'}
                                     </button>
                                 </div>
                             );
@@ -514,131 +521,62 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                 </div>
             )}
 
-            {/* Standard Follow-ups Section */}
-            <div className={`rounded-xl border shadow-sm overflow-hidden ${upcomingTasks.length > 0 ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-200'}`}>
-                <div className={`px-5 py-3 border-b flex justify-between items-center ${upcomingTasks.length > 0 ? 'bg-orange-100/50 border-orange-200' : 'bg-slate-50 border-slate-100'}`}>
-                    <h3 className={`font-bold flex items-center gap-2 ${upcomingTasks.length > 0 ? 'text-orange-800' : 'text-slate-700'}`}>
-                        {upcomingTasks.length > 0 ? '🔔 近七日需随访提醒' : '✅ 近期无随访任务'}
-                    </h3>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${upcomingTasks.length > 0 ? 'bg-orange-200 text-orange-800 border-orange-300' : 'bg-slate-200 text-slate-600'}`}>
-                        {upcomingTasks.length} 人待访
-                    </span>
-                </div>
-                
-                {upcomingTasks.length > 0 && (
-                    <div className="max-h-64 overflow-y-auto">
-                        <table className="w-full text-sm">
-                            <thead className="text-xs text-orange-800/70 bg-orange-50/50 text-left sticky top-0">
-                                <tr>
-                                    <th className="px-5 py-2">计划日期</th>
-                                    <th className="px-5 py-2">剩余天数</th>
-                                    <th className="px-5 py-2">姓名/部门</th>
-                                    <th className="px-5 py-2">风险等级</th>
-                                    <th className="px-5 py-2">重点监测</th>
-                                    <th className="px-5 py-2 text-right">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-orange-100">
-                                {upcomingTasks.map((item, idx) => (
-                                    <tr key={idx} className="hover:bg-orange-100/40 transition-colors">
-                                        <td className="px-5 py-3 font-mono text-slate-700">{item.date}</td>
-                                        <td className="px-5 py-3">
-                                            {item.daysLeft < 0 ? (
-                                                <span className="text-red-600 font-bold bg-red-100 px-2 py-0.5 rounded text-xs">逾期 {-item.daysLeft} 天</span>
-                                            ) : item.daysLeft === 0 ? (
-                                                <span className="text-teal-600 font-bold bg-teal-100 px-2 py-0.5 rounded text-xs">今天</span>
-                                            ) : (
-                                                <span className="text-orange-600 font-medium">{item.daysLeft} 天后</span>
-                                            )}
-                                        </td>
-                                        <td className="px-5 py-3">
-                                            <div className="font-bold text-slate-800">{item.archive.name}</div>
-                                            <div className="text-xs text-slate-500">{item.archive.department}</div>
-                                            <div className="text-xs text-slate-600 font-mono mt-0.5">📞 {item.archive.phone || '-'}</div>
-                                        </td>
-                                        <td className="px-5 py-3">
-                                            <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
-                                                item.archive.risk_level === 'RED' ? 'bg-red-50 text-red-700 border-red-200' :
-                                                item.archive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'
-                                            }`}>
-                                                {item.archive.risk_level === 'RED' ? '高危' : item.archive.risk_level === 'YELLOW' ? '中危' : '低危'}
-                                            </span>
-                                        </td>
-                                        <td className="px-5 py-3 text-slate-600 max-w-xs truncate" title={item.focus}>
-                                            {item.focus}
-                                        </td>
-                                        <td className="px-5 py-3 text-right">
-                                            <button 
-                                                onClick={() => onSelectPatient(item.archive, 'followup')}
-                                                className="bg-white border border-orange-300 text-orange-700 hover:bg-orange-600 hover:text-white hover:border-orange-600 px-3 py-1 rounded-full text-xs font-bold shadow-sm transition-all"
-                                            >
-                                                ⚡ 立即随访
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-
-            {/* Dashboard Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <StatsCard label="总建档量" value={archives.length} color="bg-blue-100 text-blue-600" icon="📂" />
-                <StatsCard label="高风险 (红)" value={archives.filter(a => a.risk_level === 'RED').length} color="bg-red-100 text-red-600" icon="🔴" />
-                <StatsCard label="中风险 (黄)" value={archives.filter(a => a.risk_level === 'YELLOW').length} color="bg-yellow-100 text-yellow-600" icon="🟡" />
-                <StatsCard label="今日更新" value={archives.filter(a => new Date(a.created_at).toDateString() === new Date().toDateString()).length} color="bg-teal-100 text-teal-600" icon="⚡" />
-            </div>
-
-            {/* Main Data Grid (Full Width) */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[700px]">
+            {/* Main Data List */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col min-h-[600px] overflow-hidden">
                 {/* Toolbar */}
-                <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap gap-4 items-center justify-between">
-                    <div className="flex gap-3 items-center flex-1">
+                <div className="px-6 py-5 border-b border-slate-100 flex flex-wrap gap-4 items-center justify-between bg-white">
+                    <div className="flex gap-4 items-center flex-1">
                         {/* Risk Filter */}
-                        <select 
-                            className="border border-slate-200 rounded-lg py-2 px-3 text-sm bg-slate-50 focus:outline-none focus:border-teal-500"
-                            value={filterRisk}
-                            onChange={e => setFilterRisk(e.target.value)}
-                        >
-                            <option value="ALL">全部风险等级</option>
-                            <option value="RED">高风险 (红)</option>
-                            <option value="YELLOW">中风险 (黄)</option>
-                            <option value="GREEN">低风险 (绿)</option>
-                        </select>
+                        <div className="relative">
+                            <select 
+                                className="appearance-none border border-slate-200 rounded-xl py-2.5 pl-4 pr-10 text-sm bg-slate-50 font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all cursor-pointer hover:bg-slate-100"
+                                value={filterRisk}
+                                onChange={e => setFilterRisk(e.target.value)}
+                            >
+                                <option value="ALL">全部风险等级</option>
+                                <option value="RED">🔴 高风险 (红)</option>
+                                <option value="YELLOW">🟡 中风险 (黄)</option>
+                                <option value="GREEN">🟢 低风险 (绿)</option>
+                            </select>
+                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 text-xs">▼</div>
+                        </div>
 
                         {/* Search Bar */}
-                        <div className="relative flex-1 max-w-sm">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+                        <div className="relative flex-1 max-w-md group">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors">🔍</span>
                             <input 
                                 type="text" 
-                                placeholder="搜索姓名、电话、编号..." 
-                                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-teal-500 transition-colors"
+                                placeholder="搜索姓名、体检编号、部门或电话..." 
+                                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                             />
                         </div>
 
-                        <div className="text-xs text-slate-400 whitespace-nowrap">
-                             显示 {filteredArchives.length} 条
+                        <div className="text-xs text-slate-400 font-medium">
+                             共 {filteredArchives.length} 条记录
                         </div>
                     </div>
                     
                     <div className="flex items-center gap-3">
-                        {/* Batch Delete Button */}
+                        {/* Batch Delete Button (Conditional) */}
                         {selectedIds.size > 0 && (
-                            <button 
-                                onClick={handleBatchDelete}
-                                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-sm transition-all animate-scaleIn"
-                            >
-                                <span>🗑️</span> 批量删除 ({selectedIds.size})
-                            </button>
+                            <div className="flex items-center gap-3 animate-slideInRight">
+                                <span className="text-sm font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg">
+                                    已选 {selectedIds.size} 项
+                                </span>
+                                <button 
+                                    onClick={handleBatchDelete}
+                                    className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-100 rounded-lg text-sm font-bold hover:bg-red-100 hover:border-red-200 transition-all"
+                                >
+                                    🗑️ 批量删除
+                                </button>
+                            </div>
                         )}
                         
                         <button 
                             onClick={handleExportData}
-                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 shadow-sm transition-colors"
+                            className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-700 shadow-lg shadow-slate-200 transition-all transform hover:-translate-y-0.5"
                         >
                             <span>📤</span> 导出数据
                         </button>
@@ -647,79 +585,105 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
 
                 {/* Table */}
                 <div className="flex-1 overflow-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 sticky top-0 z-10 text-slate-500 font-medium select-none">
+                    <table className="w-full text-left border-collapse">
+                        <thead className="bg-slate-50/80 sticky top-0 z-10 backdrop-blur-sm">
                             <tr>
-                                <th className="px-5 py-3 border-b border-slate-200 w-12 text-center">
+                                <th className="px-6 py-4 border-b border-slate-100 w-16 text-center">
                                     <input 
                                         type="checkbox" 
-                                        className="cursor-pointer"
+                                        className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
                                         checked={filteredArchives.length > 0 && selectedIds.size === filteredArchives.length}
                                         onChange={handleSelectAll}
                                     />
                                 </th>
                                 <th 
-                                    className="px-5 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors"
                                     onClick={() => handleSort('name')}
                                 >
-                                    基本信息 <SortIcon colKey="name" />
+                                    个人信息 <SortIcon colKey="name" />
                                 </th>
                                 <th 
-                                    className="px-5 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
-                                    onClick={() => handleSort('risk_level')}
-                                >
-                                    风险等级 <SortIcon colKey="risk_level" />
-                                </th>
-                                <th 
-                                    className="px-5 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors"
                                     onClick={() => handleSort('department')}
                                 >
-                                    部门/电话 <SortIcon colKey="department" />
+                                    部门/单位 <SortIcon colKey="department" />
                                 </th>
-                                <th className="px-5 py-3 border-b border-slate-200">下次随访时间</th>
                                 <th 
-                                    className="px-5 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors"
+                                    onClick={() => handleSort('risk_level')}
+                                >
+                                    风险评估 <SortIcon colKey="risk_level" />
+                                </th>
+                                <th className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    联系方式
+                                </th>
+                                <th 
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors"
                                     onClick={() => handleSort('updated_at')}
                                 >
-                                    最新评估时间 <SortIcon colKey="updated_at" />
+                                    最新更新 <SortIcon colKey="updated_at" />
                                 </th>
-                                <th className="px-5 py-3 border-b border-slate-200 text-right">管理操作</th>
+                                <th className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">
+                                    操作
+                                </th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-50">
+                        <tbody className="divide-y divide-slate-50 bg-white">
                             {loading ? (
-                                <tr><td colSpan={7} className="p-10 text-center text-slate-400">正在从 Supabase 加载数据...</td></tr>
+                                <tr><td colSpan={7} className="p-20 text-center text-slate-400 font-medium">正在从数据库同步数据...</td></tr>
                             ) : filteredArchives.length === 0 ? (
-                                <tr><td colSpan={7} className="p-10 text-center text-slate-400">暂无数据</td></tr>
+                                <tr>
+                                    <td colSpan={7} className="p-20 text-center">
+                                        <div className="flex flex-col items-center justify-center text-slate-300">
+                                            <span className="text-4xl mb-4">📭</span>
+                                            <p className="text-lg font-medium text-slate-400">暂无符合条件的档案</p>
+                                        </div>
+                                    </td>
+                                </tr>
                             ) : (
                                 filteredArchives.map(arch => {
-                                    // Calculate Next Follow Up Date for Table
                                     const nextFollowUp = arch.follow_up_schedule?.find(s => s.status === 'pending');
-                                    const nextDateStr = nextFollowUp ? nextFollowUp.date : '-';
+                                    const nextDateStr = nextFollowUp ? nextFollowUp.date : null;
                                     const isSelected = selectedIds.has(arch.id);
+                                    
+                                    // Generate a deterministic color for avatar placeholder based on name length
+                                    const avatarColors = ['bg-blue-100 text-blue-600', 'bg-teal-100 text-teal-600', 'bg-purple-100 text-purple-600', 'bg-orange-100 text-orange-600'];
+                                    const avatarColor = avatarColors[(arch.name?.length || 0) % avatarColors.length];
 
                                     return (
                                         <tr 
                                             key={arch.id} 
-                                            className={`hover:bg-teal-50/30 group transition-colors cursor-pointer ${isSelected ? 'bg-blue-50/50' : ''}`}
-                                            onDoubleClick={() => onSelectPatient(arch, 'view')}
-                                            title="双击查看评估方案"
+                                            className={`group transition-all duration-200 hover:bg-slate-50 cursor-pointer ${isSelected ? 'bg-blue-50/40' : ''}`}
                                             onClick={() => handleSelectRow(arch.id)}
+                                            onDoubleClick={() => onSelectPatient(arch, 'view')}
                                         >
-                                            <td className="px-5 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                            <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                                 <input 
                                                     type="checkbox" 
-                                                    className="cursor-pointer"
+                                                    className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
                                                     checked={isSelected}
                                                     onChange={() => handleSelectRow(arch.id)}
                                                 />
                                             </td>
-                                            <td className="px-5 py-3">
-                                                <div className="font-bold text-slate-800">{arch.name}</div>
-                                                <div className="text-xs text-slate-400 font-mono">{arch.checkup_id}</div>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${avatarColor} shrink-0`}>
+                                                        {arch.name ? arch.name.charAt(0) : '?'}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-bold text-slate-800 text-sm">{arch.name}</div>
+                                                        <div className="text-xs text-slate-400 font-mono mt-0.5">{arch.checkup_id}</div>
+                                                    </div>
+                                                    <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1">
+                                                        {arch.gender} / {arch.age}
+                                                    </span>
+                                                </div>
                                             </td>
-                                            <td className="px-5 py-3">
-                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                                            <td className="px-6 py-4">
+                                                <div className="text-sm font-medium text-slate-700">{arch.department || '-'}</div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-sm ${
                                                     arch.risk_level === 'RED' ? 'bg-red-50 text-red-700 border-red-100' :
                                                     arch.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
                                                     'bg-green-50 text-green-700 border-green-100'
@@ -729,45 +693,49 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                                         arch.risk_level === 'YELLOW' ? 'bg-yellow-500' :
                                                         'bg-green-500'
                                                     }`}></span>
-                                                    {arch.risk_level === 'RED' ? '高危' : arch.risk_level === 'YELLOW' ? '中危' : '低危'}
+                                                    {arch.risk_level === 'RED' ? '高风险' : arch.risk_level === 'YELLOW' ? '中风险' : '低风险'}
                                                 </span>
                                             </td>
-                                            <td className="px-5 py-3 text-slate-600 text-xs">
-                                                <div>{arch.department || '-'}</div>
-                                                <div className="font-mono text-slate-400">{arch.phone || '-'}</div>
+                                            <td className="px-6 py-4">
+                                                 <div className="flex items-center gap-2 text-sm text-slate-600">
+                                                     <span className="text-slate-300">📞</span>
+                                                     <span className="font-mono">{arch.phone || '-'}</span>
+                                                 </div>
                                             </td>
-                                            <td className="px-5 py-3 text-slate-600 text-xs font-mono">
-                                                 {nextDateStr !== '-' ? (
-                                                     <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-bold">
-                                                         {nextDateStr}
-                                                     </span>
-                                                 ) : (
-                                                     <span className="text-slate-300">-</span>
+                                            <td className="px-6 py-4">
+                                                 <div className="text-xs text-slate-500">
+                                                     {new Date(arch.updated_at || arch.created_at).toLocaleDateString()}
+                                                 </div>
+                                                 {nextDateStr && (
+                                                     <div className="text-[10px] text-orange-600 font-bold mt-1 bg-orange-50 px-1.5 py-0.5 rounded w-fit">
+                                                         下次: {nextDateStr}
+                                                     </div>
                                                  )}
                                             </td>
-                                            <td className="px-5 py-3 text-slate-500 text-xs font-mono">
-                                                 {new Date(arch.updated_at || arch.created_at).toLocaleString()}
-                                            </td>
-                                            <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                                                <div className="flex justify-end gap-2 opacity-100 transition-opacity">
+                                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                                <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button 
                                                         onClick={() => onSelectPatient(arch, 'view')}
-                                                        className="px-2 py-1 text-xs font-bold text-teal-600 hover:bg-teal-50 rounded border border-transparent hover:border-teal-100 transition-colors"
-                                                        title="查看评估报告"
+                                                        className="text-xs font-bold text-teal-600 hover:text-teal-700 hover:bg-teal-50 px-3 py-1.5 rounded-lg transition-colors"
                                                     >
                                                         查看
                                                     </button>
                                                     <button 
-                                                        onClick={() => handleEditClick(arch)}
-                                                        className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded border border-transparent hover:border-slate-200 transition-colors"
-                                                        title="修改基本信息"
+                                                        onClick={() => onSelectPatient(arch, 'followup')}
+                                                        className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
                                                     >
-                                                        修改
+                                                        随访
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleEditClick(arch)}
+                                                        className="text-xs font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition-colors"
+                                                    >
+                                                        编辑
                                                     </button>
                                                     <button 
                                                         onClick={() => handleDelete(arch.id, arch.name)}
-                                                        className="px-2 py-1 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                        title="删除档案"
+                                                        className="text-xs font-bold text-red-400 hover:text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
+                                                        title="删除"
                                                     >
                                                         🗑️
                                                     </button>
