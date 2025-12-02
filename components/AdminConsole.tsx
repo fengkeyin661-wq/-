@@ -1165,7 +1165,8 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
     
     // Sample Template Generator
     const downloadTemplate = () => {
-        const headers = [['姓名', '体检编号', '性别', '年龄', '部门', '电话', '身高', '体重', '收缩压', '舒张压']];
+        // Changed to: 部门、体检编号、姓名、性别、年龄、联系电话、体检结果
+        const headers = [['部门', '体检编号', '姓名', '性别', '年龄', '联系电话', '体检结果']];
         const ws = XLSX.utils.aoa_to_sheet(headers);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
@@ -1198,8 +1199,10 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
             // Sequential processing to allow UI updates and prevent DB rate limits
             for (let i = 0; i < jsonData.length; i++) {
                 const row: any = jsonData[i];
+                // Map based on template: 部门、体检编号、姓名、性别、年龄、联系电话、体检结果
                 const name = row['姓名'];
                 const id = row['体检编号'];
+                const resultText = row['体检结果'];
 
                 if (!name || !id) {
                     setLogs(prev => [...prev, `⚠️ 第 ${i+1} 行跳过：缺少姓名或体检编号`]);
@@ -1208,74 +1211,99 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                 }
 
                 try {
-                    // Create Default HealthRecord
-                    const newRecord: HealthRecord = {
-                        profile: {
-                            checkupId: String(id),
-                            name: String(name),
-                            gender: row['性别'] || '男',
-                            age: Number(row['年龄']) || 0,
-                            department: row['部门'] || '待定',
-                            phone: row['电话'] ? String(row['电话']) : '',
-                            checkupDate: new Date().toISOString().split('T')[0]
-                        },
-                        checkup: {
-                            basics: {
-                                height: Number(row['身高']) || undefined,
-                                weight: Number(row['体重']) || undefined,
-                                sbp: Number(row['收缩压']) || undefined,
-                                dbp: Number(row['舒张压']) || undefined,
-                                bmi: (row['身高'] && row['体重']) ? parseFloat((row['体重'] / ((row['身高']/100) ** 2)).toFixed(1)) : undefined
+                    setLogs(prev => [...prev, `🔄 正在处理: ${name}...`]);
+
+                    // 1. Construct Base Profile from Excel (Source of Truth)
+                    const excelProfile = {
+                        checkupId: String(id),
+                        name: String(name),
+                        gender: row['性别'] || '男',
+                        age: Number(row['年龄']) || 0,
+                        department: row['部门'] || '待定',
+                        phone: row['联系电话'] ? String(row['联系电话']) : '',
+                        checkupDate: new Date().toISOString().split('T')[0]
+                    };
+
+                    let record: HealthRecord;
+                    let assessment: HealthAssessment;
+                    let schedule: any[];
+
+                    // 2. AI Analysis if '体检结果' exists
+                    if (resultText && String(resultText).trim().length > 5) {
+                         setLogs(prev => [...prev, `   ↳ 🤖 AI正在分析体检结果...`]);
+                         
+                         // Parse structure
+                         const parsed = await parseHealthDataFromText(String(resultText));
+                         
+                         // Merge: Excel profile overrides parsed profile
+                         record = {
+                             ...parsed,
+                             profile: {
+                                 ...parsed.profile, // Keep parsed fields like dob if exists
+                                 ...excelProfile    // Overwrite with Excel constants
+                             }
+                         };
+                         
+                         // Generate AI Assessment
+                         assessment = await generateHealthAssessment(record);
+                         schedule = generateFollowUpSchedule(assessment);
+                    } else {
+                        // 3. Fallback: Skeleton Record (No Result Text)
+                        setLogs(prev => [...prev, `   ↳ ℹ️ 无详细体检结果，仅创建基础档案`]);
+                        
+                        record = {
+                            profile: excelProfile,
+                            checkup: {
+                                basics: {},
+                                labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} },
+                                imagingBasic: { ultrasound: {} },
+                                optional: {},
+                                abnormalities: []
                             },
-                            labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} },
-                            imagingBasic: { ultrasound: {} },
-                            optional: {},
-                            abnormalities: []
-                        },
-                        questionnaire: {
-                            history: { diseases: [], details: {} },
-                            femaleHealth: {},
-                            familyHistory: {},
-                            medication: { isRegular: '否', details: {} },
-                            diet: { habits: [] },
-                            hydration: {},
-                            exercise: {},
-                            sleep: {},
-                            respiratory: {},
-                            substances: { smoking: {}, alcohol: {} },
-                            mentalScales: {},
-                            mental: {},
-                            needs: {}
-                        }
-                    };
+                            questionnaire: {
+                                history: { diseases: [], details: {} },
+                                femaleHealth: {},
+                                familyHistory: {},
+                                medication: { isRegular: '否', details: {} },
+                                diet: { habits: [] },
+                                hydration: {},
+                                exercise: {},
+                                sleep: {},
+                                respiratory: {},
+                                substances: { smoking: {}, alcohol: {} },
+                                mentalScales: {},
+                                mental: {},
+                                needs: {}
+                            }
+                        };
+                        
+                        assessment = {
+                            riskLevel: RiskLevel.GREEN,
+                            isCritical: false,
+                            criticalWarning: null,
+                            summary: '批量导入档案 (基础信息)，待完善详细体检数据。',
+                            risks: { red: [], yellow: [], green: [] },
+                            managementPlan: { dietary: [], exercise: [], medication: [], monitoring: [] },
+                            followUpPlan: { frequency: '6个月', nextCheckItems: ['常规健康复查'] }
+                        };
 
-                    // Default Assessment
-                    const defaultAssessment: HealthAssessment = {
-                        riskLevel: RiskLevel.GREEN,
-                        isCritical: false,
-                        criticalWarning: null,
-                        summary: '批量导入档案，等待完善详细体检数据与问卷。',
-                        risks: { red: [], yellow: [], green: [] },
-                        managementPlan: { dietary: [], exercise: [], medication: [], monitoring: [] },
-                        followUpPlan: { frequency: '6个月', nextCheckItems: ['常规健康复查'] }
-                    };
+                        schedule = [{
+                            id: `sch_${Date.now()}_${i}`,
+                            date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // +6 months
+                            status: 'pending' as const,
+                            riskLevelAtSchedule: RiskLevel.GREEN,
+                            focusItems: ['常规复查']
+                        }];
+                    }
 
-                    // Default Schedule
-                    const defaultSchedule = [{
-                        id: `sch_${Date.now()}_${i}`,
-                        date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // +6 months
-                        status: 'pending' as const,
-                        riskLevelAtSchedule: RiskLevel.GREEN,
-                        focusItems: ['常规复查']
-                    }];
-
-                    // Save
-                    const res = await saveArchive(newRecord, defaultAssessment, defaultSchedule);
+                    // 4. Save to DB
+                    const res = await saveArchive(record, assessment, schedule);
                     
                     if (res.success) {
                         successCount++;
+                        setLogs(prev => [...prev, `   ✅ 建档成功`]);
                     } else {
-                        setLogs(prev => [...prev, `❌ 导入 ${name} 失败: ${res.message}`]);
+                        setLogs(prev => [...prev, `   ❌ 失败: ${res.message}`]);
                         failCount++;
                     }
                 } catch (e: any) {
@@ -1283,10 +1311,9 @@ const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComp
                     failCount++;
                 }
                 
-                // Update Progress
+                // Update Progress & Delay slightly
                 setProgress(Math.round(((i + 1) / jsonData.length) * 100));
-                // Small delay to allow UI render
-                await new Promise(r => setTimeout(r, 50));
+                await new Promise(r => setTimeout(r, 100));
             }
 
             setLogs(prev => [...prev, `🏁 导入完成！成功: ${successCount}, 失败: ${failCount}`]);
