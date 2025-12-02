@@ -5,6 +5,7 @@ import { QuestionnaireData } from '../types';
 interface Props {
     onSubmit: (data: QuestionnaireData, checkupId: string, profileInfo: {gender: string, dept: string}) => void;
     isLoading: boolean;
+    initialCheckupId?: string;
 }
 
 // Data options for questions
@@ -40,11 +41,11 @@ const OPTIONS = {
     services: ['必要的医学检查', '规范用药治疗', '生活方式支持', '急救技能培训', '心理健康辅导', '中医药保健', '其他']
 };
 
-export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
+export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initialCheckupId }) => {
     // Local State for all 53 fields (Question 3 removed)
     const [form, setForm] = useState<any>({
         // 1-2 Profile
-        checkupId: '', gender: '',
+        checkupId: initialCheckupId || '', gender: '',
         // 3-13 History (Indices shifted -1)
         historyDiseases: [], htnYear: '', cadTypes: [], arrhythmiaType: '', strokeTypes: [], strokeYear: '', 
         dmYear: '', tumorSite: '', tumorYear: '', surgeryHistory: '', otherHistory: '',
@@ -70,6 +71,12 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
         // 51-53 Needs
         followUpWilling: '', desiredServices: [], otherSupport: ''
     });
+
+    useEffect(() => {
+        if (initialCheckupId) {
+            setForm((prev: any) => ({ ...prev, checkupId: initialCheckupId }));
+        }
+    }, [initialCheckupId]);
 
     const handleChange = (key: string, value: any) => {
         setForm({ ...form, [key]: value });

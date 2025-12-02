@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { SystemRiskPortrait } from './SystemRiskPortrait';
@@ -11,8 +11,9 @@ interface Props {
   healthRecord?: HealthRecord; // Needed for SystemRiskPortrait
   riskAnalysis?: RiskAnalysisData; // New Prop
   onSave?: (newAssessment: HealthAssessment) => void;
-  onReevaluate?: () => void;
+  onUpdateReport?: (file: File) => void; // Changed from onReevaluate to file upload handler
   onUpdateRiskAnalysis?: () => void; // Prop to refresh archives if models are updated
+  onSupplementQuestionnaire?: () => void; // Add Supplement Questionnaire Callback
 }
 
 const COLORS = {
@@ -28,11 +29,13 @@ export const AssessmentReport: React.FC<Props> = ({
     healthRecord,
     riskAnalysis, 
     onSave, 
-    onReevaluate,
-    onUpdateRiskAnalysis
+    onUpdateReport,
+    onUpdateRiskAnalysis,
+    onSupplementQuestionnaire
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync state when props change (e.g. switching patients)
   useEffect(() => {
@@ -47,6 +50,21 @@ export const AssessmentReport: React.FC<Props> = ({
     { name: '中风险', value: editData.risks.yellow.length, color: COLORS[RiskLevel.YELLOW] },
     { name: '正常', value: Math.max(1, 5 - editData.risks.red.length), color: COLORS[RiskLevel.GREEN] },
   ];
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file && onUpdateReport) {
+          onUpdateReport(file);
+      }
+      // Reset input value to allow re-uploading the same file if needed
+      if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+      }
+  };
+
+  const handleUpdateClick = () => {
+      fileInputRef.current?.click();
+  };
 
   // Combined Print Window Logic
   const handlePrint = () => {
@@ -391,14 +409,33 @@ export const AssessmentReport: React.FC<Props> = ({
              </>
          ) : (
              <>
-                {onReevaluate && (
+                {/* Hidden File Input for Update Report */}
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    accept=".pdf,.docx,.doc,.txt"
+                    onChange={handleFileChange}
+                />
+                
+                {onUpdateReport && (
                     <button 
-                        onClick={onReevaluate} 
-                        className="bg-white border border-slate-300 text-slate-600 px-5 py-2 rounded-lg font-medium hover:bg-slate-50 hover:text-teal-600 flex items-center gap-2 transition-colors"
+                        onClick={handleUpdateClick} 
+                        className="bg-white border border-indigo-200 text-indigo-700 px-5 py-2 rounded-lg font-bold hover:bg-indigo-50 flex items-center gap-2 transition-colors shadow-sm"
                     >
-                        🔄 重新评估
+                        📈 更新体检报告
                     </button>
                 )}
+                
+                {onSupplementQuestionnaire && (
+                    <button 
+                        onClick={onSupplementQuestionnaire} 
+                        className="bg-white border border-blue-200 text-blue-700 px-5 py-2 rounded-lg font-bold hover:bg-blue-50 flex items-center gap-2 transition-colors shadow-sm"
+                    >
+                        📝 补充问卷信息
+                    </button>
+                )}
+
                 <button onClick={() => setIsEditing(true)} className="bg-white border border-teal-200 text-teal-700 px-5 py-2 rounded-lg font-medium hover:bg-teal-50 flex items-center gap-2">
                     ✏️ 医生修订
                 </button>

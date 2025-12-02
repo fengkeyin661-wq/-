@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -6,10 +7,16 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { HospitalHeatmap } from './components/HospitalHeatmap';
-import { NativeSurveyForm } from './components/NativeSurveyForm'; // New Import
+import { NativeSurveyForm } from './components/NativeSurveyForm'; 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData } from './types'; 
-import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId } from './services/dataService'; // Imported findArchiveByCheckupId
+import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId } from './services/dataService'; 
+import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
+
+// @ts-ignore
+import * as mammoth from 'mammoth';
+// @ts-ignore
+import * as pdfjsLib from 'pdfjs-dist';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('followup');
@@ -23,6 +30,27 @@ const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [archives, setArchives] = useState<HealthArchive[]>([]);
+
+  // Configure PDF Worker
+  useEffect(() => {
+    const setupPdfWorker = async () => {
+        const workerUrl = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+        // @ts-ignore
+        const lib = pdfjsLib.default || pdfjsLib;
+        if (!lib.GlobalWorkerOptions) return;
+
+        try {
+            const response = await fetch(workerUrl);
+            if (!response.ok) throw new Error("Failed");
+            const workerScript = await response.text();
+            const blob = new Blob([workerScript], { type: "text/javascript" });
+            lib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+        } catch (error) {
+            lib.GlobalWorkerOptions.workerSrc = workerUrl;
+        }
+    };
+    setupPdfWorker();
+  }, []);
 
   const refreshArchives = async () => {
       try {
@@ -90,6 +118,114 @@ const App: React.FC = () => {
     }
   };
 
+  // Helper function to extract text from files (PDF/Word/Txt)
+  const extractTextFromFile = async (file: File): Promise<string> => {
+      const fileType = file.name.split('.').pop()?.toLowerCase();
+      
+      if (fileType === 'txt') {
+          return await file.text();
+      } 
+      else if (fileType === 'docx' || fileType === 'doc') {
+          const arrayBuffer = await file.arrayBuffer();
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          return result.value;
+      }
+      else if (fileType === 'pdf') {
+          const arrayBuffer = await file.arrayBuffer();
+          // @ts-ignore
+          const lib = pdfjsLib.default || pdfjsLib;
+          const loadingTask = lib.getDocument({ data: arrayBuffer });
+          const pdf = await loadingTask.promise;
+          let fullText = "";
+          for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const textContent = await page.getTextContent();
+              const pageText = textContent.items.map((item: any) => item.str).join(' ');
+              fullText += `--- Page ${i} ---\n${pageText}\n\n`;
+          }
+          return fullText;
+      }
+      else {
+          throw new Error("不支持的文件格式 (仅支持 PDF, Word, TXT)");
+      }
+  };
+
+  // --- Handle Update Checkup Report (New Feature) ---
+  const handleUpdateCheckupReport = async (file: File) => {
+      if (!healthRecord) return;
+      
+      setIsGenerating(true);
+      try {
+          // 1. Extract text from uploaded file
+          const rawText = await extractTextFromFile(file);
+          if (!rawText || rawText.length < 20) {
+              throw new Error("文件内容为空或无法识别");
+          }
+
+          // 2. Parse new checkup data using AI
+          const newParsedRecord = await parseHealthDataFromText(rawText);
+
+          // 3. Merge Strategy:
+          // - Keep existing Profile (Name, ID, Phone) unless explicitly new
+          // - Keep existing Questionnaire (Subjective History)
+          // - Overwrite Checkup Data (Objective Lab/Imaging) with new data
+          const mergedRecord: HealthRecord = {
+              ...healthRecord,
+              checkup: newParsedRecord.checkup, // Overwrite objective data
+              profile: {
+                  ...healthRecord.profile,
+                  // Optionally update age/date if found in new report
+                  age: newParsedRecord.profile.age || healthRecord.profile.age,
+                  checkupDate: newParsedRecord.profile.checkupDate || new Date().toISOString().split('T')[0]
+              },
+              // Ensure we keep the questionnaire data
+              questionnaire: healthRecord.questionnaire 
+          };
+
+          // 4. Re-generate Assessment
+          const newAssessment = await generateHealthAssessment(mergedRecord);
+          
+          // 5. Generate new Schedule
+          const newSchedule = generateFollowUpSchedule(newAssessment);
+
+          // 6. Regenerate Risk Analysis (Portraits & Models) based on new data
+          const newPortraits = generateSystemPortraits(mergedRecord);
+          const newModels = evaluateRiskModels(mergedRecord);
+          const newRiskAnalysis: RiskAnalysisData = {
+              portraits: newPortraits,
+              models: newModels
+          };
+
+          // 7. Save to DB
+          const saveResult = await saveArchive(
+              mergedRecord, 
+              newAssessment, 
+              newSchedule, 
+              followUps, // Keep existing follow-ups
+              newRiskAnalysis
+          );
+
+          if (!saveResult.success) {
+              throw new Error("保存更新失败: " + saveResult.message);
+          }
+
+          // 8. Refresh UI
+          setHealthRecord(mergedRecord);
+          setAssessment(newAssessment);
+          setSchedule(newSchedule);
+          setRiskAnalysis(newRiskAnalysis);
+          await refreshArchives();
+
+          alert("体检报告更新成功！已自动重新生成风险评估方案。");
+
+      } catch (error) {
+          console.error(error);
+          alert("更新报告失败: " + (error instanceof Error ? error.message : "未知错误"));
+      } finally {
+          setIsGenerating(false);
+      }
+  };
+
   // --- New Logic: Handle Native Questionnaire Supplement ---
   const handleQuestionnaireSupplement = async (qData: QuestionnaireData, checkupId: string, profileInfo: {gender: string, dept: string}) => {
       setIsGenerating(true);
@@ -125,7 +261,7 @@ const App: React.FC = () => {
               newAssessment, 
               newSchedule, 
               existingArchive.follow_ups || [], 
-              undefined // Force regeneration of risk analysis models
+              undefined // Force regeneration of risk analysis models handled inside saveArchive if undefined
           );
 
           if (!saveResult.success) throw new Error(saveResult.message);
@@ -241,6 +377,11 @@ const App: React.FC = () => {
       }
   };
 
+  // --- New: Handler for Supplement Questionnaire Navigation ---
+  const handleNavigateToSupplement = () => {
+    setActiveTab('external_survey');
+  };
+
   return (
     <Layout 
       activeTab={activeTab} 
@@ -257,6 +398,16 @@ const App: React.FC = () => {
             refreshArchives();
         }}
       />
+
+      {isGenerating && (
+          <div className="fixed inset-0 bg-slate-900/50 z-[100] flex items-center justify-center backdrop-blur-sm">
+              <div className="bg-white p-6 rounded-lg shadow-xl flex flex-col items-center">
+                  <div className="w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                  <h3 className="text-lg font-bold text-slate-800">AI 正在深度分析中...</h3>
+                  <p className="text-sm text-slate-500">正在提取数据、合并档案并重新生成评估方案</p>
+              </div>
+          </div>
+      )}
 
       {activeTab === 'dashboard' && (
          <div className="text-center py-20 animate-fadeIn">
@@ -294,11 +445,11 @@ const App: React.FC = () => {
           <HospitalHeatmap archives={archives} onRefresh={refreshArchives} />
       )}
       
-      {/* Replaced External Iframe with Native Form */}
       {activeTab === 'external_survey' && (
           <NativeSurveyForm 
               onSubmit={handleQuestionnaireSupplement} 
               isLoading={isGenerating} 
+              initialCheckupId={healthRecord?.profile.checkupId} // Pass Checkup ID
           />
       )}
 
@@ -314,8 +465,9 @@ const App: React.FC = () => {
             healthRecord={healthRecord}
             riskAnalysis={riskAnalysis}
             onSave={handleSaveAssessment}
-            onReevaluate={() => setActiveTab('survey')}
+            onUpdateReport={handleUpdateCheckupReport} 
             onUpdateRiskAnalysis={refreshArchives}
+            onSupplementQuestionnaire={handleNavigateToSupplement} // Pass Callback
         />
       )}
       
