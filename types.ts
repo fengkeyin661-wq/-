@@ -417,3 +417,35 @@ export interface RiskAnalysisData {
     portraits: SystemRiskPortrait[];
     models: PredictionModelResult[];
 }
+
+// --- 9. User Portal Types (New for v1.0 User App) ---
+export interface HealthEvent {
+    id: string;
+    title: string;
+    type: 'lecture' | 'clinic' | 'skill'; // 讲座 | 义诊 | 技能课
+    date: string;
+    time: string;
+    location: string;
+    doctor?: string;
+    description: string;
+    capacity: number;
+    registered: number;
+    isRegistered?: boolean;
+}
+
+export interface DailyTask {
+    id: string;
+    title: string;
+    type: 'exercise' | 'diet' | 'med' | 'measure';
+    isCompleted: boolean;
+    points: number;
+}
+
+export interface HealthArticle {
+    id: string;
+    title: string;
+    category: string;
+    readTime: string; // e.g., "3 min"
+    imageUrl: string;
+    tags: string[];
+}
