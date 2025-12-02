@@ -22,10 +22,10 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const navItems = [
     { id: 'dashboard', label: '健康总览', icon: '📊' },
-    { id: 'external_survey', label: '在线问卷填写', icon: '🌐' }, // New Tab
+    { id: 'external_survey', label: '在线问卷填写', icon: '🌐' },
     { id: 'survey', label: '健康调查建档', icon: '📝' },
     { id: 'assessment', label: '风险评估与方案', icon: '📋' },
-    { id: 'risk_portrait', label: '风险画像与系统评估', icon: '🧘' },
+    // Removed 'risk_portrait' as it is merged into assessment
     { id: 'followup', label: '随访监测', icon: '📅' },
     { id: 'heatmap', label: '医疗服务热力图', icon: '🏥' },
     { id: 'admin', label: '管理控制台', icon: '⚡' },

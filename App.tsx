@@ -29,6 +29,18 @@ const App: React.FC = () => {
       try {
           const data = await fetchArchives();
           setArchives(data);
+
+          // Auto-sync current patient if selected (Data persistence logic)
+          if (healthRecord?.profile?.checkupId) {
+              const current = data.find(a => a.checkup_id === healthRecord.profile.checkupId);
+              if (current) {
+                  setHealthRecord(current.health_record);
+                  setAssessment(current.assessment_data);
+                  setSchedule(current.follow_up_schedule || []);
+                  setFollowUps(current.follow_ups || []);
+                  setRiskAnalysis(current.risk_analysis);
+              }
+          }
       } catch (e) {
           console.error("Failed to refresh archives:", e);
       }

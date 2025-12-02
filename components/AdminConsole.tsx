@@ -1,6 +1,5 @@
 
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, HealthArchive } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
@@ -27,6 +26,11 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [showSqlHelp, setShowSqlHelp] = useState(false);
+
+    // --- Enhanced List State (Sorting, Filtering, Selection) ---
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'updated_at', direction: 'desc' });
+    const [filterRisk, setFilterRisk] = useState<string>('ALL'); // ALL, RED, YELLOW, GREEN
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     // Edit Modal State
     const [editingArchive, setEditingArchive] = useState<HealthArchive | null>(null);
@@ -87,6 +91,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         }
         setLoading(true);
         setFetchError(null);
+        setSelectedIds(new Set()); // Reset selection on reload
         try {
             const data = await fetchArchives();
             setArchives(data);
@@ -108,6 +113,94 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 alert('删除失败，请重试');
             }
         }
+    };
+
+    const handleBatchDelete = async () => {
+        if (selectedIds.size === 0) return;
+        if (confirm(`⚠️ 危险操作：确定要批量删除选中的 ${selectedIds.size} 份健康档案吗？\n此操作不可恢复！`)) {
+            setLoading(true);
+            let successCount = 0;
+            // Execute deletion
+            for (const id of Array.from(selectedIds)) {
+                const success = await deleteArchive(id);
+                if (success) successCount++;
+            }
+            alert(`批量删除完成，成功删除 ${successCount} 条。`);
+            loadData();
+            if (onDataUpdate) onDataUpdate();
+            setLoading(false);
+        }
+    };
+
+    // --- Sorting & Filtering Logic ---
+    const filteredArchives = useMemo(() => {
+        let result = archives.filter(archive => {
+            const term = searchTerm.toLowerCase();
+            const matchSearch = (
+                (archive.name || '').toLowerCase().includes(term) ||
+                (archive.checkup_id || '').toLowerCase().includes(term) ||
+                (archive.phone || '').toLowerCase().includes(term)
+            );
+            const matchRisk = filterRisk === 'ALL' || archive.risk_level === filterRisk;
+            return matchSearch && matchRisk;
+        });
+
+        if (sortConfig) {
+            result.sort((a, b) => {
+                let aVal: any = '';
+                let bVal: any = '';
+
+                switch (sortConfig.key) {
+                    case 'name':
+                        aVal = a.name || ''; bVal = b.name || '';
+                        break;
+                    case 'department':
+                        aVal = a.department || ''; bVal = b.department || '';
+                        break;
+                    case 'risk_level':
+                         // Custom sort for risk: RED > YELLOW > GREEN
+                         const riskOrder = { 'RED': 3, 'YELLOW': 2, 'GREEN': 1, 'UNKNOWN': 0 };
+                         aVal = riskOrder[a.risk_level as keyof typeof riskOrder] || 0;
+                         bVal = riskOrder[b.risk_level as keyof typeof riskOrder] || 0;
+                         break;
+                    case 'updated_at':
+                         aVal = new Date(a.updated_at || a.created_at).getTime();
+                         bVal = new Date(b.updated_at || b.created_at).getTime();
+                         break;
+                    default:
+                        aVal = (a as any)[sortConfig.key];
+                        bVal = (b as any)[sortConfig.key];
+                }
+
+                if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        return result;
+    }, [archives, searchTerm, filterRisk, sortConfig]);
+
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) {
+            setSelectedIds(new Set(filteredArchives.map(a => a.id)));
+        } else {
+            setSelectedIds(new Set());
+        }
+    };
+
+    const handleSelectRow = (id: string) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedIds(newSet);
     };
 
     // --- Edit Handlers ---
@@ -261,15 +354,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const upcomingTasks = getUpcomingTasks();
     const activeCriticalPatients = getActiveCriticalPatients();
 
-    const filteredArchives = archives.filter(archive => {
-        const term = searchTerm.toLowerCase();
-        return (
-            (archive.name || '').toLowerCase().includes(term) ||
-            (archive.checkup_id || '').toLowerCase().includes(term) ||
-            (archive.phone || '').toLowerCase().includes(term)
-        );
-    });
-
     const StatsCard = ({ label, value, color, icon }: any) => (
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
             <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl ${color}`}>
@@ -281,6 +365,12 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             </div>
         </div>
     );
+
+    // Helper for Sort Icons
+    const SortIcon = ({ colKey }: { colKey: string }) => {
+        if (sortConfig?.key !== colKey) return <span className="text-slate-300 ml-1">⇅</span>;
+        return <span className="text-teal-600 ml-1 font-bold">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>;
+    };
 
     if (!isAuthenticated) {
         return (
@@ -513,9 +603,22 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
             {/* Main Data Grid (Full Width) */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col h-[700px]">
                 {/* Toolbar */}
-                <div className="px-5 py-4 border-b border-slate-100 flex gap-4 items-center justify-between">
-                    <div className="flex gap-4 items-center flex-1">
-                        <div className="relative flex-1 max-w-md">
+                <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap gap-4 items-center justify-between">
+                    <div className="flex gap-3 items-center flex-1">
+                        {/* Risk Filter */}
+                        <select 
+                            className="border border-slate-200 rounded-lg py-2 px-3 text-sm bg-slate-50 focus:outline-none focus:border-teal-500"
+                            value={filterRisk}
+                            onChange={e => setFilterRisk(e.target.value)}
+                        >
+                            <option value="ALL">全部风险等级</option>
+                            <option value="RED">高风险 (红)</option>
+                            <option value="YELLOW">中风险 (黄)</option>
+                            <option value="GREEN">低风险 (绿)</option>
+                        </select>
+
+                        {/* Search Bar */}
+                        <div className="relative flex-1 max-w-sm">
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
                             <input 
                                 type="text" 
@@ -525,49 +628,101 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                 onChange={e => setSearchTerm(e.target.value)}
                             />
                         </div>
+
                         <div className="text-xs text-slate-400 whitespace-nowrap">
-                             共 {filteredArchives.length} 条
+                             显示 {filteredArchives.length} 条
                         </div>
                     </div>
-                    <button 
-                        onClick={handleExportData}
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 shadow-sm transition-colors"
-                    >
-                        <span>📤</span> 导出数据
-                    </button>
+                    
+                    <div className="flex items-center gap-3">
+                        {/* Batch Delete Button */}
+                        {selectedIds.size > 0 && (
+                            <button 
+                                onClick={handleBatchDelete}
+                                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-sm transition-all animate-scaleIn"
+                            >
+                                <span>🗑️</span> 批量删除 ({selectedIds.size})
+                            </button>
+                        )}
+                        
+                        <button 
+                            onClick={handleExportData}
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 shadow-sm transition-colors"
+                        >
+                            <span>📤</span> 导出数据
+                        </button>
+                    </div>
                 </div>
 
                 {/* Table */}
                 <div className="flex-1 overflow-auto">
                     <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 sticky top-0 z-10 text-slate-500 font-medium">
+                        <thead className="bg-slate-50 sticky top-0 z-10 text-slate-500 font-medium select-none">
                             <tr>
-                                <th className="px-5 py-3 border-b border-slate-200">基本信息</th>
-                                <th className="px-5 py-3 border-b border-slate-200">风险等级</th>
-                                <th className="px-5 py-3 border-b border-slate-200">部门/电话</th>
+                                <th className="px-5 py-3 border-b border-slate-200 w-12 text-center">
+                                    <input 
+                                        type="checkbox" 
+                                        className="cursor-pointer"
+                                        checked={filteredArchives.length > 0 && selectedIds.size === filteredArchives.length}
+                                        onChange={handleSelectAll}
+                                    />
+                                </th>
+                                <th 
+                                    className="px-5 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    onClick={() => handleSort('name')}
+                                >
+                                    基本信息 <SortIcon colKey="name" />
+                                </th>
+                                <th 
+                                    className="px-5 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    onClick={() => handleSort('risk_level')}
+                                >
+                                    风险等级 <SortIcon colKey="risk_level" />
+                                </th>
+                                <th 
+                                    className="px-5 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    onClick={() => handleSort('department')}
+                                >
+                                    部门/电话 <SortIcon colKey="department" />
+                                </th>
                                 <th className="px-5 py-3 border-b border-slate-200">下次随访时间</th>
-                                <th className="px-5 py-3 border-b border-slate-200">最新评估时间</th>
+                                <th 
+                                    className="px-5 py-3 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    onClick={() => handleSort('updated_at')}
+                                >
+                                    最新评估时间 <SortIcon colKey="updated_at" />
+                                </th>
                                 <th className="px-5 py-3 border-b border-slate-200 text-right">管理操作</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                             {loading ? (
-                                <tr><td colSpan={6} className="p-10 text-center text-slate-400">正在从 Supabase 加载数据...</td></tr>
+                                <tr><td colSpan={7} className="p-10 text-center text-slate-400">正在从 Supabase 加载数据...</td></tr>
                             ) : filteredArchives.length === 0 ? (
-                                <tr><td colSpan={6} className="p-10 text-center text-slate-400">暂无数据</td></tr>
+                                <tr><td colSpan={7} className="p-10 text-center text-slate-400">暂无数据</td></tr>
                             ) : (
                                 filteredArchives.map(arch => {
                                     // Calculate Next Follow Up Date for Table
                                     const nextFollowUp = arch.follow_up_schedule?.find(s => s.status === 'pending');
                                     const nextDateStr = nextFollowUp ? nextFollowUp.date : '-';
+                                    const isSelected = selectedIds.has(arch.id);
 
                                     return (
                                         <tr 
                                             key={arch.id} 
-                                            className="hover:bg-teal-50/30 group transition-colors cursor-pointer"
+                                            className={`hover:bg-teal-50/30 group transition-colors cursor-pointer ${isSelected ? 'bg-blue-50/50' : ''}`}
                                             onDoubleClick={() => onSelectPatient(arch, 'view')}
                                             title="双击查看评估方案"
+                                            onClick={() => handleSelectRow(arch.id)}
                                         >
+                                            <td className="px-5 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="cursor-pointer"
+                                                    checked={isSelected}
+                                                    onChange={() => handleSelectRow(arch.id)}
+                                                />
+                                            </td>
                                             <td className="px-5 py-3">
                                                 <div className="font-bold text-slate-800">{arch.name}</div>
                                                 <div className="text-xs text-slate-400 font-mono">{arch.checkup_id}</div>
