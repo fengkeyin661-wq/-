@@ -597,43 +597,55 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                     />
                                 </th>
                                 <th 
-                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors"
-                                    onClick={() => handleSort('name')}
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors whitespace-nowrap"
+                                    onClick={() => handleSort('checkup_id')}
                                 >
-                                    个人信息 <SortIcon colKey="name" />
+                                    体检编号 <SortIcon colKey="checkup_id" />
                                 </th>
                                 <th 
-                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors"
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors whitespace-nowrap"
+                                    onClick={() => handleSort('name')}
+                                >
+                                    姓名 <SortIcon colKey="name" />
+                                </th>
+                                <th className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                                    年龄
+                                </th>
+                                <th 
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors whitespace-nowrap"
                                     onClick={() => handleSort('department')}
                                 >
                                     部门/单位 <SortIcon colKey="department" />
                                 </th>
+                                <th className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                                    联系电话
+                                </th>
                                 <th 
-                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors"
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors whitespace-nowrap"
                                     onClick={() => handleSort('risk_level')}
                                 >
                                     风险评估 <SortIcon colKey="risk_level" />
                                 </th>
-                                <th className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                    联系方式
+                                <th className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                                    下次随访
                                 </th>
                                 <th 
-                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors"
+                                    className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-teal-600 transition-colors whitespace-nowrap"
                                     onClick={() => handleSort('updated_at')}
                                 >
-                                    最新更新 <SortIcon colKey="updated_at" />
+                                    更新时间 <SortIcon colKey="updated_at" />
                                 </th>
-                                <th className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">
+                                <th className="px-6 py-4 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider text-right whitespace-nowrap">
                                     操作
                                 </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50 bg-white">
                             {loading ? (
-                                <tr><td colSpan={7} className="p-20 text-center text-slate-400 font-medium">正在从数据库同步数据...</td></tr>
+                                <tr><td colSpan={10} className="p-20 text-center text-slate-400 font-medium">正在从数据库同步数据...</td></tr>
                             ) : filteredArchives.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="p-20 text-center">
+                                    <td colSpan={10} className="p-20 text-center">
                                         <div className="flex flex-col items-center justify-center text-slate-300">
                                             <span className="text-4xl mb-4">📭</span>
                                             <p className="text-lg font-medium text-slate-400">暂无符合条件的档案</p>
@@ -646,10 +658,6 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                     const nextDateStr = nextFollowUp ? nextFollowUp.date : null;
                                     const isSelected = selectedIds.has(arch.id);
                                     
-                                    // Generate a deterministic color for avatar placeholder based on name length
-                                    const avatarColors = ['bg-blue-100 text-blue-600', 'bg-teal-100 text-teal-600', 'bg-purple-100 text-purple-600', 'bg-orange-100 text-orange-600'];
-                                    const avatarColor = avatarColors[(arch.name?.length || 0) % avatarColors.length];
-
                                     return (
                                         <tr 
                                             key={arch.id} 
@@ -665,24 +673,28 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                                     onChange={() => handleSelectRow(arch.id)}
                                                 />
                                             </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${avatarColor} shrink-0`}>
-                                                        {arch.name ? arch.name.charAt(0) : '?'}
-                                                    </div>
-                                                    <div>
-                                                        <div className="font-bold text-slate-800 text-sm">{arch.name}</div>
-                                                        <div className="text-xs text-slate-400 font-mono mt-0.5">{arch.checkup_id}</div>
-                                                    </div>
-                                                    <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded ml-1">
-                                                        {arch.gender} / {arch.age}
-                                                    </span>
-                                                </div>
+                                            {/* Checkup ID */}
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-slate-500">
+                                                {arch.checkup_id}
                                             </td>
-                                            <td className="px-6 py-4">
-                                                <div className="text-sm font-medium text-slate-700">{arch.department || '-'}</div>
+                                            {/* Name (No Avatar) */}
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="font-bold text-slate-800 text-sm">{arch.name}</div>
                                             </td>
-                                            <td className="px-6 py-4">
+                                            {/* Age (No Gender) */}
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                                                {arch.age ? `${arch.age}岁` : '-'}
+                                            </td>
+                                            {/* Department */}
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                                                {arch.department || '-'}
+                                            </td>
+                                            {/* Phone (No Icon) */}
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-slate-600">
+                                                 {arch.phone || '-'}
+                                            </td>
+                                            {/* Risk Level */}
+                                            <td className="px-6 py-4 whitespace-nowrap">
                                                 <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border shadow-sm ${
                                                     arch.risk_level === 'RED' ? 'bg-red-50 text-red-700 border-red-100' :
                                                     arch.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-700 border-yellow-100' :
@@ -696,23 +708,24 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                                     {arch.risk_level === 'RED' ? '高风险' : arch.risk_level === 'YELLOW' ? '中风险' : '低风险'}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4">
-                                                 <div className="flex items-center gap-2 text-sm text-slate-600">
-                                                     <span className="text-slate-300">📞</span>
-                                                     <span className="font-mono">{arch.phone || '-'}</span>
-                                                 </div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                 <div className="text-xs text-slate-500">
-                                                     {new Date(arch.updated_at || arch.created_at).toLocaleDateString()}
-                                                 </div>
-                                                 {nextDateStr && (
-                                                     <div className="text-[10px] text-orange-600 font-bold mt-1 bg-orange-50 px-1.5 py-0.5 rounded w-fit">
-                                                         下次: {nextDateStr}
-                                                     </div>
+                                            {/* Next Follow Up */}
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                 {nextDateStr ? (
+                                                     <span className="text-sm font-bold text-orange-600">
+                                                         {nextDateStr}
+                                                     </span>
+                                                 ) : (
+                                                     <span className="text-sm text-slate-400">-</span>
                                                  )}
                                             </td>
-                                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                            {/* Updated At */}
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                 <div className="text-xs text-slate-400">
+                                                     {new Date(arch.updated_at || arch.created_at).toLocaleDateString()}
+                                                 </div>
+                                            </td>
+                                            {/* Actions */}
+                                            <td className="px-6 py-4 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
                                                 <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button 
                                                         onClick={() => onSelectPatient(arch, 'view')}
