@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, HealthArchive } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
@@ -342,7 +343,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     // --- Logic: Critical Patients (Active only) ---
     const getActiveCriticalPatients = () => {
         return archives.filter(arch => 
-            arch.assessment_data?.isCritical === true && 
+            // Check flag OR check text for keywords like "A类" or "B类" to be safe
+            (arch.assessment_data?.isCritical === true || (arch.assessment_data?.criticalWarning && arch.assessment_data.criticalWarning.includes('类'))) && 
             arch.critical_track?.status !== 'archived'
         );
     };
@@ -474,8 +476,9 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
             {activeCriticalPatients.length > 0 && (
                 <div className="bg-white border-l-4 border-red-500 rounded-xl shadow-sm p-6 animate-pulse-slow ring-1 ring-slate-100">
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-red-800 font-bold flex items-center gap-2 text-lg">
-                            🚨 危急值预警名单
+                        <h3 className="text-slate-800 font-bold flex items-center gap-2 text-lg">
+                            <span className="text-red-600 text-2xl">🚨</span> 
+                            <span>危急值(A类) / 重大异常(B类) 预警名单</span>
                         </h3>
                         <div className="flex items-center gap-3">
                             <span className="text-xs bg-red-100 text-red-800 px-3 py-1 rounded-full font-bold">
@@ -485,33 +488,51 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                 onClick={handleExportCritical}
                                 className="bg-white border border-red-200 text-red-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-50 flex items-center gap-1 shadow-sm transition-colors"
                             >
-                                📤 导出危急值报告
+                                📤 导出列表
                             </button>
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {activeCriticalPatients.map((arch) => {
                             const isPendingSecondary = arch.critical_track?.status === 'pending_secondary';
+                            const warningText = arch.assessment_data.criticalWarning || '存在异常';
+                            // Detect Type B (Major Abnormal) vs Type A (Critical)
+                            const isTypeB = warningText.includes('B类') || warningText.includes('重大异常');
+                            
+                            // Dynamic Styling
+                            const bgColor = isTypeB ? 'bg-orange-50/50' : 'bg-red-50/50';
+                            const borderColor = isTypeB ? 'border-orange-200' : 'border-red-200';
+                            const textColor = isTypeB ? 'text-orange-800' : 'text-red-800';
+                            const tagBg = isTypeB ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-red-100 text-red-700 border-red-200';
+                            const label = isTypeB ? '重大异常 (B类)' : '危急值 (A类)';
+                            const btnColor = isTypeB ? 'bg-orange-500 hover:bg-orange-600' : 'bg-red-500 hover:bg-red-600';
+
                             return (
-                                <div key={arch.id} className="bg-red-50/50 border border-red-100 rounded-xl p-4 flex justify-between items-center hover:shadow-md transition-shadow cursor-pointer" onClick={() => setCriticalModalArchive(arch)}>
-                                    <div>
-                                        <div className="flex items-center gap-2">
+                                <div key={arch.id} className={`${bgColor} border ${borderColor} rounded-xl p-4 flex justify-between items-center hover:shadow-md transition-shadow cursor-pointer relative overflow-hidden`} onClick={() => setCriticalModalArchive(arch)}>
+                                    <div className={`absolute left-0 top-0 bottom-0 w-1 ${isTypeB ? 'bg-orange-400' : 'bg-red-500'}`}></div>
+                                    <div className="pl-2">
+                                        <div className="flex items-center gap-2 mb-1">
                                             <span className="font-bold text-slate-800">{arch.name}</span>
-                                            <span className="text-[10px] text-red-600 font-bold border border-red-200 px-1.5 py-0.5 rounded bg-white uppercase">Critical</span>
+                                            <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded uppercase ${tagBg}`}>
+                                                {label}
+                                            </span>
                                         </div>
-                                        <div className="text-xs text-red-700 mt-1 max-w-[180px] truncate" title={arch.assessment_data.criticalWarning || '危急值筛查异常'}>
-                                            ⚠️ {arch.assessment_data.criticalWarning || '存在危急指标'}
+                                        <div className={`text-xs mt-1 max-w-[200px] truncate font-medium ${textColor}`} title={warningText}>
+                                            ⚠️ {warningText}
+                                        </div>
+                                        <div className="text-[10px] text-slate-400 mt-1">
+                                            {arch.critical_track ? `更新于: ${new Date(arch.critical_track.initial_notify_time).toLocaleDateString()}` : '等待初次处置'}
                                         </div>
                                     </div>
                                     
                                     <button 
-                                        className={`text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm ${
+                                        className={`text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm whitespace-nowrap ml-2 ${
                                             isPendingSecondary 
-                                            ? 'bg-yellow-500 hover:bg-yellow-600' 
-                                            : 'bg-red-500 hover:bg-red-600'
+                                            ? 'bg-blue-500 hover:bg-blue-600' 
+                                            : btnColor
                                         }`}
                                     >
-                                        {isPendingSecondary ? '🕒 二次回访' : '⚡ 处理'}
+                                        {isPendingSecondary ? '🕒 二次回访' : '⚡ 立即处置'}
                                     </button>
                                 </div>
                             );
