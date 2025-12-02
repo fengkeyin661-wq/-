@@ -1,11 +1,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, HealthArchive } from '../services/dataService';
+import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, RiskLevel } from '../types';
 import { CriticalHandleModal } from './CriticalHandleModal';
 // @ts-ignore
 import * as XLSX from 'xlsx';
+// @ts-ignore
+import * as mammoth from 'mammoth';
+// @ts-ignore
+import * as pdfjsLib from 'pdfjs-dist';
 
 interface Props {
     onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup') => void;
@@ -31,6 +36,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     // Batch Import Modal State
     const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+    
+    // Smart Batch Import Modal State (PDF/Word + AI)
+    const [isSmartBatchModalOpen, setIsSmartBatchModalOpen] = useState(false);
 
     const configured = isSupabaseConfigured();
 
@@ -40,6 +48,24 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             loadData();
         }
     }, [isAuthenticated]);
+
+    // Setup PDF Worker globally for Admin Console as well
+    useEffect(() => {
+        const setupPdfWorker = async () => {
+            const workerUrl = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+            try {
+                const response = await fetch(workerUrl);
+                if (!response.ok) throw new Error("Failed to fetch worker script");
+                const workerScript = await response.text();
+                const blob = new Blob([workerScript], { type: "text/javascript" });
+                const blobUrl = URL.createObjectURL(blob);
+                pdfjsLib.GlobalWorkerOptions.workerSrc = blobUrl;
+            } catch (error) {
+                pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+            }
+        };
+        setupPdfWorker();
+    }, []);
 
     const loadData = async () => {
         if (!configured) {
@@ -273,10 +299,16 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 </div>
                 <div className="flex gap-2">
                      <button 
+                        onClick={() => setIsSmartBatchModalOpen(true)}
+                        className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs font-bold text-white flex items-center gap-1 transition-colors shadow-sm"
+                     >
+                        ✨ 批量智能建档 (PDF/Word)
+                     </button>
+                     <button 
                         onClick={() => setIsBatchModalOpen(true)}
                         className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-xs font-bold text-white flex items-center gap-1 transition-colors shadow-sm"
                      >
-                        📂 批量建档
+                        📂 批量导入 (Excel/CSV)
                      </button>
                      <button onClick={loadData} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-bold text-slate-600 flex items-center gap-1 transition-colors">
                         🔄 刷新数据
@@ -603,12 +635,24 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                 />
             )}
 
-            {/* Batch Import Modal */}
+            {/* Batch Import Modal (CSV/Excel) */}
             {isBatchModalOpen && (
                 <BatchImportModal 
                     onClose={() => setIsBatchModalOpen(false)}
                     onComplete={() => {
                         setIsBatchModalOpen(false);
+                        loadData();
+                        if(onDataUpdate) onDataUpdate();
+                    }}
+                />
+            )}
+            
+            {/* Smart Batch Import Modal (PDF/Word/AI) */}
+            {isSmartBatchModalOpen && (
+                <SmartBatchImportModal 
+                    onClose={() => setIsSmartBatchModalOpen(false)}
+                    onComplete={() => {
+                        setIsSmartBatchModalOpen(false);
                         loadData();
                         if(onDataUpdate) onDataUpdate();
                     }}
@@ -722,7 +766,229 @@ const EditProfileModal: React.FC<EditModalProps> = ({ archive, onClose, onSave }
     );
 };
 
-// --- Batch Import Modal ---
+// --- Smart Batch Import Modal (PDF/Word/AI) ---
+const SmartBatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComplete: () => void }) => {
+    const [files, setFiles] = useState<File[]>([]);
+    const [processing, setProcessing] = useState(false);
+    // Track status of each file: 'pending', 'extracting', 'parsing', 'assessing', 'saving', 'success', 'error'
+    const [fileStatuses, setFileStatuses] = useState<{name: string, status: string, detail?: string}[]>([]);
+    const [successCount, setSuccessCount] = useState(0);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            const newFiles = Array.from(e.target.files);
+            setFiles(prev => [...prev, ...newFiles]);
+            setFileStatuses(prev => [
+                ...prev,
+                ...newFiles.map(f => ({ name: f.name, status: 'pending', detail: '等待处理...' }))
+            ]);
+        }
+    };
+
+    const extractText = async (file: File): Promise<string> => {
+        const fileType = file.name.split('.').pop()?.toLowerCase();
+        
+        if (fileType === 'txt') {
+            return await file.text();
+        } 
+        else if (fileType === 'docx') {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            return result.value;
+        }
+        else if (fileType === 'pdf') {
+            const arrayBuffer = await file.arrayBuffer();
+            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+            const pdf = await loadingTask.promise;
+            let fullText = "";
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map((item: any) => item.str).join(' ');
+                fullText += `--- Page ${i} ---\n${pageText}\n\n`;
+            }
+            return fullText;
+        }
+        else {
+            throw new Error("不支持的文件格式 (仅支持 PDF, Word, TXT)");
+        }
+    };
+
+    const updateStatus = (index: number, status: string, detail: string) => {
+        setFileStatuses(prev => {
+            const next = [...prev];
+            next[index] = { ...next[index], status, detail };
+            return next;
+        });
+    };
+
+    const startProcessing = async () => {
+        setProcessing(true);
+        let sCount = 0;
+
+        for (let i = 0; i < files.length; i++) {
+            // Check if already processed
+            if (fileStatuses[i].status === 'success' || fileStatuses[i].status === 'error') continue;
+
+            const file = files[i];
+            
+            try {
+                // 1. Extract Text
+                updateStatus(i, 'extracting', '📄 正在提取文本...');
+                const rawText = await extractText(file);
+                
+                if (!rawText || rawText.length < 50) {
+                     throw new Error("提取的文本内容过少或为空");
+                }
+
+                // 2. AI Parsing (Structure Data)
+                updateStatus(i, 'parsing', '🤖 AI正在解析数据结构...');
+                const healthRecord = await parseHealthDataFromText(rawText);
+                
+                if (!healthRecord.profile.name || !healthRecord.profile.checkupId) {
+                    throw new Error("解析失败：未能提取到姓名或体检编号");
+                }
+
+                // 3. AI Assessment (Risk Analysis)
+                updateStatus(i, 'assessing', '🩺 AI正在生成风险评估方案...');
+                const assessment = await generateHealthAssessment(healthRecord);
+                const schedule = generateFollowUpSchedule(assessment);
+
+                // 4. Save to DB
+                updateStatus(i, 'saving', '💾 正在存档...');
+                const saveResult = await saveArchive(healthRecord, assessment, schedule);
+                
+                if (saveResult.success) {
+                    updateStatus(i, 'success', '✅ 建档成功');
+                    sCount++;
+                } else {
+                    throw new Error(saveResult.message || "数据库保存失败");
+                }
+
+            } catch (error: any) {
+                console.error(`Error processing ${file.name}:`, error);
+                updateStatus(i, 'error', `❌ 失败: ${error.message}`);
+            }
+            
+            // Wait a bit to avoid rate limits
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        setSuccessCount(prev => prev + sCount);
+        setProcessing(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[90] backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl p-6 h-[80vh] flex flex-col animate-scaleIn">
+                <div className="flex justify-between items-center mb-6 border-b pb-4 shrink-0">
+                    <div>
+                        <h3 className="text-xl font-bold text-indigo-700 flex items-center gap-2">
+                            <span>✨</span> 批量智能建档 (AI Parsing)
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">支持 PDF / Word / TXT 体检报告，AI 自动提取数据、评估并建档</p>
+                    </div>
+                    {!processing && <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>}
+                </div>
+
+                {/* File Upload Area */}
+                <div className="mb-4 shrink-0">
+                    <div className="border-2 border-dashed border-indigo-200 rounded-xl p-6 text-center hover:bg-indigo-50 transition-colors relative">
+                        <input 
+                            type="file" 
+                            multiple
+                            accept=".pdf, .docx, .doc, .txt" 
+                            onChange={handleFileChange}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            disabled={processing}
+                        />
+                        <div className="flex flex-col items-center gap-2">
+                            <span className="text-3xl">📄</span>
+                            <span className="font-bold text-indigo-700">点击选择或拖入多个文件</span>
+                            <span className="text-xs text-slate-500">支持 PDF, Word, TXT 格式</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* File List & Status */}
+                <div className="flex-1 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50 p-2 mb-4">
+                    {fileStatuses.length === 0 ? (
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">
+                            等待添加文件...
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            {fileStatuses.map((f, idx) => (
+                                <div key={idx} className="bg-white p-3 rounded border border-slate-200 flex items-center justify-between shadow-sm">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${
+                                            f.status === 'pending' ? 'bg-slate-300' :
+                                            f.status === 'extracting' ? 'bg-blue-400 animate-pulse' :
+                                            f.status === 'parsing' ? 'bg-indigo-500 animate-pulse' :
+                                            f.status === 'assessing' ? 'bg-purple-500 animate-pulse' :
+                                            f.status === 'saving' ? 'bg-orange-400 animate-pulse' :
+                                            f.status === 'success' ? 'bg-green-500' : 'bg-red-500'
+                                        }`}>
+                                            {idx + 1}
+                                        </div>
+                                        <div className="truncate">
+                                            <div className="font-bold text-sm text-slate-700 truncate max-w-[200px]">{f.name}</div>
+                                            <div className={`text-xs ${
+                                                f.status === 'error' ? 'text-red-500' : 
+                                                f.status === 'success' ? 'text-green-600' : 'text-indigo-600'
+                                            }`}>
+                                                {f.detail}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {f.status === 'pending' && !processing && (
+                                        <button 
+                                            onClick={() => {
+                                                const newFiles = [...files];
+                                                newFiles.splice(idx, 1);
+                                                setFiles(newFiles);
+                                                const newStatuses = [...fileStatuses];
+                                                newStatuses.splice(idx, 1);
+                                                setFileStatuses(newStatuses);
+                                            }}
+                                            className="text-slate-400 hover:text-red-500 text-lg px-2"
+                                        >
+                                            ×
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex justify-between items-center pt-4 border-t border-slate-100 shrink-0">
+                    <div className="text-sm text-slate-500">
+                        已添加: <strong>{files.length}</strong> 个文件 
+                        {successCount > 0 && <span className="ml-2 text-green-600">(成功: {successCount})</span>}
+                    </div>
+                    <div className="flex gap-3">
+                        <button onClick={onClose} disabled={processing} className="px-4 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm font-medium">关闭</button>
+                        <button 
+                            onClick={startProcessing}
+                            disabled={files.length === 0 || processing}
+                            className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {processing ? (
+                                <>
+                                    <span className="animate-spin">⏳</span>
+                                    正在智能处理中...
+                                </>
+                            ) : '🚀 开始批量解析与建档'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- Batch Import Modal (CSV/Excel) ---
 const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComplete: () => void }) => {
     const [file, setFile] = useState<File | null>(null);
     const [importing, setImporting] = useState(false);
