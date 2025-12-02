@@ -90,6 +90,10 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
         handleChange(scale, newArr);
     };
 
+    // --- Logic Helpers ---
+    const hasHistory = (disease: string) => form.historyDiseases.includes(disease);
+    const hasFamily = (history: string) => form.familyHistory.includes(history);
+
     // --- Data Mapping Logic ---
     const handleSubmit = () => {
         if (!form.checkupId) {
@@ -134,12 +138,11 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
             familyHistory: {
                 fatherCvdEarly: form.fatherCvdEarly === '是',
                 motherCvdEarly: form.motherCvdEarly === '是',
-                diabetes: form.familyHistory.includes('父亲/母亲/兄弟姐妹 - 糖尿病'),
-                hypertension: form.familyHistory.includes('父亲/母亲/兄弟姐妹 - 高血压'),
-                stroke: form.familyHistory.includes('父亲/母亲 - 脑卒中（中风）'),
-                lungCancer: form.familyHistory.includes('父亲/母亲/兄弟姐妹 - 肺癌'),
-                colonCancer: form.familyHistory.includes('父亲/母亲/兄弟姐妹 - 结直肠癌'),
-                // Inferring CVD parent from explicit questions Q18
+                diabetes: hasFamily('父亲/母亲/兄弟姐妹 - 糖尿病'),
+                hypertension: hasFamily('父亲/母亲/兄弟姐妹 - 高血压'),
+                stroke: hasFamily('父亲/母亲 - 脑卒中（中风）'),
+                lungCancer: hasFamily('父亲/母亲/兄弟姐妹 - 肺癌'),
+                colonCancer: hasFamily('父亲/母亲/兄弟姐妹 - 结直肠癌'),
                 parentHipFracture: false, // Not asked
                 breastCancer: false // Not asked
             },
@@ -252,33 +255,46 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
                     <div className="space-y-6">
                         <CheckQ idx={3} label="既往病史" required options={OPTIONS.history} value={form.historyDiseases} onChange={v => toggleArray('historyDiseases', v)} />
                         
-                        {form.historyDiseases.includes('高血压') && <InputQ idx={4} label="高血压诊断年份" required value={form.htnYear} onChange={v => handleChange('htnYear', v)} type="date" />}
-                        {form.historyDiseases.includes('冠心病') && <CheckQ idx={5} label="冠心病类型" required options={OPTIONS.cadType} value={form.cadTypes} onChange={v => toggleArray('cadTypes', v)} />}
-                        {form.historyDiseases.includes('心律失常') && <InputQ idx={6} label="心律失常类型" required value={form.arrhythmiaType} onChange={v => handleChange('arrhythmiaType', v)} />}
-                        {form.historyDiseases.includes('脑卒中／短暂性脑缺血发作') && (
+                        {hasHistory('高血压') && <InputQ idx={4} label="高血压诊断年份" required value={form.htnYear} onChange={v => handleChange('htnYear', v)} type="date" />}
+                        {hasHistory('冠心病') && <CheckQ idx={5} label="冠心病类型" required options={OPTIONS.cadType} value={form.cadTypes} onChange={v => toggleArray('cadTypes', v)} />}
+                        {hasHistory('心律失常') && <InputQ idx={6} label="心律失常类型" required value={form.arrhythmiaType} onChange={v => handleChange('arrhythmiaType', v)} />}
+                        {hasHistory('脑卒中／短暂性脑缺血发作') && (
                             <>
                                 <CheckQ idx={7} label="脑卒中类型" required options={OPTIONS.strokeType} value={form.strokeTypes} onChange={v => toggleArray('strokeTypes', v)} />
                                 <InputQ idx={8} label="脑卒中发生年份" required value={form.strokeYear} onChange={v => handleChange('strokeYear', v)} type="date" />
                             </>
                         )}
-                        {form.historyDiseases.includes('糖尿病／糖尿病前期') && <InputQ idx={9} label="糖尿病诊断年份" required value={form.dmYear} onChange={v => handleChange('dmYear', v)} type="date" />}
-                        {form.historyDiseases.includes('肿瘤') && (
+                        {hasHistory('糖尿病／糖尿病前期') && <InputQ idx={9} label="糖尿病诊断年份" required value={form.dmYear} onChange={v => handleChange('dmYear', v)} type="date" />}
+                        {hasHistory('肿瘤') && (
                             <>
                                 <InputQ idx={10} label="肿瘤部位" required value={form.tumorSite} onChange={v => handleChange('tumorSite', v)} />
                                 <InputQ idx={11} label="肿瘤诊断年份" required value={form.tumorYear} onChange={v => handleChange('tumorYear', v)} type="date" />
                             </>
                         )}
+                        {hasHistory('手术及外伤史') && <TextQ idx={12} label="手术史及外伤史" required desc="如：2010年，胆囊切除术；2015年，膝关节镜手术" value={form.surgeryHistory} onChange={v => handleChange('surgeryHistory', v)} />}
+                        {hasHistory('其他') && <TextQ idx={13} label="其他既往病史" required value={form.otherHistory} onChange={v => handleChange('otherHistory', v)} />}
                         
-                        <TextQ idx={12} label="手术史及外伤史" required desc="如：2010年，胆囊切除术；2015年，膝关节镜手术" value={form.surgeryHistory} onChange={v => handleChange('surgeryHistory', v)} />
-                        <TextQ idx={13} label="其他既往病史" required value={form.otherHistory} onChange={v => handleChange('otherHistory', v)} />
-                        
-                        <RadioQ idx={14} label="是否规律服药" required options={['是', '否']} value={form.regularMeds} onChange={v => handleChange('regularMeds', v)} />
-                        <CheckQ idx={15} label="您目前是否正在服用以下药物？" required options={OPTIONS.medication} value={form.medTypes} onChange={v => toggleArray('medTypes', v)} />
-                        <InputQ idx={16} label="您服用的其他药物是？" required value={form.otherMedName} onChange={v => handleChange('otherMedName', v)} />
+                        {!form.historyDiseases.includes('无') && (
+                            <>
+                                <RadioQ idx={14} label="是否规律服药" required options={['是', '否']} value={form.regularMeds} onChange={v => handleChange('regularMeds', v)} />
+                                
+                                {/* Logic: If Q14 is Yes, show Q15, Q16. If No, jump to Q17 */}
+                                {form.regularMeds === '是' && (
+                                    <>
+                                        <CheckQ idx={15} label="您目前是否正在服用以下药物？" required options={OPTIONS.medication} value={form.medTypes} onChange={v => toggleArray('medTypes', v)} />
+                                        {form.medTypes.includes('其他') && <InputQ idx={16} label="您服用的其他药物是？" required value={form.otherMedName} onChange={v => handleChange('otherMedName', v)} />}
+                                    </>
+                                )}
+                            </>
+                        )}
                         
                         <CheckQ idx={17} label="您的父母、兄弟姐妹（一级亲属）是否确诊过以下疾病？" required options={OPTIONS.family} value={form.familyHistory} onChange={v => toggleArray('familyHistory', v)} />
-                        <RadioQ idx={18} label="父亲 - 冠心病/心肌梗死发病年龄是否<55岁？" required options={['是', '否']} value={form.fatherCvdEarly} onChange={v => handleChange('fatherCvdEarly', v)} />
-                        <RadioQ idx={19} label="母亲 - 冠心病/心肌梗死发病年龄是否<65岁？" required options={['是', '否']} value={form.motherCvdEarly} onChange={v => handleChange('motherCvdEarly', v)} />
+                        {!hasFamily('以上均无') && (
+                            <>
+                                {hasFamily('父亲 - 冠心病/心肌梗死') && <RadioQ idx={18} label="父亲 - 冠心病/心肌梗死发病年龄是否<55岁？" required options={['是', '否']} value={form.fatherCvdEarly} onChange={v => handleChange('fatherCvdEarly', v)} />}
+                                {hasFamily('母亲 - 冠心病/心肌梗死') && <RadioQ idx={19} label="母亲 - 冠心病/心肌梗死发病年龄是否<65岁？" required options={['是', '否']} value={form.motherCvdEarly} onChange={v => handleChange('motherCvdEarly', v)} />}
+                            </>
+                        )}
                     </div>
 
                     <div className="border-t pt-6"></div>
@@ -286,8 +302,10 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
                     {/* Section 3: Lifestyle */}
                     <div className="space-y-6">
                         <CheckQ idx={20} label="膳食习惯" required options={OPTIONS.diet} value={form.dietHabits} onChange={v => toggleArray('dietHabits', v)} />
+                        
                         <RadioQ idx={21} label="主食类型" required options={OPTIONS.staple} value={form.stapleType} onChange={v => handleChange('stapleType', v)} />
-                        <RadioQ idx={22} label="粗粮杂豆根块类频率" required options={OPTIONS.coarseFreq} value={form.coarseFreq} onChange={v => handleChange('coarseFreq', v)} />
+                        {form.stapleType === '常吃粗粮杂豆根块类（≥1次/周）' && <RadioQ idx={22} label="粗粮杂豆根块类频率" required options={OPTIONS.coarseFreq} value={form.coarseFreq} onChange={v => handleChange('coarseFreq', v)} />}
+                        
                         <RadioQ idx={23} label="蔬菜摄入" required options={OPTIONS.vegFruitMeat} value={form.vegIntake} onChange={v => handleChange('vegIntake', v)} />
                         <RadioQ idx={24} label="水果摄入" required options={['每天≥200克', '每天约100－200克', '摄入较少（＜100克）']} value={form.fruitIntake} onChange={v => handleChange('fruitIntake', v)} />
                         <RadioQ idx={25} label="肉蛋禽摄入" required options={['每天≥200克', '每天约100－200克', '摄入较少（＜100克）']} value={form.meatIntake} onChange={v => handleChange('meatIntake', v)} />
@@ -297,40 +315,48 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
                         <InputQ idx={28} label="每日饮水多少杯" required desc="500ml/杯，请填数字0-10" value={form.waterCups} onChange={v => handleChange('waterCups', v)} type="number" />
                         
                         <RadioQ idx={29} label="运动频率" required options={OPTIONS.exerciseFreq} value={form.exFreq} onChange={v => handleChange('exFreq', v)} />
-                        <CheckQ idx={30} label="运动类型" required options={OPTIONS.exerciseType} value={form.exTypes} onChange={v => toggleArray('exTypes', v)} />
-                        <RadioQ idx={31} label="平均每次运动时长" required options={OPTIONS.exerciseTime} value={form.exDuration} onChange={v => handleChange('exDuration', v)} />
+                        {form.exFreq !== '几乎不运动' && (
+                            <>
+                                <CheckQ idx={30} label="运动类型" required options={OPTIONS.exerciseType} value={form.exTypes} onChange={v => toggleArray('exTypes', v)} />
+                                <RadioQ idx={31} label="平均每次运动时长" required options={OPTIONS.exerciseTime} value={form.exDuration} onChange={v => handleChange('exDuration', v)} />
+                            </>
+                        )}
                         
                         <InputQ idx={32} label="平均每晚睡眠几个小时" required desc="请填数字3-10" value={form.sleepHours} onChange={v => handleChange('sleepHours', v)} type="number" />
                         <RadioQ idx={33} label="睡眠质量" required options={OPTIONS.sleepQuality} value={form.sleepQuality} onChange={v => handleChange('sleepQuality', v)} />
+                        
                         <RadioQ idx={34} label="打鼾情况" required options={OPTIONS.snore} value={form.snore} onChange={v => handleChange('snore', v)} />
-                        {form.snore !== '无' && (
+                        {form.snore === '经常' && (
                             <>
                                 <RadioQ idx={35} label="打鼾是否做过睡眠监测" required options={['是', '否']} value={form.snoreMonitor} onChange={v => handleChange('snoreMonitor', v)} />
-                                <InputQ idx={36} label="睡眠监测结果" required value={form.monitorResult} onChange={v => handleChange('monitorResult', v)} />
+                                {form.snoreMonitor === '是' && <InputQ idx={36} label="睡眠监测结果" required value={form.monitorResult} onChange={v => handleChange('monitorResult', v)} />}
                             </>
                         )}
 
                         <RadioQ idx={37} label="吸烟情况" required options={OPTIONS.smoke} value={form.smokeStatus} onChange={v => handleChange('smokeStatus', v)} />
-                        {form.smokeStatus === '已戒烟' && <InputQ idx={38} label="戒烟年份" required value={form.quitSmokeYear} onChange={v => handleChange('quitSmokeYear', v)} type="date" />}
                         {form.smokeStatus !== '从不吸烟' && (
                             <>
-                                <InputQ idx={39} label="目前吸烟支数" required desc="每天支数" value={form.smokeDaily} onChange={v => handleChange('smokeDaily', v)} type="number" />
-                                <InputQ idx={40} label="已吸烟年数" required value={form.smokeYears} onChange={v => handleChange('smokeYears', v)} type="number" />
+                                {form.smokeStatus === '已戒烟' && <InputQ idx={38} label="戒烟年份" required value={form.quitSmokeYear} onChange={v => handleChange('quitSmokeYear', v)} type="date" />}
+                                {form.smokeStatus === '目前吸烟' && (
+                                    <>
+                                        <InputQ idx={39} label="目前吸烟支数" required desc="每天支数" value={form.smokeDaily} onChange={v => handleChange('smokeDaily', v)} type="number" />
+                                        <InputQ idx={40} label="已吸烟年数" required value={form.smokeYears} onChange={v => handleChange('smokeYears', v)} type="number" />
+                                    </>
+                                )}
+                                <RadioQ idx={41} label="是否在未感冒的情况下，经常咳嗽、咳痰？" required options={['是', '否']} value={form.chronicCough} onChange={v => handleChange('chronicCough', v)} />
+                                <RadioQ idx={42} label="是否在活动后比同龄人更容易气短？" required options={['是', '否']} value={form.shortBreath} onChange={v => handleChange('shortBreath', v)} />
                             </>
                         )}
-
-                        <RadioQ idx={41} label="是否在未感冒的情况下，经常咳嗽、咳痰？" required options={['是', '否']} value={form.chronicCough} onChange={v => handleChange('chronicCough', v)} />
-                        <RadioQ idx={42} label="是否在活动后比同龄人更容易气短？" required options={['是', '否']} value={form.shortBreath} onChange={v => handleChange('shortBreath', v)} />
 
                         <RadioQ idx={43} label="饮酒情况" required options={OPTIONS.drink} value={form.drinkStatus} onChange={v => handleChange('drinkStatus', v)} />
                         {form.drinkStatus === '目前饮酒' && (
                             <>
                                 <InputQ idx={44} label="每周饮酒频次" required desc="次/周" value={form.drinkFreq} onChange={v => handleChange('drinkFreq', v)} type="number" />
                                 <InputQ idx={45} label="每次饮酒量（几两）" required desc="两/次" value={form.drinkAmount} onChange={v => handleChange('drinkAmount', v)} type="number" />
+                                <RadioQ idx={46} label="醉酒史 (过去12个月)" required options={OPTIONS.drunk} value={form.drunkHistory} onChange={v => handleChange('drunkHistory', v)} />
+                                <RadioQ idx={47} label="戒酒意愿" required options={OPTIONS.quitDrink} value={form.quitDrinkIntent} onChange={v => handleChange('quitDrinkIntent', v)} />
                             </>
                         )}
-                        <RadioQ idx={46} label="醉酒史 (过去12个月)" required options={OPTIONS.drunk} value={form.drunkHistory} onChange={v => handleChange('drunkHistory', v)} />
-                        <RadioQ idx={47} label="戒酒意愿" required options={OPTIONS.quitDrink} value={form.quitDrinkIntent} onChange={v => handleChange('quitDrinkIntent', v)} />
                     </div>
 
                     <div className="border-t pt-6"></div>
@@ -339,27 +365,32 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
                     <div className="space-y-6">
                         <RadioQ idx={48} label="压力自我评估" required options={OPTIONS.stress} value={form.stressLevel} onChange={v => handleChange('stressLevel', v)} />
                         
-                        {/* PHQ-9 */}
-                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                            <h3 className="font-bold text-slate-800 mb-2">49. 情绪状态 (PHQ-9) *</h3>
-                            <p className="text-xs text-slate-500 mb-4">请选择过去两周里，您生活中出现以下症状的频率。</p>
-                            <div className="space-y-4">
-                                {['做事时提不起劲或没有兴趣', '感到心情低落、沮丧或绝望', '入睡困难、睡不安稳或睡眠过多', '感到疲倦或没有活力', '食欲不振或吃太多', '觉得自己很失败，或让自己、家人失望', '对事物专注有困难（如看报纸或看电视时）', '动作或说话速度缓慢到别人已经察觉？或者相反，变得烦躁或坐立不安', '有不如死掉或用某种方式伤害自己的念头'].map((q, i) => (
-                                    <MatrixRow key={i} label={`${i+1}. ${q}`} name="phq9" index={i} value={form.phq9[i]} onChange={(idx, val) => handleMatrixChange('phq9', idx, val)} />
-                                ))}
-                            </div>
-                        </div>
+                        {/* Logic: If stress is 'Very Small' -> Jump to Q51 (Hide Q49, Q50) */}
+                        {form.stressLevel !== '很小' && (
+                            <>
+                                {/* PHQ-9 */}
+                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                    <h3 className="font-bold text-slate-800 mb-2">49. 情绪状态 (PHQ-9) *</h3>
+                                    <p className="text-xs text-slate-500 mb-4">请选择过去两周里，您生活中出现以下症状的频率。</p>
+                                    <div className="space-y-4">
+                                        {['做事时提不起劲或没有兴趣', '感到心情低落、沮丧或绝望', '入睡困难、睡不安稳或睡眠过多', '感到疲倦或没有活力', '食欲不振或吃太多', '觉得自己很失败，或让自己、家人失望', '对事物专注有困难（如看报纸或看电视时）', '动作或说话速度缓慢到别人已经察觉？或者相反，变得烦躁或坐立不安', '有不如死掉或用某种方式伤害自己的念头'].map((q, i) => (
+                                            <MatrixRow key={i} label={`${i+1}. ${q}`} name="phq9" index={i} value={form.phq9[i]} onChange={(idx, val) => handleMatrixChange('phq9', idx, val)} />
+                                        ))}
+                                    </div>
+                                </div>
 
-                        {/* GAD-7 */}
-                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                            <h3 className="font-bold text-slate-800 mb-2">50. 焦虑状态 (GAD-7) *</h3>
-                            <p className="text-xs text-slate-500 mb-4">请选择过去两周里，您生活中出现以下症状的频率。</p>
-                            <div className="space-y-4">
-                                {['做事感觉神经质、焦虑或急切', '不能停止或无法控制担忧', '对各种各样的事情担忧过多', '很难放松下来', '由于坐立不安而很难坐得住', '容易烦恼或急躁', '感到害怕，好像有什么可怕的事情要发生'].map((q, i) => (
-                                    <MatrixRow key={i} label={`${i+1}. ${q}`} name="gad7" index={i} value={form.gad7[i]} onChange={(idx, val) => handleMatrixChange('gad7', idx, val)} />
-                                ))}
-                            </div>
-                        </div>
+                                {/* GAD-7 */}
+                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                    <h3 className="font-bold text-slate-800 mb-2">50. 焦虑状态 (GAD-7) *</h3>
+                                    <p className="text-xs text-slate-500 mb-4">请选择过去两周里，您生活中出现以下症状的频率。</p>
+                                    <div className="space-y-4">
+                                        {['做事感觉神经质、焦虑或急切', '不能停止或无法控制担忧', '对各种各样的事情担忧过多', '很难放松下来', '由于坐立不安而很难坐得住', '容易烦恼或急躁', '感到害怕，好像有什么可怕的事情要发生'].map((q, i) => (
+                                            <MatrixRow key={i} label={`${i+1}. ${q}`} name="gad7" index={i} value={form.gad7[i]} onChange={(idx, val) => handleMatrixChange('gad7', idx, val)} />
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     <div className="border-t pt-6"></div>
@@ -368,7 +399,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading }) => {
                     <div className="space-y-6">
                         <RadioQ idx={51} label="是否愿意接受医院定期开展健康随访服务" required options={OPTIONS.willing} value={form.followUpWilling} onChange={v => handleChange('followUpWilling', v)} />
                         <CheckQ idx={52} label="希望校医院提供的健康服务" required options={OPTIONS.services} value={form.desiredServices} onChange={v => toggleArray('desiredServices', v)} />
-                        <TextQ idx={53} label="希望获得的其他健康支持" value={form.otherSupport} onChange={v => handleChange('otherSupport', v)} />
+                        {form.desiredServices.includes('其他') && <TextQ idx={53} label="希望获得的其他健康支持" value={form.otherSupport} onChange={v => handleChange('otherSupport', v)} />}
                     </div>
 
                     {/* Submit */}
