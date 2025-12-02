@@ -36,6 +36,14 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
         // Use jsDelivr which is generally faster/reliable in China
         const workerUrl = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
         
+        // @ts-ignore
+        const lib = pdfjsLib.default || pdfjsLib;
+
+        if (!lib.GlobalWorkerOptions) {
+             console.warn("PDFJS GlobalWorkerOptions not found");
+             return;
+        }
+
         try {
             // Fetch the worker script text
             const response = await fetch(workerUrl);
@@ -47,12 +55,12 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
             const blob = new Blob([workerScript], { type: "text/javascript" });
             const blobUrl = URL.createObjectURL(blob);
             
-            pdfjsLib.GlobalWorkerOptions.workerSrc = blobUrl;
+            lib.GlobalWorkerOptions.workerSrc = blobUrl;
             console.log("PDF Worker initialized via Blob URL");
         } catch (error) {
             console.warn("PDF Worker Blob setup failed, falling back to direct CDN URL", error);
             // Fallback: Direct URL (Might fail if strict CORS)
-            pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+            lib.GlobalWorkerOptions.workerSrc = workerUrl;
         }
     };
 
@@ -118,8 +126,11 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
           else if (fileType === 'pdf') {
               const arrayBuffer = await file.arrayBuffer();
               
+              // @ts-ignore
+              const lib = pdfjsLib.default || pdfjsLib;
+
               // Load PDF
-              const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+              const loadingTask = lib.getDocument({ data: arrayBuffer });
               const pdf = await loadingTask.promise;
               let fullText = "";
               

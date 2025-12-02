@@ -56,15 +56,24 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     useEffect(() => {
         const setupPdfWorker = async () => {
             const workerUrl = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+            
+            // @ts-ignore
+            const lib = pdfjsLib.default || pdfjsLib;
+
+            if (!lib.GlobalWorkerOptions) {
+                console.warn("PDFJS GlobalWorkerOptions not found");
+                return;
+            }
+
             try {
                 const response = await fetch(workerUrl);
                 if (!response.ok) throw new Error("Failed to fetch worker script");
                 const workerScript = await response.text();
                 const blob = new Blob([workerScript], { type: "text/javascript" });
                 const blobUrl = URL.createObjectURL(blob);
-                pdfjsLib.GlobalWorkerOptions.workerSrc = blobUrl;
+                lib.GlobalWorkerOptions.workerSrc = blobUrl;
             } catch (error) {
-                pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+                lib.GlobalWorkerOptions.workerSrc = workerUrl;
             }
         };
         setupPdfWorker();
@@ -820,7 +829,9 @@ const SmartBatchImportModal = ({ onClose, onComplete }: { onClose: () => void, o
         }
         else if (fileType === 'pdf') {
             const arrayBuffer = await file.arrayBuffer();
-            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+            // @ts-ignore
+            const lib = pdfjsLib.default || pdfjsLib;
+            const loadingTask = lib.getDocument({ data: arrayBuffer });
             const pdf = await loadingTask.promise;
             let fullText = "";
             for (let i = 1; i <= pdf.numPages; i++) {
