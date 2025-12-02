@@ -299,6 +299,7 @@ const App: React.FC = () => {
             allArchives={archives}
             onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
             currentPatientId={healthRecord?.profile.checkupId}
+            isAuthenticated={isAuthenticated}
         />
       )}
     </Layout>

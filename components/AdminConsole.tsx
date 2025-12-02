@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, HealthArchive } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
@@ -898,9 +899,10 @@ const SmartBatchImportModal = ({ onClose, onComplete }: { onClose: () => void, o
                     throw new Error(saveResult.message || "数据库保存失败");
                 }
 
-            } catch (error: any) {
-                console.error(`Error processing ${file.name}:`, error);
-                updateStatus(i, 'error', `❌ 失败: ${error.message}`);
+            } catch (error: unknown) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                console.error(`Error processing ${file.name}:`, err);
+                updateStatus(i, 'error', `❌ 失败: ${err.message}`);
             }
             
             // Wait a bit to avoid rate limits

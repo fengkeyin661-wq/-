@@ -120,19 +120,40 @@ const PatientListModal = ({ service, dept, onClose, archives }: { service: strin
     );
 };
 
+const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V2';
+
 export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
     const [analytics, setAnalytics] = useState<DepartmentAnalytics[]>([]);
     const [loading, setLoading] = useState(false);
     const [selectedDept, setSelectedDept] = useState<DepartmentAnalytics | null>(null);
     const [lastUpdated, setLastUpdated] = useState<string>('');
+    const [isCachedData, setIsCachedData] = useState(false);
     
     // Modal State
     const [viewingService, setViewingService] = useState<string | null>(null);
 
-    // Initial Aggregation & Analysis
+    // Initial Load: Check Cache First
     useEffect(() => {
-        analyze();
-    }, [archives]);
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+            try {
+                const parsed = JSON.parse(cached);
+                if (parsed.analytics && parsed.analytics.length > 0) {
+                    setAnalytics(parsed.analytics);
+                    setLastUpdated(parsed.lastUpdated);
+                    setIsCachedData(true);
+                    return; // Stop here, do not auto-analyze
+                }
+            } catch (e) {
+                console.warn("Cache parse failed, falling back to live analysis");
+            }
+        }
+        
+        // Only auto-analyze if no cache and we have data
+        if (archives.length > 0) {
+            analyze();
+        }
+    }, []); // Empty dependency array ensures this only runs on mount
 
     const analyze = async () => {
         if (archives.length === 0) return;
@@ -216,9 +237,21 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
         try {
             // 3. AI Analysis
             const result = await generateHospitalBusinessAnalysis(topIssues);
+            
             // Sort by count descending
-            setAnalytics(result.sort((a, b) => b.patientCount - a.patientCount));
-            setLastUpdated(new Date().toLocaleString());
+            const sortedResults = result.sort((a, b) => b.patientCount - a.patientCount);
+            const timestamp = new Date().toLocaleString();
+            
+            setAnalytics(sortedResults);
+            setLastUpdated(timestamp);
+            setIsCachedData(false); // This is fresh data
+
+            // Save to Cache
+            localStorage.setItem(CACHE_KEY, JSON.stringify({
+                analytics: sortedResults,
+                lastUpdated: timestamp
+            }));
+
         } catch (e) {
             console.error(e);
             alert("生成热力图失败，请稍后重试");
@@ -239,7 +272,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh }) => {
     const maxCount = Math.max(...analytics.map(a => a.patientCount), 1);
 
     const handleManualRefresh = () => {
-        if(onRefresh) onRefresh(); // Trigger global data fetch
+        if(onRefresh) onRefresh(); // Trigger global data fetch (async, but we proceed with current or wait for next render)
         analyze(); // Trigger local re-analysis
     }
 
@@ -277,12 +310,18 @@ ${selectedDept.suggestedServices.map((s, i) => `${i+1}. ${s}`).join('\n')}
                     <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
                         <span>📊</span> 医院医疗服务热力图 (AI Analytics)
                     </h2>
-                    <p className="text-sm text-slate-500 mt-1">
-                        基于全院 {archives.length} 份健康档案分析，指导临床业务开展
-                        {lastUpdated && <span className="ml-2 bg-slate-200 px-2 py-0.5 rounded text-xs">上次更新: {lastUpdated}</span>}
-                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                         <p className="text-sm text-slate-500">
+                            基于全院 {archives.length} 份健康档案分析
+                         </p>
+                         {lastUpdated && (
+                             <span className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${isCachedData ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                                 {isCachedData ? '📦 已加载缓存分析' : '✨ 实时分析结果'} | 更新于: {lastUpdated}
+                             </span>
+                         )}
+                    </div>
                 </div>
-                <button onClick={handleManualRefresh} className="bg-white border border-slate-300 px-4 py-2 rounded-lg hover:bg-slate-100 font-bold text-slate-600 flex items-center gap-2 shadow-sm">
+                <button onClick={handleManualRefresh} className="bg-white border border-slate-300 px-4 py-2 rounded-lg hover:bg-slate-100 font-bold text-slate-600 flex items-center gap-2 shadow-sm transition-all active:scale-95">
                     <span>🔄</span> 实时刷新分析
                 </button>
             </div>
@@ -299,7 +338,7 @@ ${selectedDept.suggestedServices.map((s, i) => `${i+1}. ${s}`).join('\n')}
                     <div className="flex-1 p-6 overflow-y-auto bg-slate-100">
                         {analytics.length === 0 ? (
                             <div className="text-center text-slate-400 mt-20">
-                                暂无足够数据生成热力图，请先录入健康档案。
+                                暂无分析数据，请点击右上角刷新。
                             </div>
                         ) : (
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">

@@ -16,6 +16,8 @@ interface Props {
   currentPatientId?: string;
   // Updated prop for generic data update (Record + Schedule)
   onUpdateData?: (record: FollowUpRecord | null, schedule: ScheduledFollowUp[]) => void;
+  // Prop for Privacy Protection
+  isAuthenticated?: boolean;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -26,7 +28,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
     allArchives = [], 
     onPatientChange, 
     currentPatientId,
-    onUpdateData
+    onUpdateData,
+    isAuthenticated = false
 }) => {
   const [showModal, setShowModal] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -61,8 +64,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const currentPatientName = currentArchive?.name || '受检者';
 
   // --- CORE LOGIC: Determine Source of Truth (Record vs Assessment) ---
-  // If the archive was updated (Re-evaluated) significantly LATER than the last record was created,
-  // we prioritize the Assessment data (New Year Checkup) over the old Follow-up Record.
   const isAssessmentNewer = React.useMemo(() => {
       if (!currentArchive || !assessment) return false;
       if (!latestRecord) return true; // No records yet, so Assessment is definitely newer
@@ -73,7 +74,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       const archiveTime = new Date(currentArchive.updated_at || currentArchive.created_at).getTime();
 
       // If Archive update is > 2 seconds newer than record creation, treat as Re-evaluated
-      // (Buffer to avoid race conditions when saving a record updates the archive time too)
       return archiveTime > (recordTime + 2000);
   }, [currentArchive, latestRecord, assessment]);
 
@@ -151,6 +151,22 @@ export const FollowUpDashboard: React.FC<Props> = ({
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
   
+  // --- Privacy Masking Helpers ---
+  const maskName = (name: string) => {
+      if (isAuthenticated) return name;
+      if (!name) return '***';
+      // Returns "张**" or "王*"
+      return name.charAt(0) + (name.length > 2 ? '**' : '*');
+  };
+
+  const maskPhone = (phone?: string) => {
+      if (!phone) return '未留电话';
+      if (isAuthenticated) return phone;
+      if (phone.length < 7) return '****';
+      // Returns "138****1234"
+      return phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+  };
+
   // -----------------------------------------------------
 
   const initialFormState: Omit<FollowUpRecord, 'id'> = {
@@ -745,10 +761,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           <div>
                               <div className="flex justify-between items-start mb-2">
                                   <div>
-                                      <div className="font-bold text-slate-800">{task.archive.name}</div>
+                                      <div className="font-bold text-slate-800">
+                                        {maskName(task.archive.name)}
+                                      </div>
                                       <div className="text-xs text-slate-500">{task.archive.department}</div>
                                       <div className="text-xs text-teal-700 font-mono mt-1 flex items-center gap-1 bg-teal-50 px-1.5 py-0.5 rounded w-fit">
-                                          <span>📞</span> {task.archive.phone || '未留电话'}
+                                          <span>📞</span> {maskPhone(task.archive.phone)}
                                       </div>
                                   </div>
                                   <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${
@@ -769,15 +787,21 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               </div>
                           </div>
                           <button 
-                              onClick={() => onPatientChange && onPatientChange(task.archive)}
+                              onClick={() => {
+                                  if (!isAuthenticated) {
+                                     alert("为了保护患者隐私，请先点击右上角“管理员登录”验证身份。");
+                                     return;
+                                  }
+                                  onPatientChange && onPatientChange(task.archive);
+                              }}
                               disabled={task.archive.checkup_id === currentPatientId}
                               className={`w-full py-2 rounded text-xs font-bold transition-colors ${
                                   task.archive.checkup_id === currentPatientId 
                                   ? 'bg-slate-100 text-slate-400 cursor-default' 
-                                  : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                                  : isAuthenticated ? 'bg-orange-100 text-orange-700 hover:bg-orange-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
                               }`}
                           >
-                              {task.archive.checkup_id === currentPatientId ? '当前查看中' : '👉 去随访'}
+                              {task.archive.checkup_id === currentPatientId ? '当前查看中' : (isAuthenticated ? '👉 去随访' : '🔒 需登录')}
                           </button>
                       </div>
                   ))}
