@@ -1401,7 +1401,7 @@ const BatchQuestionnaireImportModal = ({ archives, onClose, onComplete }: { arch
                 <div className="flex justify-between items-center mb-6 border-b pb-4">
                     <div>
                         <h3 className="text-xl font-bold text-blue-700">📝 批量补全问卷 (Excel)</h3>
-                        <p className="text-xs text-slate-500 mt-1">匹配体检编号 -> 合并问卷数据 -> AI重新评估 -> 更新档案</p>
+                        <p className="text-xs text-slate-500 mt-1">匹配体检编号 &rarr; 合并问卷数据 &rarr; AI重新评估 &rarr; 更新档案</p>
                     </div>
                     {!importing && <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>}
                 </div>
