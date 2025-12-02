@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { HealthArchive } from '../services/dataService';
 import { generateHospitalBusinessAnalysis } from '../services/geminiService';
@@ -181,24 +182,70 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
         analyze();
     }
 
-    // --- Reverse Search Logic ---
+    // --- Reverse Search Logic (Updated) ---
     const handleServiceDoubleClick = (serviceName: string, serviceDesc: string) => {
-        // Simple heuristic matching
-        const cleanName = serviceName.replace(/建议|开展|强化|检查|筛查|评估|管理|干预|专科|门诊/g, '');
-        // Split by common delimiters to get keywords
-        const keywords = [cleanName, ...serviceDesc.split(/[,，;；]/)].filter(k => k.trim().length > 1);
+        // 1. Determine Search Terms
+        let searchTerms: string[] = [];
+
+        // Strategy A: Match against Department Key Conditions (High Accuracy)
+        // Check which key conditions (e.g., "High Blood Pressure") appear in the Service Description/Name
+        if (selectedDept && selectedDept.keyConditions) {
+            const matchedConditions = selectedDept.keyConditions.filter(cond => {
+                const c = cond.toLowerCase();
+                return serviceName.toLowerCase().includes(c) || serviceDesc.toLowerCase().includes(c);
+            });
+            searchTerms = [...matchedConditions];
+        }
+
+        // Strategy B: Fallback - Extract from Name & Description
+        if (searchTerms.length === 0) {
+            // Remove generic verbs/nouns to find the core subject
+            const cleanName = serviceName.replace(/建议|开展|强化|检查|检测|筛查|评估|管理|干预|专科|门诊|项目|服务|全套|综合|分析/g, '').trim();
+            if (cleanName.length > 1) searchTerms.push(cleanName);
+
+            // Clean description to find core conditions
+            const descKeywords = serviceDesc
+                .split(/[,，;；:：.。、]/) // Split by punctuation
+                .map(s => s.replace(/针对|进行|人群|患者|筛查|评估|治疗|管理|以及|等|包含/g, '').trim())
+                .filter(s => s.length > 1);
+            
+            searchTerms = [...searchTerms, ...descKeywords];
+        }
+
+        // De-duplicate terms
+        searchTerms = Array.from(new Set(searchTerms));
+
+        // Safety fallback: search for the whole department name core if absolutely nothing else matches
+        if (searchTerms.length === 0 && selectedDept) {
+            searchTerms.push(selectedDept.departmentName.replace('科', ''));
+        }
+
+        console.log("Reverse Search Terms:", searchTerms);
 
         const matched = archives.filter(arch => {
-            // Build searchable corpus for this patient
-            const corpus = [
-                ...arch.assessment_data.risks.red,
-                ...arch.assessment_data.risks.yellow,
-                ...(arch.health_record.checkup.abnormalities?.map(a => a.item + a.result) || []),
-                arch.assessment_data.summary
-            ].join(' ').toLowerCase();
+            const record = arch.health_record;
+            const assess = arch.assessment_data;
+            
+            // Build comprehensive searchable corpus for this patient
+            const corpusParts = [
+                // 1. Risks (Red/Yellow)
+                ...(assess.risks.red || []),
+                ...(assess.risks.yellow || []),
+                assess.summary || '',
+                // 2. Abnormalities (Detailed Items)
+                ...(record.checkup.abnormalities?.map(a => `${a.item} ${a.result} ${a.clinicalSig}`) || []),
+                // 3. History
+                ...(record.questionnaire.history.diseases || []),
+                // 4. Key Findings from Risk Portraits
+                ...(arch.risk_analysis?.portraits?.flatMap(p => p.keyFindings) || []),
+                // 5. Risk Models (High Risk Only)
+                ...(arch.risk_analysis?.models?.filter(m => m.riskLevel === 'RED' || m.riskLevel === 'YELLOW').map(m => m.modelName) || [])
+            ];
+            
+            const corpus = corpusParts.join(' ').toLowerCase();
 
-            // Check if any keyword matches
-            return keywords.some(k => corpus.includes(k.trim().toLowerCase()));
+            // Match Logic: Check if ANY search term exists in patient corpus
+            return searchTerms.some(term => term && corpus.includes(term.toLowerCase()));
         });
 
         setTargetService(serviceName);
