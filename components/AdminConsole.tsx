@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, HealthArchive } from '../services/dataService';
+import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, HealthArchive } from '../services/dataService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
-import { HealthProfile, CriticalTrackRecord } from '../types';
+import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, RiskLevel } from '../types';
 import { CriticalHandleModal } from './CriticalHandleModal';
+// @ts-ignore
+import * as XLSX from 'xlsx';
 
 interface Props {
     onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup') => void;
@@ -26,6 +28,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     // Critical Modal State
     const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
+
+    // Batch Import Modal State
+    const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
 
     const configured = isSupabaseConfigured();
 
@@ -267,6 +272,12 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     )}
                 </div>
                 <div className="flex gap-2">
+                     <button 
+                        onClick={() => setIsBatchModalOpen(true)}
+                        className="px-3 py-1 bg-teal-600 hover:bg-teal-700 rounded text-xs font-bold text-white flex items-center gap-1 transition-colors shadow-sm"
+                     >
+                        📂 批量建档
+                     </button>
                      <button onClick={loadData} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs font-bold text-slate-600 flex items-center gap-1 transition-colors">
                         🔄 刷新数据
                      </button>
@@ -348,7 +359,7 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                                             <span className="font-bold text-slate-800">{arch.name}</span>
                                             <span className="text-xs text-red-500 font-bold border border-red-200 px-1 rounded bg-red-50">危急</span>
                                         </div>
-                                        <div className="text-xs text-red-700 mt-1 max-w-[200px] truncate" title={arch.assessment_data.criticalWarning || '危急值指标异常'}>
+                                        <div className="text-xs text-red-700 mt-1 max-w-[200px] truncate" title={arch.assessment_data.criticalWarning || '危急值筛查异常'}>
                                             ⚠️ {arch.assessment_data.criticalWarning || '存在危急指标'}
                                         </div>
                                         <div className="text-xs text-slate-500 mt-1">📞 {arch.phone || '无电话'}</div>
@@ -591,9 +602,23 @@ create index if not exists health_archives_checkup_id_idx on public.health_archi
                     onSave={handleCriticalSave}
                 />
             )}
+
+            {/* Batch Import Modal */}
+            {isBatchModalOpen && (
+                <BatchImportModal 
+                    onClose={() => setIsBatchModalOpen(false)}
+                    onComplete={() => {
+                        setIsBatchModalOpen(false);
+                        loadData();
+                        if(onDataUpdate) onDataUpdate();
+                    }}
+                />
+            )}
         </div>
     );
 };
+
+// --- Sub Components ---
 
 interface EditModalProps {
     archive: HealthArchive;
@@ -692,6 +717,227 @@ const EditProfileModal: React.FC<EditModalProps> = ({ archive, onClose, onSave }
                         <button type="submit" className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow-sm text-sm">保存修改</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    );
+};
+
+// --- Batch Import Modal ---
+const BatchImportModal = ({ onClose, onComplete }: { onClose: () => void, onComplete: () => void }) => {
+    const [file, setFile] = useState<File | null>(null);
+    const [importing, setImporting] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [logs, setLogs] = useState<string[]>([]);
+    
+    // Sample Template Generator
+    const downloadTemplate = () => {
+        const headers = [['姓名', '体检编号', '性别', '年龄', '部门', '电话', '身高', '体重', '收缩压', '舒张压']];
+        const ws = XLSX.utils.aoa_to_sheet(headers);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+        XLSX.writeFile(wb, "健康档案导入模板.xlsx");
+    };
+
+    const handleImport = async () => {
+        if (!file) return;
+        setImporting(true);
+        setLogs(['🚀 开始解析文件...']);
+        setProgress(0);
+
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data);
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(sheet);
+            
+            if (jsonData.length === 0) {
+                setLogs(prev => [...prev, '❌ 文件为空或格式不正确']);
+                setImporting(false);
+                return;
+            }
+
+            setLogs(prev => [...prev, `📋 解析成功，共发现 ${jsonData.length} 条记录，开始导入...`]);
+
+            let successCount = 0;
+            let failCount = 0;
+
+            // Sequential processing to allow UI updates and prevent DB rate limits
+            for (let i = 0; i < jsonData.length; i++) {
+                const row: any = jsonData[i];
+                const name = row['姓名'];
+                const id = row['体检编号'];
+
+                if (!name || !id) {
+                    setLogs(prev => [...prev, `⚠️ 第 ${i+1} 行跳过：缺少姓名或体检编号`]);
+                    failCount++;
+                    continue;
+                }
+
+                try {
+                    // Create Default HealthRecord
+                    const newRecord: HealthRecord = {
+                        profile: {
+                            checkupId: String(id),
+                            name: String(name),
+                            gender: row['性别'] || '男',
+                            age: Number(row['年龄']) || 0,
+                            department: row['部门'] || '待定',
+                            phone: row['电话'] ? String(row['电话']) : '',
+                            checkupDate: new Date().toISOString().split('T')[0]
+                        },
+                        checkup: {
+                            basics: {
+                                height: Number(row['身高']) || undefined,
+                                weight: Number(row['体重']) || undefined,
+                                sbp: Number(row['收缩压']) || undefined,
+                                dbp: Number(row['舒张压']) || undefined,
+                                bmi: (row['身高'] && row['体重']) ? parseFloat((row['体重'] / ((row['身高']/100) ** 2)).toFixed(1)) : undefined
+                            },
+                            labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} },
+                            imagingBasic: { ultrasound: {} },
+                            optional: {},
+                            abnormalities: []
+                        },
+                        questionnaire: {
+                            history: { diseases: [], details: {} },
+                            femaleHealth: {},
+                            familyHistory: {},
+                            medication: { isRegular: '否', details: {} },
+                            diet: { habits: [] },
+                            hydration: {},
+                            exercise: {},
+                            sleep: {},
+                            respiratory: {},
+                            substances: { smoking: {}, alcohol: {} },
+                            mentalScales: {},
+                            mental: {},
+                            needs: {}
+                        }
+                    };
+
+                    // Default Assessment
+                    const defaultAssessment: HealthAssessment = {
+                        riskLevel: RiskLevel.GREEN,
+                        isCritical: false,
+                        criticalWarning: null,
+                        summary: '批量导入档案，等待完善详细体检数据与问卷。',
+                        risks: { red: [], yellow: [], green: [] },
+                        managementPlan: { dietary: [], exercise: [], medication: [], monitoring: [] },
+                        followUpPlan: { frequency: '6个月', nextCheckItems: ['常规健康复查'] }
+                    };
+
+                    // Default Schedule
+                    const defaultSchedule = [{
+                        id: `sch_${Date.now()}_${i}`,
+                        date: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // +6 months
+                        status: 'pending' as const,
+                        riskLevelAtSchedule: RiskLevel.GREEN,
+                        focusItems: ['常规复查']
+                    }];
+
+                    // Save
+                    const res = await saveArchive(newRecord, defaultAssessment, defaultSchedule);
+                    
+                    if (res.success) {
+                        successCount++;
+                    } else {
+                        setLogs(prev => [...prev, `❌ 导入 ${name} 失败: ${res.message}`]);
+                        failCount++;
+                    }
+                } catch (e: any) {
+                    setLogs(prev => [...prev, `❌ 处理行 ${i+1} 异常: ${e.message}`]);
+                    failCount++;
+                }
+                
+                // Update Progress
+                setProgress(Math.round(((i + 1) / jsonData.length) * 100));
+                // Small delay to allow UI render
+                await new Promise(r => setTimeout(r, 50));
+            }
+
+            setLogs(prev => [...prev, `🏁 导入完成！成功: ${successCount}, 失败: ${failCount}`]);
+            setTimeout(() => {
+                if (successCount > 0) onComplete();
+            }, 1500);
+
+        } catch (e: any) {
+            setLogs(prev => [...prev, `❌ 文件解析致命错误: ${e.message}`]);
+        } finally {
+            setImporting(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[80] backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 animate-scaleIn">
+                <div className="flex justify-between items-center mb-6 border-b pb-4">
+                    <div>
+                        <h3 className="text-xl font-bold text-slate-800">📂 批量建档 (Excel/CSV)</h3>
+                        <p className="text-xs text-slate-500 mt-1">支持上传 .xlsx, .xls 文件快速创建档案</p>
+                    </div>
+                    {!importing && <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>}
+                </div>
+
+                <div className="space-y-4">
+                    {/* Step 1: Download Template */}
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex justify-between items-center">
+                        <div className="text-sm text-blue-800">
+                            <strong>第一步：</strong> 下载标准Excel模板
+                            <p className="text-xs text-blue-600 mt-1">请严格按照模板格式填写，勿修改表头</p>
+                        </div>
+                        <button 
+                            onClick={downloadTemplate}
+                            className="bg-white border border-blue-300 text-blue-700 px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-100 shadow-sm"
+                        >
+                            ⬇️ 下载模板
+                        </button>
+                    </div>
+
+                    {/* Step 2: Upload */}
+                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
+                        <input 
+                            type="file" 
+                            accept=".xlsx, .xls, .csv" 
+                            onChange={e => setFile(e.target.files?.[0] || null)}
+                            className="hidden" 
+                            id="batch-upload-input"
+                            disabled={importing}
+                        />
+                        <label htmlFor="batch-upload-input" className="cursor-pointer flex flex-col items-center">
+                            <span className="text-4xl mb-2">📄</span>
+                            {file ? (
+                                <span className="font-bold text-teal-700">{file.name}</span>
+                            ) : (
+                                <span className="text-slate-500 text-sm">点击选择 Excel 文件上传</span>
+                            )}
+                        </label>
+                    </div>
+
+                    {/* Progress & Logs */}
+                    {(importing || logs.length > 0) && (
+                        <div className="bg-slate-900 rounded-lg p-4 text-xs font-mono text-green-400 h-40 overflow-y-auto shadow-inner">
+                            {logs.map((log, i) => <div key={i}>{log}</div>)}
+                            <div ref={el => el?.scrollIntoView({ behavior: 'smooth' })}></div>
+                        </div>
+                    )}
+                    
+                    {importing && (
+                         <div className="w-full bg-slate-200 rounded-full h-2.5">
+                            <div className="bg-teal-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                         </div>
+                    )}
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+                    <button onClick={onClose} disabled={importing} className="px-4 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm font-medium">关闭</button>
+                    <button 
+                        onClick={handleImport}
+                        disabled={!file || importing}
+                        className="px-6 py-2 bg-teal-600 text-white font-bold rounded-lg shadow-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                        {importing ? `正在导入 ${progress}%` : '🚀 开始批量导入'}
+                    </button>
+                </div>
             </div>
         </div>
     );
