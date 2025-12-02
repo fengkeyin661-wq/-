@@ -236,6 +236,42 @@ const App: React.FC = () => {
           <HospitalHeatmap archives={archives} onRefresh={refreshArchives} />
       )}
       
+      {/* New Tab Content: Online Survey Iframe */}
+      {activeTab === 'external_survey' && (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full flex flex-col animate-fadeIn">
+              <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
+                  <div>
+                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                          <span>🌐</span> 在线健康问卷
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                          请指导受检者在此完成详细健康问卷。数据可导出后通过“管理控制台”批量导入系统。
+                      </p>
+                  </div>
+                  <a 
+                    href="https://wj.qq.com/s2/24904310/1834/" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                      在新窗口打开 ↗
+                  </a>
+              </div>
+              <div className="flex-1 w-full bg-slate-50 overflow-hidden relative">
+                 <iframe 
+                    id='idy_frame' 
+                    height="100%" 
+                    width="100%" 
+                    src="https://wj.qq.com/s2/24904310/1834/" 
+                    frameBorder="0" 
+                    style={{minHeight: '650px'}} 
+                    allowFullScreen 
+                    sandbox="allow-same-origin allow-scripts allow-modals allow-downloads allow-forms allow-popups"
+                ></iframe>
+              </div>
+          </div>
+      )}
+
       <div className={activeTab === 'survey' ? 'block h-full' : 'hidden'}>
           <HealthSurvey onSubmit={handleSurveySubmit} initialData={healthRecord} isLoading={isGenerating} />
       </div>
