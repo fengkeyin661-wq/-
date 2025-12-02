@@ -7,18 +7,17 @@ import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { HospitalHeatmap } from './components/HospitalHeatmap';
-import { useToast } from './components/Toast';
+// import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // Removed Standalone
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives } from './services/dataService';
 
 const App: React.FC = () => {
-  const toast = useToast();
   const [activeTab, setActiveTab] = useState('followup');
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
   const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
-  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); 
+  const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined); // New State
   const [isGenerating, setIsGenerating] = useState(false);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
   
@@ -44,7 +43,7 @@ const App: React.FC = () => {
       setAssessment(archive.assessment_data);
       setSchedule(archive.follow_up_schedule || []);
       setFollowUps(archive.follow_ups || []);
-      setRiskAnalysis(archive.risk_analysis); 
+      setRiskAnalysis(archive.risk_analysis); // Load risk analysis
       
       if (mode === 'edit') {
           setActiveTab('survey');
@@ -65,6 +64,7 @@ const App: React.FC = () => {
       const newSchedule = generateFollowUpSchedule(result);
       setSchedule(newSchedule);
       
+      // Save (Risk analysis will be auto-generated in saveArchive if missing)
       const saveResult = await saveArchive(data, result, newSchedule, followUps);
       
       if (!saveResult.success) {
@@ -73,9 +73,8 @@ const App: React.FC = () => {
 
       await refreshArchives();
       setActiveTab('assessment');
-      toast.success("建档成功，评估方案已生成");
     } catch (error) {
-      toast.error("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
+      alert("处理失败: " + (error instanceof Error ? error.message : "未知错误"));
     } finally {
       setIsGenerating(false);
     }
@@ -89,10 +88,52 @@ const App: React.FC = () => {
           if (!res.success) throw new Error(res.message);
           
           await refreshArchives();
-          toast.success("评估方案已更新保存");
+          alert("评估方案已更新保存");
       } catch (e: any) {
-          toast.error("保存失败: " + e.message);
+          alert("保存失败: " + e.message);
       }
+  };
+
+  // Helper: Synchronize Follow-up Data back to Main Health Record
+  const syncFollowUpToHealthRecord = (original: HealthRecord, latest: FollowUpRecord): HealthRecord => {
+      const updated = JSON.parse(JSON.stringify(original)); // Deep copy
+      
+      // 1. Sync Basics (Weight, BP)
+      if (latest.indicators.weight && latest.indicators.weight > 0) {
+          updated.checkup.basics.weight = latest.indicators.weight;
+      }
+      if (latest.indicators.sbp && latest.indicators.sbp > 0) {
+          updated.checkup.basics.sbp = latest.indicators.sbp;
+      }
+      if (latest.indicators.dbp && latest.indicators.dbp > 0) {
+          updated.checkup.basics.dbp = latest.indicators.dbp;
+      }
+      
+      // 2. Recalculate BMI if possible
+      if (updated.checkup.basics.weight && updated.checkup.basics.height) {
+          const h = updated.checkup.basics.height / 100;
+          updated.checkup.basics.bmi = parseFloat((updated.checkup.basics.weight / (h * h)).toFixed(1));
+      }
+
+      // 3. Sync Glucose
+      if (latest.indicators.glucose && latest.indicators.glucose > 0) {
+          if (!updated.checkup.labBasic.glucose) updated.checkup.labBasic.glucose = {};
+          // If the follow-up record is specifically Fasting (or not specified, assume fasting for simplicity in updates)
+          if (latest.indicators.glucoseType === '空腹') {
+               updated.checkup.labBasic.glucose.fasting = latest.indicators.glucose.toString();
+          }
+      }
+
+      // 4. Sync Lipids
+      if (latest.indicators.tc || latest.indicators.tg || latest.indicators.ldl || latest.indicators.hdl) {
+          if (!updated.checkup.labBasic.lipids) updated.checkup.labBasic.lipids = {};
+          if (latest.indicators.tc) updated.checkup.labBasic.lipids.tc = latest.indicators.tc.toString();
+          if (latest.indicators.tg) updated.checkup.labBasic.lipids.tg = latest.indicators.tg.toString();
+          if (latest.indicators.ldl) updated.checkup.labBasic.lipids.ldl = latest.indicators.ldl.toString();
+          if (latest.indicators.hdl) updated.checkup.labBasic.lipids.hdl = latest.indicators.hdl.toString();
+      }
+
+      return updated;
   };
 
   const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
@@ -100,7 +141,7 @@ const App: React.FC = () => {
     const updatedFollowUps = [...followUps, newRecord];
     setFollowUps(updatedFollowUps);
     
-    // Update Schedule (Mark pending as completed, create new one)
+    // Update Schedule
     let updatedSchedule = schedule.map(s => s.status === 'pending' ? { ...s, status: 'completed' as const } : s);
     const nextItem = generateNextScheduleItem(
         newRecord.date, 
@@ -110,15 +151,22 @@ const App: React.FC = () => {
     updatedSchedule = [...updatedSchedule, nextItem];
     setSchedule(updatedSchedule);
 
-    // Save strictly to DB without modifying the HealthRecord Baseline
+    // Sync Data to Health Archive
+    let updatedHealthRecord = healthRecord;
+    if (healthRecord) {
+        // Create a synchronized version of the health record
+        updatedHealthRecord = syncFollowUpToHealthRecord(healthRecord, newRecord);
+        setHealthRecord(updatedHealthRecord); // Update local state immediately
+    }
+
     if (healthRecord?.profile.checkupId) {
         await updateArchiveData(
             healthRecord.profile.checkupId, 
             updatedFollowUps, 
-            updatedSchedule
+            updatedSchedule,
+            updatedHealthRecord || undefined // Pass the updated record for persistence
         );
         await refreshArchives();
-        toast.success("随访记录已保存");
     }
   };
 
@@ -128,9 +176,10 @@ const App: React.FC = () => {
       setSchedule(updatedSchedule);
 
       if (healthRecord?.profile.checkupId) {
+          // Note: We typically don't sync back on manual edits of old records to avoid overwriting newer data inadvertently,
+          // unless we explicitely want to. For now, we just update the follow-up list.
           await updateArchiveData(healthRecord.profile.checkupId, updatedFollowUps, updatedSchedule);
           await refreshArchives();
-          toast.success("数据修订已保存");
       }
   };
 
@@ -140,10 +189,7 @@ const App: React.FC = () => {
       onTabChange={setActiveTab}
       isAuthenticated={isAuthenticated}
       onLoginClick={() => setShowLoginModal(true)}
-      onLogoutClick={() => {
-          setIsAuthenticated(false);
-          toast.info("已退出登录");
-      }}
+      onLogoutClick={() => setIsAuthenticated(false)}
     >
       <LoginModal 
         isOpen={showLoginModal} 
@@ -151,7 +197,6 @@ const App: React.FC = () => {
         onLoginSuccess={() => {
             setIsAuthenticated(true);
             refreshArchives();
-            toast.success("管理员登录成功");
         }}
       />
 

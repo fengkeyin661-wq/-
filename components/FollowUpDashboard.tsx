@@ -3,43 +3,20 @@ import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
-import { useToast } from './Toast';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface Props {
   records: FollowUpRecord[];
   assessment: HealthAssessment | null;
   schedule: ScheduledFollowUp[];
   onAddRecord: (record: Omit<FollowUpRecord, 'id'>) => void;
+  // New props for Global Reminders
   allArchives?: HealthArchive[]; 
   onPatientChange?: (archive: HealthArchive) => void;
   currentPatientId?: string;
+  // Updated prop for generic data update (Record + Schedule)
   onUpdateData?: (record: FollowUpRecord | null, schedule: ScheduledFollowUp[]) => void;
 }
-
-const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white/90 backdrop-blur-sm p-4 border border-slate-200 rounded-xl shadow-xl text-xs">
-          <p className="font-bold text-slate-700 mb-2 border-b border-slate-100 pb-1">{label}</p>
-          {payload.map((entry: any, index: number) => (
-            <div key={index} className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></span>
-              <span className="text-slate-500 w-20">{entry.name}:</span>
-              <span className="font-mono font-bold text-slate-700">
-                  {entry.value}
-                  {entry.name.includes('压') ? ' mmHg' : 
-                   entry.name.includes('血糖') || entry.name.includes('胆固醇') || entry.name.includes('甘油') || entry.name.includes('LDL') ? ' mmol/L' :
-                   entry.name.includes('体重') ? ' kg' : 
-                   entry.name.includes('心率') ? ' bpm' : ''}
-              </span>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    return null;
-};
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
     records, 
@@ -51,9 +28,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
     currentPatientId,
     onUpdateData
 }) => {
-  const toast = useToast();
   const [showModal, setShowModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // State for editing the bottom Guide
   const [isEditingGuide, setIsEditingGuide] = useState(false);
@@ -84,29 +60,41 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const currentArchive = allArchives.find(a => a.checkup_id === currentPatientId);
   const currentPatientName = currentArchive?.name || '受检者';
 
-  // Logic: Prioritize LATEST FOLLOW-UP RECORD for the Execution Sheet
-  // If there are NO records, fall back to the Assessment data.
-  // We do NOT check timestamps anymore. If a record exists, it is the source of truth.
-  const hasRecords = !!latestRecord;
+  // --- CORE LOGIC: Determine Source of Truth (Record vs Assessment) ---
+  // If the archive was updated (Re-evaluated) significantly LATER than the last record was created,
+  // we prioritize the Assessment data (New Year Checkup) over the old Follow-up Record.
+  const isAssessmentNewer = React.useMemo(() => {
+      if (!currentArchive || !assessment) return false;
+      if (!latestRecord) return true; // No records yet, so Assessment is definitely newer
+
+      // latestRecord.id is generated via Date.now().toString()
+      const recordTime = Number(latestRecord.id); 
+      // currentArchive.updated_at is ISO string
+      const archiveTime = new Date(currentArchive.updated_at || currentArchive.created_at).getTime();
+
+      // If Archive update is > 2 seconds newer than record creation, treat as Re-evaluated
+      // (Buffer to avoid race conditions when saving a record updates the archive time too)
+      return archiveTime > (recordTime + 2000);
+  }, [currentArchive, latestRecord, assessment]);
 
   // Derived Active Data for Display (Execution Sheet)
-  const activeRiskLevel = hasRecords ? latestRecord.assessment.riskLevel : (assessment?.riskLevel || RiskLevel.GREEN);
+  const activeRiskLevel = isAssessmentNewer && assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
   
-  const activePlanText = hasRecords 
-      ? latestRecord.assessment.nextCheckPlan 
-      : (assessment?.followUpPlan.nextCheckItems.join('、') || '');
+  const activePlanText = isAssessmentNewer && assessment 
+      ? assessment.followUpPlan.nextCheckItems.join('、') // From Assessment Array
+      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan.nextCheckItems.join('、') || ''); // From Record String or Fallback
 
-  const activeIssues = hasRecords
-      ? latestRecord.assessment.majorIssues
-      : (assessment ? (assessment.isCritical ? assessment.criticalWarning : assessment.summary) : '');
+  const activeIssues = isAssessmentNewer && assessment 
+      ? (assessment.isCritical ? assessment.criticalWarning : assessment.summary) // From Assessment Summary/Critical
+      : (latestRecord?.assessment.majorIssues || assessment?.summary || '');
 
-  const activeGoals = hasRecords
-      ? latestRecord.assessment.lifestyleGoals
-      : (assessment ? assessment.managementPlan.dietary.concat(assessment.managementPlan.exercise).slice(0, 5) : []);
+  const activeGoals = isAssessmentNewer && assessment
+      ? assessment.managementPlan.dietary.concat(assessment.managementPlan.exercise).slice(0, 5) // Pick top 5 from plan
+      : (latestRecord?.assessment.lifestyleGoals || []);
 
-  const activeMessage = hasRecords
-      ? latestRecord.assessment.doctorMessage
-      : "请遵照年度评估方案执行健康管理。";
+  const activeMessage = isAssessmentNewer && assessment
+      ? "新的一年评估已完成，请遵照新的管理方案执行。" 
+      : (latestRecord?.assessment.doctorMessage || latestRecord?.assessment.riskJustification || '');
 
   const nextScheduled = schedule.find(s => s.status === 'pending');
 
@@ -122,10 +110,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // Sync state for Editing Guide when data source changes
   useEffect(() => {
       setGuideEditData({
-          plan: activePlanText || '',
+          plan: activePlanText,
           issues: activeIssues || '',
-          goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : (activeGoals || ''), 
-          message: activeMessage || '',
+          goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : activeGoals, // Handle potential type mismatch safely
+          message: activeMessage,
           suggestedDate: nextScheduled ? nextScheduled.date : ''
       });
   }, [activePlanText, activeIssues, activeGoals, activeMessage, nextScheduled]);
@@ -207,8 +195,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // 辅助函数：解析复查计划文本为清单项
   const extractCheckItems = (text: string): string[] => {
       if (!text) return [];
+      // 简单分词逻辑：按逗号、顿号、分号或换行分割
       return text.split(/[，,、;；\n]/)
                  .map(s => s.trim())
+                 // 移除常见的非项目词汇，如“建议”、“定期”、“复查”、“监测”、“评估”等
                  .map(s => s.replace(/建议|定期|复查|监测|检查|评估|关注|前往|专科|就诊|完善/g, ''))
                  .map(s => s.trim())
                  .filter(s => s.length > 1);
@@ -218,7 +208,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handleOpenSmartModal = () => {
     const baseState = { ...initialFormState };
     
-    // 1. 继承基础静态数据
+    // 1. 继承基础静态数据 (从上次记录继承，比较方便)
     if (latestRecord) {
         baseState.medication.currentDrugs = latestRecord.medication.currentDrugs;
         baseState.organRisks.carotidPlaque = latestRecord.organRisks.carotidPlaque;
@@ -227,27 +217,37 @@ export const FollowUpDashboard: React.FC<Props> = ({
         baseState.organRisks.thyroidStatus = '稳定';
     }
 
-    // 2. 生成“医学复查计划核对”清单
+    // 2. 生成“医学复查计划核对”清单 (Medical Compliance)
+    // 关键逻辑：如果是刚评估完(isAssessmentNewer)，必须从 activePlanText 生成，而不是 latestRecord
     const itemsToCheck = extractCheckItems(activePlanText);
     
     if (itemsToCheck.length > 0) {
         baseState.medicalCompliance = itemsToCheck.map(item => ({
             item: item,
-            status: 'not_checked',
+            status: 'not_checked', // 默认未查
             result: ''
         }));
     } else {
         baseState.medicalCompliance = [{ item: '常规复查项目', status: 'not_checked', result: '' }];
     }
 
-    // 3. 生活方式任务
+    // 3. 生活方式任务 (Task Compliance)
+    // 如果是新评估，直接使用 Assessment 的 Tasks。否则，如果上次有记录，可以尝试继承状态(可选)，这里选择重置为 Assessment 任务
     if (assessment?.structuredTasks) {
         baseState.taskCompliance = assessment.structuredTasks.map(task => ({
             taskId: task.id,
             description: task.description,
-            status: 'achieved', 
+            status: 'achieved', // 默认为达标，鼓励式
             note: task.targetValue ? `目标: ${task.targetValue}` : ''
         }));
+    }
+
+    // 4. 预填充 AI 评估草稿
+    if (isAssessmentNewer && assessment) {
+        baseState.assessment.riskJustification = `基于最新评估：${assessment.summary.slice(0, 50)}...`;
+        baseState.assessment.majorIssues = activeIssues;
+        baseState.assessment.lifestyleGoals = Array.isArray(activeGoals) ? activeGoals : [];
+        baseState.assessment.nextCheckPlan = activePlanText;
     }
 
     setFormData(baseState);
@@ -299,33 +299,31 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
 
   const handleSubmit = async () => {
-    setIsSubmitting(true);
+    setIsAnalyzing(true);
     try {
-        // 1. Run AI Analysis in background
-        const aiResult = await analyzeFollowUpRecord(formData, assessment, latestRecord);
+        // Run AI Analysis in background
+        const result = await analyzeFollowUpRecord(formData, assessment, latestRecord);
         
-        // 2. Merge AI result into formData
+        // Merge AI result into formData
         const finalData = {
             ...formData,
             assessment: {
                 ...formData.assessment,
-                riskLevel: aiResult.riskLevel,
-                riskJustification: aiResult.riskJustification,
-                doctorMessage: aiResult.doctorMessage, 
-                majorIssues: aiResult.majorIssues,
-                nextCheckPlan: aiResult.nextCheckPlan,
-                lifestyleGoals: aiResult.lifestyleGoals
+                riskLevel: result.riskLevel,
+                riskJustification: result.riskJustification,
+                doctorMessage: result.doctorMessage, 
+                majorIssues: result.majorIssues,
+                nextCheckPlan: result.nextCheckPlan,
+                lifestyleGoals: result.lifestyleGoals
             }
         };
 
-        // 3. Save Record
         onAddRecord(finalData);
         setShowModal(false);
-        toast.success("随访记录已保存");
     } catch (e) {
-        toast.error(`提交失败: ${e instanceof Error ? e.message : '未知错误'}`);
+        alert(`自动分析失败: ${e instanceof Error ? e.message : '未知错误'}。`);
     } finally {
-        setIsSubmitting(false);
+        setIsAnalyzing(false);
     }
   };
 
@@ -333,7 +331,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       if (!onUpdateData) return;
       
       if (!latestRecord) {
-          toast.error("请先录入一次随访记录，才能保存修订的执行单。");
+          alert("请先录入一次随访记录，才能保存修订的执行单。");
           return;
       }
 
@@ -378,7 +376,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
           const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
           if (!printWindow) {
-              toast.error("请允许弹窗以查看报告");
+              alert("请允许弹窗以查看报告");
               return;
           }
 
@@ -386,6 +384,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
               if (!curr || !base) return '-';
               const diff = curr - base;
               const formatted = diff > 0 ? `+${diff}` : `${diff}`;
+              // For weight/glucose/bp, lower is usually better (unless too low), but simplified here
               return formatted; 
           };
 
@@ -486,19 +485,23 @@ export const FollowUpDashboard: React.FC<Props> = ({
           printWindow.document.write(htmlContent);
           printWindow.document.close();
       } catch (e) {
-          toast.error("生成报告失败，请重试");
+          alert("生成报告失败，请重试");
       } finally {
           setIsGeneratingReport(false);
       }
   };
 
+  // --- Completely Standalone Print Window Logic ---
   const handlePrintGuide = () => {
       setIsEditingGuide(false);
+      
+      // If Assessment is newer, we print the ASSESSMENT data. If Record is newer, we print RECORD data.
+      // We use the 'active*' variables we calculated.
       
       const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
       
       if (!printWindow) {
-          toast.error("浏览器拦截了弹窗，请允许本站弹出窗口以便打印。");
+          alert("浏览器拦截了弹窗，请允许本站弹出窗口以便打印。");
           return;
       }
 
@@ -509,6 +512,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
         .map(goal => `<li class="goal-item"><span class="check-icon">✓</span>${goal}</li>`)
         .join('') : '';
 
+      // 3. Construct the HTML String with Inline CSS
       const htmlContent = `
         <!DOCTYPE html>
         <html lang="zh-CN">
@@ -561,7 +565,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>健康管理执行单 (${hasRecords ? '随访记录' : '年度评估方案'})</h1>
+                    <h1>健康管理执行单 (${isAssessmentNewer ? '年度评估方案' : '随访记录'})</h1>
                     <h2>郑州大学医院健康管理中心</h2>
                     <div class="meta-info">
                         <span>生成日期: ${new Date().toLocaleDateString()}</span>
@@ -655,13 +659,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
       if (latestRecord) {
           onUpdateData(latestRecord, updatedSchedule);
-          toast.success(`短信模拟发送成功！\n随访日期已自动延期至 ${newDateStr}`);
+          alert(`短信模拟发送成功！\n随访日期已自动延期至 ${newDateStr}`);
       } else {
-         toast.error("无法更新：缺少基础记录");
+         alert("无法更新：缺少基础记录");
       }
       setShowSmsModal(false);
   };
 
+  // Chart Data Preparation: Map 0 values to undefined for better plotting
   const chartData = sortedRecords.map(r => ({
       date: r.date,
       sbp: r.indicators.sbp || undefined,
@@ -808,21 +813,20 @@ export const FollowUpDashboard: React.FC<Props> = ({
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                             <XAxis dataKey="date" fontSize={12} stroke="#9ca3af" tickMargin={10} />
                             <YAxis fontSize={12} stroke="#9ca3af" />
-                            <Tooltip content={<CustomTooltip />} />
+                            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                             <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                            <Brush dataKey="date" height={30} stroke="#0d9488" fill="#f0fdfa" />
                             
                             {activeChart === 'bp' && (
                                 <>
-                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} connectNulls />
-                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} connectNulls />
+                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} connectNulls />
                                     <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
                                 </>
                             )}
                             {activeChart === 'metabolic' && (
                                 <>
-                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} connectNulls />
-                                    <Line type="monotone" dataKey="weight" name="体重" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} connectNulls />
+                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} connectNulls />
                                 </>
                             )}
                             {activeChart === 'lipids' && (
@@ -917,11 +921,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   <div>
                       <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                          <span>📋</span> 下阶段健康管理执行单
-                         <span className="text-sm font-normal text-slate-500 bg-slate-100 px-2 py-0.5 rounded ml-2">
-                            基于: {hasRecords ? `本次随访 (${latestRecord.date})` : '年度评估方案'}
-                         </span>
                       </h2>
                       <p className="text-sm text-slate-500 mt-1">请受检者保存，用于指导日常生活与下次复查</p>
+                      {isAssessmentNewer && (
+                          <span className="inline-block mt-2 text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded border border-indigo-200 font-bold">
+                              ✨ 已加载最新年度评估方案
+                          </span>
+                      )}
                   </div>
                   <div className="flex gap-3">
                       {isEditingGuide ? (
@@ -932,12 +938,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       ) : (
                            <>
                              {/* Only allow editing if a record exists (to attach edit to). If fresh assessment, must log record first. */}
-                             {latestRecord && (
+                             {latestRecord && !isAssessmentNewer && (
                                 <button onClick={() => setIsEditingGuide(true)} className="bg-white border border-teal-200 text-teal-700 px-4 py-2 rounded-lg hover:bg-teal-50 flex items-center gap-2 font-bold shadow-sm text-sm">
                                     ✏️ 修订内容
                                 </button>
                              )}
-                             {!hasRecords && (
+                             {isAssessmentNewer && (
                                  <div className="text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-200 self-center">
                                      💡 如需修改计划，请先录入本次随访记录
                                  </div>
@@ -1049,13 +1055,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           {isEditingGuide ? (
                               <textarea 
                                   className="w-full text-sm border border-green-300 rounded p-2 focus:ring-1 focus:ring-green-500 h-20 bg-white"
-                                  value={guideEditData.message} 
+                                  value={guideEditData.message} // Bind to message (Doctor Message)
                                   onChange={e => setGuideEditData({...guideEditData, message: e.target.value})}
                                   placeholder="请输入给患者的寄语"
                               />
                           ) : (
                               <p className="text-sm text-slate-600 italic">
-                                  "{activeMessage}"
+                                  "{activeMessage || '健康是长期的积累，请坚持执行管理方案。'}"
                               </p>
                           )}
                       </div>
@@ -1064,7 +1070,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       )}
 
-      {/* SMS Modal & Forms Logic ... (Existing code) */}
+      {/* SMS Modal */}
       {showSmsModal && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[60] backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-scaleIn">
@@ -1098,29 +1104,32 @@ export const FollowUpDashboard: React.FC<Props> = ({
         </div>
       )}
 
+      {/* 模态框：随访录入 (AI辅助模式) */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/60 flex justify-end z-50 backdrop-blur-sm transition-opacity">
             <div className="bg-white w-full max-w-2xl h-full shadow-2xl overflow-y-auto flex flex-col animate-slideInRight">
                 <div className="sticky top-0 bg-white z-10 px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-teal-50">
                     <div>
                         <h3 className="text-xl font-bold text-slate-800">录入随访 (AI 辅助模式)</h3>
-                        <p className="text-xs text-teal-700">分析中...</p>
+                        <p className="text-xs text-teal-700">已根据上次评估方案自动生成表单草稿</p>
                     </div>
                     <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl">×</button>
                 </div>
 
                 <div className="p-6 space-y-8 flex-1">
-                    {/* ... (Existing form fields remain unchanged, just hiding the AI report block which we did earlier) ... */}
-                    {/* Simplified for brevity in this update, assuming previous form content is preserved */}
-                     <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                    
+                    {/* Section 1: 上期复查计划核对 (with Removal) */}
+                    <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
                          <h4 className="flex items-center gap-2 font-bold text-yellow-800 mb-3">
                              <span className="text-xl">📋</span> 1. 上期复查重点核对
                          </h4>
-                         {/* ... Form Logic ... */}
+                         <p className="text-xs text-yellow-700 mb-3">请确认是否完成了上次医嘱要求的复查项目：</p>
+                         
                          {formData.medicalCompliance && formData.medicalCompliance.length > 0 ? (
                              <div className="space-y-3">
                                  {formData.medicalCompliance.map((item, idx) => (
                                      <div key={idx} className="bg-white p-3 rounded border border-yellow-100 shadow-sm relative group">
+                                         {/* Remove Button */}
                                          <button 
                                              onClick={() => removeMedicalComplianceItem(idx)}
                                              className="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs font-bold px-2 py-1"
@@ -1164,20 +1173,61 @@ export const FollowUpDashboard: React.FC<Props> = ({
                              <p className="text-xs text-slate-400">无特定复查要求</p>
                          )}
                     </section>
-                    
-                    {/* ... Rest of form sections (Indicators, Lifestyle, etc) ... */}
+
+                    {/* Section 2: 核心指标 (Updated with Lipids) */}
                     <section>
                          <h4 className="flex items-center gap-2 font-bold text-slate-800 mb-4 border-b pb-2">
                              <span className="bg-blue-100 text-blue-600 px-2 rounded text-sm">2</span> 核心指标监测
                          </h4>
+                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4">
+                             <div className="flex gap-4 items-center">
+                                 <label className="text-sm font-bold w-12">血压</label>
+                                 <input type="number" placeholder="收缩压" className="flex-1 border border-slate-300 rounded p-2"
+                                     value={formData.indicators.sbp || ''} onChange={e => updateForm('indicators', 'sbp', Number(e.target.value))} />
+                                 <span className="text-slate-400">/</span>
+                                 <input type="number" placeholder="舒张压" className="flex-1 border border-slate-300 rounded p-2"
+                                     value={formData.indicators.dbp || ''} onChange={e => updateForm('indicators', 'dbp', Number(e.target.value))} />
+                             </div>
+                         </div>
+                         
+                         {/* Lipids Input Grid */}
+                         <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4">
+                             <label className="block text-sm font-bold text-slate-700 mb-2">血脂四项 (mmol/L)</label>
+                             <div className="grid grid-cols-2 gap-3">
+                                 <div>
+                                     <span className="text-xs text-slate-500">总胆固醇 (TC)</span>
+                                     <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-1.5"
+                                         value={formData.indicators.tc || ''} onChange={e => updateForm('indicators', 'tc', Number(e.target.value))} />
+                                 </div>
+                                 <div>
+                                     <span className="text-xs text-slate-500">甘油三酯 (TG)</span>
+                                     <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-1.5"
+                                         value={formData.indicators.tg || ''} onChange={e => updateForm('indicators', 'tg', Number(e.target.value))} />
+                                 </div>
+                                 <div>
+                                     <span className="text-xs text-slate-500">LDL-C</span>
+                                     <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-1.5"
+                                         value={formData.indicators.ldl || ''} onChange={e => updateForm('indicators', 'ldl', Number(e.target.value))} />
+                                 </div>
+                                 <div>
+                                     <span className="text-xs text-slate-500">HDL-C</span>
+                                     <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-1.5"
+                                         value={formData.indicators.hdl || ''} onChange={e => updateForm('indicators', 'hdl', Number(e.target.value))} />
+                                 </div>
+                             </div>
+                         </div>
+
                          <div className="grid grid-cols-2 gap-4">
                              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                <label className="block text-sm font-bold text-slate-700 mb-2">血压</label>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">血糖</label>
                                 <div className="flex gap-2">
-                                    <input type="number" placeholder="收缩压" className="flex-1 border border-slate-300 rounded p-2"
-                                     value={formData.indicators.sbp || ''} onChange={e => updateForm('indicators', 'sbp', Number(e.target.value))} />
-                                    <input type="number" placeholder="舒张压" className="flex-1 border border-slate-300 rounded p-2"
-                                     value={formData.indicators.dbp || ''} onChange={e => updateForm('indicators', 'dbp', Number(e.target.value))} />
+                                    <input type="number" className="w-full border border-slate-300 rounded p-2"
+                                        value={formData.indicators.glucose || ''} onChange={e => updateForm('indicators', 'glucose', Number(e.target.value))} />
+                                    <select className="border border-slate-300 rounded text-xs bg-white"
+                                        value={formData.indicators.glucoseType} onChange={e => updateForm('indicators', 'glucoseType', e.target.value)}>
+                                        <option>空腹</option>
+                                        <option>餐后</option>
+                                    </select>
                                 </div>
                              </div>
                              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
@@ -1187,12 +1237,60 @@ export const FollowUpDashboard: React.FC<Props> = ({
                              </div>
                          </div>
                     </section>
+
+                    {/* Section 3: 方案执行度清单 (with Removal) */}
+                    <section>
+                        <h4 className="flex items-center gap-2 font-bold text-slate-800 mb-4 border-b pb-2">
+                             <span className="bg-indigo-100 text-indigo-600 px-2 rounded text-sm">3</span> 生活方式执行核对
+                        </h4>
+                        {formData.taskCompliance && formData.taskCompliance.length > 0 ? (
+                            <div className="space-y-3">
+                                {formData.taskCompliance.map((task, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg shadow-sm relative group">
+                                        <button 
+                                             onClick={() => removeTaskComplianceItem(idx)}
+                                             className="absolute top-1 right-1 text-slate-300 hover:text-red-500 text-xs font-bold px-2 py-1"
+                                             title="移除此项"
+                                         >
+                                             🗑️
+                                         </button>
+                                        <div className="flex-1 pr-6">
+                                            <p className="font-bold text-slate-800 text-sm">{task.description}</p>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            {['achieved', 'partial', 'failed'].map((st: any) => (
+                                                <button key={st} onClick={() => updateTaskCompliance(idx, st)}
+                                                    className={`px-3 py-1 text-xs rounded border ${task.status === st ? 
+                                                        (st==='achieved'?'bg-green-600 text-white':st==='partial'?'bg-yellow-500 text-white':'bg-red-500 text-white') 
+                                                        : 'bg-white text-slate-500'}`}>
+                                                    {st==='achieved'?'达标':st==='partial'?'部分':'未做'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : <p className="text-slate-400 text-sm italic">无具体生活方式任务</p>}
+                    </section>
+
+                    {/* New Section: 其他有效信息 */}
+                    <section>
+                         <h4 className="flex items-center gap-2 font-bold text-slate-800 mb-2 border-b pb-2">
+                             <span className="bg-slate-100 text-slate-600 px-2 rounded text-sm">4</span> 其他情况备注
+                         </h4>
+                         <textarea 
+                             className="w-full border border-slate-300 rounded p-3 text-sm focus:ring-1 focus:ring-teal-500 h-24"
+                             placeholder="请输入其他有效信息，例如患者主诉的新症状、外院检查结果补充等..."
+                             value={formData.otherInfo || ''}
+                             onChange={e => updateForm('otherInfo', '', e.target.value)}
+                         />
+                    </section>
                 </div>
 
                 <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 sticky bottom-0">
-                     <button onClick={() => setShowModal(false)} disabled={isSubmitting} className="px-6 py-2 text-slate-600 hover:bg-slate-200 rounded-lg">取消</button>
-                     <button onClick={handleSubmit} disabled={isSubmitting} className="px-6 py-2 bg-teal-600 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
-                        {isSubmitting ? '🤖 分析并保存...' : '提交'}
+                     <button onClick={() => setShowModal(false)} disabled={isAnalyzing} className="px-6 py-2 text-slate-600 hover:bg-slate-200 rounded-lg">取消</button>
+                     <button onClick={handleSubmit} disabled={isAnalyzing} className="px-6 py-2 bg-teal-600 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
+                        {isAnalyzing ? '🤖 正在分析并存档...' : '提交'}
                      </button>
                 </div>
             </div>
