@@ -5,6 +5,7 @@ import { UserDiet } from './user/UserDiet';
 import { UserExercise } from './user/UserExercise';
 import { UserMedical } from './user/UserMedical';
 import { UserProfile } from './user/UserProfile';
+import { UserCommunity } from './user/UserCommunity'; // New Import
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
 import { generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
 
@@ -48,10 +49,8 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       try {
           // Re-assess since data changed
           const newAssessment = await generateHealthAssessment(newRecord);
-          // Sync to DB (Only record and assessment update, simplified for user app)
+          // Sync to DB
           await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
-          // Ideally we should save the new assessment too, but updateHealthRecordOnly is a partial update. 
-          // For full functionality we would use saveArchive, but for this demo let's assume metrics sync is key.
       } catch (e) {
           console.error("Sync failed", e);
       }
@@ -72,6 +71,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab}>
       {activeTab === 'diet' && <UserDiet />}
       {activeTab === 'exercise' && <UserExercise />}
+      {activeTab === 'community' && <UserCommunity />}
       {activeTab === 'medical' && <UserMedical />}
       {activeTab === 'profile' && (
           <UserProfile 

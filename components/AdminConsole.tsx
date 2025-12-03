@@ -98,7 +98,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         try {
             const data = await fetchArchives();
             setArchives(data);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Load Data Error:", error);
             // Fix: explicit conversion to string to satisfy type checker for unknown error type
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -394,7 +394,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     throw new Error(res.message);
                 }
 
-            } catch (err) {
+            } catch (err: any) {
                 const msg = err instanceof Error ? err.message : String(err);
                 setSmartBatchLogs(prev => [...prev, `❌ 处理失败: ${file.name} - ${msg}`]);
             }
