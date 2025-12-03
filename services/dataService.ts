@@ -264,6 +264,29 @@ export const updateArchiveData = async (
     }
 };
 
+/**
+ * Update ONLY the health_record field (Used for BMI auto-fix)
+ */
+export const updateHealthRecordOnly = async (
+    checkupId: string,
+    healthRecord: HealthRecord
+): Promise<boolean> => {
+    if (!isSupabaseConfigured()) return false;
+    try {
+        const { error } = await supabase
+            .from('health_archives')
+            .update({ 
+                health_record: healthRecord,
+                updated_at: new Date().toISOString()
+            })
+            .eq('checkup_id', checkupId);
+        return !error;
+    } catch (e) {
+        console.error("Update Health Record Only Error:", e);
+        return false;
+    }
+};
+
 export const deleteArchive = async (id: string): Promise<boolean> => {
     if (!isSupabaseConfigured()) return false;
     try {
