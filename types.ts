@@ -370,7 +370,7 @@ export interface CriticalTrackRecord {
     status: 'pending_initial' | 'pending_secondary' | 'archived'; 
     critical_item: string; 
     critical_desc: string; 
-    critical_level: 'A类' | 'B类';
+    critical_level: string; // A类/B类 or A类,B类
     initial_notify_time: string; 
     initial_feedback: string; 
     secondary_due_date: string; 
