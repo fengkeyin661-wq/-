@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -425,7 +424,8 @@ const App: React.FC = () => {
         <AdminConsole 
             isAuthenticated={isAuthenticated}
             onSelectPatient={handleSelectPatient} 
-            onDataUpdate={refreshArchives} 
+            onDataUpdate={refreshArchives}
+            onTabChange={setActiveTab} // Pass tab handler for navigation
         />
       )}
       

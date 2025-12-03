@@ -16,9 +16,10 @@ interface Props {
     onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup' | 'assessment') => void;
     onDataUpdate?: () => void;
     isAuthenticated: boolean;
+    onTabChange?: (tab: string) => void;
 }
 
-export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, isAuthenticated }) => {
+export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, isAuthenticated, onTabChange }) => {
     // --- Admin Console Logic ---
     const [archives, setArchives] = useState<HealthArchive[]>([]);
     
@@ -29,7 +30,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     // --- Enhanced List State (Sorting, Filtering, Selection) ---
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'updated_at', direction: 'desc' });
-    const [filterRisk, setFilterRisk] = useState<string>('ALL'); // ALL, RED, YELLOW, GREEN
+    const [filterRisk, setFilterRisk] = useState<string>('ALL'); // ALL, RED, YELLOW, GREEN, CRITICAL
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     // Edit Modal State
@@ -97,14 +98,14 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         try {
             const data = await fetchArchives();
             setArchives(data);
-        } catch (error: any) {
+        } catch (error) {
             console.error("Load Data Error:", error);
             let errorMessage = "无法加载数据，请检查网络或数据库配置。";
             if (error instanceof Error) {
                 errorMessage = error.message;
             } else if (typeof error === 'string') {
                 errorMessage = error;
-            } else if (error) {
+            } else {
                 errorMessage = String(error);
             }
             setFetchError(errorMessage);
@@ -211,7 +212,17 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 (archive.checkup_id || '').toLowerCase().includes(term) ||
                 (archive.phone || '').toLowerCase().includes(term)
             );
-            const matchRisk = filterRisk === 'ALL' || archive.risk_level === filterRisk;
+            
+            let matchRisk = false;
+            if (filterRisk === 'ALL') {
+                matchRisk = true;
+            } else if (filterRisk === 'CRITICAL') {
+                // Filter for critical active status
+                matchRisk = (archive.assessment_data?.isCritical === true || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived';
+            } else {
+                matchRisk = archive.risk_level === filterRisk;
+            }
+
             return matchSearch && matchRisk;
         });
 
@@ -389,8 +400,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     throw new Error(res.message);
                 }
 
-            } catch (err: any) {
-                setSmartBatchLogs(prev => [...prev, `❌ 处理失败: ${file.name} - ${err.message}`]);
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                setSmartBatchLogs(prev => [...prev, `❌ 处理失败: ${file.name} - ${msg}`]);
             }
         }
         
@@ -633,15 +645,20 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const upcomingTasks = getUpcomingTasks();
     const activeCriticalPatients = getActiveCriticalPatients();
 
-    const StatsCard = ({ label, value, color, icon, bg }: any) => (
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow">
-            <div>
+    const StatsCard = ({ label, value, color, icon, bg, onClick }: any) => (
+        <div 
+            onClick={onClick}
+            className={`bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md transition-all cursor-pointer hover:border-${color.split('-')[1]}-200 active:scale-95 group relative overflow-hidden`}
+        >
+            <div className="relative z-10">
                 <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">{label}</p>
-                <p className="text-3xl font-black text-slate-800 tracking-tight">{value}</p>
+                <p className="text-3xl font-black text-slate-800 tracking-tight group-hover:text-slate-900">{value}</p>
             </div>
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${bg} ${color}`}>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${bg} ${color} relative z-10`}>
                 {icon}
             </div>
+            {/* Hover overlay effect */}
+            <div className={`absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity ${bg}`}></div>
         </div>
     );
 
@@ -707,10 +724,30 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
             {/* Dashboard Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatsCard label="总档案数" value={archives.length} color="text-slate-600" bg="bg-slate-100" icon="📂" />
-                <StatsCard label="高风险人群" value={archives.filter(a => a.risk_level === RiskLevel.RED).length} color="text-red-600" bg="bg-red-50" icon="🚨" />
-                <StatsCard label="近期随访任务" value={upcomingTasks.length} color="text-orange-600" bg="bg-orange-50" icon="📅" />
-                <StatsCard label="待处理危急值" value={activeCriticalPatients.length} color="text-purple-600" bg="bg-purple-50" icon="⚡" />
+                <StatsCard 
+                    label="总档案数" 
+                    value={archives.length} 
+                    color="text-slate-600" bg="bg-slate-100" icon="📂" 
+                    onClick={() => setFilterRisk('ALL')}
+                />
+                <StatsCard 
+                    label="高风险人群" 
+                    value={archives.filter(a => a.risk_level === RiskLevel.RED).length} 
+                    color="text-red-600" bg="bg-red-50" icon="🚨" 
+                    onClick={() => setFilterRisk('RED')}
+                />
+                <StatsCard 
+                    label="近期随访任务" 
+                    value={upcomingTasks.length} 
+                    color="text-orange-600" bg="bg-orange-50" icon="📅" 
+                    onClick={() => onTabChange && onTabChange('followup')}
+                />
+                <StatsCard 
+                    label="待处理危急值" 
+                    value={activeCriticalPatients.length} 
+                    color="text-purple-600" bg="bg-purple-50" icon="⚡" 
+                    onClick={() => setFilterRisk('CRITICAL')}
+                />
             </div>
 
             {/* Data Table */}
@@ -736,6 +773,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                             <option value="RED">🔴 高风险</option>
                             <option value="YELLOW">🟡 中风险</option>
                             <option value="GREEN">🟢 低风险</option>
+                            <option value="CRITICAL">⚠️ 待处理危急值</option>
                         </select>
                     </div>
                     
