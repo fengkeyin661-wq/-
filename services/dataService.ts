@@ -1,3 +1,5 @@
+
+
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
@@ -12,6 +14,9 @@ export interface HealthArchive {
     gender?: string;
     age?: number;
     risk_level: string;
+    // New field for top-level date
+    checkup_date?: string;
+    
     health_record: HealthRecord; 
     assessment_data: HealthAssessment;
     follow_up_schedule: ScheduledFollowUp[];
@@ -117,6 +122,9 @@ export const saveArchive = async (
             gender: record.profile.gender,
             age: record.profile.age || 0,
             risk_level: assessment.riskLevel,
+            
+            // Map checkup date from profile to top-level column
+            checkup_date: record.profile.checkupDate || null,
             
             health_record: record as any,
             assessment_data: assessment as any,

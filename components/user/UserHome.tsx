@@ -27,7 +27,6 @@ export const UserHome: React.FC<Props> = ({ profile, assessment }) => {
   };
 
   const riskLevel = assessment?.riskLevel || 'GREEN';
-  const riskColor = riskLevel === 'RED' ? 'bg-red-500' : riskLevel === 'YELLOW' ? 'bg-yellow-500' : 'bg-green-500';
 
   return (
     <div className="p-4 space-y-6 animate-fadeIn">

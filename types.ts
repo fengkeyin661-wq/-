@@ -379,7 +379,6 @@ export interface CriticalTrackRecord {
 }
 
 // --- 7. 医疗业务热力图数据 ---
-// [UPDATE] Detailed service structure
 export interface DepartmentAnalytics {
     departmentName: string; 
     patientCount: number;   

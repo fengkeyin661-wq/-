@@ -1,5 +1,3 @@
-
-
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 
 // DeepSeek API Configuration
@@ -88,16 +86,25 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     你是一个医疗数据结构化专家。请从混合了【体检报告】和【59项教职工健康问卷】的文本中提取数据。
     
     【重要解析规则】
-    1. 请仔细识别教职工健康问卷中新增的“家族史”、“女性健康”、“呼吸道症状”、“心理量表”部分。
-    2. 数值型字段(如年龄、支数、评分)请提取为 Number 类型，若未提及则为 null。
-    3. Boolean 类型字段(如是否服用降压药)，"是"->true, "否"->false, 未提及->null。
-    4. 既往病史请特别注意提取"类风湿性关节炎"，这对于骨折风险模型至关重要。
-    5. 吸烟史中，如果能计算或提取到"包年数"(Pack-Years)，请务必填入。
+    1. **体检编号 (Checkup ID)**: 请务必提取 **6位有效数字** (例如 103146)。**严禁** 提取 10 位或更长的数字（那是流水号/条码号）。如果同时存在多个数字，请选择 6 位数的那个。
+    2. **体检日期 (Checkup Date)**: 请提取具体的体检日期，格式为 YYYY-MM-DD。通常出现在报告头部。
+    3. 请仔细识别教职工健康问卷中新增的“家族史”、“女性健康”、“呼吸道症状”、“心理量表”部分。
+    4. 数值型字段(如年龄、支数、评分)请提取为 Number 类型，若未提及则为 null。
+    5. Boolean 类型字段(如是否服用降压药)，"是"->true, "否"->false, 未提及->null。
+    6. 既往病史请特别注意提取"类风湿性关节炎"，这对于骨折风险模型至关重要。
+    7. 吸烟史中，如果能计算或提取到"包年数"(Pack-Years)，请务必填入。
     
     输出必须是严格的 JSON 格式，结构如下:
     {
       "profile": {
-        "checkupId": "Q2", "name": "Q1", "gender": "Q3(男/女)", "department": "Q4", "phone": "电话", "checkupDate": "YYYY-MM-DD", "dob": "出生日期", "age": 数字
+        "checkupId": "6位数字编号", 
+        "name": "姓名", 
+        "gender": "男/女", 
+        "department": "部门", 
+        "phone": "电话", 
+        "checkupDate": "YYYY-MM-DD", 
+        "dob": "出生日期", 
+        "age": 数字
       },
       "checkup": {
         "basics": { "height": 0, "weight": 0, "bmi": 0, "sbp": 0, "dbp": 0, "waist": 0 },
@@ -164,7 +171,21 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     }
   `;
 
-  return await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
+  const parsedData = await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
+
+  // [Auto-Fix Logic]: Calculate BMI if missing but height/weight present
+  if (parsedData.checkup?.basics) {
+      const { height, weight, bmi } = parsedData.checkup.basics;
+      if ((!bmi || bmi === 0) && height && weight && height > 0 && weight > 0) {
+          // Height from cm -> m
+          const h_m = height / 100;
+          const calculatedBmi = weight / (h_m * h_m);
+          parsedData.checkup.basics.bmi = parseFloat(calculatedBmi.toFixed(1));
+          console.log(`[AI Fix] Automatically calculated missing BMI: ${parsedData.checkup.basics.bmi}`);
+      }
+  }
+
+  return parsedData;
 }
 
 /**
@@ -350,63 +371,63 @@ export const generateHospitalBusinessAnalysis = async (
     【关键要求】
     1. 请仔细分析输入数据中的具体异常项数量。
     2. 对于每个科室建议的每一项诊疗业务(suggestedServices)，你必须**估算**具体的潜在受众人数(count)。
-       例如：消化内科总人数可能由“幽门螺杆菌(45人)”+“胃功能异常(20人)”组成。
-       那么，“C13呼气试验”的潜在人数应约为45人，“胃肠镜检查”的潜在人数可能覆盖两者之和的一部分。
-       **不要**让所有业务的人数都一样！要根据关联的异常项具体分析！
+       例如，如果“甲状腺结节”有100人，建议“甲状腺细针穿刺”时，可以估算潜在受众为20-30人（基于医学转化率）。
+    3. 必须输出 JSON 格式。
     
-    输出格式为 JSON 数组:
+    输出结构:
     [
       {
-        "departmentName": "科室名称",
-        "patientCount": 数字(科室总潜在人数),
-        "riskLevel": "HIGH"(高需求)/"MEDIUM"/"LOW",
-        "keyConditions": ["关联的主要异常项1", "异常项2"],
+        "departmentName": "科室名称 (如心血管内科)",
+        "patientCount": 120 (该科室相关异常的总人数),
+        "riskLevel": "HIGH" | "MEDIUM" | "LOW" (需求紧迫度),
+        "keyConditions": ["高血压", "冠心病"],
         "suggestedServices": [
-            { "name": "建议开展业务1 (如: C13呼气试验)", "count": 45, "description": "针对幽门螺杆菌感染阳性人群" },
-            { "name": "业务2 (如: 胃肠镜检查)", "count": 20, "description": "针对胃功能异常及肿瘤标记物升高人群" }
+           { "name": "动态血压监测", "count": 50, "description": "针对高血压人群..." },
+           { "name": "冠脉CTA", "count": 10, "description": "针对胸痛/高危人群..." }
         ]
       }
     ]
     `;
 
-    const userContent = `全院异常项统计汇总: ${JSON.stringify(aggregatedIssues)}`;
+    const userContent = JSON.stringify(aggregatedIssues);
 
-    const result = await callDeepSeek(systemPrompt, userContent, true);
-    return result.departments || result; // Handle potential wrapper object if AI adds one
+    try {
+        const result = await callDeepSeek(systemPrompt, userContent);
+        if (Array.isArray(result)) {
+             return result as DepartmentAnalytics[];
+        }
+        return [];
+    } catch (e) {
+        console.error("Business Analysis Error:", e);
+        return [];
+    }
 };
 
 /**
- * 7. 生成年度随访总结报告
+ * 7. 生成年度随访成效报告摘要
  */
 export const generateAnnualReportSummary = async (
     baseline: FollowUpRecord,
     current: FollowUpRecord
 ): Promise<{ summary: string }> => {
     const systemPrompt = `
-    你是一名资深健康管理医生。请对比患者一年前的基线数据（Baseline）和当前的最新随访数据（Current），生成一份简短的年度健康改善评估总结。
+    你是一名健康管理专家。请对比患者的基线随访记录和当前随访记录，生成一份年度健康管理成效摘要。
     
-    要求：
-    1. 重点对比核心指标（血压、血糖、体重）的变化趋势。
-    2. 评估风险等级的变化（如从高危降为中危）。
-    3. 给出整体评价（如“健康状况显著改善”、“指标平稳”、“需持续关注”）。
-    4. 语言精练、专业、亲切，字数控制在100字左右。
-    5. 使用中文。
+    重点关注：
+    1. 核心指标（血压、血糖、体重、血脂）的变化趋势。
+    2. 风险等级的变化。
+    3. 依从性（用药、生活方式）的改善情况。
+    4. 给出肯定和鼓励，并指出下一年度的重点。
     
-    输出 JSON: { "summary": "你的总结内容..." }
+    输出 JSON: { "summary": "摘要内容，200字左右" }
     `;
 
     const userContent = `
-    基线数据 (${baseline.date}):
-    - 风险等级: ${baseline.assessment.riskLevel}
-    - 血压: ${baseline.indicators.sbp}/${baseline.indicators.dbp}
-    - 血糖: ${baseline.indicators.glucose}
-    - 体重: ${baseline.indicators.weight}
+    基线记录 (${baseline.date}):
+    ${JSON.stringify(baseline)}
     
-    当前数据 (${current.date}):
-    - 风险等级: ${current.assessment.riskLevel}
-    - 血压: ${current.indicators.sbp}/${current.indicators.dbp}
-    - 血糖: ${current.indicators.glucose}
-    - 体重: ${current.indicators.weight}
+    当前记录 (${current.date}):
+    ${JSON.stringify(current)}
     `;
 
     return await callDeepSeek(systemPrompt, userContent, true);

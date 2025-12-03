@@ -2,7 +2,6 @@
 import React from 'react';
 import { HealthRecord, HealthAssessment, RiskAnalysisData } from '../../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { SystemRiskPortrait } from '../SystemRiskPortrait';
 
 interface Props {
   record: HealthRecord;
