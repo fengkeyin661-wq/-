@@ -9,10 +9,10 @@ interface Props {
 
 export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children }) => {
   const navItems = [
-    { id: 'home', label: '首页', icon: '🏠' },
-    { id: 'health', label: '我的健康', icon: '❤️' },
-    { id: 'services', label: '服务预约', icon: '📅' },
-    { id: 'discover', label: '发现', icon: '🧭' },
+    { id: 'diet', label: '健康饮食', icon: '🥗' },
+    { id: 'exercise', label: '科学运动', icon: '🏃' },
+    { id: 'medical', label: '医学服务', icon: '🏥' },
+    { id: 'profile', label: '个人数据', icon: '👤' },
   ];
 
   return (

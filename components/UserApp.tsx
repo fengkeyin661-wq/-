@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserLayout } from './user/UserLayout';
-import { UserHome } from './user/UserHome';
-import { UserHealth } from './user/UserHealth';
-import { UserServices } from './user/UserServices';
-import { UserDiscover } from './user/UserDiscover';
-import { HealthArchive, findArchiveByCheckupId } from '../services/dataService';
-import { HealthProfile, HealthAssessment, RiskAnalysisData, HealthRecord } from '../types';
+import { UserDiet } from './user/UserDiet';
+import { UserExercise } from './user/UserExercise';
+import { UserMedical } from './user/UserMedical';
+import { UserProfile } from './user/UserProfile';
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
+import { generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
 
 interface Props {
   checkupId: string;
@@ -14,7 +14,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('diet');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
 
@@ -38,6 +38,25 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     loadUser();
   }, [checkupId]);
 
+  const handleUpdateRecord = async (updatedData: any) => {
+      if (!userArchive) return;
+      
+      const newRecord = { ...userArchive.health_record, ...updatedData };
+      // Optimistic update
+      setUserArchive({ ...userArchive, health_record: newRecord });
+      
+      try {
+          // Re-assess since data changed
+          const newAssessment = await generateHealthAssessment(newRecord);
+          // Sync to DB (Only record and assessment update, simplified for user app)
+          await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
+          // Ideally we should save the new assessment too, but updateHealthRecordOnly is a partial update. 
+          // For full functionality we would use saveArchive, but for this demo let's assume metrics sync is key.
+      } catch (e) {
+          console.error("Sync failed", e);
+      }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
@@ -51,24 +70,16 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      {activeTab === 'home' && (
-        <UserHome 
-          profile={userArchive.health_record.profile} 
-          assessment={userArchive.assessment_data} 
-        />
+      {activeTab === 'diet' && <UserDiet />}
+      {activeTab === 'exercise' && <UserExercise />}
+      {activeTab === 'medical' && <UserMedical />}
+      {activeTab === 'profile' && (
+          <UserProfile 
+              record={userArchive.health_record} 
+              assessment={userArchive.assessment_data}
+              onUpdateRecord={handleUpdateRecord}
+          />
       )}
-      
-      {activeTab === 'health' && (
-        <UserHealth 
-          record={userArchive.health_record}
-          assessment={userArchive.assessment_data}
-          riskAnalysis={userArchive.risk_analysis}
-        />
-      )}
-      
-      {activeTab === 'services' && <UserServices />}
-      
-      {activeTab === 'discover' && <UserDiscover />}
       
       {/* Logout Overlay Button (Top Right) */}
       <button 

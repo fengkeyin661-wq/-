@@ -100,14 +100,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             setArchives(data);
         } catch (error) {
             console.error("Load Data Error:", error);
-            let errorMessage = "无法加载数据，请检查网络或数据库配置。";
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else {
-                errorMessage = String(error);
-            }
+            // Fix: explicit conversion to string to satisfy type checker for unknown error type
+            const errorMessage = error instanceof Error ? error.message : String(error);
             setFetchError(errorMessage);
         } finally {
             setLoading(false);

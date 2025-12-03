@@ -451,3 +451,30 @@ export const generateAnnualReportSummary = async (
 
     return await callDeepSeek(systemPrompt, userContent, true);
 };
+
+/**
+ * 8. 膳食智能评估助手
+ */
+export const generateDietAssessment = async (input: string): Promise<{ reply: string }> => {
+    const systemPrompt = `
+    你是一名专业的临床营养师。用户会输入他们一天的饮食记录或关于饮食的疑问。
+    请分析其营养结构（热量、三大营养素比例、微量元素等），并给出具体的改进建议。
+    语气亲切、专业、鼓励性。
+    
+    输出 JSON: { "reply": "你的回复内容" }
+    `;
+    return await callDeepSeek(systemPrompt, input, true);
+};
+
+/**
+ * 9. 运动计划助手
+ */
+export const generateExercisePlan = async (input: string): Promise<{ plan: { day: string, content: string }[] }> => {
+    const systemPrompt = `
+    你是一名专业的运动康复教练。用户会输入他们的身体状况、目标和偏好。
+    请为用户制定一个为期一周的简单运动计划。
+    
+    输出 JSON: { "plan": [ { "day": "周一", "content": "具体运动内容及注意事项" }, ... ] }
+    `;
+    return await callDeepSeek(systemPrompt, input, true);
+};
