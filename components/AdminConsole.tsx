@@ -100,8 +100,14 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             setArchives(data);
         } catch (error: any) {
             console.error("Load Data Error:", error);
-            // Fix: explicit conversion to string to satisfy type checker for unknown error type
-            const errorMessage = error instanceof Error ? error.message : String(error);
+            let errorMessage = "Unknown Error";
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'string') {
+                errorMessage = error;
+            } else {
+                errorMessage = String(error);
+            }
             setFetchError(errorMessage);
         } finally {
             setLoading(false);

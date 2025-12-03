@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    onLoginSuccess: () => void;
+    onLoginSuccess: (role: 'admin' | 'home') => void;
 }
 
 export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess }) => {
@@ -24,6 +24,10 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
     // Credentials
     const ADMIN_USER = "zzdxyy";
     const ADMIN_PASS = "xyy67739261#";
+    
+    const HOME_USER = "home";
+    const HOME_PASS = "8888";
+
     const ADMIN_EMAIL = "xiaoyin4567@126.com";
 
     if (!isOpen) return null;
@@ -32,7 +36,11 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
         e.preventDefault();
         if (username === ADMIN_USER && password === ADMIN_PASS) {
             setLoginError('');
-            onLoginSuccess();
+            onLoginSuccess('admin');
+            onClose();
+        } else if (username === HOME_USER && password === HOME_PASS) {
+            setLoginError('');
+            onLoginSuccess('home');
             onClose();
         } else {
             setLoginError('账号或密码错误');
@@ -55,7 +63,7 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
         if (verifyCode === sentCode && sentCode !== '') {
             alert('验证通过，正在登录...');
             setAuthStep('login'); 
-            onLoginSuccess();
+            onLoginSuccess('admin'); // Verify logic defaults to main admin
             onClose();
         } else {
             setVerifyMsg('验证码错误');
@@ -74,7 +82,7 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
 
                 <div className="text-center mb-6">
                     <div className="w-14 h-14 bg-slate-800 rounded-xl flex items-center justify-center text-white text-2xl font-bold mx-auto mb-3">Z</div>
-                    <h2 className="text-xl font-bold text-slate-800">管理员安全登录</h2>
+                    <h2 className="text-xl font-bold text-slate-800">管理后台登录</h2>
                     <p className="text-slate-500 text-xs mt-1">郑州大学医院健康管理中心</p>
                 </div>
 
@@ -87,7 +95,7 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                                 value={username}
                                 onChange={e => setUsername(e.target.value)}
                                 className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
-                                placeholder="默认: zzdxyy"
+                                placeholder="输入账号 (admin / home)"
                             />
                         </div>
                         <div>

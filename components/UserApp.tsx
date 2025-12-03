@@ -1,13 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { UserLayout } from './user/UserLayout';
 import { UserDiet } from './user/UserDiet';
 import { UserExercise } from './user/UserExercise';
 import { UserMedical } from './user/UserMedical';
 import { UserProfile } from './user/UserProfile';
-import { UserCommunity } from './user/UserCommunity'; // New Import
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
-import { generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
+import { UserCommunity } from './user/UserCommunity';
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, updateExercisePlan, ExercisePlanData } from '../services/dataService';
+import { generateHealthAssessment } from '../services/geminiService';
 
 interface Props {
   checkupId: string;
@@ -56,6 +55,20 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       }
   };
 
+  const handleSaveExercisePlan = async (plan: ExercisePlanData) => {
+      if (!userArchive) return;
+      
+      // Optimistic update
+      setUserArchive({ ...userArchive, custom_exercise_plan: plan });
+      
+      try {
+          await updateExercisePlan(userArchive.checkup_id, plan);
+      } catch (e) {
+          console.error("Plan save failed", e);
+          alert("保存失败，请检查网络");
+      }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
@@ -70,7 +83,12 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab}>
       {activeTab === 'diet' && <UserDiet />}
-      {activeTab === 'exercise' && <UserExercise />}
+      {activeTab === 'exercise' && (
+          <UserExercise 
+              savedPlan={userArchive.custom_exercise_plan}
+              onSavePlan={handleSaveExercisePlan}
+          />
+      )}
       {activeTab === 'community' && <UserCommunity />}
       {activeTab === 'medical' && <UserMedical />}
       {activeTab === 'profile' && (

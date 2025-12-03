@@ -3,6 +3,12 @@ import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSche
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
 import { generateSystemPortraits, evaluateRiskModels } from './riskModelService';
 
+export interface ExercisePlanData {
+    generatedAt: string;
+    items: { day: string, content: string }[];
+    logs: string[]; // Array of ISO date strings (YYYY-MM-DD) for completed check-ins
+}
+
 export interface HealthArchive {
     id: string;
     checkup_id: string;
@@ -22,6 +28,9 @@ export interface HealthArchive {
     critical_track?: CriticalTrackRecord;
     // New: Store Risk Analysis
     risk_analysis?: RiskAnalysisData;
+    // New: User Custom Exercise Plan
+    custom_exercise_plan?: ExercisePlanData;
+
     history_versions: {
         date: string;
         health_record: HealthRecord;
@@ -99,16 +108,19 @@ export const saveArchive = async (
         let historyVersions: any[] = [];
         let existingCriticalTrack = null;
         let existingRiskAnalysis = riskAnalysis;
+        let existingExercisePlan = null;
         
         const { data: existing } = await supabase
             .from('health_archives')
-            .select('history_versions, health_record, assessment_data, critical_track, risk_analysis')
+            .select('history_versions, health_record, assessment_data, critical_track, risk_analysis, custom_exercise_plan')
             .eq('checkup_id', checkupId)
             .maybeSingle();
 
         if (existing) {
             historyVersions = existing.history_versions || [];
             existingCriticalTrack = existing.critical_track;
+            existingExercisePlan = existing.custom_exercise_plan;
+
             // If new risk analysis not provided, try to keep old one or generate new
             if (!existingRiskAnalysis && existing.risk_analysis) {
                 existingRiskAnalysis = existing.risk_analysis;
@@ -156,6 +168,7 @@ export const saveArchive = async (
             history_versions: historyVersions,
             critical_track: existingCriticalTrack, 
             risk_analysis: existingRiskAnalysis, // Save analysis
+            custom_exercise_plan: existingExercisePlan, // Preserve exercise plan
 
             updated_at: new Date().toISOString()
         };
@@ -167,6 +180,26 @@ export const saveArchive = async (
     } catch (e: any) {
         console.error("Save Archive Error:", e);
         return { success: false, message: e.message };
+    }
+};
+
+/**
+ * Update Exercise Plan Specifically
+ */
+export const updateExercisePlan = async (checkupId: string, plan: ExercisePlanData): Promise<boolean> => {
+    if (!isSupabaseConfigured()) return false;
+    try {
+        const { error } = await supabase
+            .from('health_archives')
+            .update({ 
+                custom_exercise_plan: plan,
+                updated_at: new Date().toISOString()
+            })
+            .eq('checkup_id', checkupId);
+        return !error;
+    } catch (e) {
+        console.error("Update Exercise Plan Error:", e);
+        return false;
     }
 };
 

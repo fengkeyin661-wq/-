@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -7,8 +8,9 @@ import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { HospitalHeatmap } from './components/HospitalHeatmap';
 import { NativeSurveyForm } from './components/NativeSurveyForm'; 
-import { UserApp } from './components/UserApp'; // New User App
-import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // Import for Admin tab
+import { UserApp } from './components/UserApp'; 
+import { SystemRiskPortrait } from './components/SystemRiskPortrait'; 
+import { HomeAdmin } from './components/HomeAdmin'; // New Import
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
@@ -21,8 +23,8 @@ import * as mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 
 const App: React.FC = () => {
-  // App Mode State: 'landing' | 'admin' | 'user'
-  const [appMode, setAppMode] = useState<'landing' | 'admin' | 'user'>('landing');
+  // App Mode State: 'landing' | 'admin' | 'user' | 'home_admin'
+  const [appMode, setAppMode] = useState<'landing' | 'admin' | 'user' | 'home_admin'>('landing');
   
   // User Login State (Updated for Phone Auth)
   const [userCheckupId, setUserCheckupId] = useState('');
@@ -32,7 +34,7 @@ const App: React.FC = () => {
   const [userLoginLoading, setUserLoginLoading] = useState(false);
 
   // Admin State
-  const [activeTab, setActiveTab] = useState('dashboard'); // Changed default to dashboard
+  const [activeTab, setActiveTab] = useState('dashboard'); 
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
   const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
   const [schedule, setSchedule] = useState<ScheduledFollowUp[]>([]);
@@ -126,6 +128,16 @@ const App: React.FC = () => {
       }
   };
 
+  const handleAdminLoginSuccess = (role: 'admin' | 'home') => {
+      setIsAuthenticated(true);
+      if (role === 'home') {
+          setAppMode('home_admin');
+      } else {
+          setAppMode('admin');
+          refreshArchives();
+      }
+  };
+
   const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' | 'assessment' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
@@ -157,13 +169,12 @@ const App: React.FC = () => {
     }
   };
 
-  // Helper function to extract text from files (PDF/Word/Txt)
+  // ... (Existing extractTextFromFile and handleUpdateCheckupReport remain same)
+  // Re-adding omitted large chunks for brevity, assuming they are unchanged unless specified
   const extractTextFromFile = async (file: File): Promise<string> => {
       const fileType = file.name.split('.').pop()?.toLowerCase();
       
-      if (fileType === 'txt') {
-          return await file.text();
-      } 
+      if (fileType === 'txt') return await file.text();
       else if (fileType === 'docx' || fileType === 'doc') {
           const arrayBuffer = await file.arrayBuffer();
           const result = await mammoth.extractRawText({ arrayBuffer });
@@ -346,12 +357,12 @@ const App: React.FC = () => {
                   {/* Right: Actions */}
                   <div className="md:w-1/2 p-6 flex flex-col justify-center space-y-8 bg-slate-50/50">
                       {/* Admin Entry */}
-                      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hover:border-teal-400 transition-all cursor-pointer group" onClick={() => { setAppMode('admin'); setShowLoginModal(true); }}>
+                      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hover:border-teal-400 transition-all cursor-pointer group" onClick={() => setShowLoginModal(true)}>
                           <div className="flex items-center gap-4 mb-2">
                               <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-xl group-hover:bg-teal-100 group-hover:text-teal-600 transition-colors">👨‍⚕️</div>
                               <div>
-                                  <h3 className="font-bold text-slate-700">我是医生/管理员</h3>
-                                  <p className="text-xs text-slate-400">进入后台管理控制台</p>
+                                  <h3 className="font-bold text-slate-700">管理后台入口</h3>
+                                  <p className="text-xs text-slate-400">医生工作台 / 健康社区维护</p>
                               </div>
                           </div>
                       </div>
@@ -407,6 +418,12 @@ const App: React.FC = () => {
                       </div>
                   </div>
               </div>
+              
+              <LoginModal 
+                isOpen={showLoginModal} 
+                onClose={() => setShowLoginModal(false)}
+                onLoginSuccess={handleAdminLoginSuccess}
+              />
           </div>
       );
   }
@@ -427,7 +444,14 @@ const App: React.FC = () => {
       );
   }
 
-  // Mode 3: Admin Console (Original Layout)
+  // Mode 3: Home Admin Portal
+  if (appMode === 'home_admin') {
+      return (
+          <HomeAdmin onLogout={() => { setIsAuthenticated(false); setAppMode('landing'); }} />
+      );
+  }
+
+  // Mode 4: Main Admin Console (Doctor's Workbench)
   return (
     <Layout 
       activeTab={activeTab} 
@@ -442,10 +466,7 @@ const App: React.FC = () => {
       <LoginModal 
         isOpen={showLoginModal} 
         onClose={() => setShowLoginModal(false)}
-        onLoginSuccess={() => {
-            setIsAuthenticated(true);
-            refreshArchives();
-        }}
+        onLoginSuccess={handleAdminLoginSuccess}
       />
 
       {isGenerating && (
@@ -464,8 +485,8 @@ const App: React.FC = () => {
                 <button onClick={() => { setHealthRecord(null); setActiveTab('survey'); }} className="bg-white text-teal-600 border border-teal-200 px-8 py-3 rounded-lg hover:bg-teal-50 shadow-sm transition-all">
                     开始单人建档
                 </button>
-                <button onClick={() => { if (isAuthenticated) setActiveTab('admin'); else setShowLoginModal(true); }} className="bg-teal-600 text-white px-8 py-3 rounded-lg shadow-lg hover:bg-teal-700 transition-all">
-                    {isAuthenticated ? '进入管理控制台' : '管理员登录'}
+                <button onClick={() => setActiveTab('admin')} className="bg-teal-600 text-white px-8 py-3 rounded-lg shadow-lg hover:bg-teal-700 transition-all">
+                    进入全科医生工作台
                 </button>
             </div>
          </div>
@@ -476,7 +497,7 @@ const App: React.FC = () => {
             isAuthenticated={isAuthenticated}
             onSelectPatient={handleSelectPatient} 
             onDataUpdate={refreshArchives}
-            onTabChange={setActiveTab} // Pass tab handler for navigation
+            onTabChange={setActiveTab} 
         />
       )}
       
@@ -484,7 +505,6 @@ const App: React.FC = () => {
           <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(arch) => handleSelectPatient(arch, 'assessment')} />
       )}
       
-      {/* New Risk Portrait Tab for Admin View */}
       {activeTab === 'risk_portrait' && healthRecord && (
           <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6">
               <SystemRiskPortrait 
