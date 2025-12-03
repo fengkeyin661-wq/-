@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
@@ -99,10 +97,17 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         try {
             const data = await fetchArchives();
             setArchives(data);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Load Data Error:", error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            setFetchError((errorMessage as string) || "无法加载数据，请检查网络或数据库配置。");
+            let errorMessage = "无法加载数据，请检查网络或数据库配置。";
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'string') {
+                errorMessage = error;
+            } else if (error) {
+                errorMessage = String(error);
+            }
+            setFetchError(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -687,4 +692,295 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             </div>
 
             <div className="flex items-center gap-2 mb-2">
-                 <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs
+                 <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border transition-colors ${configured ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                    <div className={`w-2 h-2 rounded-full ${configured ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                    {configured ? '云端数据库已连接' : '未连接数据库 (请检查 .env 配置)'}
+                </div>
+            </div>
+
+            {fetchError && (
+                <div className="bg-red-50 text-red-800 p-4 rounded-lg border border-red-200 flex justify-between items-center">
+                    <span>⚠️ {fetchError}</span>
+                    <button onClick={loadData} className="text-sm underline hover:text-red-900">重试</button>
+                </div>
+            )}
+
+            {/* Dashboard Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatsCard label="总档案数" value={archives.length} color="text-slate-600" bg="bg-slate-100" icon="📂" />
+                <StatsCard label="高风险人群" value={archives.filter(a => a.risk_level === RiskLevel.RED).length} color="text-red-600" bg="bg-red-50" icon="🚨" />
+                <StatsCard label="近期随访任务" value={upcomingTasks.length} color="text-orange-600" bg="bg-orange-50" icon="📅" />
+                <StatsCard label="待处理危急值" value={activeCriticalPatients.length} color="text-purple-600" bg="bg-purple-50" icon="⚡" />
+            </div>
+
+            {/* Data Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                    <div className="flex gap-4 items-center">
+                        <div className="relative">
+                            <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
+                            <input 
+                                type="text" 
+                                placeholder="搜索姓名、编号、电话..." 
+                                className="pl-9 pr-4 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-teal-500 outline-none w-64"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <select 
+                            className="py-2 px-3 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-teal-500 outline-none bg-white"
+                            value={filterRisk}
+                            onChange={e => setFilterRisk(e.target.value)}
+                        >
+                            <option value="ALL">全部风险等级</option>
+                            <option value="RED">🔴 高风险</option>
+                            <option value="YELLOW">🟡 中风险</option>
+                            <option value="GREEN">🟢 低风险</option>
+                        </select>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                         {selectedIds.size > 0 && (
+                             <button 
+                                onClick={handleBatchDelete}
+                                className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-100"
+                             >
+                                 批量删除 ({selectedIds.size})
+                             </button>
+                         )}
+                         <button onClick={handleExportData} className="text-slate-500 hover:text-teal-600 text-sm font-bold flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+                            <span>📥</span> 导出数据
+                         </button>
+                    </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm text-slate-600">
+                        <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-xs">
+                            <tr>
+                                <th className="p-4 w-10">
+                                    <input type="checkbox" onChange={handleSelectAll} checked={selectedIds.size > 0 && selectedIds.size === filteredArchives.length} />
+                                </th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 transition-colors" onClick={() => handleSort('name')}>姓名 <SortIcon colKey="name" /></th>
+                                <th className="p-4">编号</th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 transition-colors" onClick={() => handleSort('department')}>部门 <SortIcon colKey="department" /></th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 transition-colors" onClick={() => handleSort('risk_level')}>风险等级 <SortIcon colKey="risk_level" /></th>
+                                <th className="p-4">危急值状态</th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 transition-colors" onClick={() => handleSort('updated_at')}>更新时间 <SortIcon colKey="updated_at" /></th>
+                                <th className="p-4 text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {filteredArchives.length > 0 ? filteredArchives.map(archive => {
+                                const isCriticalActive = (archive.assessment_data.isCritical || (archive.assessment_data.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived';
+
+                                return (
+                                <tr key={archive.id} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(archive.id) ? 'bg-blue-50/30' : ''}`}>
+                                    <td className="p-4">
+                                        <input type="checkbox" checked={selectedIds.has(archive.id)} onChange={() => handleSelectRow(archive.id)} />
+                                    </td>
+                                    <td className="p-4 font-bold text-slate-800">
+                                        <div className="flex flex-col">
+                                            <span>{archive.name}</span>
+                                            <span className="text-[10px] font-normal text-slate-400">{archive.gender} · {archive.age}岁</span>
+                                        </div>
+                                    </td>
+                                    <td className="p-4 font-mono">{archive.checkup_id}</td>
+                                    <td className="p-4">{archive.department || '-'}</td>
+                                    <td className="p-4">
+                                        <span className={`px-2 py-1 rounded text-xs font-bold border ${
+                                            archive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                                            archive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
+                                            'bg-green-50 text-green-600 border-green-200'
+                                        }`}>
+                                            {archive.risk_level === 'RED' ? '高风险' : archive.risk_level === 'YELLOW' ? '中风险' : '低风险'}
+                                        </span>
+                                    </td>
+                                    <td className="p-4">
+                                        {isCriticalActive ? (
+                                            <button 
+                                                onClick={() => setCriticalModalArchive(archive)}
+                                                className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-1 rounded border border-red-200 text-xs font-bold animate-pulse hover:bg-red-200"
+                                            >
+                                                <span>⚡</span>
+                                                {archive.critical_track?.status === 'pending_secondary' ? '待二次回访' : '待处理'}
+                                            </button>
+                                        ) : (
+                                            <span className="text-slate-400 text-xs">-</span>
+                                        )}
+                                    </td>
+                                    <td className="p-4 text-xs text-slate-500">
+                                        {new Date(archive.updated_at || archive.created_at).toLocaleDateString()}
+                                    </td>
+                                    <td className="p-4 flex justify-center gap-2">
+                                        <button onClick={() => onSelectPatient(archive, 'view')} className="text-slate-400 hover:text-teal-600 transition-colors" title="查看档案">👁️</button>
+                                        <button onClick={() => handleEditClick(archive)} className="text-slate-400 hover:text-blue-600 transition-colors" title="编辑信息">✏️</button>
+                                        <button onClick={() => handleDelete(archive.id, archive.name)} className="text-slate-400 hover:text-red-600 transition-colors" title="删除">🗑️</button>
+                                    </td>
+                                </tr>
+                            )}) : (
+                                <tr>
+                                    <td colSpan={8} className="p-8 text-center text-slate-400">
+                                        {loading ? '加载中...' : '未找到匹配的健康档案'}
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Smart Batch Import Modal */}
+            {isSmartBatchModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl animate-scaleIn">
+                        <div className="flex justify-between items-start mb-6 border-b pb-4">
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                                    <span>✨</span> 批量智能建档 (PDF/Word/Txt)
+                                </h3>
+                                <p className="text-xs text-slate-500 mt-1">支持一次性上传多个体检报告文件，AI 将自动提取、评估并建档。</p>
+                            </div>
+                            <button onClick={() => !isSmartBatchProcessing && setIsSmartBatchModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-2xl">×</button>
+                        </div>
+                        
+                        <div className="mb-6">
+                             <div className="border-2 border-dashed border-indigo-200 bg-indigo-50 rounded-xl p-8 text-center transition-colors hover:border-indigo-400 relative">
+                                 <input 
+                                    type="file" 
+                                    multiple 
+                                    accept=".pdf,.docx,.doc,.txt" 
+                                    className="absolute inset-0 opacity-0 cursor-pointer"
+                                    onChange={handleSmartBatchFiles}
+                                    disabled={isSmartBatchProcessing}
+                                 />
+                                 <div className="text-4xl mb-3">📂</div>
+                                 <p className="font-bold text-indigo-700">点击或拖拽上传多个文件</p>
+                                 <p className="text-xs text-indigo-400 mt-2">支持 PDF, Word (.docx), Txt 格式</p>
+                                 {smartBatchFiles.length > 0 && (
+                                     <div className="mt-4 bg-white rounded-lg p-2 text-sm font-bold text-indigo-600 shadow-sm inline-block">
+                                         已选择 {smartBatchFiles.length} 个文件
+                                     </div>
+                                 )}
+                             </div>
+                        </div>
+
+                        {/* Logs Area */}
+                        <div className="bg-slate-900 text-green-400 font-mono text-xs p-4 rounded-lg h-48 overflow-y-auto mb-6 shadow-inner">
+                            {smartBatchLogs.length === 0 ? (
+                                <span className="opacity-50">// 等待任务开始...</span>
+                            ) : (
+                                smartBatchLogs.map((log, i) => <div key={i}>{log}</div>)
+                            )}
+                            {isSmartBatchProcessing && <div className="animate-pulse mt-2">_ 处理中...</div>}
+                        </div>
+
+                        <div className="flex justify-end gap-3">
+                            <button 
+                                onClick={() => setIsSmartBatchModalOpen(false)} 
+                                disabled={isSmartBatchProcessing}
+                                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-bold"
+                            >
+                                关闭
+                            </button>
+                            <button 
+                                onClick={runSmartBatchImport}
+                                disabled={isSmartBatchProcessing || smartBatchFiles.length === 0}
+                                className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-lg disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isSmartBatchProcessing ? '🤖 AI 正在处理...' : '🚀 开始批量建档'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Existing Excel Import Modal */}
+            {isBatchModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md animate-scaleIn text-center">
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">批量导入健康档案 (Excel)</h3>
+                        <p className="text-xs text-slate-500 mb-6">请使用标准模板导入数据。系统将自动生成评估方案。</p>
+                        
+                        <div className="space-y-4">
+                            <button onClick={downloadTemplate} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 font-bold hover:border-teal-500 hover:text-teal-600 transition-all flex items-center justify-center gap-2">
+                                <span>⬇️</span> 下载 Excel 模板
+                            </button>
+                            
+                            <div className="relative">
+                                <input 
+                                    type="file" 
+                                    ref={fileInputRef}
+                                    accept=".xlsx, .xls"
+                                    className="hidden"
+                                    onChange={handleExcelUpload}
+                                />
+                                <button 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="w-full py-3 bg-teal-600 text-white rounded-xl font-bold hover:bg-teal-700 shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-2"
+                                >
+                                    <span>📤</span> 上传并导入数据
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <button onClick={() => setIsBatchModalOpen(false)} className="mt-6 text-sm text-slate-400 hover:text-slate-600">取消操作</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Critical Handle Modal */}
+            {criticalModalArchive && (
+                <CriticalHandleModal 
+                    archive={criticalModalArchive} 
+                    onClose={() => setCriticalModalArchive(null)} 
+                    onSave={handleCriticalSave} 
+                />
+            )}
+
+            {/* Profile Edit Modal */}
+            {isEditModalOpen && editingArchive && (
+                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-scaleIn">
+                        <h3 className="text-lg font-bold text-slate-800 mb-4">编辑基本信息</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">姓名</label>
+                                <input className="w-full border rounded p-2" value={editForm?.name || ''} onChange={e => setEditForm(prev => ({...prev!, name: e.target.value}))} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">性别</label>
+                                    <select className="w-full border rounded p-2 bg-white" value={editForm?.gender || ''} onChange={e => setEditForm(prev => ({...prev!, gender: e.target.value}))}>
+                                        <option value="男">男</option>
+                                        <option value="女">女</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">年龄</label>
+                                    <input type="number" className="w-full border rounded p-2" value={editForm?.age || ''} onChange={e => setEditForm(prev => ({...prev!, age: Number(e.target.value)}))} />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">部门</label>
+                                <input className="w-full border rounded p-2" value={editForm?.department || ''} onChange={e => setEditForm(prev => ({...prev!, department: e.target.value}))} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">联系电话</label>
+                                <input className="w-full border rounded p-2" value={editForm?.phone || ''} onChange={e => setEditForm(prev => ({...prev!, phone: e.target.value}))} />
+                            </div>
+                             <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">体检编号 (唯一ID)</label>
+                                <input className="w-full border rounded p-2 bg-slate-50" value={editForm?.checkupId || ''} onChange={e => setEditForm(prev => ({...prev!, checkupId: e.target.value}))} />
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm">取消</button>
+                            <button onClick={handleSaveProfile} className="px-4 py-2 bg-teal-600 text-white font-bold rounded-lg hover:bg-teal-700 shadow-lg text-sm">保存修改</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};

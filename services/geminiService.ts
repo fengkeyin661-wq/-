@@ -176,22 +176,26 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
   const parsedData = await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
 
   // [Auto-Fix Logic]: Calculate BMI if missing but height/weight present
-  // Ensure we handle numeric conversion safely in case AI returns strings
   if (parsedData.checkup?.basics) {
+      // Ensure numerical types
       const height = Number(parsedData.checkup.basics.height);
       const weight = Number(parsedData.checkup.basics.weight);
-      const bmi = Number(parsedData.checkup.basics.bmi);
+      let bmi = Number(parsedData.checkup.basics.bmi);
 
-      if ((!bmi || bmi === 0) && height && weight && height > 0 && weight > 0) {
+      // Fix missing BMI
+      if ((!bmi || bmi === 0) && height > 0 && weight > 0) {
           // Height from cm -> m
           const h_m = height / 100;
           const calculatedBmi = weight / (h_m * h_m);
-          parsedData.checkup.basics.bmi = parseFloat(calculatedBmi.toFixed(1));
-          // Update height/weight to be numbers too, just in case
-          parsedData.checkup.basics.height = height;
-          parsedData.checkup.basics.weight = weight;
-          console.log(`[AI Fix] Automatically calculated missing BMI: ${parsedData.checkup.basics.bmi}`);
+          bmi = parseFloat(calculatedBmi.toFixed(1));
+          
+          parsedData.checkup.basics.bmi = bmi;
+          console.log(`[AI Fix] Automatically calculated missing BMI: ${bmi}`);
       }
+      
+      // Update normalized numbers back to object
+      parsedData.checkup.basics.height = height || undefined;
+      parsedData.checkup.basics.weight = weight || undefined;
   }
 
   return parsedData;

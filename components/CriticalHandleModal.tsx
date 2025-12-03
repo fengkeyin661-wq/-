@@ -17,7 +17,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
     // Auto-extract info if fresh, or load existing
     const criticalWarning = archive.assessment_data.criticalWarning || '';
     const levelMatch = criticalWarning.match(/\[([AB]类)\]/);
-    const level = levelMatch ? levelMatch[1] : (archive.assessment_data.riskLevel === 'RED' ? 'A类' : 'B类');
+    const defaultLevel = levelMatch ? levelMatch[1] : (archive.assessment_data.riskLevel === 'RED' ? 'A类' : 'B类');
     const desc = criticalWarning.replace(/\[[AB]类\]\s*/, '') || '存在危急指标';
 
     const [form, setForm] = useState<CriticalTrackRecord>({
@@ -26,7 +26,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
         
         critical_item: existingTrack?.critical_item || '危急值筛查',
         critical_desc: existingTrack?.critical_desc || desc,
-        critical_level: existingTrack?.critical_level || level,
+        critical_level: existingTrack?.critical_level || defaultLevel,
 
         initial_notify_time: existingTrack?.initial_notify_time || new Date().toLocaleString(),
         initial_feedback: existingTrack?.initial_feedback || '',
@@ -45,20 +45,22 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
         }
     }, []);
 
+    // Toggle Multi-Level Selection
     const toggleLevel = (lvl: string) => {
-        if (isSecondary) return;
-        const current = form.critical_level || '';
-        let parts = current.split(/[,，/ ]+/).filter(Boolean);
-        if (parts.includes(lvl)) {
-            parts = parts.filter(p => p !== lvl);
+        if (isSecondary) return; // Cannot change level during secondary phase
+        const currentLevels = (form.critical_level || '').split(/[,，、/ ]+/).filter(Boolean);
+        let newLevels = [];
+        if (currentLevels.includes(lvl)) {
+            newLevels = currentLevels.filter(l => l !== lvl);
         } else {
-            parts.push(lvl);
+            newLevels = [...currentLevels, lvl];
         }
-        setForm({ ...form, critical_level: parts.sort().join(',') });
+        // Sort to keep "A类,B类" consistent
+        setForm({ ...form, critical_level: newLevels.sort().join(',') });
     };
 
     const isChecked = (lvl: string) => {
-        return (form.critical_level || '').split(/[,，/ ]+/).includes(lvl);
+        return (form.critical_level || '').split(/[,，、/ ]+/).includes(lvl);
     };
 
     const handleSubmit = () => {
@@ -81,7 +83,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
 
     return (
         <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-center justify-center backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl p-8 animate-scaleIn border-t-8 border-red-600">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl p-8 animate-scaleIn border-t-8 border-red-600 max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-start mb-6 border-b pb-4">
                     <div>
                         <h2 className="text-2xl font-bold text-red-700 flex items-center gap-2">
@@ -104,4 +106,101 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                         <div className="p-3 border-r border-slate-300 font-bold text-slate-700">体检编号</div>
                         <div className="p-3 border-r border-slate-300">{archive.checkup_id}</div>
                         <div className="p-3 border-r border-slate-300 font-bold text-slate-700">联系电话</div>
-                        <div className="p-3 font
+                        <div className="p-3 font-mono">{archive.phone || '-'}</div>
+                    </div>
+                </div>
+
+                <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">危急等级 (可多选)</label>
+                            <div className="flex gap-4 p-3 bg-slate-50 rounded border border-slate-200">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-5 h-5 accent-red-600"
+                                        checked={isChecked('A类')}
+                                        onChange={() => toggleLevel('A类')}
+                                        disabled={isSecondary}
+                                    />
+                                    <span className={`font-bold ${isChecked('A类') ? 'text-red-700' : 'text-slate-500'}`}>A类 (危急值)</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-5 h-5 accent-orange-500"
+                                        checked={isChecked('B类')}
+                                        onChange={() => toggleLevel('B类')}
+                                        disabled={isSecondary}
+                                    />
+                                    <span className={`font-bold ${isChecked('B类') ? 'text-orange-700' : 'text-slate-500'}`}>B类 (重大异常)</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-2">危急项目名称</label>
+                            <input 
+                                type="text" 
+                                className="w-full border border-slate-300 rounded p-2.5 text-sm"
+                                value={form.critical_item}
+                                onChange={e => !isSecondary && setForm({...form, critical_item: e.target.value})}
+                                disabled={isSecondary}
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">异常描述</label>
+                        <textarea 
+                            className="w-full border border-slate-300 rounded p-2 text-sm h-20 bg-slate-50"
+                            value={form.critical_desc}
+                            onChange={e => !isSecondary && setForm({...form, critical_desc: e.target.value})}
+                            disabled={isSecondary}
+                        />
+                    </div>
+
+                    <div className={`p-4 rounded-lg border-l-4 ${isSecondary ? 'bg-slate-50 border-slate-300 opacity-60' : 'bg-red-50 border-red-500'}`}>
+                        <h4 className="font-bold text-slate-800 mb-3 flex justify-between">
+                            <span>1. 初次通知与处理</span>
+                            <span className="text-xs font-normal text-slate-500">通知时间: {form.initial_notify_time}</span>
+                        </h4>
+                        <textarea 
+                            className="w-full border border-slate-300 rounded p-2 text-sm h-24 focus:ring-2 focus:ring-red-500"
+                            placeholder="请记录通知对象（本人/家属/单位）、通话情况及处置建议..."
+                            value={form.initial_feedback}
+                            onChange={e => !isSecondary && setForm({...form, initial_feedback: e.target.value})}
+                            disabled={isSecondary}
+                        />
+                    </div>
+
+                    {isSecondary && (
+                        <div className="p-4 rounded-lg border-l-4 bg-orange-50 border-orange-500 animate-slideInRight">
+                            <h4 className="font-bold text-slate-800 mb-3 flex justify-between">
+                                <span>2. 二次回访追踪</span>
+                                <span className="text-xs font-normal text-slate-500">计划日期: {form.secondary_due_date}</span>
+                            </h4>
+                            <textarea 
+                                className="w-full border border-slate-300 rounded p-2 text-sm h-24 focus:ring-2 focus:ring-orange-500"
+                                placeholder="请记录复查结果、治疗进展及干预效果..."
+                                value={form.secondary_feedback}
+                                onChange={e => setForm({...form, secondary_feedback: e.target.value})}
+                            />
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
+                    <button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold">取消</button>
+                    <button 
+                        onClick={handleSubmit}
+                        className={`px-6 py-2 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 ${
+                            isSecondary ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-600 hover:bg-red-700'
+                        }`}
+                    >
+                        {isSecondary ? '✅ 完成归档' : '💾 确认通知并列入回访'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
