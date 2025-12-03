@@ -97,7 +97,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         try {
             const data = await fetchArchives();
             setArchives(data);
-        } catch (error: unknown) {
+        } catch (error: any) {
             console.error("Load Data Error:", error);
             let errorMessage = "无法加载数据，请检查网络或数据库配置。";
             if (error instanceof Error) {

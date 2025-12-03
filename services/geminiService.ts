@@ -211,8 +211,14 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
     【重要】请严格依据以下“重要异常结果分层管理标准”判断危急值（A类）和重大异常（B类）。
     如果符合以下任意条件，必须将 riskLevel 设为 RED，将 isCritical 设为 true，并在 criticalWarning 中注明具体类别（如“A类危急值”或“B类重大异常”）和原因。
 
+    ★【数值判定绝对严格】★
+    必须严格按照数学大小关系判断，不得四舍五入或模糊判断。
+    例如：标准为≥110，则109、107均**不符合**，不可归为A类。
+    例如：标准为≥180，则179**不符合**。
+
     一、一般检查
     [A类] 血压：收缩压≥180mmHg 或 舒张压≥110mmHg。
+    [B类] 血压：收缩压≥160mmHg 或 舒张压≥100mmHg。
 
     二、物理检查
     [A类] 
