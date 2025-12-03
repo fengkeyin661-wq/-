@@ -1,5 +1,3 @@
-
-
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
@@ -52,6 +50,30 @@ export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthA
         return data;
     } catch (e) {
         console.error("Find archive exception:", e);
+        return null;
+    }
+};
+
+/**
+ * Find Archive by Phone Number (For User Login)
+ */
+export const findArchiveByPhone = async (phone: string): Promise<HealthArchive | null> => {
+    if (!isSupabaseConfigured()) return null;
+    try {
+        // Query database for phone match
+        const { data, error } = await supabase
+            .from('health_archives')
+            .select('*')
+            .eq('phone', phone)
+            .maybeSingle();
+        
+        if (error) {
+            console.error("Find archive by phone error:", error);
+            return null;
+        }
+        return data;
+    } catch (e) {
+        console.error("Find archive by phone exception:", e);
         return null;
     }
 };

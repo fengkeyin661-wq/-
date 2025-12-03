@@ -12,7 +12,7 @@ import { SystemRiskPortrait } from './components/SystemRiskPortrait'; // Import 
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData } from './types'; 
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis } from './services/dataService'; 
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, findArchiveByPhone } from './services/dataService'; 
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 
 // @ts-ignore
@@ -24,9 +24,12 @@ const App: React.FC = () => {
   // App Mode State: 'landing' | 'admin' | 'user'
   const [appMode, setAppMode] = useState<'landing' | 'admin' | 'user'>('landing');
   
-  // User Login State
+  // User Login State (Updated for Phone Auth)
   const [userCheckupId, setUserCheckupId] = useState('');
-  const [userLoginInput, setUserLoginInput] = useState('');
+  const [userPhone, setUserPhone] = useState('');
+  const [userVerifyCode, setUserVerifyCode] = useState('');
+  const [isCodeSent, setIsCodeSent] = useState(false);
+  const [userLoginLoading, setUserLoginLoading] = useState(false);
 
   // Admin State
   const [activeTab, setActiveTab] = useState('dashboard'); // Changed default to dashboard
@@ -88,15 +91,38 @@ const App: React.FC = () => {
 
   // --- Handlers ---
 
+  const handleSendVerifyCode = () => {
+      if (!userPhone) return alert("请输入手机号");
+      if (!/^1[3-9]\d{9}$/.test(userPhone)) return alert("请输入有效的中国大陆手机号");
+      
+      // Simulate sending code
+      setIsCodeSent(true);
+      alert(`验证码已发送至 ${userPhone}：8888 (模拟)`);
+  };
+
   const handleUserLogin = async () => {
-      if (!userLoginInput.trim()) return alert("请输入体检编号");
-      // Check if user exists (Simple auth for demo)
-      const archive = await findArchiveByCheckupId(userLoginInput.trim());
-      if (archive) {
-          setUserCheckupId(userLoginInput.trim());
-          setAppMode('user');
-      } else {
-          alert("未找到该体检编号的档案，请联系管理员");
+      if (!userPhone) return alert("请输入手机号");
+      if (!isCodeSent) return alert("请先获取验证码");
+      if (!userVerifyCode) return alert("请输入验证码");
+      
+      if (userVerifyCode !== '8888') {
+          return alert("验证码错误");
+      }
+
+      setUserLoginLoading(true);
+      try {
+          const archive = await findArchiveByPhone(userPhone);
+          if (archive) {
+              setUserCheckupId(archive.checkup_id);
+              setAppMode('user');
+          } else {
+              alert("您尚未开通健康管家服务，请联系客服开通，客服热线：0371-67739261");
+          }
+      } catch (e) {
+          console.error(e);
+          alert("登录服务异常，请稍后重试");
+      } finally {
+          setUserLoginLoading(false);
       }
   };
 
@@ -330,30 +356,53 @@ const App: React.FC = () => {
                           </div>
                       </div>
 
-                      {/* User Entry */}
+                      {/* User Entry (Phone Login) */}
                       <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
                           <div className="flex items-center gap-4 mb-4">
                               <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-xl text-blue-500">🧑‍💼</div>
                               <div>
                                   <h3 className="font-bold text-slate-700">我是教职工</h3>
-                                  <p className="text-xs text-slate-400">查看我的健康档案与服务</p>
+                                  <p className="text-xs text-slate-400">验证手机号登录健康管家</p>
                               </div>
                           </div>
-                          <div className="flex gap-2">
-                              <input 
-                                  type="text" 
-                                  placeholder="请输入您的体检编号" 
-                                  className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                  value={userLoginInput}
-                                  onChange={e => setUserLoginInput(e.target.value)}
-                                  onKeyDown={e => e.key === 'Enter' && handleUserLogin()}
-                              />
-                              <button 
-                                  onClick={handleUserLogin}
-                                  className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-100"
-                              >
-                                  进入
-                              </button>
+                          
+                          <div className="space-y-3">
+                              <div className="flex gap-2">
+                                  <input 
+                                      type="tel" 
+                                      placeholder="请输入手机号" 
+                                      className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                      value={userPhone}
+                                      onChange={e => setUserPhone(e.target.value)}
+                                      disabled={isCodeSent}
+                                  />
+                                  <button 
+                                      onClick={handleSendVerifyCode}
+                                      disabled={isCodeSent}
+                                      className="bg-blue-100 text-blue-600 px-3 py-2 rounded-lg font-bold text-xs hover:bg-blue-200 disabled:opacity-50 whitespace-nowrap"
+                                  >
+                                      {isCodeSent ? '已发送' : '获取验证码'}
+                                  </button>
+                              </div>
+                              
+                              {isCodeSent && (
+                                  <div className="animate-fadeIn">
+                                      <input 
+                                          type="text" 
+                                          placeholder="输入验证码 (8888)" 
+                                          className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none mb-3"
+                                          value={userVerifyCode}
+                                          onChange={e => setUserVerifyCode(e.target.value)}
+                                      />
+                                      <button 
+                                          onClick={handleUserLogin}
+                                          disabled={userLoginLoading}
+                                          className="w-full bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 shadow-lg shadow-blue-100 disabled:opacity-70 flex items-center justify-center"
+                                      >
+                                          {userLoginLoading ? '正在验证...' : '登录'}
+                                      </button>
+                                  </div>
+                              )}
                           </div>
                       </div>
                   </div>
@@ -370,7 +419,9 @@ const App: React.FC = () => {
               onLogout={() => { 
                   setAppMode('landing'); 
                   setUserCheckupId(''); 
-                  setUserLoginInput('');
+                  setUserPhone('');
+                  setUserVerifyCode('');
+                  setIsCodeSent(false);
               }} 
           />
       );
