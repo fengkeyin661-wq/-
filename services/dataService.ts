@@ -18,8 +18,6 @@ export interface HealthArchive {
     gender?: string;
     age?: number;
     risk_level: string;
-    // New field for top-level date
-    checkup_date?: string;
     
     health_record: HealthRecord; 
     assessment_data: HealthAssessment;
@@ -110,16 +108,18 @@ export const saveArchive = async (
         let existingRiskAnalysis = riskAnalysis;
         let existingExercisePlan = null;
         
+        // Use select('*') to be robust against missing optional columns (like custom_exercise_plan)
         const { data: existing } = await supabase
             .from('health_archives')
-            .select('history_versions, health_record, assessment_data, critical_track, risk_analysis, custom_exercise_plan')
+            .select('*')
             .eq('checkup_id', checkupId)
             .maybeSingle();
 
         if (existing) {
             historyVersions = existing.history_versions || [];
             existingCriticalTrack = existing.critical_track;
-            existingExercisePlan = existing.custom_exercise_plan;
+            // Use bracket notation to safely access potentially missing property types
+            existingExercisePlan = (existing as any).custom_exercise_plan;
 
             // If new risk analysis not provided, try to keep old one or generate new
             if (!existingRiskAnalysis && existing.risk_analysis) {
@@ -148,7 +148,7 @@ export const saveArchive = async (
         }
 
         // 2. Prepare Payload
-        const payload = {
+        const payload: any = {
             checkup_id: checkupId,
             name: record.profile.name || '未命名',
             phone: record.profile.phone || null,
@@ -157,21 +157,23 @@ export const saveArchive = async (
             age: record.profile.age || 0,
             risk_level: assessment.riskLevel,
             
-            // Map checkup date from profile to top-level column
-            checkup_date: record.profile.checkupDate || null,
-            
-            health_record: record as any,
-            assessment_data: assessment as any,
-            follow_up_schedule: schedule as any,
+            health_record: record,
+            assessment_data: assessment,
+            follow_up_schedule: schedule,
             
             follow_ups: existingFollowUps, 
             history_versions: historyVersions,
             critical_track: existingCriticalTrack, 
             risk_analysis: existingRiskAnalysis, // Save analysis
-            custom_exercise_plan: existingExercisePlan, // Preserve exercise plan
 
             updated_at: new Date().toISOString()
         };
+
+        // Only include custom_exercise_plan if it existed previously (preservation). 
+        // This avoids errors if the column is missing in the DB schema for new installs.
+        if (existingExercisePlan) {
+            payload.custom_exercise_plan = existingExercisePlan;
+        }
 
         const { error } = await supabase.from('health_archives').upsert(payload, { onConflict: 'checkup_id' });
 

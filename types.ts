@@ -1,5 +1,4 @@
 
-
 // Enums
 export enum RiskLevel {
   GREEN = 'GREEN',
@@ -323,7 +322,8 @@ export interface FollowUpRecord {
 
   medicalCompliance?: {
       item: string; 
-      status: 'checked_normal' | 'checked_abnormal' | 'not_checked';
+      // Update: Changed to improve/not_improved logic
+      status: 'improved' | 'not_improved' | 'not_checked';
       result?: string; 
   }[];
 
