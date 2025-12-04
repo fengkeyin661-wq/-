@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { SystemRiskPortrait } from './SystemRiskPortrait';
 
 interface Props {
   assessment: HealthAssessment;
@@ -463,7 +464,18 @@ export const AssessmentReport: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Embedded Risk Portrait Section REMOVED */}
+      {/* Embedded Risk Portrait Section (Models Only) */}
+      {healthRecord && (
+          <div className="mb-8 print:hidden">
+              <SystemRiskPortrait 
+                  record={healthRecord} 
+                  existingAnalysis={riskAnalysis} 
+                  onUpdate={() => onUpdateRiskAnalysis && onUpdateRiskAnalysis()}
+                  hidePrintButton={true}
+                  showPortraits={false} // Only show prediction models
+              />
+          </div>
+      )}
 
       <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-8">
           <h1 className="text-3xl font-bold">健康风险评估与方案</h1>

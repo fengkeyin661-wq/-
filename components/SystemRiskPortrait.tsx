@@ -9,9 +9,16 @@ interface Props {
     existingAnalysis?: RiskAnalysisData;
     onUpdate: () => void; // Callback to refresh parent data
     hidePrintButton?: boolean; // New prop to control print button visibility
+    showPortraits?: boolean; // Control visibility of the "Human Six Systems Portrait" section
 }
 
-export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, onUpdate, hidePrintButton = false }) => {
+export const SystemRiskPortrait: React.FC<Props> = ({ 
+    record, 
+    existingAnalysis, 
+    onUpdate, 
+    hidePrintButton = false,
+    showPortraits = true // Default to true
+}) => {
     const [analysis, setAnalysis] = useState<RiskAnalysisData | null>(null);
     const [activeModel, setActiveModel] = useState<PredictionModelResult | null>(null);
     const [missingInputs, setMissingInputs] = useState<{ [key: string]: string | number }>({});
@@ -119,6 +126,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
                     日期: ${new Date().toLocaleDateString()}
                 </div>
 
+                ${showPortraits ? `
                 <div class="section-title">🧘 人体六大系统健康画像</div>
                 <div class="portrait-grid">
                     ${analysis.portraits.map(p => `
@@ -133,6 +141,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
                         </div>
                     `).join('')}
                 </div>
+                ` : ''}
 
                 <div class="section-title">📊 疾病风险预测模型评估</div>
                 <table>
@@ -190,55 +199,57 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
                  )}
             </div>
             
-            {/* 1. 系统健康画像 (System Portraits) */}
-            <section className="print:break-inside-avoid">
-                <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-                    <span className="text-2xl">🧘</span> 人体六大系统健康画像
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {analysis.portraits.map((sys, idx) => (
-                        <div key={idx} className={`bg-white rounded-xl shadow-sm border p-5 transition-all hover:shadow-md ${
-                            sys.status === 'High' ? 'border-red-200 bg-red-50/30' : 
-                            sys.status === 'Medium' ? 'border-yellow-200 bg-yellow-50/30' : 'border-slate-100'
-                        }`}>
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="text-3xl">{sys.icon}</div>
-                                    <h3 className="font-bold text-slate-700">{sys.systemName}</h3>
+            {/* 1. 系统健康画像 (System Portraits) - Conditioned on prop */}
+            {showPortraits && (
+                <section className="print:break-inside-avoid">
+                    <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                        <span className="text-2xl">🧘</span> 人体六大系统健康画像
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {analysis.portraits.map((sys, idx) => (
+                            <div key={idx} className={`bg-white rounded-xl shadow-sm border p-5 transition-all hover:shadow-md ${
+                                sys.status === 'High' ? 'border-red-200 bg-red-50/30' : 
+                                sys.status === 'Medium' ? 'border-yellow-200 bg-yellow-50/30' : 'border-slate-100'
+                            }`}>
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-3xl">{sys.icon}</div>
+                                        <h3 className="font-bold text-slate-700">{sys.systemName}</h3>
+                                    </div>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
+                                        sys.status === 'High' ? 'bg-red-100 text-red-600 border-red-200' :
+                                        sys.status === 'Medium' ? 'bg-yellow-100 text-yellow-600 border-yellow-200' :
+                                        'bg-green-100 text-green-600 border-green-200'
+                                    }`}>
+                                        {sys.status === 'High' ? '重点关注' : sys.status === 'Medium' ? '一般关注' : '健康'}
+                                    </span>
                                 </div>
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
-                                    sys.status === 'High' ? 'bg-red-100 text-red-600 border-red-200' :
-                                    sys.status === 'Medium' ? 'bg-yellow-100 text-yellow-600 border-yellow-200' :
-                                    'bg-green-100 text-green-600 border-green-200'
-                                }`}>
-                                    {sys.status === 'High' ? '重点关注' : sys.status === 'Medium' ? '一般关注' : '健康'}
-                                </span>
-                            </div>
-                            
-                            <div className="mb-3 min-h-[60px]">
-                                {sys.keyFindings.length > 0 ? (
-                                    <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
-                                        {sys.keyFindings.map((f, i) => <li key={i}>{f}</li>)}
-                                    </ul>
-                                ) : (
-                                    <p className="text-xs text-slate-400 italic">未发现明显异常</p>
-                                )}
-                            </div>
+                                
+                                <div className="mb-3 min-h-[60px]">
+                                    {sys.keyFindings.length > 0 ? (
+                                        <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
+                                            {sys.keyFindings.map((f, i) => <li key={i}>{f}</li>)}
+                                        </ul>
+                                    ) : (
+                                        <p className="text-xs text-slate-400 italic">未发现明显异常</p>
+                                    )}
+                                </div>
 
-                            <div className="pt-3 border-t border-slate-100">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">核心关注点</span>
-                                <div className="flex flex-wrap gap-1">
-                                    {sys.focusAreas.map((focus, i) => (
-                                        <span key={i} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
-                                            {focus}
-                                        </span>
-                                    ))}
+                                <div className="pt-3 border-t border-slate-100">
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">核心关注点</span>
+                                    <div className="flex flex-wrap gap-1">
+                                        {sys.focusAreas.map((focus, i) => (
+                                            <span key={i} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
+                                                {focus}
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
-                </div>
-            </section>
+                        ))}
+                    </div>
+                </section>
+            )}
 
             {/* 2. 风险预测矩阵 (Risk Prediction Matrix) */}
             <section className="print:break-inside-avoid">

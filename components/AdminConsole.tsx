@@ -27,7 +27,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [showSqlHelp, setShowSqlHelp] = useState(false);
 
     // --- Enhanced List State (Sorting, Filtering, Selection) ---
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'updated_at', direction: 'desc' });
@@ -99,7 +98,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         try {
             const data = await fetchArchives();
             setArchives(data);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Load Data Error:", error);
             let errorMessage = "Unknown Error";
             if (error instanceof Error) {
@@ -401,7 +400,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     throw new Error(res.message);
                 }
 
-            } catch (err: any) {
+            } catch (err: unknown) {
                 const msg = err instanceof Error ? err.message : String(err);
                 setSmartBatchLogs(prev => [...prev, `❌ 处理失败: ${file.name} - ${msg}`]);
             }
