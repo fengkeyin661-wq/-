@@ -1,170 +1,78 @@
 
+
 import { HealthRecord, RiskAnalysisData, SystemRiskPortrait, PredictionModelResult, RiskLevel } from '../types';
 
 /**
- * 1. 生成 6 大系统健康画像 (升级版: 增加评分权重与关联分析)
- * 逻辑:
- * - 每个系统初始 100 分。
- * - 根据异常项的严重程度扣分 (Critical -30, Major -15, Minor -5)。
- * - 关联生活方式因素。
+ * 1. 生成 6 大系统健康画像
+ * 基于体检异常项和问卷数据，将问题归类到各生理系统
  */
 export const generateSystemPortraits = (record: HealthRecord): SystemRiskPortrait[] => {
-    // Structure: items, lifestyle factors, score deduction
-    const systems: {[key: string]: { 
-        name: string, icon: string, 
-        findings: string[], 
-        deduction: number,
-        lifestyle: string[],
-        focus: string[]
-    }} = {
-        cv: { name: '心脑血管系统', icon: '🫀', findings: [], deduction: 0, lifestyle: [], focus: [] },
-        meta: { name: '代谢免疫系统', icon: '🩸', findings: [], deduction: 0, lifestyle: [], focus: [] },
-        resp: { name: '呼吸系统', icon: '🫁', findings: [], deduction: 0, lifestyle: [], focus: [] },
-        dig: { name: '消化系统', icon: '🥔', findings: [], deduction: 0, lifestyle: [], focus: [] },
-        tumor: { name: '肿瘤风险监控', icon: '🧬', findings: [], deduction: 0, lifestyle: [], focus: [] },
-        psych: { name: '心理与睡眠', icon: '🧠', findings: [], deduction: 0, lifestyle: [], focus: [] }
+    const findings = {
+        cv: [] as string[], // 心脑
+        meta: [] as string[], // 代谢免疫
+        resp: [] as string[], // 呼吸
+        dig: [] as string[], // 消化
+        tumor: [] as string[], // 肿瘤
+        psych: [] as string[] // 心理
     };
 
-    // Helper: Add finding with weighted score
-    const addFinding = (sysKey: string, text: string, severity: 'low' | 'med' | 'high' = 'low') => {
-        if (!systems[sysKey]) return;
-        
-        // Avoid duplicates
-        if (!systems[sysKey].findings.includes(text)) {
-            systems[sysKey].findings.push(text);
-            const score = severity === 'high' ? 30 : severity === 'med' ? 15 : 5;
-            systems[sysKey].deduction += score;
-        }
+    // Helper to add finding
+    const add = (sys: keyof typeof findings, text: string) => {
+        if (!findings[sys].includes(text)) findings[sys].push(text);
     };
 
-    // Helper: Add lifestyle factor
-    const addLifestyle = (sysKey: string, text: string) => {
-        if (!systems[sysKey].lifestyle.includes(text)) systems[sysKey].lifestyle.push(text);
-    };
-
-    // --- 1. Objective Data Analysis (Checkup) ---
-    const ab = record.checkup.abnormalities || [];
-    ab.forEach(item => {
-        const t = (item.item + item.result + item.clinicalSig).toLowerCase();
+    // 1. Scan Abnormalities
+    record.checkup.abnormalities.forEach(ab => {
+        const t = (ab.item + ab.result).toLowerCase();
         
-        // [CV] Heart & Brain
-        if (t.includes('血压') && (t.includes('高') || t.includes('140') || t.includes('180'))) addFinding('cv', item.item + ': ' + item.result, t.includes('3级') || t.includes('180') ? 'high' : 'med');
-        else if (t.includes('心律') || t.includes('房颤') || t.includes('st段') || t.includes('缺血')) addFinding('cv', item.item + '异常', 'med');
-        else if (t.includes('动脉硬化') || t.includes('斑块')) addFinding('cv', '动脉粥样硬化', 'med');
+        // 心脑
+        if (t.includes('血压') || t.includes('心率') || t.includes('心律') || t.includes('早搏') || t.includes('st段') || t.includes('动脉') || t.includes('斑块') || t.includes('同型半胱氨酸')) add('cv', `${ab.item}: ${ab.result}`);
         
-        // [Meta] Diabetes, Gout, Thyroid, Obesity
-        if (t.includes('血糖') || t.includes('糖化')) addFinding('meta', '血糖代谢异常', 'med');
-        else if (t.includes('尿酸') || t.includes('痛风')) addFinding('meta', '高尿酸/痛风风险', 'low');
-        else if (t.includes('血脂') || t.includes('胆固醇') || t.includes('甘油三酯')) addFinding('meta', '血脂代谢异常', 'low');
-        else if (t.includes('甲状腺') && (t.includes('功能') || t.includes('t3') || t.includes('tsh'))) addFinding('meta', '甲状腺功能异常', 'med');
-        else if (t.includes('肥胖') || t.includes('超重')) addFinding('meta', '超重/肥胖', 'low');
-
-        // [Resp] Lungs
-        if (t.includes('肺结节')) addFinding('resp', '肺结节', 'med');
-        else if (t.includes('肺功能') || t.includes('阻塞')) addFinding('resp', '肺功能减退', 'med');
-        else if (t.includes('肺纹理') || t.includes('纤维灶')) addFinding('resp', '肺部影像异常', 'low');
-
-        // [Dig] Liver, Stomach, Intestine
-        if (t.includes('脂肪肝')) addFinding('dig', '脂肪肝', 'low');
-        else if (t.includes('肝囊肿') || t.includes('血管瘤')) addFinding('dig', '肝脏良性占位', 'low');
-        else if (t.includes('幽门') || t.includes('hp')) addFinding('dig', '幽门螺杆菌阳性', 'med');
-        else if (t.includes('胆结石') || t.includes('息肉')) addFinding('dig', '胆囊/胃肠息肉结石', 'low');
-        else if (t.includes('转氨酶') || t.includes('alt') || t.includes('ast')) addFinding('dig', '肝功能异常', 'med');
-
-        // [Tumor] Markers & Mass
-        if (t.includes('癌') || t.includes('ca1') || t.includes('cea') || t.includes('afp')) addFinding('tumor', item.item + '升高', 'high');
-        else if (t.includes('bi-rads') && (t.includes('4') || t.includes('5'))) addFinding('tumor', '乳腺/甲状腺分类较高', 'high');
-        else if (t.includes('bi-rads 3')) addFinding('tumor', '乳腺/甲状腺结节(3类)', 'med');
-
-        // [Psych] Sleep & Mental (Usually questionnaire, but some physiology)
+        // 代谢免疫
+        if (t.includes('血糖') || t.includes('糖化') || t.includes('尿酸') || t.includes('胆固醇') || t.includes('甘油三酯') || t.includes('脂') || t.includes('甲状腺') || t.includes('t3') || t.includes('t4') || t.includes('肥胖')) add('meta', `${ab.item}: ${ab.result}`);
+        
+        // 呼吸
+        if (t.includes('肺') || t.includes('支气管') || t.includes('呼吸')) add('resp', `${ab.item}: ${ab.result}`);
+        
+        // 消化
+        if (t.includes('肝') || t.includes('胆') || t.includes('胰') || t.includes('脾') || t.includes('胃') || t.includes('肠') || t.includes('幽门')) add('dig', `${ab.item}: ${ab.result}`);
+        
+        // 肿瘤
+        if (t.includes('癌') || t.includes('瘤') || t.includes('占位') || t.includes('afp') || t.includes('cea') || t.includes('ca1') || t.includes('结节') || t.includes('bi-rads')) add('tumor', `${ab.item}: ${ab.result}`);
     });
 
-    // --- 2. Subjective Data Analysis (Questionnaire) ---
-    const q = record.questionnaire;
+    // 2. Scan Questionnaire (Legacy & New)
+    record.questionnaire.history.diseases.forEach(d => {
+        if (d.includes('高血压') || d.includes('冠心病') || d.includes('卒中')) add('cv', `既往史: ${d}`);
+        if (d.includes('糖尿病') || d.includes('痛风') || d.includes('甲状腺')) add('meta', `既往史: ${d}`);
+        if (d.includes('慢肺') || d.includes('哮喘')) add('resp', `既往史: ${d}`);
+        if (d.includes('胃病') || d.includes('脂肪肝')) add('dig', `既往史: ${d}`);
+        if (d.includes('肿瘤')) add('tumor', `既往史: ${d}`);
+    });
     
-    // Lifestyle Links
-    const isSmoker = q.substances.smoking.status === '吸烟' || q.substances.smoking.status === '目前吸烟';
-    const isDrinker = q.substances.alcohol.status === '目前饮酒' && (q.substances.alcohol.freq === '每天' || q.substances.alcohol.freq === '经常');
-    const badSleep = q.sleep.quality === '较差' || (Number(q.sleep.hours) < 6 && Number(q.sleep.hours) > 0);
-    const stress = q.mental.stressLevel === '较大' || q.mental.stressLevel === '很大';
-    const noExercise = q.exercise.frequency === '几乎不运动';
-    const poorDiet = q.diet.habits.includes('偏咸') || q.diet.habits.includes('偏油');
+    // Mental Scales Integration
+    const { phq9Score, gad7Score, selfHarmIdea } = record.questionnaire.mentalScales || {};
+    if (phq9Score && phq9Score >= 5) add('psych', `PHQ-9抑郁评分:${phq9Score}`);
+    if (gad7Score && gad7Score >= 5) add('psych', `GAD-7焦虑评分:${gad7Score}`);
+    if (selfHarmIdea && selfHarmIdea > 0) add('psych', `存在自伤念头 (高危)`);
 
-    if (isSmoker) {
-        addLifestyle('cv', '吸烟增加血管硬化风险');
-        addLifestyle('resp', '吸烟损害肺功能');
-        addLifestyle('tumor', '吸烟增加致癌风险');
-    }
-    if (isDrinker) {
-        addLifestyle('dig', '饮酒加重肝脏负担');
-        addLifestyle('cv', '饮酒影响血压控制');
-    }
-    if (badSleep) {
-        addLifestyle('cv', '睡眠不足增加心脏负荷');
-        addLifestyle('psych', '睡眠障碍影响情绪');
-    }
-    if (stress) {
-        addLifestyle('cv', '高压力导致血压波动');
-        addLifestyle('psych', '长期压力易致焦虑抑郁');
-    }
-    if (noExercise) {
-        addLifestyle('meta', '缺乏运动降低代谢率');
-        addLifestyle('cv', '缺乏运动减弱心肺功能');
-    }
-    if (poorDiet) {
-        addLifestyle('cv', '高盐高油饮食加重高血压');
-        addLifestyle('meta', '不健康饮食导致代谢紊乱');
-    }
-
-    // History Links
-    q.history.diseases.forEach(d => {
-        if (d.includes('高血压')) addFinding('cv', '既往史:高血压', 'high');
-        if (d.includes('糖尿病')) addFinding('meta', '既往史:糖尿病', 'high');
-        if (d.includes('冠心病')) addFinding('cv', '既往史:冠心病', 'high');
-        if (d.includes('慢肺') || d.includes('copd')) addFinding('resp', '既往史:慢阻肺', 'high');
-        if (d.includes('肿瘤')) addFinding('tumor', `既往史:${d}`, 'high');
+    // 3. Construct Portraits
+    const buildPortrait = (name: string, icon: string, keyItems: string[], focus: string[]): SystemRiskPortrait => ({
+        systemName: name,
+        icon,
+        status: keyItems.length > 2 || (name === '心理与精神' && (selfHarmIdea || 0) > 0) ? 'High' : keyItems.length > 0 ? 'Medium' : 'Normal',
+        keyFindings: keyItems.slice(0, 4), 
+        focusAreas: focus
     });
 
-    // Mental Scales
-    const { phq9Score, gad7Score, selfHarmIdea } = q.mentalScales || {};
-    if ((phq9Score || 0) >= 10) addFinding('psych', '抑郁倾向(PHQ-9)', 'high');
-    else if ((phq9Score || 0) >= 5) addFinding('psych', '轻度抑郁情绪', 'med');
-    
-    if ((gad7Score || 0) >= 10) addFinding('psych', '焦虑倾向(GAD-7)', 'high');
-    
-    if ((selfHarmIdea || 0) > 0) addFinding('psych', '存在自伤念头', 'high');
-
-    // --- 3. Build & Sort Portraits ---
-    const portraits: SystemRiskPortrait[] = Object.values(systems).map(sys => {
-        // Cap Score at 0-100
-        const score = Math.max(0, 100 - sys.deduction);
-        
-        let status: SystemRiskPortrait['status'] = 'Normal';
-        if (score < 60) status = 'High';
-        else if (score < 85) status = 'Medium';
-        else if (score < 95) status = 'Low'; // A little deduction, barely noticeable
-        
-        // Define Focus Areas based on score
-        const focusAreas = [];
-        if (status === 'High') focusAreas.push('立即临床干预', '专科复查');
-        else if (status === 'Medium') focusAreas.push('生活方式调整', '定期监测');
-        else focusAreas.push('保持健康生活');
-
-        return {
-            systemName: sys.name,
-            icon: sys.icon,
-            status,
-            score,
-            keyFindings: sys.findings,
-            focusAreas,
-            lifestyleImpact: sys.lifestyle
-        };
-    });
-
-    // Sort: High Risk (Low Score) First
-    portraits.sort((a, b) => a.score - b.score);
-
-    return portraits;
+    return [
+        buildPortrait('心脑血管系统', '🫀', findings.cv, ['动脉硬化', '高血压', '冠心病风险', '卒中风险']),
+        buildPortrait('代谢免疫系统', '🩸', findings.meta, ['糖尿病', '痛风', '甲状腺功能', '中心性肥胖']),
+        buildPortrait('呼吸系统', '🫁', findings.resp, ['肺结节管理', '慢阻肺(COPD)', '肺功能']),
+        buildPortrait('消化系统', '🥔', findings.dig, ['脂肪肝', '肝硬化风险', '幽门螺杆菌', '胃肠息肉']),
+        buildPortrait('肿瘤风险系统', '🧬', findings.tumor, ['肺癌筛查', '乳腺癌/妇科肿瘤', '消化道肿瘤']),
+        buildPortrait('心理与精神', '🧠', findings.psych, ['压力调节', '焦虑抑郁风险', '睡眠障碍', '认知功能']),
+    ];
 };
 
 /**
