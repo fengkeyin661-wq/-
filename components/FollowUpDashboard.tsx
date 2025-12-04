@@ -716,34 +716,67 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
                   {/* Right Column (2/3): Indicators -> Lifestyle -> Submit */}
                   <div className="lg:col-span-2 space-y-6 flex flex-col">
-                      {/* Section 2: Indicators (Moved here, above Lifestyle) */}
+                      {/* Section 2: Indicators */}
                       <section className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                           <h4 className="font-bold text-slate-800 mb-3">2. 核心指标录入</h4>
-                           <div className="grid grid-cols-2 gap-4 mb-3">
+                           <h4 className="font-bold text-slate-800 mb-4 flex items-end gap-2">
+                               2. 核心指标录入
+                               <span className="text-[10px] text-slate-400 font-normal bg-white px-2 py-0.5 rounded border">参考范围仅供参考</span>
+                           </h4>
+                           
+                           {/* Row 1: BP & Glucose */}
+                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-4">
                                <div>
-                                   <label className="text-xs text-slate-500 block mb-1">血压 (mmHg)</label>
+                                   <label className="text-xs text-slate-500 block mb-1 font-medium">
+                                       血压 (mmHg) <span className="text-slate-400 font-normal ml-1 text-[10px]">Ref: &lt;140/90</span>
+                                   </label>
                                    <div className="flex gap-2">
-                                       <input type="number" placeholder="收缩压" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.sbp || ''} onChange={e => updateForm('indicators', 'sbp', Number(e.target.value))} />
-                                       <input type="number" placeholder="舒张压" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.dbp || ''} onChange={e => updateForm('indicators', 'dbp', Number(e.target.value))} />
+                                       <div className="relative w-full">
+                                            <input type="number" placeholder="收缩压" className="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.sbp || ''} onChange={e => updateForm('indicators', 'sbp', Number(e.target.value))} />
+                                       </div>
+                                       <div className="relative w-full">
+                                            <input type="number" placeholder="舒张压" className="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.dbp || ''} onChange={e => updateForm('indicators', 'dbp', Number(e.target.value))} />
+                                       </div>
                                    </div>
                                </div>
                                <div>
-                                   <label className="text-xs text-slate-500 block mb-1">血糖 (mmol/L)</label>
-                                   <input type="number" step="0.1" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.glucose || ''} onChange={e => updateForm('indicators', 'glucose', Number(e.target.value))} />
+                                   <label className="text-xs text-slate-500 block mb-1 font-medium">
+                                       空腹血糖 (mmol/L) <span className="text-slate-400 font-normal ml-1 text-[10px]">Ref: 3.9-6.1</span>
+                                   </label>
+                                   <input type="number" step="0.1" className="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.glucose || ''} onChange={e => updateForm('indicators', 'glucose', Number(e.target.value))} />
                                </div>
                            </div>
-                           <div className="grid grid-cols-2 gap-4">
+
+                           {/* Row 2: Weight */}
+                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-2">
                                <div>
-                                   <label className="text-xs text-slate-500 block mb-1">体重 (kg)</label>
-                                   <input type="number" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.weight || ''} onChange={e => updateForm('indicators', 'weight', Number(e.target.value))} />
+                                   <label className="text-xs text-slate-500 block mb-1 font-medium">体重 (kg)</label>
+                                   <input type="number" className="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.weight || ''} onChange={e => updateForm('indicators', 'weight', Number(e.target.value))} />
                                </div>
-                               <div>
-                                   <label className="text-xs text-slate-500 block mb-1">血脂 (TC/TG)</label>
-                                   <div className="flex gap-2">
-                                      <input type="number" step="0.01" placeholder="TC" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.tc || ''} onChange={e => updateForm('indicators', 'tc', Number(e.target.value))} />
-                                      <input type="number" step="0.01" placeholder="TG" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.tg || ''} onChange={e => updateForm('indicators', 'tg', Number(e.target.value))} />
-                                   </div>
-                               </div>
+                           </div>
+
+                           {/* Lipids 4 items Grid */}
+                           <div className="mt-3 bg-white p-3 rounded border border-slate-100 shadow-sm">
+                                <label className="text-xs text-slate-600 block mb-2 font-bold">
+                                    血脂四项 (mmol/L)
+                                </label>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 block mb-1">总胆固醇 (TC) &lt;5.2</span>
+                                        <input type="number" step="0.01" className="w-full border rounded p-1.5 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.tc || ''} onChange={e => updateForm('indicators', 'tc', Number(e.target.value))} />
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 block mb-1">甘油三酯 (TG) &lt;1.7</span>
+                                        <input type="number" step="0.01" className="w-full border rounded p-1.5 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.tg || ''} onChange={e => updateForm('indicators', 'tg', Number(e.target.value))} />
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 block mb-1">低密度 (LDL-C) &lt;3.4</span>
+                                        <input type="number" step="0.01" className="w-full border rounded p-1.5 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.ldl || ''} onChange={e => updateForm('indicators', 'ldl', Number(e.target.value))} />
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 block mb-1">高密度 (HDL-C) &gt;1.0</span>
+                                        <input type="number" step="0.01" className="w-full border rounded p-1.5 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.hdl || ''} onChange={e => updateForm('indicators', 'hdl', Number(e.target.value))} />
+                                    </div>
+                                </div>
                            </div>
                       </section>
 
