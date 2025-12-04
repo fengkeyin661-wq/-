@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
@@ -813,7 +814,11 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                 const isCriticalActive = (archive.assessment_data.isCritical || (archive.assessment_data.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived';
 
                                 return (
-                                <tr key={archive.id} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(archive.id) ? 'bg-blue-50/30' : ''}`}>
+                                <tr 
+                                    key={archive.id} 
+                                    className={`hover:bg-slate-50 transition-colors cursor-pointer ${selectedIds.has(archive.id) ? 'bg-blue-50/30' : ''}`}
+                                    onDoubleClick={() => onSelectPatient(archive, 'assessment')}
+                                >
                                     <td className="p-4">
                                         <input type="checkbox" checked={selectedIds.has(archive.id)} onChange={() => handleSelectRow(archive.id)} />
                                     </td>

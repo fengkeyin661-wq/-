@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { SystemRiskPortrait } from './SystemRiskPortrait';
 
 interface Props {
   assessment: HealthAssessment;
@@ -101,29 +100,10 @@ export const AssessmentReport: React.FC<Props> = ({
       const pAge = profile?.age ? `${profile.age}岁` : '';
       const pDept = profile?.department || '';
 
-      // --- New: Generate HTML for Risk Portrait and Models ---
-      let portraitHtml = '';
+      // --- New: Generate HTML for Models ---
       let modelsHtml = '';
 
       if (riskAnalysis) {
-          // Portraits HTML
-          const portraitsContent = riskAnalysis.portraits.map(p => `
-            <div class="portrait-card">
-                <div class="sys-name">
-                    ${p.icon} ${p.systemName}
-                    <span class="status-tag status-${p.status}">${p.status === 'High' ? '重点关注' : p.status === 'Medium' ? '一般关注' : '健康'}</span>
-                </div>
-                <ul>
-                    ${p.keyFindings.length > 0 ? p.keyFindings.map(f => `<li>${f}</li>`).join('') : '<li style="color:#999">未见明显异常</li>'}
-                </ul>
-            </div>
-          `).join('');
-
-          portraitHtml = `
-            <div class="section-title">🧘 人体六大系统健康画像</div>
-            <div class="portrait-grid">${portraitsContent}</div>
-          `;
-
           // Models HTML
           const modelsRows = riskAnalysis.models.map(m => `
             <tr>
@@ -239,14 +219,7 @@ export const AssessmentReport: React.FC<Props> = ({
                 ul.list li { margin-bottom: 4px; color: #374151; }
                 .empty-text { color: #9ca3af; font-style: italic; }
 
-                /* Risk Portrait Grid */
-                .portrait-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
-                .portrait-card { border: 1px solid #ddd; padding: 12px; border-radius: 6px; break-inside: avoid; }
-                .sys-name { font-weight: bold; font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
-                .status-tag { font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid; margin-left: auto; }
-                .status-High { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
-                .status-Medium { background: #fefce8; color: #d97706; border-color: #fcd34d; }
-                .status-Normal { background: #f0fdf4; color: #16a34a; border-color: #86efac; }
+                /* Risk Portrait Grid - Styles removed as section removed */
                 
                 /* Models Table */
                 table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }
@@ -265,7 +238,7 @@ export const AssessmentReport: React.FC<Props> = ({
 
                 @media print {
                     body { padding: 0; -webkit-print-color-adjust: exact; }
-                    .plan-card, .risk-col, .portrait-card, .disclaimer-box { break-inside: avoid; }
+                    .plan-card, .risk-col, .disclaimer-box { break-inside: avoid; }
                 }
             </style>
         </head>
@@ -288,8 +261,7 @@ export const AssessmentReport: React.FC<Props> = ({
                     <span class="risk-desc">根据您的体检数据与健康问卷综合判定</span>
                 </div>
 
-                <!-- Injected Portrait & Models -->
-                ${portraitHtml}
+                <!-- Injected Models -->
                 ${modelsHtml}
 
                 <div class="section">
@@ -491,17 +463,7 @@ export const AssessmentReport: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Embedded Risk Portrait Section */}
-      {healthRecord && (
-          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6 print:hidden">
-              <SystemRiskPortrait 
-                  record={healthRecord} 
-                  existingAnalysis={riskAnalysis} 
-                  onUpdate={onUpdateRiskAnalysis || (() => {})} 
-                  hidePrintButton={true} // Hide internal print button
-              />
-          </div>
-      )}
+      {/* Embedded Risk Portrait Section REMOVED */}
 
       <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-8">
           <h1 className="text-3xl font-bold">健康风险评估与方案</h1>
