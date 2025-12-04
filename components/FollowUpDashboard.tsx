@@ -469,40 +469,37 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       )}
 
-      {/* --- Patient Header --- */}
+      {/* --- Patient Header (Full Info) --- */}
       {currentArchive && (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
-                <div className="p-5 flex justify-between items-center border-b border-slate-100">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-xl">
-                            {currentArchive.gender === '女' ? '👩' : '👨'}
-                        </div>
-                        <div>
-                            <h2 className="text-xl font-bold text-slate-800">{currentArchive.name}</h2>
-                            <div className="text-sm text-slate-500 flex gap-3">
-                                <span>{currentArchive.gender}</span>
-                                <span>{currentArchive.age}岁</span>
-                                <span className={`px-1.5 rounded text-xs font-bold ${activeRiskLevel==='RED'?'bg-red-100 text-red-600':activeRiskLevel==='YELLOW'?'bg-yellow-100 text-yellow-600':'bg-green-100 text-green-600'}`}>
-                                    {activeRiskLevel === 'RED' ? '高风险' : activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
-                                </span>
+                <div className="p-5">
+                    <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-6">
+                            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200 shadow-inner">
+                                {currentArchive.gender === '女' ? '👩' : '👨'}
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-1">
+                                <div className="col-span-2 flex items-center gap-3">
+                                    <h2 className="text-2xl font-bold text-slate-800">{currentArchive.name}</h2>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold border ${activeRiskLevel==='RED'?'bg-red-50 border-red-200 text-red-600':activeRiskLevel==='YELLOW'?'bg-yellow-50 border-yellow-200 text-yellow-600':'bg-green-50 border-green-200 text-green-600'}`}>
+                                        {activeRiskLevel === 'RED' ? '高风险' : activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                                    </span>
+                                </div>
+                                <div className="text-sm text-slate-500">
+                                    <span className="font-bold text-slate-700">{currentArchive.gender}</span> · {currentArchive.age}岁
+                                </div>
+                                <div className="text-sm text-slate-500">
+                                    部门: <span className="font-bold text-slate-700">{currentArchive.department || '-'}</span>
+                                </div>
+                                <div className="text-sm text-slate-500">
+                                    电话: <span className="font-bold text-slate-700 font-mono">{currentArchive.phone || '-'}</span>
+                                </div>
+                                <div className="text-sm text-slate-500">
+                                    体检编号: <span className="font-bold text-slate-700 font-mono">{currentArchive.checkup_id}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    {/* Assessment Summary Mini Block */}
-                    {assessment && (
-                        <div className="flex-1 ml-8 bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm text-slate-600 flex gap-4 items-center">
-                            <div className="w-10 h-10 shrink-0">
-                                <ResponsiveContainer>
-                                    <PieChart>
-                                        <Pie data={summaryChartData} innerRadius={10} outerRadius={18} dataKey="value" stroke="none">
-                                            {summaryChartData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
-                                        </Pie>
-                                    </PieChart>
-                                </ResponsiveContainer>
-                            </div>
-                            <div className="line-clamp-2 flex-1">{assessment.summary}</div>
-                        </div>
-                    )}
                 </div>
             </div>
       )}
@@ -631,7 +628,36 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       </div>
 
-      {/* --- Inline Follow Up Entry Form (No Modal) --- */}
+      {/* --- Assessment Summary Section (Placed above Form) --- */}
+      {isEntryExpanded && assessment && (
+          <div className="bg-gradient-to-r from-slate-50 to-white border border-slate-200 rounded-xl p-5 mb-6 flex flex-col md:flex-row gap-6 items-center shadow-sm">
+                <div className="w-24 h-24 shrink-0 relative">
+                    <ResponsiveContainer>
+                        <PieChart>
+                            <Pie data={summaryChartData} innerRadius={25} outerRadius={40} dataKey="value" stroke="none">
+                                {summaryChartData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                            </Pie>
+                        </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-400">
+                        风险
+                    </div>
+                </div>
+                <div className="flex-1">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
+                        综合评估: 
+                        <span className={`${activeRiskLevel==='RED'?'text-red-600':activeRiskLevel==='YELLOW'?'text-yellow-600':'text-green-600'}`}>
+                            {activeRiskLevel === 'RED' ? '高风险' : activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                        </span>
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                        {assessment.summary}
+                    </p>
+                </div>
+          </div>
+      )}
+
+      {/* --- Inline Follow Up Entry Form (Redesigned Layout) --- */}
       {isEntryExpanded && assessment && (
           <div className="bg-white rounded-xl shadow-lg border-2 border-teal-500 mb-8 overflow-hidden animate-slideUp">
               <div className="bg-teal-50 px-6 py-4 border-b border-teal-100 flex justify-between items-center">
@@ -643,11 +669,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </div>
               </div>
               
-              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Left Column: Clinical Data */}
-                  <div className="space-y-6">
+              <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Left Column (1/3): Review */}
+                  <div className="lg:col-span-1 space-y-6">
                       {/* Section 1: Review */}
-                      <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                      <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 h-full">
                            <h4 className="font-bold text-yellow-800 mb-3 flex justify-between items-center">
                                <span>1. 上期复查重点核对</span>
                                <span className="text-xs font-normal opacity-70">请核实执行情况</span>
@@ -658,8 +684,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                        <div key={idx} className="bg-white p-3 rounded border border-yellow-100 shadow-sm relative">
                                            <button onClick={() => removeMedicalComplianceItem(idx)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 font-bold">×</button>
                                            <div className="font-bold text-slate-800 mb-2 text-sm">{item.item}</div>
-                                           <div className="flex gap-2 text-xs">
-                                               {/* Updated Options: Improved / Not Improved / Not Checked */}
+                                           <div className="flex gap-2 text-xs flex-wrap">
                                                {[
                                                    { val: 'improved', label: '改善', color: 'text-green-600' },
                                                    { val: 'not_improved', label: '未改善', color: 'text-red-600' },
@@ -687,8 +712,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                </div>
                            ) : <p className="text-xs text-slate-400">无特定复查要求</p>}
                       </section>
+                  </div>
 
-                      {/* Section 2: Indicators */}
+                  {/* Right Column (2/3): Indicators -> Lifestyle -> Submit */}
+                  <div className="lg:col-span-2 space-y-6 flex flex-col">
+                      {/* Section 2: Indicators (Moved here, above Lifestyle) */}
                       <section className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                            <h4 className="font-bold text-slate-800 mb-3">2. 核心指标录入</h4>
                            <div className="grid grid-cols-2 gap-4 mb-3">
@@ -718,11 +746,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                </div>
                            </div>
                       </section>
-                  </div>
 
-                  {/* Right Column: Lifestyle & Submission */}
-                  <div className="space-y-6 flex flex-col">
-                      <section className="bg-indigo-50 p-4 rounded-lg border border-indigo-200 flex-1">
+                      {/* Section 3: Lifestyle */}
+                      <section className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
                           <h4 className="font-bold text-indigo-800 mb-3">3. 生活方式与备注</h4>
                           <div className="mb-4">
                               <label className="text-xs text-indigo-600 block mb-1 font-bold">生活方式核对</label>
