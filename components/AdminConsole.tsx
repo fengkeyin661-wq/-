@@ -98,17 +98,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         try {
             const data = await fetchArchives();
             setArchives(data);
-        } catch (error: unknown) {
+        } catch (error: any) {
             console.error("Load Data Error:", error);
-            let errorMessage = "Unknown Error";
-            if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (typeof error === 'string') {
-                errorMessage = error;
-            } else {
-                errorMessage = String(error);
-            }
-            setFetchError(errorMessage);
+            setFetchError(error.message || String(error));
         } finally {
             setLoading(false);
         }
