@@ -18,8 +18,6 @@ export interface HealthArchive {
     gender?: string;
     age?: number;
     risk_level: string;
-    // New field for top-level date
-    checkup_date?: string;
     
     health_record: HealthRecord; 
     assessment_data: HealthAssessment;
@@ -156,9 +154,6 @@ export const saveArchive = async (
             gender: record.profile.gender,
             age: record.profile.age || 0,
             risk_level: assessment.riskLevel,
-            
-            // Map checkup date from profile to top-level column
-            checkup_date: record.profile.checkupDate || null,
             
             health_record: record as any,
             assessment_data: assessment as any,
