@@ -1,6 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { QuestionnaireData } from '../types';
+// @ts-ignore
+import * as XLSX from 'xlsx';
 
 interface Props {
     onSubmit: (data: QuestionnaireData, checkupId: string, profileInfo: {gender: string, dept: string}) => void;
@@ -42,11 +44,13 @@ const OPTIONS = {
 };
 
 export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initialCheckupId }) => {
-    // Local State for all 53 fields (Question 3 removed)
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    
+    // Local State for fields
     const [form, setForm] = useState<any>({
         // 1-2 Profile
         checkupId: initialCheckupId || '', gender: '',
-        // 3-13 History (Indices shifted -1)
+        // 3-13 History
         historyDiseases: [], htnYear: '', cadTypes: [], arrhythmiaType: '', strokeTypes: [], strokeYear: '', 
         dmYear: '', tumorSite: '', tumorYear: '', surgeryHistory: '', otherHistory: '',
         // 14-16 Meds
@@ -58,17 +62,17 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         meatIntake: '', dairyIntake: '', beanNutIntake: '', waterCups: '',
         // 29-31 Exercise
         exFreq: '', exTypes: [], exDuration: '',
-        // 32-36 Sleep
+        // 32-35 Sleep (Q36 Removed)
         sleepHours: '', sleepQuality: '', snore: '', snoreMonitor: '', monitorResult: '',
-        // 37-40 Smoking
+        // 36-39 Smoking
         smokeStatus: '', quitSmokeYear: '', smokeDaily: '', smokeYears: '',
-        // 41-42 Respiratory
+        // 40-41 Respiratory
         chronicCough: '', shortBreath: '',
-        // 43-47 Alcohol
+        // 42-46 Alcohol
         drinkStatus: '', drinkFreq: '', drinkAmount: '', drunkHistory: '', quitDrinkIntent: '',
-        // 48-50 Mental
+        // 47-49 Mental
         stressLevel: '', phq9: Array(9).fill(null), gad7: Array(7).fill(null),
-        // 51-53 Needs
+        // 50-51 Needs (Q51 Removed, remaining renumbered)
         followUpWilling: '', desiredServices: [], otherSupport: ''
     });
 
@@ -95,6 +99,84 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         const newArr = [...form[scale]];
         newArr[index] = val;
         handleChange(scale, newArr);
+    };
+
+    // --- Excel Import Logic ---
+    const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const bstr = evt.target?.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                const data = XLSX.utils.sheet_to_json(ws);
+
+                if (data.length > 0) {
+                    // Use the first row, or look for matching ID if multiple
+                    const row: any = data[0]; 
+                    
+                    if (data.length > 1 && initialCheckupId) {
+                        // Try to find the specific user row
+                        const match = data.find((r: any) => String(r['体检编号']) === initialCheckupId);
+                        if (match) Object.assign(row, match);
+                    }
+
+                    if (confirm(`解析到数据，是否自动填充问卷？\n(识别到: ${row['姓名'] || '未知姓名'})`)) {
+                        mapExcelToForm(row);
+                    }
+                } else {
+                    alert('Excel 文件为空');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('解析 Excel 失败');
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
+    const mapExcelToForm = (row: any) => {
+        const newForm = { ...form };
+        
+        // Helper to safe split
+        const split = (val: any) => String(val || '').split(/[,，、;；]/).map(s => s.trim()).filter(Boolean);
+        const val = (key: string) => row[key] ? String(row[key]) : '';
+
+        // Basic
+        if (val('体检编号')) newForm.checkupId = val('体检编号');
+        if (val('性别')) newForm.gender = val('性别');
+
+        // History
+        if (val('既往病史')) newForm.historyDiseases = split(val('既往病史'));
+        if (val('高血压年份')) newForm.htnYear = val('高血压年份');
+        if (val('冠心病类型')) newForm.cadTypes = split(val('冠心病类型'));
+        if (val('糖尿病年份')) newForm.dmYear = val('糖尿病年份');
+        if (val('是否服药')) newForm.regularMeds = val('是否服药');
+        if (val('服用药物')) newForm.medTypes = split(val('服用药物'));
+
+        // Family
+        if (val('家族史')) newForm.familyHistory = split(val('家族史'));
+
+        // Lifestyle
+        if (val('膳食习惯')) newForm.dietHabits = split(val('膳食习惯'));
+        if (val('主食类型')) newForm.stapleType = val('主食类型');
+        if (val('饮水杯数')) newForm.waterCups = val('饮水杯数');
+        if (val('运动频率')) newForm.exFreq = val('运动频率');
+        if (val('睡眠时长')) newForm.sleepHours = val('睡眠时长');
+        
+        // Substance
+        if (val('吸烟状况')) newForm.smokeStatus = val('吸烟状况');
+        if (val('日吸烟量')) newForm.smokeDaily = val('日吸烟量');
+        if (val('饮酒状况')) newForm.drinkStatus = val('饮酒状况');
+
+        // Mental (Simple check)
+        if (val('压力等级')) newForm.stressLevel = val('压力等级');
+
+        setForm(newForm);
     };
 
     // --- Logic Helpers ---
@@ -139,9 +221,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                 },
                 surgeries: form.surgeryHistory
             },
-            femaleHealth: {
-                // Not in this specific questionnaire, keep empty or infer
-            },
+            femaleHealth: {},
             familyHistory: {
                 fatherCvdEarly: form.fatherCvdEarly === '是',
                 motherCvdEarly: form.motherCvdEarly === '是',
@@ -150,8 +230,8 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                 stroke: hasFamily('父亲/母亲 - 脑卒中（中风）'),
                 lungCancer: hasFamily('父亲/母亲/兄弟姐妹 - 肺癌'),
                 colonCancer: hasFamily('父亲/母亲/兄弟姐妹 - 结直肠癌'),
-                parentHipFracture: false, // Not asked
-                breastCancer: false // Not asked
+                parentHipFracture: false,
+                breastCancer: false
             },
             medication: {
                 isRegular: form.regularMeds,
@@ -174,7 +254,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                 dailyBeanNut: form.beanNutIntake
             },
             hydration: {
-                dailyAmount: form.waterCups // Cups
+                dailyAmount: form.waterCups 
             },
             exercise: {
                 frequency: form.exFreq,
@@ -189,7 +269,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
             },
             respiratory: {
                 chronicCough: form.chronicCough === '是',
-                chronicPhlegm: false, // Infer based on logic below
+                chronicPhlegm: false, 
                 shortBreath: form.shortBreath === '是'
             },
             substances: {
@@ -223,7 +303,6 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
             }
         };
 
-        // Fix Respiratory Logic based on combined question
         if (form.chronicCough === '是') {
             data.respiratory.chronicCough = true;
             data.respiratory.chronicPhlegm = true; 
@@ -231,7 +310,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
         onSubmit(data, form.checkupId, {
             gender: form.gender, 
-            dept: '' // Department question removed, pass empty to keep logic or prompt manual entry if needed later
+            dept: '' 
         });
     };
 
@@ -239,9 +318,23 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         <div className="bg-slate-50 min-h-full pb-20">
             <div className="max-w-3xl mx-auto bg-white shadow-xl min-h-screen">
                 {/* Header */}
-                <div className="bg-teal-700 text-white p-8 text-center">
+                <div className="bg-teal-700 text-white p-8 text-center relative">
                     <h1 className="text-2xl font-bold mb-2">教职工健康信息调查问卷</h1>
                     <p className="text-sm opacity-90">郑州大学医院健康管理中心</p>
+                    
+                    <input 
+                        type="file" 
+                        ref={fileInputRef}
+                        accept=".xlsx, .xls"
+                        className="hidden"
+                        onChange={handleExcelUpload}
+                    />
+                    <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-lg border border-white/40 flex items-center gap-1 transition-all"
+                    >
+                        📂 导入 Excel 问卷
+                    </button>
                 </div>
                 
                 <div className="p-8 space-y-8">
@@ -285,7 +378,6 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                             <>
                                 <RadioQ idx={14} label="是否规律服药" required options={['是', '否']} value={form.regularMeds} onChange={v => handleChange('regularMeds', v)} />
                                 
-                                {/* Logic: If Q14 is Yes, show Q15, Q16. If No, jump to Q17 */}
                                 {form.regularMeds === '是' && (
                                     <>
                                         <CheckQ idx={15} label="您目前是否正在服用以下药物？" required options={OPTIONS.medication} value={form.medTypes} onChange={v => toggleArray('medTypes', v)} />
@@ -336,32 +428,32 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                         {form.snore === '经常' && (
                             <>
                                 <RadioQ idx={35} label="打鼾是否做过睡眠监测" required options={['是', '否']} value={form.snoreMonitor} onChange={v => handleChange('snoreMonitor', v)} />
-                                {form.snoreMonitor === '是' && <InputQ idx={36} label="睡眠监测结果" required value={form.monitorResult} onChange={v => handleChange('monitorResult', v)} />}
+                                {/* Q36 Removed here */}
                             </>
                         )}
 
-                        <RadioQ idx={37} label="吸烟情况" required options={OPTIONS.smoke} value={form.smokeStatus} onChange={v => handleChange('smokeStatus', v)} />
+                        <RadioQ idx={36} label="吸烟情况" required options={OPTIONS.smoke} value={form.smokeStatus} onChange={v => handleChange('smokeStatus', v)} />
                         {form.smokeStatus !== '从不吸烟' && (
                             <>
-                                {form.smokeStatus === '已戒烟' && <InputQ idx={38} label="戒烟年份" required value={form.quitSmokeYear} onChange={v => handleChange('quitSmokeYear', v)} type="date" />}
+                                {form.smokeStatus === '已戒烟' && <InputQ idx={37} label="戒烟年份" required value={form.quitSmokeYear} onChange={v => handleChange('quitSmokeYear', v)} type="date" />}
                                 {form.smokeStatus === '目前吸烟' && (
                                     <>
-                                        <InputQ idx={39} label="目前吸烟支数" required desc="每天支数" value={form.smokeDaily} onChange={v => handleChange('smokeDaily', v)} type="number" />
-                                        <InputQ idx={40} label="已吸烟年数" required value={form.smokeYears} onChange={v => handleChange('smokeYears', v)} type="number" />
+                                        <InputQ idx={38} label="目前吸烟支数" required desc="每天支数" value={form.smokeDaily} onChange={v => handleChange('smokeDaily', v)} type="number" />
+                                        <InputQ idx={39} label="已吸烟年数" required value={form.smokeYears} onChange={v => handleChange('smokeYears', v)} type="number" />
                                     </>
                                 )}
-                                <RadioQ idx={41} label="是否在未感冒的情况下，经常咳嗽、咳痰？" required options={['是', '否']} value={form.chronicCough} onChange={v => handleChange('chronicCough', v)} />
-                                <RadioQ idx={42} label="是否在活动后比同龄人更容易气短？" required options={['是', '否']} value={form.shortBreath} onChange={v => handleChange('shortBreath', v)} />
+                                <RadioQ idx={40} label="是否在未感冒的情况下，经常咳嗽、咳痰？" required options={['是', '否']} value={form.chronicCough} onChange={v => handleChange('chronicCough', v)} />
+                                <RadioQ idx={41} label="是否在活动后比同龄人更容易气短？" required options={['是', '否']} value={form.shortBreath} onChange={v => handleChange('shortBreath', v)} />
                             </>
                         )}
 
-                        <RadioQ idx={43} label="饮酒情况" required options={OPTIONS.drink} value={form.drinkStatus} onChange={v => handleChange('drinkStatus', v)} />
+                        <RadioQ idx={42} label="饮酒情况" required options={OPTIONS.drink} value={form.drinkStatus} onChange={v => handleChange('drinkStatus', v)} />
                         {form.drinkStatus === '目前饮酒' && (
                             <>
-                                <InputQ idx={44} label="每周饮酒频次" required desc="次/周" value={form.drinkFreq} onChange={v => handleChange('drinkFreq', v)} type="number" />
-                                <InputQ idx={45} label="每次饮酒量（几两）" required desc="两/次" value={form.drinkAmount} onChange={v => handleChange('drinkAmount', v)} type="number" />
-                                <RadioQ idx={46} label="醉酒史 (过去12个月)" required options={OPTIONS.drunk} value={form.drunkHistory} onChange={v => handleChange('drunkHistory', v)} />
-                                <RadioQ idx={47} label="戒酒意愿" required options={OPTIONS.quitDrink} value={form.quitDrinkIntent} onChange={v => handleChange('quitDrinkIntent', v)} />
+                                <InputQ idx={43} label="每周饮酒频次" required desc="次/周" value={form.drinkFreq} onChange={v => handleChange('drinkFreq', v)} type="number" />
+                                <InputQ idx={44} label="每次饮酒量（几两）" required desc="两/次" value={form.drinkAmount} onChange={v => handleChange('drinkAmount', v)} type="number" />
+                                <RadioQ idx={45} label="醉酒史 (过去12个月)" required options={OPTIONS.drunk} value={form.drunkHistory} onChange={v => handleChange('drunkHistory', v)} />
+                                <RadioQ idx={46} label="戒酒意愿" required options={OPTIONS.quitDrink} value={form.quitDrinkIntent} onChange={v => handleChange('quitDrinkIntent', v)} />
                             </>
                         )}
                     </div>
@@ -370,14 +462,13 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
                     {/* Section 4: Mental */}
                     <div className="space-y-6">
-                        <RadioQ idx={48} label="压力自我评估" required options={OPTIONS.stress} value={form.stressLevel} onChange={v => handleChange('stressLevel', v)} />
+                        <RadioQ idx={47} label="压力自我评估" required options={OPTIONS.stress} value={form.stressLevel} onChange={v => handleChange('stressLevel', v)} />
                         
-                        {/* Logic: If stress is 'Very Small' -> Jump to Q51 (Hide Q49, Q50) */}
                         {form.stressLevel !== '很小' && (
                             <>
                                 {/* PHQ-9 */}
                                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                    <h3 className="font-bold text-slate-800 mb-2">49. 情绪状态 (PHQ-9) *</h3>
+                                    <h3 className="font-bold text-slate-800 mb-2">48. 情绪状态 (PHQ-9) *</h3>
                                     <p className="text-xs text-slate-500 mb-4">请选择过去两周里，您生活中出现以下症状的频率。</p>
                                     <div className="space-y-4">
                                         {['做事时提不起劲或没有兴趣', '感到心情低落、沮丧或绝望', '入睡困难、睡不安稳或睡眠过多', '感到疲倦或没有活力', '食欲不振或吃太多', '觉得自己很失败，或让自己、家人失望', '对事物专注有困难（如看报纸或看电视时）', '动作或说话速度缓慢到别人已经察觉？或者相反，变得烦躁或坐立不安', '有不如死掉或用某种方式伤害自己的念头'].map((q, i) => (
@@ -388,7 +479,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
                                 {/* GAD-7 */}
                                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                    <h3 className="font-bold text-slate-800 mb-2">50. 焦虑状态 (GAD-7) *</h3>
+                                    <h3 className="font-bold text-slate-800 mb-2">49. 焦虑状态 (GAD-7) *</h3>
                                     <p className="text-xs text-slate-500 mb-4">请选择过去两周里，您生活中出现以下症状的频率。</p>
                                     <div className="space-y-4">
                                         {['做事感觉神经质、焦虑或急切', '不能停止或无法控制担忧', '对各种各样的事情担忧过多', '很难放松下来', '由于坐立不安而很难坐得住', '容易烦恼或急躁', '感到害怕，好像有什么可怕的事情要发生'].map((q, i) => (
@@ -402,11 +493,10 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
                     <div className="border-t pt-6"></div>
 
-                    {/* Section 5: Needs */}
+                    {/* Section 5: Needs (Q51 Removed) */}
                     <div className="space-y-6">
-                        <RadioQ idx={51} label="是否愿意接受医院定期开展健康随访服务" required options={OPTIONS.willing} value={form.followUpWilling} onChange={v => handleChange('followUpWilling', v)} />
-                        <CheckQ idx={52} label="希望校医院提供的健康服务" required options={OPTIONS.services} value={form.desiredServices} onChange={v => toggleArray('desiredServices', v)} />
-                        {form.desiredServices.includes('其他') && <TextQ idx={53} label="希望获得的其他健康支持" value={form.otherSupport} onChange={v => handleChange('otherSupport', v)} />}
+                        <CheckQ idx={50} label="希望校医院提供的健康服务" required options={OPTIONS.services} value={form.desiredServices} onChange={v => toggleArray('desiredServices', v)} />
+                        {form.desiredServices.includes('其他') && <TextQ idx={51} label="希望获得的其他健康支持" value={form.otherSupport} onChange={v => handleChange('otherSupport', v)} />}
                     </div>
 
                     {/* Submit */}
