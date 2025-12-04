@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
+import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord } from '../types';
 import { HealthArchive } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine, ReferenceArea } from 'recharts';
@@ -18,6 +18,8 @@ interface Props {
   onUpdateData?: (record: FollowUpRecord | null, schedule: ScheduledFollowUp[]) => void;
   // Prop for Privacy Protection
   isAuthenticated?: boolean;
+  // NEW: Health Record for Baseline
+  healthRecord?: HealthRecord | null;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -29,7 +31,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onPatientChange, 
     currentPatientId,
     onUpdateData,
-    isAuthenticated = false
+    isAuthenticated = false,
+    healthRecord
 }) => {
   // Removed showModal, replaced with inline logic if needed, 
   // but kept separate state to manage visibility of the entry section if desired.
@@ -427,8 +430,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setShowSmsModal(false);
   };
 
-  // Chart Data Preparation
-  const chartData = sortedRecords.map(r => ({
+  // Chart Data Preparation: Combine Baseline (if exists) + Follow-ups
+  let chartData: any[] = sortedRecords.map(r => ({
       date: r.date,
       sbp: r.indicators.sbp || undefined,
       dbp: r.indicators.dbp || undefined,
@@ -437,8 +440,39 @@ export const FollowUpDashboard: React.FC<Props> = ({
       weight: r.indicators.weight || undefined,
       tc: r.indicators.tc || undefined,
       tg: r.indicators.tg || undefined,
-      ldl: r.indicators.ldl || undefined
+      ldl: r.indicators.ldl || undefined,
+      type: 'followup'
   }));
+
+  // Construct Baseline Point
+  if (healthRecord && healthRecord.checkup) {
+      const b = healthRecord.checkup.basics;
+      const l = healthRecord.checkup.labBasic;
+      
+      // Ensure we have data to show
+      if (b.sbp || b.weight || l.glucose?.fasting) {
+           const baselinePoint = {
+              date: healthRecord.profile.checkupDate || currentArchive?.created_at?.split('T')[0] || '建档基线',
+              sbp: b.sbp || undefined,
+              dbp: b.dbp || undefined,
+              heartRate: undefined, // Usually not in basics interface unless added
+              glucose: l.glucose?.fasting ? parseFloat(l.glucose.fasting) : undefined,
+              weight: b.weight || undefined,
+              tc: l.lipids?.tc ? parseFloat(l.lipids.tc) : undefined,
+              tg: l.lipids?.tg ? parseFloat(l.lipids.tg) : undefined,
+              ldl: l.lipids?.ldl ? parseFloat(l.lipids.ldl) : undefined,
+              type: 'baseline'
+          };
+          
+          // Prepend baseline, then sort to ensure chronological order
+          chartData = [baselinePoint, ...chartData].sort((a, b) => {
+              // Handle potential '建档基线' string if date missing (put it first)
+              if (a.date === '建档基线') return -1;
+              if (b.date === '建档基线') return 1;
+              return new Date(a.date).getTime() - new Date(b.date).getTime();
+          });
+      }
+  }
 
   const summaryChartData = assessment ? [
     { name: 'High', value: Math.max(assessment.risks.red.length, 0.5), color: '#ef4444' },
@@ -594,6 +628,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <div className="text-center py-10 text-slate-400">请选择人员</div>
                 ) : (
                     <div className="space-y-6 pl-4 border-l-2 border-slate-100 ml-2">
+                         {/* Optional Baseline Marker in Timeline */}
+                         {healthRecord?.checkup?.basics.sbp && (
+                             <div className="relative">
+                                <div className="absolute -left-[23px] top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-slate-400 bg-slate-400"></div>
+                                <div className="text-xs text-slate-400 mb-1">{healthRecord.profile.checkupDate || '建档日'}</div>
+                                <div className="text-sm font-bold text-slate-600">健康建档(基线)</div>
+                             </div>
+                         )}
+
                          {sortedRecords.map((rec) => (
                             <div key={rec.id} className="relative">
                                 <div className="absolute -left-[23px] top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-teal-500 bg-teal-500"></div>

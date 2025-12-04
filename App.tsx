@@ -532,6 +532,7 @@ const App: React.FC = () => {
             records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp}
             onUpdateData={handleManualDataUpdate} allArchives={archives} onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
             currentPatientId={healthRecord?.profile.checkupId} isAuthenticated={isAuthenticated}
+            healthRecord={healthRecord} 
         />
       )}
 
