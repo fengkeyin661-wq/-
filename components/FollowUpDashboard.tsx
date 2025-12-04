@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp } from '../types';
 import { HealthArchive } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface Props {
   records: FollowUpRecord[];
@@ -695,56 +695,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
       ldl: r.indicators.ldl || undefined
   }));
 
+  // Prepare Summary Chart Data
+  const summaryChartData = assessment ? [
+    { name: 'High', value: Math.max(assessment.risks.red.length, 0.5), color: '#ef4444' },
+    { name: 'Medium', value: Math.max(assessment.risks.yellow.length, 0.5), color: '#eab308' },
+    { name: 'Low', value: Math.max(5 - assessment.risks.red.length - assessment.risks.yellow.length, 1), color: '#22c55e' },
+  ] : [];
+
   return (
     <div className="animate-fadeIn pb-10">
 
-      {/* --- Patient Basic Info Header --- */}
-      {currentArchive && (
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex justify-between items-center">
-                <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200">
-                        {currentArchive.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
-                    </div>
-                    <div>
-                        <div className="flex items-center gap-3">
-                            <h2 className="text-2xl font-bold text-slate-800">{currentArchive.name}</h2>
-                            <span className={`px-2 py-0.5 text-xs rounded-full border font-bold ${
-                                activeRiskLevel === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
-                                activeRiskLevel === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
-                                'bg-green-50 text-green-600 border-green-200'
-                            }`}>
-                                {activeRiskLevel === 'RED' ? '高风险' : activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
-                            </span>
-                        </div>
-                        <div className="text-sm text-slate-500 mt-1 flex gap-4">
-                            <span>{currentArchive.gender || '未知'}</span>
-                            <span className="w-px h-3 bg-slate-300"></span>
-                            <span>{currentArchive.age ? `${currentArchive.age}岁` : '年龄未知'}</span>
-                            <span className="w-px h-3 bg-slate-300"></span>
-                            <span className="font-mono text-slate-400">{currentArchive.checkup_id}</span>
-                        </div>
-                    </div>
-                </div>
-                <div className="flex gap-10 text-sm">
-                    <div>
-                        <span className="block text-xs text-slate-400 uppercase">部门/单位</span>
-                        <span className="font-medium text-slate-700">{currentArchive.department || '-'}</span>
-                    </div>
-                    <div>
-                        <span className="block text-xs text-slate-400 uppercase">联系电话</span>
-                        <span className="font-medium text-slate-700 font-mono">{currentArchive.phone || '-'}</span>
-                    </div>
-                    <div>
-                        <span className="block text-xs text-slate-400 uppercase">最近更新</span>
-                        <span className="font-medium text-slate-700">
-                           {new Date(currentArchive.updated_at || currentArchive.created_at).toLocaleDateString()}
-                        </span>
-                    </div>
-                </div>
-            </div>
-      )}
-
-      {/* --- Global Reminder Alert Section --- */}
+      {/* --- Global Reminder Alert Section (Moved to Top) --- */}
       {upcomingGlobalTasks.length > 0 && (
           <div className="bg-orange-50 border-l-4 border-orange-400 p-6 rounded-r-xl shadow-sm mb-8">
               <div className="flex justify-between items-center mb-4">
@@ -808,11 +769,97 @@ export const FollowUpDashboard: React.FC<Props> = ({
               </div>
           </div>
       )}
+
+      {/* --- Patient Basic Info Header + Assessment Summary --- */}
+      {currentArchive && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
+                {/* Top: Basic Info */}
+                <div className="p-5 flex justify-between items-center border-b border-slate-100">
+                    <div className="flex items-center gap-4">
+                        <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200">
+                            {currentArchive.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-3">
+                                <h2 className="text-2xl font-bold text-slate-800">{currentArchive.name}</h2>
+                                <span className={`px-2 py-0.5 text-xs rounded-full border font-bold ${
+                                    activeRiskLevel === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                                    activeRiskLevel === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
+                                    'bg-green-50 text-green-600 border-green-200'
+                                }`}>
+                                    {activeRiskLevel === 'RED' ? '高风险' : activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                                </span>
+                            </div>
+                            <div className="text-sm text-slate-500 mt-1 flex gap-4">
+                                <span>{currentArchive.gender || '未知'}</span>
+                                <span className="w-px h-3 bg-slate-300"></span>
+                                <span>{currentArchive.age ? `${currentArchive.age}岁` : '年龄未知'}</span>
+                                <span className="w-px h-3 bg-slate-300"></span>
+                                <span className="font-mono text-slate-400">{currentArchive.checkup_id}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex gap-10 text-sm">
+                        <div>
+                            <span className="block text-xs text-slate-400 uppercase">部门/单位</span>
+                            <span className="font-medium text-slate-700">{currentArchive.department || '-'}</span>
+                        </div>
+                        <div>
+                            <span className="block text-xs text-slate-400 uppercase">联系电话</span>
+                            <span className="font-medium text-slate-700 font-mono">{currentArchive.phone || '-'}</span>
+                        </div>
+                        <div>
+                            <span className="block text-xs text-slate-400 uppercase">最近更新</span>
+                            <span className="font-medium text-slate-700">
+                               {new Date(currentArchive.updated_at || currentArchive.created_at).toLocaleDateString()}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Bottom: Assessment Summary (New Feature) */}
+                {assessment && (
+                    <div className="p-6 bg-slate-50 border-t border-slate-100 flex flex-col md:flex-row gap-6 items-start">
+                        {/* Mini Chart */}
+                        <div className="w-24 h-24 shrink-0 relative flex items-center justify-center bg-white rounded-full shadow-sm p-1">
+                             <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie data={summaryChartData} innerRadius={25} outerRadius={40} dataKey="value" stroke="none">
+                                        {summaryChartData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+                                    </Pie>
+                                </PieChart>
+                             </ResponsiveContainer>
+                             {/* Center Text */}
+                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                 {/* Optional Center Icon */}
+                             </div>
+                        </div>
+                        
+                        <div className="flex-1">
+                            <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2">
+                                综合评估: 
+                                <span className={`${
+                                    activeRiskLevel === 'RED' ? 'text-red-600' : 
+                                    activeRiskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
+                                }`}>
+                                    {activeRiskLevel === 'RED' ? '高风险' : activeRiskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                                </span>
+                            </h3>
+                            <div className="text-sm text-slate-600 leading-relaxed bg-white border border-slate-200 rounded-lg p-3 shadow-sm">
+                                {assessment.summary || "暂无综合评估摘要。"}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+      )}
       
       {/* 顶部：随访时间轴与图表区 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* 左侧：趋势图 (New) */}
+          {/* ... (Existing Charts) ... */}
+          {/* 左侧：趋势图 */}
           <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
+             {/* ... */}
              <div className="flex justify-between items-center mb-4">
                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <span>📈</span> 核心指标监测
