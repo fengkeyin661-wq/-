@@ -1,5 +1,4 @@
 
-
 import { HealthRecord, RiskAnalysisData, SystemRiskPortrait, PredictionModelResult, RiskLevel } from '../types';
 
 /**
@@ -139,6 +138,18 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
             
             // Colon
             case 'colonCancer': return q.familyHistory.colonCancer;
+
+            // NAFLD Specific
+            case 'ast': return parseFloat(record.checkup.labBasic.liver?.AST || '0') || undefined;
+            case 'alt': return parseFloat(record.checkup.labBasic.liver?.ALT || '0') || undefined;
+            case 'plt': return parseFloat(record.checkup.labBasic.bloodRoutine?.plt || '0') || undefined;
+            case 'alb': return parseFloat(record.checkup.labBasic.liver?.ALB || '0') || undefined;
+
+            // Gastric Specific
+            // Often not in basic checks, so default undefined to trigger manual input unless extracted to extras
+            case 'hp': return undefined; 
+            case 'pgr': return undefined; // PG I / PG II ratio
+            case 'g17': return undefined;
 
             default: return undefined;
         }
@@ -403,6 +414,87 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         return { score: '不符合', riskLevel: RiskLevel.GREEN, riskLabel: '一般' as const, missing: [], desc: '未达NLST高危标准' };
     };
 
+    // --- 9. NAFLD Fibrosis Score (肝纤维化) ---
+    const nafldCalc = () => {
+        const missing = [];
+        const age = getVal('age');
+        const bmi = getVal('bmi');
+        const diabetes = getVal('hasDiabetes');
+        const ast = getVal('ast');
+        const alt = getVal('alt');
+        const plt = getVal('plt');
+        const alb = getVal('alb');
+
+        if (!age) missing.push({key: 'age', label: '年龄'});
+        if (!bmi) missing.push({key: 'bmi', label: 'BMI'});
+        if (!ast) missing.push({key: 'ast', label: '谷草转氨酶 (AST)'});
+        if (!alt) missing.push({key: 'alt', label: '谷丙转氨酶 (ALT)'});
+        if (!plt) missing.push({key: 'plt', label: '血小板计数 (PLT)'});
+        if (!alb) missing.push({key: 'alb', label: '白蛋白 (Alb)'});
+
+        if (missing.length > 0) return { score: 'NA', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善生化/血常规指标' };
+
+        // NFS Formula: -1.675 + 0.037*age + 0.094*bmi + 1.13*IFG/diabetes(yes=1) + 0.99*AST/ALT ratio - 0.013*PLT - 0.66*Alb
+        const ratio = ast / alt;
+        const scoreVal = -1.675 + (0.037 * age) + (0.094 * bmi) + (1.13 * (diabetes ? 1 : 0)) + (0.99 * ratio) - (0.013 * plt) - (0.66 * alb);
+        const fixedScore = scoreVal.toFixed(2);
+
+        let level = RiskLevel.GREEN;
+        let label = '低风险';
+        
+        if (scoreVal > 0.676) {
+            level = RiskLevel.RED;
+            label = '高风险';
+        } else if (scoreVal > -1.455) {
+            level = RiskLevel.YELLOW;
+            label = '中风险'; // Indeterminate
+        }
+
+        return { score: fixedScore, riskLevel: level, riskLabel: label as any, missing: [], desc: `NFS评分: ${fixedScore}` };
+    };
+
+    // --- 10. Gastric Cancer Screening (胃癌) ---
+    const gastricCalc = () => {
+        const missing = [];
+        const hp = getVal('hp'); // 阳性/阴性/数值
+        const pgr = getVal('pgr'); // PGR value
+        const g17 = getVal('g17'); // G-17 value
+
+        if (hp === undefined) missing.push({key: 'hp', label: '幽门螺杆菌感染 (是/否)'});
+        if (pgr === undefined) missing.push({key: 'pgr', label: 'PGI/PGII 比值 (PGR)'});
+        if (g17 === undefined) missing.push({key: 'g17', label: '胃泌素-17 (G-17)'});
+
+        if (missing.length > 0) return { score: 'NA', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善血清胃功能检测' };
+
+        // ABC Method Logic (Simplified)
+        // A: Hp(-), PG(-) -> Low
+        // B: Hp(+), PG(-) -> Low-Med
+        // C: Hp(+), PG(+) -> Med-High
+        // D: Hp(-), PG(+) -> High
+        // Definition of PG(+): PGR < 3.0 AND PGI < 70 ng/ml (Simplification: using just PGR input for now)
+        
+        const isHpPos = hp === '是' || hp === '阳性' || hp === true;
+        const isPgPos = Number(pgr) < 3.0; // Atrophy indicator
+
+        let risk = '低风险';
+        let level = RiskLevel.GREEN;
+
+        if (!isHpPos && !isPgPos) {
+            risk = 'A群 (低风险)';
+        } else if (isHpPos && !isPgPos) {
+            risk = 'B群 (中低风险)';
+            level = RiskLevel.YELLOW;
+        } else if (isHpPos && isPgPos) {
+            risk = 'C群 (中高风险)';
+            level = RiskLevel.RED;
+        } else if (!isHpPos && isPgPos) {
+            risk = 'D群 (高风险)';
+            level = RiskLevel.RED;
+        }
+
+        return { score: risk.split(' ')[0], riskLevel: level, riskLabel: level==='RED'?'高风险':level==='YELLOW'?'中风险':'低风险', missing: [], desc: `新型胃癌筛查: ${risk}` };
+    };
+
     // Execute
     // Re-use helper
     const run = (id: string, name: string, cat: string, fn: Function): PredictionModelResult | null => {
@@ -420,14 +512,12 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         run('meta_ada', 'ADA 糖尿病风险', '代谢免疫', adaCalc),
         run('bone_frax', 'FRAX 骨折风险', '骨骼肌肉', fraxCalc),
         run('resp_copd', 'COPD-SQ 慢阻肺筛查', '呼吸系统', copdCalc),
+        run('dig_nafld', 'NAFLD 肝纤维化评分', '消化系统', nafldCalc), // Active
         run('tumor_gail', 'Gail 乳腺癌风险', '肿瘤风险', gailCalc),
         run('tumor_nlst', 'NLST 肺癌筛查', '肿瘤风险', nlstCalc),
+        run('tumor_gastric', '新型胃癌筛查 (ABC法)', '肿瘤风险', gastricCalc), // Active
         run('psych_scales', '心理健康 (PHQ/GAD)', '心理精神', mentalCalc),
         run('tumor_colon', '亚太结直肠癌评分', '肿瘤风险', colonCalc),
-        
-        // Placeholders
-        { modelId: 'dig_nafld', modelName: 'NAFLD 肝纤维化', category: '消化系统', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '待接入生化指标', missingParams: [], lastCalculated: '' },
-        { modelId: 'tumor_gastric', modelName: '新型胃癌筛查', category: '肿瘤风险', score: 'NA', riskLabel: '未知', riskLevel: 'UNKNOWN', description: '待接入Hp结果', missingParams: [], lastCalculated: '' }
     ];
 
     // Filter out nulls (not applicable models)
