@@ -83,18 +83,25 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
     const extras = record.riskModelExtras || {};
     const q = record.questionnaire;
 
+    // Helper: Safely parse float from string
+    const safeFloat = (val: string | undefined | null): number | undefined => {
+        if (!val) return undefined;
+        const num = parseFloat(val);
+        return isNaN(num) ? undefined : num;
+    };
+
     // Helper: Smart Get Value
     const getVal = (key: string): any => {
-        // 1. Manual override from riskModelExtras
+        // 1. Manual override from riskModelExtras (UI Input)
         if (extras[key] !== undefined && extras[key] !== '') return extras[key];
 
-        // 2. Structured mappings
+        // 2. Structured mappings from Health Record
         switch(key) {
             case 'age': return record.profile.age;
             case 'gender': return record.profile.gender;
             case 'sbp': return record.checkup.basics.sbp;
             case 'bmi': return record.checkup.basics.bmi;
-            case 'tc': return parseFloat(record.checkup.labBasic.lipids?.tc || '0') || undefined;
+            case 'tc': return safeFloat(record.checkup.labBasic.lipids?.tc);
             case 'waist': return record.checkup.basics.waist;
             case 'isSmoking': return q.substances.smoking.status === '吸烟' || q.substances.smoking.status === '目前吸烟' ? true : false;
             case 'hasDiabetes': return q.history.diseases.some(d => d.includes('糖尿病')) || q.history.details.diabetesYear ? true : false;
@@ -139,17 +146,33 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
             // Colon
             case 'colonCancer': return q.familyHistory.colonCancer;
 
-            // NAFLD Specific
-            case 'ast': return parseFloat(record.checkup.labBasic.liver?.AST || '0') || undefined;
-            case 'alt': return parseFloat(record.checkup.labBasic.liver?.ALT || '0') || undefined;
-            case 'plt': return parseFloat(record.checkup.labBasic.bloodRoutine?.plt || '0') || undefined;
-            case 'alb': return parseFloat(record.checkup.labBasic.liver?.ALB || '0') || undefined;
+            // NAFLD Specific (Enhanced Extraction)
+            case 'ast': return safeFloat(record.checkup.labBasic.liver?.AST) || safeFloat(record.checkup.labBasic.liver?.ast);
+            case 'alt': return safeFloat(record.checkup.labBasic.liver?.ALT) || safeFloat(record.checkup.labBasic.liver?.alt);
+            case 'plt': return safeFloat(record.checkup.labBasic.bloodRoutine?.plt);
+            case 'alb': return safeFloat(record.checkup.labBasic.liver?.ALB) || safeFloat(record.checkup.labBasic.liver?.alb);
 
-            // Gastric Specific
-            // Often not in basic checks, so default undefined to trigger manual input unless extracted to extras
-            case 'hp': return undefined; 
-            case 'pgr': return undefined; // PG I / PG II ratio
-            case 'g17': return undefined;
+            // Gastric Specific (Enhanced Extraction from C13 or Gastric text)
+            case 'hp': 
+                // 1. Check C13 breath test
+                const c13 = record.checkup.optional.c13 || '';
+                if (c13.includes('阳性') || c13.includes('+')) return '阳性';
+                if (c13.includes('阴性') || c13.includes('-')) return '阴性';
+                // 2. Check History
+                if (q.history.diseases.some(d => d.includes('幽门'))) return '阳性';
+                return undefined;
+
+            case 'pgr': // Pepsinogen I/II Ratio
+                // Try to extract from gastrin text block if unstructured
+                const gastrinTxt = record.checkup.optional.gastrin || '';
+                // Regex for "PGR: 4.2" or "比值: 4.2"
+                const pgrMatch = gastrinTxt.match(/(?:PGR|比值)[:\s=]*(\d+(\.\d+)?)/i);
+                return pgrMatch ? parseFloat(pgrMatch[1]) : undefined;
+
+            case 'g17': // Gastrin-17
+                const g17Txt = record.checkup.optional.gastrin || '';
+                const g17Match = g17Txt.match(/(?:G-?17|胃泌素-?17)[:\s=]*(\d+(\.\d+)?)/i);
+                return g17Match ? parseFloat(g17Match[1]) : undefined;
 
             default: return undefined;
         }
@@ -256,9 +279,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         const missing = [];
         const packYears = getVal('packYears'); // from AI or Calc
         const cough = getVal('chronicCough');
-        const phlegm = getVal('chronicPhlegm');
-        const shortBreath = getVal('shortBreath');
-
+        
         if (packYears === undefined && getVal('isSmoking') === undefined) missing.push({key: 'packYears', label: '吸烟包年数'});
         if (cough === undefined) missing.push({key: 'chronicCough', label: '经常咳嗽?'});
 
@@ -283,8 +304,8 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         
         // Symptoms
         if (cough) score += 2;
-        if (phlegm) score += 2;
-        if (shortBreath) score += 3;
+        if (getVal('chronicPhlegm')) score += 2;
+        if (getVal('shortBreath')) score += 3;
         
         const r = score >= 16 ? RiskLevel.RED : RiskLevel.GREEN;
         return { score: `${score}分`, riskLevel: r, riskLabel: r===RiskLevel.RED?'高风险':'低风险', missing: [], desc: `COPD-SQ得分: ${score} (≥16高危)` };
@@ -369,7 +390,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         return { score: `${score}分`, riskLevel: r, riskLabel: r==='RED'?'高风险':r==='YELLOW'?'中风险':'低风险', missing: [], desc: `APCS评分: ${score}` };
     };
 
-    // --- 8. NLST (肺癌筛查 - New) ---
+    // --- 8. NLST (肺癌筛查) ---
     const nlstCalc = () => {
         const missing = [];
         const age = getVal('age');
@@ -382,11 +403,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         
         if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需吸烟量细节' };
 
-        // NLST Criteria:
-        // 1. Age 55-74
-        // 2. Pack-years >= 30
-        // 3. Current smoker OR Quit <= 15 years ago
-
+        // NLST Criteria: Age 55-74, Pack-years >= 30, Current smoker or Quit <= 15 years ago
         if (age < 50) return { score: 'NA', riskLevel: RiskLevel.GREEN, riskLabel: '低风险' as const, missing: [], desc: '年龄<50岁' };
 
         let criteria = 0;
@@ -397,7 +414,6 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         if (isSmoking) {
             smokingCriteria = true;
         } else if (quitYearStr) {
-            // Parse year roughly
             const qYear = parseInt(quitYearStr.replace(/[^0-9]/g, ''));
             const currentYear = new Date().getFullYear();
             if (!isNaN(qYear) && (currentYear - qYear) <= 15) {
@@ -427,14 +443,14 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
 
         if (!age) missing.push({key: 'age', label: '年龄'});
         if (!bmi) missing.push({key: 'bmi', label: 'BMI'});
-        if (!ast) missing.push({key: 'ast', label: '谷草转氨酶 (AST)'});
-        if (!alt) missing.push({key: 'alt', label: '谷丙转氨酶 (ALT)'});
-        if (!plt) missing.push({key: 'plt', label: '血小板计数 (PLT)'});
-        if (!alb) missing.push({key: 'alb', label: '白蛋白 (Alb)'});
+        if (ast === undefined) missing.push({key: 'ast', label: '谷草转氨酶 (AST)'});
+        if (alt === undefined) missing.push({key: 'alt', label: '谷丙转氨酶 (ALT)'});
+        if (plt === undefined) missing.push({key: 'plt', label: '血小板计数 (PLT)'});
+        if (alb === undefined) missing.push({key: 'alb', label: '白蛋白 (Alb)'});
 
         if (missing.length > 0) return { score: 'NA', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善生化/血常规指标' };
 
-        // NFS Formula: -1.675 + 0.037*age + 0.094*bmi + 1.13*IFG/diabetes(yes=1) + 0.99*AST/ALT ratio - 0.013*PLT - 0.66*Alb
+        // NFS Formula
         const ratio = ast / alt;
         const scoreVal = -1.675 + (0.037 * age) + (0.094 * bmi) + (1.13 * (diabetes ? 1 : 0)) + (0.99 * ratio) - (0.013 * plt) - (0.66 * alb);
         const fixedScore = scoreVal.toFixed(2);
@@ -462,6 +478,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
 
         if (hp === undefined) missing.push({key: 'hp', label: '幽门螺杆菌感染 (是/否)'});
         if (pgr === undefined) missing.push({key: 'pgr', label: 'PGI/PGII 比值 (PGR)'});
+        // g17 is optional for simplified ABC, but better to have. We rely on PGR mainly for atrophy.
         if (g17 === undefined) missing.push({key: 'g17', label: '胃泌素-17 (G-17)'});
 
         if (missing.length > 0) return { score: 'NA', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善血清胃功能检测' };
@@ -471,7 +488,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         // B: Hp(+), PG(-) -> Low-Med
         // C: Hp(+), PG(+) -> Med-High
         // D: Hp(-), PG(+) -> High
-        // Definition of PG(+): PGR < 3.0 AND PGI < 70 ng/ml (Simplification: using just PGR input for now)
+        // Definition of PG(+): PGR < 3.0 (Atrophy)
         
         const isHpPos = hp === '是' || hp === '阳性' || hp === true;
         const isPgPos = Number(pgr) < 3.0; // Atrophy indicator
@@ -499,7 +516,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
     // Re-use helper
     const run = (id: string, name: string, cat: string, fn: Function): PredictionModelResult | null => {
         const res = fn();
-        if (res === null) return null; // Skip if model not applicable (e.g. Gail for men)
+        if (res === null) return null; // Skip if model not applicable
         return {
             modelId: id, modelName: name, category: cat, score: res.score, riskLevel: res.riskLevel, 
             riskLabel: res.riskLabel, description: res.desc, missingParams: res.missing, lastCalculated: new Date().toISOString()
@@ -520,6 +537,6 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         run('tumor_colon', '亚太结直肠癌评分', '肿瘤风险', colonCalc),
     ];
 
-    // Filter out nulls (not applicable models)
+    // Filter out nulls
     return results.filter(m => m !== null) as PredictionModelResult[];
 };
