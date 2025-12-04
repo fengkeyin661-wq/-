@@ -1,14 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { HealthRecord, RiskAnalysisData, PredictionModelResult } from '../types';
+import { HealthRecord, RiskAnalysisData, PredictionModelResult, SystemRiskPortrait as SystemRiskPortraitType } from '../types';
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
 import { updateRiskAnalysis } from '../services/dataService';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 
 interface Props {
     record: HealthRecord;
     existingAnalysis?: RiskAnalysisData;
     onUpdate: () => void; // Callback to refresh parent data
-    hidePrintButton?: boolean; // New prop to control print button visibility
+    hidePrintButton?: boolean; 
 }
 
 export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, onUpdate, hidePrintButton = false }) => {
@@ -34,8 +35,6 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
             setActiveModel(model);
             setMissingInputs({});
         } else {
-            // Even if calculated, allow viewing/editing inputs? 
-            // For now, simplify to just fixing missing ones.
             alert(`${model.modelName}\n评分: ${model.score}\n结果: ${model.description}`);
         }
     };
@@ -43,24 +42,16 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
     const handleSaveInputs = async () => {
         if (!activeModel || !analysis) return;
         setIsSaving(true);
-        
         try {
-            // 1. Merge new inputs into a temporary record object
             const tempExtras = { ...(record.riskModelExtras || {}), ...missingInputs };
             const tempRecord = { ...record, riskModelExtras: tempExtras };
-
-            // 2. Re-evaluate models locally
             const newModels = evaluateRiskModels(tempRecord);
             const newPortraits = generateSystemPortraits(tempRecord);
-            
             const newAnalysis = { portraits: newPortraits, models: newModels };
             setAnalysis(newAnalysis);
-
-            // 3. Persist to DB
             await updateRiskAnalysis(record.profile.checkupId, newAnalysis, missingInputs);
-            
             setActiveModel(null);
-            onUpdate(); // Notify parent
+            onUpdate();
         } catch (e) {
             alert("保存失败，请重试");
         } finally {
@@ -68,107 +59,47 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
         }
     };
 
+    // Calculate Total Score (Average of all systems)
+    const totalScore = analysis ? Math.round(analysis.portraits.reduce((acc, curr) => acc + curr.score, 0) / analysis.portraits.length) : 0;
+
+    // Prepare Radar Data
+    const radarData = analysis?.portraits.map(p => ({
+        subject: p.systemName.replace('系统', '').replace('风险监控', ''),
+        A: p.score,
+        fullMark: 100,
+    })) || [];
+
     const handlePrint = () => {
         if (!analysis) return;
-        
         const printWindow = window.open('', '_blank', 'height=900,width=800');
-        if (!printWindow) {
-             alert("请允许弹窗以打印报告");
-             return;
-        }
-
+        if (!printWindow) { alert("请允许弹窗以打印报告"); return; }
+        // Simple HTML for Print
         const htmlContent = `
             <!DOCTYPE html>
             <html lang="zh-CN">
             <head>
-                <meta charset="UTF-8">
-                <title>健康风险画像与系统评估报告</title>
                 <style>
-                    body { font-family: "PingFang SC", sans-serif; padding: 40px; color: #333; }
-                    h1 { text-align: center; font-size: 24px; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
-                    .meta { text-align: center; margin-bottom: 30px; color: #666; font-size: 14px; }
-                    .section-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; border-left: 5px solid #0d9488; padding-left: 10px; margin-top: 30px; }
-                    
-                    /* Grid for Portraits */
-                    .portrait-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-                    .portrait-card { border: 1px solid #ddd; padding: 15px; border-radius: 8px; break-inside: avoid; }
-                    .sys-name { font-weight: bold; font-size: 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-                    .status-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; border: 1px solid; margin-left: auto; }
-                    .status-High { background: #fef2f2; color: #dc2626; border-color: #fca5a5; }
-                    .status-Medium { background: #fefce8; color: #d97706; border-color: #fcd34d; }
-                    .status-Normal { background: #f0fdf4; color: #16a34a; border-color: #86efac; }
-                    ul { padding-left: 20px; margin: 5px 0; font-size: 13px; }
-                    
-                    /* Table for Models */
-                    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-                    th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
-                    th { background: #f9fafb; font-weight: bold; }
-                    .risk-red { color: #dc2626; font-weight: bold; }
-                    .risk-yellow { color: #d97706; font-weight: bold; }
-                    .risk-green { color: #16a34a; }
-                    
-                    @media print { .no-print { display: none; } }
+                    body { font-family: sans-serif; padding: 20px; }
+                    .card { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
+                    .high { border-left: 5px solid red; }
+                    .med { border-left: 5px solid orange; }
+                    .low { border-left: 5px solid green; }
                 </style>
             </head>
             <body>
-                <h1>健康风险画像与系统评估报告</h1>
-                <div class="meta">
-                    受检者: <strong>${record.profile.name}</strong> | 
-                    性别: ${record.profile.gender} | 
-                    年龄: ${record.profile.age}岁 | 
-                    日期: ${new Date().toLocaleDateString()}
-                </div>
-
-                <div class="section-title">🧘 人体六大系统健康画像</div>
-                <div class="portrait-grid">
-                    ${analysis.portraits.map(p => `
-                        <div class="portrait-card">
-                            <div class="sys-name">
-                                ${p.icon} ${p.systemName}
-                                <span class="status-tag status-${p.status}">${p.status === 'High' ? '重点关注' : p.status === 'Medium' ? '一般关注' : '健康'}</span>
-                            </div>
-                            <ul>
-                                ${p.keyFindings.length > 0 ? p.keyFindings.map(f => `<li>${f}</li>`).join('') : '<li style="color:#999">未见明显异常</li>'}
-                            </ul>
-                        </div>
-                    `).join('')}
-                </div>
-
-                <div class="section-title">📊 疾病风险预测模型评估</div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width: 20%">模型类别</th>
-                            <th style="width: 25%">评估模型</th>
-                            <th style="width: 15%">评分</th>
-                            <th style="width: 15%">风险等级</th>
-                            <th>结果解读</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${analysis.models.map(m => `
-                            <tr>
-                                <td>${m.category}</td>
-                                <td><strong>${m.modelName}</strong></td>
-                                <td>${m.score}</td>
-                                <td class="${m.riskLevel === 'RED' ? 'risk-red' : m.riskLevel === 'YELLOW' ? 'risk-yellow' : 'risk-green'}">
-                                    ${m.riskLabel}
-                                </td>
-                                <td>${m.description}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-                
-                <div style="margin-top: 50px; text-align: right; font-size: 14px;">
-                    评估医师签名: ___________________
-                </div>
-                
+                <h1>人体系统健康画像</h1>
+                <h2>综合健康评分: ${totalScore} 分</h2>
+                ${analysis.portraits.map(p => `
+                    <div class="card ${p.status === 'High' ? 'high' : p.status === 'Medium' ? 'med' : 'low'}">
+                        <h3>${p.systemName} (${p.score}分)</h3>
+                        <p><strong>主要发现:</strong> ${p.keyFindings.join(', ') || '无明显异常'}</p>
+                        <p><strong>生活方式:</strong> ${p.lifestyleImpact?.join(', ') || '无特别关联'}</p>
+                    </div>
+                `).join('')}
                 <script>window.print();</script>
             </body>
             </html>
         `;
-
         printWindow.document.write(htmlContent);
         printWindow.document.close();
     };
@@ -177,59 +108,119 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
 
     return (
         <div className="animate-fadeIn pb-10 space-y-8">
-            <div className="flex justify-between items-center">
-                 {/* Empty div for spacing or title if needed */}
-                 <div></div>
+            <div className="flex justify-between items-center mb-4">
+                 <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <span className="text-3xl">🧬</span> 
+                    人体六大系统健康画像
+                 </h2>
                  {!hidePrintButton && (
-                    <button 
-                        onClick={handlePrint}
-                        className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-sm"
-                    >
-                        <span>🖨️</span> 打印评估报告
+                    <button onClick={handlePrint} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-sm">
+                        <span>🖨️</span> 打印画像
                     </button>
                  )}
             </div>
+
+            {/* Top Dashboard: Score + Radar */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Score Card */}
+                <div className="bg-gradient-to-br from-indigo-900 to-slate-800 rounded-2xl p-6 text-white flex flex-col justify-between shadow-xl relative overflow-hidden">
+                    <div className="relative z-10">
+                        <div className="text-indigo-200 text-sm font-bold uppercase tracking-wider mb-2">综合健康指数</div>
+                        <div className="text-6xl font-black tracking-tight">{totalScore}</div>
+                        <div className="mt-4 flex items-center gap-2">
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${totalScore >= 85 ? 'bg-green-500 text-white' : totalScore >= 70 ? 'bg-yellow-500 text-black' : 'bg-red-500 text-white'}`}>
+                                {totalScore >= 85 ? '健康状态良好' : totalScore >= 70 ? '亚健康预警' : '高风险状态'}
+                            </span>
+                        </div>
+                    </div>
+                    <div className="absolute right-[-20px] top-[-20px] text-9xl opacity-10">🛡️</div>
+                </div>
+
+                {/* Radar Chart */}
+                <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 p-2 flex items-center justify-center relative">
+                    <div className="absolute top-4 left-4 text-xs font-bold text-slate-400">系统均衡度分析</div>
+                    <div className="w-full h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
+                                <PolarGrid stroke="#e2e8f0" />
+                                <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 12, fontWeight: 'bold' }} />
+                                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                <Radar name="健康分" dataKey="A" stroke="#0d9488" fill="#14b8a6" fillOpacity={0.5} />
+                            </RadarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
             
-            {/* 1. 系统健康画像 (System Portraits) */}
-            <section className="print:break-inside-avoid">
-                <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-                    <span className="text-2xl">🧘</span> 人体六大系统健康画像
-                </h2>
+            {/* Detailed System Cards (Sorted by Score Ascending - Risk Descending) */}
+            <div className="space-y-4">
+                <h3 className="font-bold text-slate-700 text-lg">系统风险详情 (按严重程度排序)</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {analysis.portraits.map((sys, idx) => (
-                        <div key={idx} className={`bg-white rounded-xl shadow-sm border p-5 transition-all hover:shadow-md ${
-                            sys.status === 'High' ? 'border-red-200 bg-red-50/30' : 
-                            sys.status === 'Medium' ? 'border-yellow-200 bg-yellow-50/30' : 'border-slate-100'
+                        <div key={idx} className={`rounded-xl shadow-sm border-t-4 p-5 bg-white transition-all hover:shadow-lg flex flex-col justify-between ${
+                            sys.status === 'High' ? 'border-red-500' : 
+                            sys.status === 'Medium' ? 'border-yellow-500' : 'border-green-500'
                         }`}>
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="text-3xl">{sys.icon}</div>
-                                    <h3 className="font-bold text-slate-700">{sys.systemName}</h3>
+                            <div>
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-3xl bg-slate-50 w-12 h-12 rounded-lg flex items-center justify-center">{sys.icon}</div>
+                                        <div>
+                                            <h3 className="font-bold text-slate-700">{sys.systemName}</h3>
+                                            <div className="text-xs text-slate-400">健康评分: <span className="font-bold text-slate-700">{sys.score}</span></div>
+                                        </div>
+                                    </div>
+                                    <span className={`px-2 py-1 rounded text-xs font-black ${
+                                        sys.status === 'High' ? 'bg-red-100 text-red-600' : 
+                                        sys.status === 'Medium' ? 'bg-yellow-100 text-yellow-700' : 
+                                        'bg-green-100 text-green-700'
+                                    }`}>
+                                        {sys.status === 'High' ? '高风险' : sys.status === 'Medium' ? '需关注' : '健康'}
+                                    </span>
                                 </div>
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
-                                    sys.status === 'High' ? 'bg-red-100 text-red-600 border-red-200' :
-                                    sys.status === 'Medium' ? 'bg-yellow-100 text-yellow-600 border-yellow-200' :
-                                    'bg-green-100 text-green-600 border-green-200'
-                                }`}>
-                                    {sys.status === 'High' ? '重点关注' : sys.status === 'Medium' ? '一般关注' : '健康'}
-                                </span>
-                            </div>
-                            
-                            <div className="mb-3 min-h-[60px]">
-                                {sys.keyFindings.length > 0 ? (
-                                    <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
-                                        {sys.keyFindings.map((f, i) => <li key={i}>{f}</li>)}
-                                    </ul>
-                                ) : (
-                                    <p className="text-xs text-slate-400 italic">未发现明显异常</p>
-                                )}
+                                
+                                {/* Progress Bar */}
+                                <div className="w-full bg-slate-100 rounded-full h-2 mb-4 overflow-hidden">
+                                    <div 
+                                        className={`h-full rounded-full ${sys.score < 60 ? 'bg-red-500' : sys.score < 85 ? 'bg-yellow-400' : 'bg-green-500'}`} 
+                                        style={{ width: `${sys.score}%` }}
+                                    ></div>
+                                </div>
+
+                                <div className="mb-4 space-y-3">
+                                    <div>
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">主要发现</span>
+                                        {sys.keyFindings.length > 0 ? (
+                                            <ul className="text-sm text-slate-700 mt-1 space-y-1 list-disc pl-4 font-medium">
+                                                {sys.keyFindings.map((f, i) => (
+                                                    <li key={i} dangerouslySetInnerHTML={{ __html: f.replace(/(\d+(\.\d+)?)/g, '<b>$1</b>').replace(/(异常|高|低|阳性|癌|结节|硬化)/g, '<span class="text-red-600">$1</span>') }}></li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <p className="text-sm text-slate-400 italic mt-1">未发现明显异常指标</p>
+                                        )}
+                                    </div>
+                                    
+                                    {sys.lifestyleImpact && sys.lifestyleImpact.length > 0 && (
+                                        <div className="bg-slate-50 p-2 rounded-lg">
+                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">关联生活方式</span>
+                                            <div className="flex flex-wrap gap-1">
+                                                {sys.lifestyleImpact.map((factor, i) => (
+                                                    <span key={i} className="text-[10px] bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded shadow-sm">
+                                                        {factor}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
-                            <div className="pt-3 border-t border-slate-100">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">核心关注点</span>
-                                <div className="flex flex-wrap gap-1">
+                            <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
+                                <span className="text-xs text-slate-400">建议关注</span>
+                                <div className="flex gap-1">
                                     {sys.focusAreas.map((focus, i) => (
-                                        <span key={i} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
+                                        <span key={i} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold">
                                             {focus}
                                         </span>
                                     ))}
@@ -238,40 +229,35 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
                         </div>
                     ))}
                 </div>
-            </section>
+            </div>
 
-            {/* 2. 风险预测矩阵 (Risk Prediction Matrix) */}
-            <section className="print:break-inside-avoid">
+            {/* Prediction Models Matrix (Keep as secondary info) */}
+            <section className="print:break-inside-avoid pt-6 border-t border-slate-200">
                  <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-                    <span className="text-2xl">📊</span> 疾病风险预测模型矩阵
-                    <span className="text-xs font-normal text-slate-400 ml-2 bg-slate-100 px-2 py-1 rounded no-print">点击灰色卡片可补全数据进行评估</span>
-                </h2>
+                    <span className="text-2xl">📊</span> 专项疾病预测模型
+                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                     {analysis.models.map((model) => (
                         <button 
                             key={model.modelId}
                             onClick={() => handleModelClick(model)}
-                            className={`relative p-4 rounded-lg border text-left transition-all hover:scale-105 flex flex-col justify-between h-32 ${
-                                model.riskLevel === 'RED' ? 'bg-red-500 text-white border-red-600 shadow-red-200' :
-                                model.riskLevel === 'YELLOW' ? 'bg-yellow-400 text-slate-900 border-yellow-500 shadow-yellow-200' :
-                                model.riskLevel === 'GREEN' ? 'bg-green-500 text-white border-green-600 shadow-green-200' :
-                                'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-                            } shadow-lg`}
+                            className={`p-3 rounded-lg border text-left transition-all hover:scale-105 flex flex-col justify-between h-28 ${
+                                model.riskLevel === 'RED' ? 'bg-red-50 border-red-200 shadow-sm' :
+                                model.riskLevel === 'YELLOW' ? 'bg-yellow-50 border-yellow-200 shadow-sm' :
+                                model.riskLevel === 'GREEN' ? 'bg-green-50 border-green-200 shadow-sm' :
+                                'bg-slate-50 border-slate-200 text-slate-400'
+                            }`}
                         >
-                            <div>
-                                <div className="text-xs opacity-80 mb-1">{model.category}</div>
-                                <div className="font-bold text-sm leading-tight">{model.modelName}</div>
-                            </div>
-                            
-                            <div className="mt-2">
+                            <div className="font-bold text-xs text-slate-600">{model.modelName}</div>
+                            <div className="mt-1">
                                 {model.riskLevel === 'UNKNOWN' ? (
-                                    <div className="flex items-center gap-1 text-xs font-bold text-slate-400">
-                                        <span>📝</span> 点击补全
-                                    </div>
+                                    <div className="text-[10px] font-bold text-slate-400">点击补全数据</div>
                                 ) : (
                                     <>
-                                        <div className="text-2xl font-black">{model.riskLabel}</div>
-                                        <div className="text-[10px] opacity-90 truncate">{model.score !== 'NA' && model.score}</div>
+                                        <div className={`text-lg font-black ${
+                                            model.riskLevel === 'RED' ? 'text-red-600' : model.riskLevel === 'YELLOW' ? 'text-yellow-600' : 'text-green-600'
+                                        }`}>{model.riskLabel}</div>
+                                        <div className="text-[10px] opacity-70 truncate">{model.score !== 'NA' && model.score}</div>
                                     </>
                                 )}
                             </div>
@@ -288,8 +274,6 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
                             <h3 className="font-bold text-lg text-slate-800">完善变量: {activeModel.modelName}</h3>
                             <button onClick={() => setActiveModel(null)} className="text-slate-400 hover:text-slate-600 font-bold">×</button>
                         </div>
-                        <p className="text-sm text-slate-500 mb-4">该模型需要以下额外数据才能进行准确评估：</p>
-                        
                         <div className="space-y-4 mb-6">
                             {activeModel.missingParams.map(param => (
                                 <div key={param.key}>
@@ -316,14 +300,9 @@ export const SystemRiskPortrait: React.FC<Props> = ({ record, existingAnalysis, 
                                 </div>
                             ))}
                         </div>
-
                         <div className="flex justify-end gap-3">
                             <button onClick={() => setActiveModel(null)} className="px-4 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">取消</button>
-                            <button 
-                                onClick={handleSaveInputs}
-                                disabled={isSaving}
-                                className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow text-sm disabled:opacity-50"
-                            >
+                            <button onClick={handleSaveInputs} disabled={isSaving} className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow text-sm disabled:opacity-50">
                                 {isSaving ? '正在评估...' : '提交并重新评估'}
                             </button>
                         </div>

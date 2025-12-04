@@ -322,7 +322,6 @@ export interface FollowUpRecord {
 
   medicalCompliance?: {
       item: string; 
-      // Update: Changed to improve/not_improved logic
       status: 'improved' | 'not_improved' | 'not_checked';
       result?: string; 
   }[];
@@ -396,8 +395,10 @@ export interface SystemRiskPortrait {
     systemName: string; // e.g., "心脑血管系统"
     icon: string;
     status: 'High' | 'Medium' | 'Low' | 'Normal'; // 综合状态
+    score: number; // 0-100 健康得分 (New)
     keyFindings: string[]; // 主要发现
     focusAreas: string[]; // 核心关注点
+    lifestyleImpact?: string[]; // 关联的生活方式因素 (New)
 }
 
 export interface PredictionModelResult {
@@ -415,9 +416,10 @@ export interface PredictionModelResult {
 export interface RiskAnalysisData {
     portraits: SystemRiskPortrait[];
     models: PredictionModelResult[];
+    totalScore?: number; // (New)
 }
 
-// --- 9. User Portal Types (New for v1.0 User App) ---
+// --- 9. User Portal Types ---
 export interface HealthEvent {
     id: string;
     title: string;
