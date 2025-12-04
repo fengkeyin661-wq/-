@@ -45,11 +45,18 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
+    // Questionnaire Import Modal State
+    const [isQuestionnaireModalOpen, setIsQuestionnaireModalOpen] = useState(false);
+    const questionnaireInputRef = useRef<HTMLInputElement>(null);
+
     // Smart Batch Import Modal State (PDF/Word + AI)
     const [isSmartBatchModalOpen, setIsSmartBatchModalOpen] = useState(false);
     const [smartBatchFiles, setSmartBatchFiles] = useState<File[]>([]);
     const [smartBatchLogs, setSmartBatchLogs] = useState<string[]>([]);
     const [isSmartBatchProcessing, setIsSmartBatchProcessing] = useState(false);
+
+    // Export Menu State
+    const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
     const configured = isSupabaseConfigured();
 
@@ -98,9 +105,17 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         try {
             const data = await fetchArchives();
             setArchives(data);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Load Data Error:", error);
-            setFetchError(error.message || String(error));
+            let errorMessage = "Unknown Error";
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'string') {
+                errorMessage = error;
+            } else {
+                errorMessage = String(error);
+            }
+            setFetchError(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -517,6 +532,134 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         reader.readAsBinaryString(file);
     };
 
+    // --- Batch Questionnaire Supplement Logic ---
+    const handleBatchQuestionnaireUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            try {
+                const bstr = evt.target?.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                const data = XLSX.utils.sheet_to_json(ws);
+
+                if (data.length === 0) {
+                    alert("Excel 文件为空");
+                    return;
+                }
+
+                if (!confirm(`解析到 ${data.length} 条问卷记录。\n系统将根据【体检编号】自动匹配现有档案并补全问卷信息。\n确定继续吗？`)) return;
+
+                setLoading(true);
+                let matchedCount = 0;
+                let ignoredCount = 0;
+
+                // Create a map for faster lookup since archives are already loaded
+                const archiveMap = new Map(archives.map(a => [a.checkup_id, a]));
+
+                for (const row of data as any[]) {
+                    try {
+                        const checkupId = String(row['体检编号'] || row['编号'] || '').trim();
+                        if (!checkupId) {
+                            ignoredCount++;
+                            continue;
+                        }
+
+                        const targetArchive = archiveMap.get(checkupId);
+                        if (!targetArchive) {
+                            ignoredCount++; // Skip if user doesn't exist
+                            continue;
+                        }
+
+                        // Map Excel row to QuestionnaireData (Partial Logic from NativeSurveyForm)
+                        const split = (val: any) => String(val || '').split(/[,，、;；]/).map(s => s.trim()).filter(Boolean);
+                        const val = (key: string) => row[key] ? String(row[key]) : '';
+                        
+                        // Construct updated questionnaire object
+                        const newQ = {
+                            ...targetArchive.health_record.questionnaire,
+                            history: {
+                                ...targetArchive.health_record.questionnaire.history,
+                                diseases: row['既往病史'] ? split(row['既往病史']) : targetArchive.health_record.questionnaire.history.diseases,
+                                details: {
+                                    ...targetArchive.health_record.questionnaire.history.details,
+                                    hypertensionYear: val('高血压年份') || targetArchive.health_record.questionnaire.history.details.hypertensionYear,
+                                    diabetesYear: val('糖尿病年份') || targetArchive.health_record.questionnaire.history.details.diabetesYear
+                                }
+                            },
+                            familyHistory: {
+                                ...targetArchive.health_record.questionnaire.familyHistory,
+                                diabetes: val('家族史')?.includes('糖尿病') || targetArchive.health_record.questionnaire.familyHistory.diabetes,
+                                hypertension: val('家族史')?.includes('高血压') || targetArchive.health_record.questionnaire.familyHistory.hypertension,
+                                stroke: val('家族史')?.includes('脑卒中') || targetArchive.health_record.questionnaire.familyHistory.stroke,
+                                fatherCvdEarly: val('父亲早发冠心病') === '是',
+                                motherCvdEarly: val('母亲早发冠心病') === '是'
+                            },
+                            substances: {
+                                smoking: {
+                                    status: val('吸烟状况') || targetArchive.health_record.questionnaire.substances.smoking.status,
+                                    dailyAmount: Number(val('日吸烟量')) || targetArchive.health_record.questionnaire.substances.smoking.dailyAmount,
+                                    years: Number(val('吸烟年限')) || targetArchive.health_record.questionnaire.substances.smoking.years,
+                                    packYears: targetArchive.health_record.questionnaire.substances.smoking.packYears
+                                },
+                                alcohol: {
+                                    status: val('饮酒状况') || targetArchive.health_record.questionnaire.substances.alcohol.status
+                                }
+                            },
+                            diet: {
+                                ...targetArchive.health_record.questionnaire.diet,
+                                habits: row['膳食习惯'] ? split(row['膳食习惯']) : targetArchive.health_record.questionnaire.diet.habits
+                            },
+                            mental: {
+                                stressLevel: val('压力等级') || targetArchive.health_record.questionnaire.mental.stressLevel
+                            },
+                            // Add support for PHQ/GAD scores import
+                            mentalScales: {
+                                phq9Score: row['PHQ9'] ? Number(row['PHQ9']) : targetArchive.health_record.questionnaire.mentalScales.phq9Score,
+                                gad7Score: row['GAD7'] ? Number(row['GAD7']) : targetArchive.health_record.questionnaire.mentalScales.gad7Score
+                            }
+                        };
+
+                        // Recalculate pack years if needed
+                        if (newQ.substances.smoking.dailyAmount && newQ.substances.smoking.years) {
+                            newQ.substances.smoking.packYears = (newQ.substances.smoking.dailyAmount / 20) * newQ.substances.smoking.years;
+                        }
+
+                        // Merge into full record
+                        const updatedRecord = {
+                            ...targetArchive.health_record,
+                            questionnaire: newQ
+                        };
+
+                        // Update DB directly
+                        await updateHealthRecordOnly(checkupId, updatedRecord);
+                        
+                        matchedCount++;
+
+                    } catch (e) {
+                        console.error(e);
+                        ignoredCount++;
+                    }
+                }
+
+                alert(`问卷补全完成！\n✅ 成功匹配并更新: ${matchedCount} 人\n⚠️ 未找到档案或跳过: ${ignoredCount} 人`);
+                setIsQuestionnaireModalOpen(false);
+                loadData();
+                if (onDataUpdate) onDataUpdate();
+
+            } catch (e) {
+                console.error(e);
+                alert("Excel 解析失败");
+            } finally {
+                setLoading(false);
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
     const downloadTemplate = () => {
         const headers = [['体检编号', '姓名', '性别', '年龄', '部门', '联系电话', '体检日期', '收缩压', '舒张压', '空腹血糖', '总胆固醇', '异常项']];
         const ws = XLSX.utils.aoa_to_sheet(headers);
@@ -525,8 +668,16 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         XLSX.writeFile(wb, "健康档案导入模板.xlsx");
     };
 
-    // --- Export Handler (General) ---
-    const handleExportData = () => {
+    const downloadQuestionnaireTemplate = () => {
+        const headers = [['体检编号', '姓名', '既往病史', '吸烟状况', '日吸烟量', '吸烟年限', '饮酒状况', '家族史', '膳食习惯', '压力等级', 'PHQ9', 'GAD7']];
+        const ws = XLSX.utils.aoa_to_sheet(headers);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "问卷数据");
+        XLSX.writeFile(wb, "批量问卷补全模板.xlsx");
+    };
+
+    // --- Export Handler (Full) ---
+    const handleExportFull = () => {
         if (filteredArchives.length === 0) {
             alert("当前列表无数据可导出");
             return;
@@ -546,7 +697,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 arch.age || '-',
                 arch.department || '-',
                 arch.phone ? `"${arch.phone}"` : '-', 
-                arch.health_record?.profile?.checkupDate || '-', // Updated to retrieve date safely
+                arch.health_record?.profile?.checkupDate || '-', 
                 riskLabel,
                 nextDate,
                 new Date(arch.updated_at || arch.created_at).toLocaleString()
@@ -554,7 +705,38 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         });
 
         const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
-        downloadCsv(csvContent, `健康档案导出_${new Date().toISOString().split('T')[0]}.csv`);
+        downloadCsv(csvContent, `健康档案全量_${new Date().toISOString().split('T')[0]}.csv`);
+        setIsExportMenuOpen(false);
+    };
+
+    // --- Export Handler (Brief) ---
+    const handleExportBrief = () => {
+        if (filteredArchives.length === 0) {
+            alert("当前列表无数据可导出");
+            return;
+        }
+
+        const headers = ['姓名', '体检编号', '联系电话', '风险等级', '下次随访日期', '重点复查项目'];
+        
+        const rows = filteredArchives.map(arch => {
+            const nextPending = arch.follow_up_schedule?.find(s => s.status === 'pending');
+            const nextDate = nextPending ? nextPending.date : '无计划';
+            const riskLabel = arch.risk_level === 'RED' ? '高危' : arch.risk_level === 'YELLOW' ? '中危' : '低危';
+            const focus = nextPending ? nextPending.focusItems.join('; ') : '-';
+
+            return [
+                arch.name,
+                arch.checkup_id,
+                arch.phone ? `"${arch.phone}"` : '-',
+                riskLabel,
+                nextDate,
+                `"${focus}"`
+            ].join(',');
+        });
+
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+        downloadCsv(csvContent, `随访任务简表_${new Date().toISOString().split('T')[0]}.csv`);
+        setIsExportMenuOpen(false);
     };
 
     // --- Export Handler (Critical Values) ---
@@ -676,6 +858,13 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                  <h2 className="text-2xl font-bold text-slate-800 tracking-tight">管理控制台</h2>
                  <div className="flex gap-3">
                      <button 
+                        onClick={() => setIsQuestionnaireModalOpen(true)}
+                        className="px-4 py-2 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95"
+                        title="导入Excel补全问卷信息"
+                     >
+                        <span>📝</span> 批量补全问卷
+                     </button>
+                     <button 
                         onClick={handleBatchFixBMI}
                         className="px-4 py-2 bg-white border border-slate-200 text-slate-600 hover:text-teal-600 hover:border-teal-300 rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-sm active:scale-95"
                         title="扫描并自动计算缺失BMI的档案"
@@ -778,9 +967,33 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                  批量删除 ({selectedIds.size})
                              </button>
                          )}
-                         <button onClick={handleExportData} className="text-slate-500 hover:text-teal-600 text-sm font-bold flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-                            <span>📥</span> 导出数据
-                         </button>
+                         
+                         {/* Export Dropdown Menu */}
+                         <div className="relative">
+                             <button 
+                                onClick={() => setIsExportMenuOpen(!isExportMenuOpen)} 
+                                className="text-slate-500 hover:text-teal-600 text-sm font-bold flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                             >
+                                <span>📥</span> 导出数据 ▾
+                             </button>
+                             {isExportMenuOpen && (
+                                <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 shadow-xl rounded-lg z-50 w-44 flex flex-col py-1 animate-fadeIn">
+                                    <button 
+                                        onClick={handleExportFull}
+                                        className="text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-teal-50 hover:text-teal-700 transition-colors flex items-center gap-2"
+                                    >
+                                        📄 完整档案列表
+                                    </button>
+                                    <div className="h-px bg-slate-100 my-0.5"></div>
+                                    <button 
+                                        onClick={handleExportBrief}
+                                        className="text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-teal-50 hover:text-teal-700 transition-colors flex items-center gap-2"
+                                    >
+                                        📅 随访任务简表 (重点)
+                                    </button>
+                                </div>
+                             )}
+                         </div>
                     </div>
                 </div>
 
@@ -959,6 +1172,42 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         </div>
                         
                         <button onClick={() => setIsBatchModalOpen(false)} className="mt-6 text-sm text-slate-400 hover:text-slate-600">取消操作</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Questionnaire Import Modal */}
+            {isQuestionnaireModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md animate-scaleIn text-center">
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">批量补全问卷信息 (Excel)</h3>
+                        <p className="text-xs text-slate-500 mb-6 bg-teal-50 p-2 rounded">
+                            系统将根据 Excel 第一列【体检编号】自动匹配现有档案，并更新问卷数据。
+                        </p>
+                        
+                        <div className="space-y-4">
+                            <button onClick={downloadQuestionnaireTemplate} className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 font-bold hover:border-teal-500 hover:text-teal-600 transition-all flex items-center justify-center gap-2">
+                                <span>⬇️</span> 下载问卷数据模板
+                            </button>
+                            
+                            <div className="relative">
+                                <input 
+                                    type="file" 
+                                    ref={questionnaireInputRef}
+                                    accept=".xlsx, .xls"
+                                    className="hidden"
+                                    onChange={handleBatchQuestionnaireUpload}
+                                />
+                                <button 
+                                    onClick={() => questionnaireInputRef.current?.click()}
+                                    className="w-full py-3 bg-teal-600 text-white rounded-xl font-bold hover:bg-teal-700 shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-2"
+                                >
+                                    <span>📝</span> 上传问卷数据表
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <button onClick={() => setIsQuestionnaireModalOpen(false)} className="mt-6 text-sm text-slate-400 hover:text-slate-600">取消操作</button>
                     </div>
                 </div>
             )}
