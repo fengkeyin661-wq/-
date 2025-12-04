@@ -102,28 +102,9 @@ export const AssessmentReport: React.FC<Props> = ({
       const pDept = profile?.department || '';
 
       // --- New: Generate HTML for Risk Portrait and Models ---
-      let portraitHtml = '';
       let modelsHtml = '';
 
       if (riskAnalysis) {
-          // Portraits HTML
-          const portraitsContent = riskAnalysis.portraits.map(p => `
-            <div class="portrait-card">
-                <div class="sys-name">
-                    ${p.icon} ${p.systemName}
-                    <span class="status-tag status-${p.status}">${p.status === 'High' ? '重点关注' : p.status === 'Medium' ? '一般关注' : '健康'}</span>
-                </div>
-                <ul>
-                    ${p.keyFindings.length > 0 ? p.keyFindings.map(f => `<li>${f}</li>`).join('') : '<li style="color:#999">未见明显异常</li>'}
-                </ul>
-            </div>
-          `).join('');
-
-          portraitHtml = `
-            <div class="section-title">🧘 人体六大系统健康画像</div>
-            <div class="portrait-grid">${portraitsContent}</div>
-          `;
-
           // Models HTML
           const modelsRows = riskAnalysis.models.map(m => `
             <tr>
@@ -289,7 +270,6 @@ export const AssessmentReport: React.FC<Props> = ({
                 </div>
 
                 <!-- Injected Portrait & Models -->
-                ${portraitHtml}
                 ${modelsHtml}
 
                 <div class="section">
@@ -491,18 +471,6 @@ export const AssessmentReport: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Embedded Risk Portrait Section */}
-      {healthRecord && (
-          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6 print:hidden">
-              <SystemRiskPortrait 
-                  record={healthRecord} 
-                  existingAnalysis={riskAnalysis} 
-                  onUpdate={onUpdateRiskAnalysis || (() => {})} 
-                  hidePrintButton={true} // Hide internal print button
-              />
-          </div>
-      )}
-
       <div className="hidden print:block text-center border-b-2 border-slate-800 pb-4 mb-8">
           <h1 className="text-3xl font-bold">健康风险评估与方案</h1>
           <div className="mt-4 text-sm">受检人: <span className="font-bold text-lg">{patientName}</span></div>
@@ -581,7 +549,7 @@ export const AssessmentReport: React.FC<Props> = ({
                      value={editData.risks.red.join('\n')}
                      onChange={e => handleArrayChange('risks', 'red', e.target.value)}
                      placeholder="每行输入一个风险点"
-                 />
+                  />
              ) : (
                  <ul className="list-disc pl-5 text-sm text-red-800 space-y-1">
                      {editData.risks.red.length > 0 ? editData.risks.red.map((r,i)=><li key={i}>{r}</li>) : <li>无明显高危因素</li>}
@@ -596,7 +564,7 @@ export const AssessmentReport: React.FC<Props> = ({
                      value={editData.risks.yellow.join('\n')}
                      onChange={e => handleArrayChange('risks', 'yellow', e.target.value)}
                      placeholder="每行输入一个风险点"
-                 />
+                  />
              ) : (
                  <ul className="list-disc pl-5 text-sm text-yellow-800 space-y-1">
                      {editData.risks.yellow.length > 0 ? editData.risks.yellow.map((r,i)=><li key={i}>{r}</li>) : <li>无明显中危因素</li>}

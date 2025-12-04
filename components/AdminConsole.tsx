@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
@@ -98,7 +99,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         try {
             const data = await fetchArchives();
             setArchives(data);
-        } catch (error: any) {
+        } catch (error) {
             console.error("Load Data Error:", error);
             let errorMessage = "Unknown Error";
             if (error instanceof Error) {
@@ -133,7 +134,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             let successCount = 0;
             // Execute deletion
             for (const id of Array.from(selectedIds)) {
-                const success = await deleteArchive(id as string);
+                const success = await deleteArchive(id);
                 if (success) successCount++;
             }
             alert(`批量删除完成，成功删除 ${successCount} 条。`);
@@ -554,7 +555,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 arch.age || '-',
                 arch.department || '-',
                 arch.phone ? `"${arch.phone}"` : '-', 
-                arch.health_record?.profile?.checkupDate || '-', // Updated to retrieve date safely
+                arch.checkup_date || '-',
                 riskLabel,
                 nextDate,
                 new Date(arch.updated_at || arch.created_at).toLocaleString()
@@ -813,7 +814,10 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                 const isCriticalActive = (archive.assessment_data.isCritical || (archive.assessment_data.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived';
 
                                 return (
-                                <tr key={archive.id} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(archive.id) ? 'bg-blue-50/30' : ''}`}>
+                                <tr key={archive.id} 
+                                    className={`hover:bg-slate-50 transition-colors cursor-pointer ${selectedIds.has(archive.id) ? 'bg-blue-50/30' : ''}`}
+                                    onDoubleClick={() => onSelectPatient(archive, 'assessment')}
+                                >
                                     <td className="p-4">
                                         <input type="checkbox" checked={selectedIds.has(archive.id)} onChange={() => handleSelectRow(archive.id)} />
                                     </td>
