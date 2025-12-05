@@ -1,3 +1,4 @@
+
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
@@ -126,10 +127,19 @@ export const saveArchive = async (
                 existingRiskAnalysis = existing.risk_analysis;
             } else if (!existingRiskAnalysis) {
                 // Auto generate if missing
-                existingRiskAnalysis = {
-                    portraits: generateSystemPortraits(record),
-                    models: evaluateRiskModels(record)
-                };
+                try {
+                    existingRiskAnalysis = {
+                        portraits: generateSystemPortraits(record),
+                        models: evaluateRiskModels(record)
+                    };
+                } catch (e) {
+                    console.warn("Risk analysis generation failed, skipping", e);
+                }
+            }
+
+            // Limit history size to prevent payload explosion (last 5 versions)
+            if (historyVersions.length > 5) {
+                historyVersions = historyVersions.slice(historyVersions.length - 5);
             }
 
             historyVersions.push({
@@ -140,15 +150,20 @@ export const saveArchive = async (
         } else {
              // New record, generate initial risk analysis
              if (!existingRiskAnalysis) {
-                existingRiskAnalysis = {
-                    portraits: generateSystemPortraits(record),
-                    models: evaluateRiskModels(record)
-                };
+                try {
+                    existingRiskAnalysis = {
+                        portraits: generateSystemPortraits(record),
+                        models: evaluateRiskModels(record)
+                    };
+                } catch (e) {
+                    console.warn("Risk analysis generation failed, skipping", e);
+                }
              }
         }
 
         // 2. Prepare Payload
-        const payload: any = {
+        // Start with base fields that are definitely in the schema
+        const basePayload: any = {
             checkup_id: checkupId,
             name: record.profile.name || '未命名',
             phone: record.profile.phone || null,
@@ -164,20 +179,32 @@ export const saveArchive = async (
             follow_ups: existingFollowUps, 
             history_versions: historyVersions,
             critical_track: existingCriticalTrack, 
-            risk_analysis: existingRiskAnalysis, // Save analysis
-
+            
             updated_at: new Date().toISOString()
         };
 
-        // Only include custom_exercise_plan if it existed previously (preservation). 
-        // This avoids errors if the column is missing in the DB schema for new installs.
-        if (existingExercisePlan) {
-            payload.custom_exercise_plan = existingExercisePlan;
+        // Try to save with ALL new fields first
+        const fullPayload = {
+            ...basePayload,
+            risk_analysis: existingRiskAnalysis,
+            custom_exercise_plan: existingExercisePlan
+        };
+
+        const { error } = await supabase.from('health_archives').upsert(fullPayload, { onConflict: 'checkup_id' });
+
+        if (error) {
+            // Fallback: If error is due to missing columns (e.g. schema outdated), try saving without new fields
+            // Common Postgres error code for column missing is 42703, but supabase-js returns specific messages
+            console.warn("Save with new fields failed, retrying with base fields...", error.message);
+            
+            // Fallback attempt: exclude risk_analysis and custom_exercise_plan
+            const { error: retryError } = await supabase.from('health_archives').upsert(basePayload, { onConflict: 'checkup_id' });
+            
+            if (retryError) throw retryError;
+            
+            return { success: true, message: "保存成功 (部分新特性数据因数据库未更新而略过)" };
         }
 
-        const { error } = await supabase.from('health_archives').upsert(payload, { onConflict: 'checkup_id' });
-
-        if (error) throw error;
         return { success: true };
     } catch (e: any) {
         console.error("Save Archive Error:", e);
@@ -227,7 +254,21 @@ export const updateRiskAnalysis = async (checkupId: string, analysis: RiskAnalys
      }
 
      const { error } = await supabase.from('health_archives').update(updatePayload).eq('checkup_id', checkupId);
-     return !error;
+     
+     if (error) {
+         console.warn("Update Risk Analysis failed (likely schema mismatch):", error.message);
+         // If failed, likely because risk_analysis column doesn't exist. 
+         // We should at least save the 'extras' into health_record if that was part of the request
+         if (extras && updatePayload.health_record) {
+             const { error: retryError } = await supabase.from('health_archives').update({
+                 health_record: updatePayload.health_record,
+                 updated_at: new Date().toISOString()
+             }).eq('checkup_id', checkupId);
+             return !retryError;
+         }
+         return false;
+     }
+     return true;
 };
 
 
