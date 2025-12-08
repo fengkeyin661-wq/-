@@ -166,6 +166,18 @@ export const fetchInteractions = async (type?: string): Promise<InteractionItem[
     return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 
+export const saveInteraction = async (item: InteractionItem): Promise<boolean> => {
+    await new Promise(r => setTimeout(r, 200));
+    const raw = localStorage.getItem(INTERACTION_KEY);
+    let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
+    
+    // Simple add, assuming distinct IDs for new interactions
+    all.push(item);
+    
+    localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
+    return true;
+};
+
 export const updateInteractionStatus = async (id: string, status: InteractionItem['status']): Promise<boolean> => {
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];

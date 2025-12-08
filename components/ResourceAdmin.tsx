@@ -526,19 +526,19 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         </section>
 
                         {/* Section 2: Interactions / Audits */}
-                        {(activeTab === 'recipe' || activeTab === 'exercise') && (
+                        {(activeTab === 'recipe' || activeTab === 'exercise' || activeTab === 'event') && (
                             <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                                 <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-orange-500 pl-3 flex items-center gap-2">
                                     用户上传审核
-                                    {getPendingUploads(activeTab === 'recipe' ? 'meal' : 'exercise').length > 0 && (
-                                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full animate-pulse">待处理: {getPendingUploads(activeTab === 'recipe' ? 'meal' : 'exercise').length}</span>
+                                    {getPendingUploads(activeTab === 'recipe' ? 'meal' : activeTab).length > 0 && (
+                                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full animate-pulse">待处理: {getPendingUploads(activeTab === 'recipe' ? 'meal' : activeTab).length}</span>
                                     )}
                                 </h3>
-                                {renderContentTable(getPendingUploads(activeTab === 'recipe' ? 'meal' : 'exercise'), true)}
+                                {renderContentTable(getPendingUploads(activeTab === 'recipe' ? 'meal' : activeTab), true)}
                             </section>
                         )}
 
-                        {(activeTab !== 'recipe' && activeTab !== 'exercise') && (
+                        {(activeTab !== 'recipe' && activeTab !== 'exercise' && activeTab !== 'event') && (
                             <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                                 <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-blue-500 pl-3">
                                     {activeTab === 'event' ? '活动报名记录' : 
