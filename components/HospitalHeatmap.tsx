@@ -293,8 +293,8 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                 // D. 风险画像发现
                 ...(arch.risk_analysis?.portraits?.flatMap(p => p.keyFindings) || []),
                 // E. 核心指标直接数值 (针对BMI, 血压等)
-                record.checkup.basics.bmi > 24 ? '超重 肥胖' : '',
-                record.checkup.basics.sbp >= 140 || record.checkup.basics.dbp >= 90 ? '高血压' : '',
+                (record.checkup.basics.bmi || 0) > 24 ? '超重 肥胖' : '',
+                (record.checkup.basics.sbp || 0) >= 140 || (record.checkup.basics.dbp || 0) >= 90 ? '高血压' : '',
                 // F. 烟酒
                 record.questionnaire.substances.smoking.status === '目前吸烟' ? '吸烟' : '',
             ];

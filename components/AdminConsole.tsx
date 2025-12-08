@@ -217,7 +217,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 matchRisk = true;
             } else if (filterRisk === 'CRITICAL') {
                 // Filter for critical active status
-                matchRisk = (archive.assessment_data?.isCritical === true || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived';
+                matchRisk = !!((archive.assessment_data?.isCritical === true || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived');
             } else {
                 matchRisk = archive.risk_level === filterRisk;
             }

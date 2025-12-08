@@ -280,7 +280,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setFormData(prev => ({
         ...prev,
         [section]: {
-          ...prev[section as any],
+          ...(prev[section] as any),
           [field]: value
         }
       }));

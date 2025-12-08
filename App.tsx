@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -324,7 +325,17 @@ const App: React.FC = () => {
     }
   };
 
-  const handleManualDataUpdate = async (updatedRecord: FollowUpRecord, updatedSchedule: ScheduledFollowUp[]) => {
+  const handleManualDataUpdate = async (updatedRecord: FollowUpRecord | null, updatedSchedule: ScheduledFollowUp[]) => {
+      if (!updatedRecord) {
+          // If simply updating schedule (unlikely in current flow, but for safety)
+          setSchedule(updatedSchedule);
+          if (healthRecord?.profile.checkupId) {
+              await updateArchiveData(healthRecord.profile.checkupId, followUps, updatedSchedule);
+              await refreshArchives();
+          }
+          return;
+      }
+      
       const updatedFollowUps = followUps.map(r => r.id === updatedRecord.id ? updatedRecord : r);
       setFollowUps(updatedFollowUps);
       setSchedule(updatedSchedule);

@@ -86,25 +86,25 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, onUpdateRecor
                     <MetricCard 
                         label="体重" 
                         value={metrics.weight} 
-                        onChange={(v) => setMetrics({...metrics, weight: v})}
+                        onChange={(v: any) => setMetrics({...metrics, weight: v})}
                         unit="kg" edit={editMode} 
                     />
                     <MetricCard 
                         label="收缩压" 
                         value={metrics.sbp} 
-                        onChange={(v) => setMetrics({...metrics, sbp: v})}
+                        onChange={(v: any) => setMetrics({...metrics, sbp: v})}
                         unit="mmHg" edit={editMode} warning={metrics.sbp >= 140}
                     />
                     <MetricCard 
                         label="舒张压" 
                         value={metrics.dbp} 
-                        onChange={(v) => setMetrics({...metrics, dbp: v})}
+                        onChange={(v: any) => setMetrics({...metrics, dbp: v})}
                         unit="mmHg" edit={editMode} warning={metrics.dbp >= 90}
                     />
                     <MetricCard 
                         label="空腹血糖" 
                         value={metrics.glucose} 
-                        onChange={(v) => setMetrics({...metrics, glucose: v})}
+                        onChange={(v: any) => setMetrics({...metrics, glucose: v})}
                         unit="mmol/L" edit={editMode} warning={metrics.glucose >= 6.1}
                     />
                     {/* Extended */}
