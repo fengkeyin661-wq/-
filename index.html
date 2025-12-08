@@ -4,15 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>郑州大学医院健康管理中心 | Health Management Center</title>
-    <!-- 使用国内访问更快的 Tailwind CDN 或者建议本地构建，此处保留 CDN 方便演示 -->
+    <!-- 使用 Tailwind CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      /* 使用系统字体栈，移除 Google Fonts 以加速国内访问 */
       body {
         font-family: "PingFang SC", "Microsoft YaHei", "Heiti SC", system-ui, -apple-system, sans-serif;
         background-color: #f8fafc;
       }
-      /* Custom scrollbar for better aesthetics */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -28,67 +26,30 @@
         background: #94a3b8; 
       }
 
-      /* Print Styles */
       @media print {
-        @page {
-          margin: 15mm;
-          size: A4;
-        }
-        body {
-          background-color: white !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
-        /* Hide UI Chrome */
-        aside, header, .no-print {
-          display: none !important;
-        }
-        /* Reset Layout */
-        #root, .flex, .h-screen, main {
-          display: block !important;
-          height: auto !important;
-          width: 100% !important;
-          overflow: visible !important;
-          position: static !important;
-        }
-        main {
-          padding: 0 !important;
-          margin: 0 !important;
-        }
-        /* Hide scrollbars */
-        ::-webkit-scrollbar {
-          display: none;
-        }
-        /* Page break utilities */
-        .break-inside-avoid {
-          break-inside: avoid;
-        }
-        .page-break {
-          page-break-before: always;
-        }
+        @page { margin: 15mm; size: A4; }
+        body { background-color: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        aside, header, .no-print { display: none !important; }
+        #root, .flex, .h-screen, main { display: block !important; height: auto !important; width: 100% !important; overflow: visible !important; position: static !important; }
+        main { padding: 0 !important; margin: 0 !important; }
+        ::-webkit-scrollbar { display: none; }
+        .break-inside-avoid { break-inside: avoid; }
+        .page-break { page-break-before: always; }
       }
     </style>
-    
-    <!-- 
-      安全更新：
-      已移除硬编码的 API Key 配置脚本。
-      现在应用通过 import.meta.env 读取 Vercel 环境变量。
-    -->
-
-    <script type="importmap">
+  <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react/": "https://esm.sh/react@18.2.0/",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "recharts": "https://esm.sh/recharts@2.12.3?external=react,react-dom",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "mammoth": "https://esm.sh/mammoth@1.6.0",
-    "xlsx": "https://esm.sh/xlsx@0.18.5",
-    "pdfjs-dist": "https://esm.sh/pdfjs-dist@3.11.174"
+    "pdfjs-dist": "https://aistudiocdn.com/pdfjs-dist@^5.4.449",
+    "xlsx": "https://aistudiocdn.com/xlsx@^0.18.5",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
+    "vite": "https://aistudiocdn.com/vite@^7.2.7",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.2",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.86.2",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "mammoth": "https://aistudiocdn.com/mammoth@^1.11.0"
   }
 }
 </script>
