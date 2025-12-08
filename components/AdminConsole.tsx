@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, RiskLevel, RiskAnalysisData } from '../types';
-import { fetchAllContent, fetchInteractions } from '../services/contentService'; // Interconnection
+import { fetchContent, fetchInteractions } from '../services/contentService'; // Interconnection
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
 // @ts-ignore
@@ -105,7 +104,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     // Load Data from ContentService (The Interconnection Part)
     const loadOperationsData = async () => {
         try {
-            const contents = await fetchAllContent();
+            const contents = await fetchContent();
             const interactions = await fetchInteractions();
             
             setOpsStats({
