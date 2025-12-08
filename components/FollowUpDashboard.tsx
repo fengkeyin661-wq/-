@@ -138,14 +138,46 @@ export const FollowUpDashboard: React.FC<Props> = ({
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
 
-  // Pending Critical Tasks Logic
-  const pendingCriticalTasks = allArchives.filter(arch => 
-      arch.critical_track && arch.critical_track.status !== 'archived'
-  ).sort((a, b) => {
-      // Sort by priority: A > B, then by date desc
-      const aLevel = a.critical_track?.critical_level?.includes('A') ? 2 : 1;
-      const bLevel = b.critical_track?.critical_level?.includes('A') ? 2 : 1;
-      return bLevel - aLevel;
+  // Pending Critical Tasks Logic (Updated Requirement)
+  const pendingCriticalTasks = allArchives.filter(arch => {
+      const track = arch.critical_track;
+      if (!track || track.status === 'archived') return false;
+
+      // 1. Pending Initial Notification (待初次通知): ALWAYS SHOW
+      if (track.status === 'pending_initial') return true;
+
+      // 2. Pending Secondary Follow-up (待二次回访): Show only if within 7 days or overdue
+      if (track.status === 'pending_secondary' && track.secondary_due_date) {
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          const due = new Date(track.secondary_due_date);
+          const diffTime = due.getTime() - today.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          // Show if overdue (diffDays < 0) or upcoming within 7 days
+          return diffDays <= 7;
+      }
+
+      return false;
+  }).sort((a, b) => {
+      const getScore = (arch: HealthArchive) => {
+           const t = arch.critical_track!;
+           let score = 0;
+           // Priority 1: Initial Notification is most urgent
+           if (t.status === 'pending_initial') score += 1000;
+           else {
+               // Priority 2: Overdue Secondary
+               // Calculate urgency based on due date
+               const due = new Date(t.secondary_due_date).getTime();
+               const now = Date.now();
+               if (now > due) score += 500; // Overdue
+               score += (now - due) / (1000 * 60 * 60 * 24); // Closer due date = higher score
+           }
+           // Priority 3: A Level > B Level
+           if (t.critical_level?.includes('A')) score += 200;
+           return score;
+      };
+      return getScore(b) - getScore(a);
   });
   
   const maskName = (name: string) => {
@@ -445,14 +477,33 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   {pendingCriticalTasks.map((arch) => {
                       const track = arch.critical_track!;
                       const isA = track.critical_level?.includes('A');
+                      
+                      // Status Logic
+                      let statusBadge = { text: '待初次通知', color: 'bg-red-600' };
+                      if (track.status === 'pending_secondary') {
+                          const today = new Date();
+                          today.setHours(0,0,0,0);
+                          const due = new Date(track.secondary_due_date);
+                          const diffTime = due.getTime() - today.getTime();
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                          
+                          if (diffDays < 0) {
+                              statusBadge = { text: `逾期 ${Math.abs(diffDays)} 天`, color: 'bg-red-800 animate-pulse' };
+                          } else if (diffDays === 0) {
+                              statusBadge = { text: '今日需回访', color: 'bg-orange-600' };
+                          } else {
+                              statusBadge = { text: `剩 ${diffDays} 天回访`, color: 'bg-blue-500' };
+                          }
+                      }
+
                       return (
                           <div 
                               key={arch.id}
                               onClick={() => setCriticalModalArchive(arch)}
                               className="relative p-4 rounded-xl border-2 border-red-200 bg-red-50 transition-all cursor-pointer hover:shadow-lg hover:-translate-y-1 min-w-[280px] w-[280px] flex-shrink-0 group"
                           >
-                              <div className={`absolute top-0 right-0 px-3 py-1 rounded-bl-xl rounded-tr-lg text-xs font-bold text-white ${isA ? 'bg-red-600' : 'bg-orange-500'}`}>
-                                  {isA ? 'A类危急值' : 'B类重大异常'}
+                              <div className={`absolute top-0 right-0 px-3 py-1 rounded-bl-xl rounded-tr-lg text-xs font-bold text-white ${statusBadge.color}`}>
+                                  {statusBadge.text}
                               </div>
                               
                               <div className="flex items-center gap-3 mb-3 mt-1">
@@ -470,7 +521,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               </div>
 
                               <div className="bg-white p-2.5 rounded-lg border border-red-100 mb-2 shadow-inner h-[50px] overflow-hidden">
-                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-1">异常描述</div>
+                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-1 flex justify-between">
+                                      <span>异常描述</span>
+                                      <span className={isA ? "text-red-600 font-black" : "text-orange-500 font-bold"}>
+                                          {isA ? 'A类危急' : 'B类重大'}
+                                      </span>
+                                  </div>
                                   <div className="text-xs text-red-700 font-bold line-clamp-2" title={track.critical_desc}>
                                       {track.critical_item}: {track.critical_desc}
                                   </div>
@@ -478,9 +534,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
                               <div className="flex justify-between items-center text-xs mt-2">
                                   <span className="text-slate-500 font-medium">
-                                      状态: {track.status === 'pending_initial' ? '待初次通知' : '待二次回访'}
+                                      {track.status === 'pending_initial' ? '需立即联系' : `计划: ${track.secondary_due_date}`}
                                   </span>
-                                  <span className="text-white bg-red-600 px-2 py-1 rounded hover:bg-red-700 font-bold shadow-sm transition-colors">立即处置</span>
+                                  <span className="text-white bg-red-600 px-2 py-1 rounded hover:bg-red-700 font-bold shadow-sm transition-colors">
+                                      {track.status === 'pending_initial' ? '立即处置' : '录入回访'}
+                                  </span>
                               </div>
                           </div>
                       )
