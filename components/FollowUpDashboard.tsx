@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord } from '../types';
-import { HealthArchive } from '../services/dataService'; 
+import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
+import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
+import { CriticalHandleModal } from './CriticalHandleModal';
 
 interface Props {
   records: FollowUpRecord[];
@@ -16,6 +17,7 @@ interface Props {
   onUpdateData?: (record: FollowUpRecord | null, schedule: ScheduledFollowUp[]) => void;
   isAuthenticated?: boolean;
   healthRecord?: HealthRecord | null;
+  onRefresh?: () => void;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -28,7 +30,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
     currentPatientId,
     onUpdateData,
     isAuthenticated = false,
-    healthRecord
+    healthRecord,
+    onRefresh
 }) => {
   const [isEntryExpanded, setIsEntryExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -56,6 +59,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   // State for Chart View
   const [activeChart, setActiveChart] = useState<'bp' | 'metabolic' | 'lipids'>('bp');
+
+  // State for Critical Value Modal
+  const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
 
   // Sort records by date
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -131,6 +137,16 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
+
+  // Pending Critical Tasks Logic
+  const pendingCriticalTasks = allArchives.filter(arch => 
+      arch.critical_track && arch.critical_track.status !== 'archived'
+  ).sort((a, b) => {
+      // Sort by priority: A > B, then by date desc
+      const aLevel = a.critical_track?.critical_level?.includes('A') ? 2 : 1;
+      const bLevel = b.critical_track?.critical_level?.includes('A') ? 2 : 1;
+      return bLevel - aLevel;
+  });
   
   const maskName = (name: string) => {
       if (isAuthenticated) return name;
@@ -354,6 +370,18 @@ export const FollowUpDashboard: React.FC<Props> = ({
       setShowSmsModal(false);
   };
 
+  const handleCriticalSave = async (record: CriticalTrackRecord) => {
+      if (!criticalModalArchive) return;
+      const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record);
+      if (res.success) {
+          alert("危急值处理记录已更新");
+          setCriticalModalArchive(null);
+          if (onRefresh) onRefresh();
+      } else {
+          alert("保存失败: " + res.message);
+      }
+  };
+
   let chartData: any[] = sortedRecords.map(r => ({
       date: r.date,
       sbp: r.indicators.sbp || undefined,
@@ -399,6 +427,67 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   return (
     <div className="animate-fadeIn pb-10">
+
+      {/* Critical Value Alert Section (New) */}
+      {pendingCriticalTasks.length > 0 && (
+          <div className="mb-8 animate-fadeIn">
+              <div className="flex items-center gap-2 mb-4">
+                  <span className="text-2xl animate-pulse">🚨</span>
+                  <h2 className="text-xl font-bold text-red-700">
+                      危急值待处理 
+                      <span className="text-sm font-normal text-white bg-red-600 px-2 py-1 rounded-full ml-2 shadow-sm">
+                          {pendingCriticalTasks.length} 人
+                      </span>
+                  </h2>
+              </div>
+              
+              <div className="flex overflow-x-auto pb-4 gap-4 scrollbar-thin scrollbar-thumb-red-200 scrollbar-track-red-50">
+                  {pendingCriticalTasks.map((arch) => {
+                      const track = arch.critical_track!;
+                      const isA = track.critical_level?.includes('A');
+                      return (
+                          <div 
+                              key={arch.id}
+                              onClick={() => setCriticalModalArchive(arch)}
+                              className="relative p-4 rounded-xl border-2 border-red-200 bg-red-50 transition-all cursor-pointer hover:shadow-lg hover:-translate-y-1 min-w-[280px] w-[280px] flex-shrink-0 group"
+                          >
+                              <div className={`absolute top-0 right-0 px-3 py-1 rounded-bl-xl rounded-tr-lg text-xs font-bold text-white ${isA ? 'bg-red-600' : 'bg-orange-500'}`}>
+                                  {isA ? 'A类危急值' : 'B类重大异常'}
+                              </div>
+                              
+                              <div className="flex items-center gap-3 mb-3 mt-1">
+                                  <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-xl shadow-sm border border-red-100">
+                                      {arch.gender === '女' ? '👩' : '👨'}
+                                  </div>
+                                  <div>
+                                      <div className="font-bold text-slate-800 text-lg leading-tight">
+                                          {maskName(arch.name)}
+                                      </div>
+                                      <div className="text-xs text-red-400">
+                                          {arch.age}岁 · {arch.department}
+                                      </div>
+                                  </div>
+                              </div>
+
+                              <div className="bg-white p-2.5 rounded-lg border border-red-100 mb-2 shadow-inner h-[50px] overflow-hidden">
+                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-1">异常描述</div>
+                                  <div className="text-xs text-red-700 font-bold line-clamp-2" title={track.critical_desc}>
+                                      {track.critical_item}: {track.critical_desc}
+                                  </div>
+                              </div>
+
+                              <div className="flex justify-between items-center text-xs mt-2">
+                                  <span className="text-slate-500 font-medium">
+                                      状态: {track.status === 'pending_initial' ? '待初次通知' : '待二次回访'}
+                                  </span>
+                                  <span className="text-white bg-red-600 px-2 py-1 rounded hover:bg-red-700 font-bold shadow-sm transition-colors">立即处置</span>
+                              </div>
+                          </div>
+                      )
+                  })}
+              </div>
+          </div>
+      )}
 
       {/* Global Reminder Section */}
       {upcomingGlobalTasks.length > 0 && (
@@ -1101,6 +1190,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 </div>
             </div>
         </div>
+      )}
+
+      {/* Critical Handle Modal */}
+      {criticalModalArchive && (
+          <CriticalHandleModal 
+              archive={criticalModalArchive} 
+              onClose={() => setCriticalModalArchive(null)} 
+              onSave={handleCriticalSave} 
+          />
       )}
     </div>
   );
