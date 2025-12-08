@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     ContentItem, InteractionItem, 
     fetchContent, saveContent, deleteContent, 
     fetchInteractions, updateInteractionStatus 
 } from '../services/contentService';
+import { calculateNutritionFromIngredients } from '../services/geminiService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -21,6 +21,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // Content Edit State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editItem, setEditItem] = useState<Partial<ContentItem>>({});
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+    // Batch Selection State
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -30,6 +34,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
     const loadData = async () => {
         setLoading(true);
+        setSelectedIds(new Set()); // Reset selection on tab change
         let contentType = '';
         switch(activeTab) {
             case 'recipe': contentType = 'meal'; break;
@@ -75,6 +80,44 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    // --- Batch Delete Logic ---
+    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) {
+            setSelectedIds(new Set(items.map(i => i.id)));
+        } else {
+            setSelectedIds(new Set());
+        }
+    };
+
+    const handleSelectRow = (id: string) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) {
+            newSet.delete(id);
+        } else {
+            newSet.add(id);
+        }
+        setSelectedIds(newSet);
+    };
+
+    const handleBatchDelete = async () => {
+        if (selectedIds.size === 0) return;
+        if (confirm(`⚠️ 确定要批量删除选中的 ${selectedIds.size} 项资源吗？此操作不可恢复。`)) {
+            setLoading(true);
+            try {
+                // Execute deletions in parallel
+                await Promise.all(Array.from(selectedIds).map(id => deleteContent(id as string)));
+                setSelectedIds(new Set());
+                await loadData();
+                alert('批量删除成功');
+            } catch (e) {
+                console.error(e);
+                alert('批量删除过程中发生错误');
+            } finally {
+                setLoading(false);
+            }
+        }
+    };
+
     const handleSaveContent = async () => {
         if (!editItem.title || !editItem.type) return;
         await saveContent(editItem as ContentItem);
@@ -89,6 +132,43 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }));
     };
 
+    const handleAiAnalysis = async () => {
+        if (!editItem.title || !editItem.details?.ingredients) {
+            alert("请先填写【名称】和【配料及用量】以进行准确分析");
+            return;
+        }
+        
+        setIsAnalyzing(true);
+        try {
+            const result = await calculateNutritionFromIngredients([{
+                name: editItem.title,
+                ingredients: editItem.details.ingredients
+            }]);
+            
+            // The API returns a map keyed by recipe name
+            const data = result.nutritionData[editItem.title];
+            
+            if (data) {
+                setEditItem(prev => ({
+                    ...prev,
+                    details: {
+                        ...prev.details,
+                        nutrition: data.nutrition,
+                        cal: data.cal
+                    }
+                }));
+                // alert("AI 分析完成！已自动填充营养成分和热量估算。");
+            } else {
+                alert("AI 未能返回有效数据，请检查配料描述是否清晰。");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("AI 分析服务暂时不可用，请稍后重试");
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
     // --- Excel Logic ---
 
     const downloadTemplate = () => {
@@ -96,8 +176,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         let sample: any[] = [];
 
         if (activeTab === 'recipe') {
-            headers.push('配料及用量', '制作步骤', '制作时长', '难度', '营养成分(AI估算)');
-            sample = [['🍱', '减脂鸡胸肉', '低脂健康', '减脂,高蛋白', '鸡胸肉200g,西兰花100g', '1.煮熟;2.调味', '20分钟', '易', '热量:300kcal,蛋白:30g']];
+            headers.push('配料及用量', '制作步骤', '制作时长', '难度', '营养成分(AI估算)', '热量');
+            sample = [['🍱', '减脂鸡胸肉', '低脂健康', '减脂,高蛋白', '鸡胸肉200g,西兰花100g', '1.煮熟;2.调味', '20分钟', '易', '蛋白质:30g, 脂肪:5g', '300kcal']];
         } else if (activeTab === 'exercise') {
             headers.push('运动类型', '频率', '强度', '持续时间', '消耗热量', '准备工作', '注意事项');
             sample = [['🏃', '慢跑', '有氧运动', '有氧', '每周3次', '中等', '30分钟', '200kcal', '热身5分钟', '膝盖痛停止']];
@@ -149,7 +229,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         type = 'meal';
                         details = {
                             ingredients: r['配料及用量'], steps: r['制作步骤'], cookingTime: r['制作时长'],
-                            difficulty: r['难度'], nutrition: r['营养成分(AI估算)']
+                            difficulty: r['难度'], nutrition: r['营养成分(AI估算)'], cal: r['热量']
                         };
                     } else if (activeTab === 'exercise') {
                         type = 'exercise';
@@ -217,6 +297,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     };
 
     const openEdit = (item?: ContentItem) => {
+        setIsAnalyzing(false);
         if (item) {
             setEditItem({...item});
         } else {
@@ -343,6 +424,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                  activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
                             </h3>
                             <div className="flex gap-2">
+                                {selectedIds.size > 0 && (
+                                    <button 
+                                        onClick={handleBatchDelete}
+                                        className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 animate-fadeIn"
+                                    >
+                                        🗑️ 批量删除 ({selectedIds.size})
+                                    </button>
+                                )}
                                 <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleBatchUpload} />
                                 <button onClick={downloadTemplate} className="bg-white text-slate-600 border border-slate-300 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-1">📥 下载模板</button>
                                 <button onClick={() => fileInputRef.current?.click()} className="bg-teal-50 text-teal-700 border border-teal-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-teal-100 flex items-center gap-1">📤 导入Excel</button>
@@ -354,6 +443,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 text-slate-500">
                                     <tr>
+                                        <th className="p-3 w-10">
+                                            <input 
+                                                type="checkbox" 
+                                                onChange={handleSelectAll} 
+                                                checked={items.length > 0 && selectedIds.size === items.length}
+                                                className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                            />
+                                        </th>
                                         <th className="p-3">名称</th>
                                         <th className="p-3">关键信息</th>
                                         <th className="p-3">标签</th>
@@ -362,7 +459,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 </thead>
                                 <tbody>
                                     {items.map(item => (
-                                        <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
+                                        <tr key={item.id} className={`border-t border-slate-100 hover:bg-slate-50 ${selectedIds.has(item.id) ? 'bg-blue-50/30' : ''}`}>
+                                            <td className="p-3">
+                                                <input 
+                                                    type="checkbox" 
+                                                    onChange={() => handleSelectRow(item.id)}
+                                                    checked={selectedIds.has(item.id)}
+                                                    className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                                                />
+                                            </td>
                                             <td className="p-3 font-bold flex items-center gap-2">
                                                 <span className="text-xl">{item.image}</span>
                                                 {item.title}
@@ -379,7 +484,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             </td>
                                         </tr>
                                     ))}
-                                    {items.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-slate-400">暂无资源</td></tr>}
+                                    {items.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-slate-400">暂无资源</td></tr>}
                                 </tbody>
                             </table>
                         )}
@@ -424,11 +529,30 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {/* Dynamic Fields */}
                             {activeTab === 'recipe' && (
                                 <>
-                                    <div className="col-span-2"><label className="block text-xs text-slate-500">配料及用量</label><textarea className="border w-full p-2 rounded text-sm h-16" value={editItem.details?.ingredients||''} onChange={e=>updateDetail('ingredients',e.target.value)} /></div>
+                                    <div className="col-span-2">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="block text-xs text-slate-500">配料及用量</label>
+                                            <button 
+                                                onClick={handleAiAnalysis}
+                                                disabled={isAnalyzing}
+                                                className="text-xs bg-teal-50 text-teal-600 px-2 py-0.5 rounded hover:bg-teal-100 disabled:opacity-50 flex items-center gap-1 border border-teal-200 transition-colors"
+                                                title="自动根据名称和配料分析营养"
+                                            >
+                                                {isAnalyzing ? '⏳ 分析中...' : '✨ AI 营养分析'}
+                                            </button>
+                                        </div>
+                                        <textarea 
+                                            className="border w-full p-2 rounded text-sm h-16" 
+                                            value={editItem.details?.ingredients||''} 
+                                            onChange={e=>updateDetail('ingredients',e.target.value)} 
+                                            placeholder="例如: 鸡胸肉 200g, 西兰花 100g, 杂粮饭 150g"
+                                        />
+                                    </div>
                                     <div className="col-span-2"><label className="block text-xs text-slate-500">制作步骤</label><textarea className="border w-full p-2 rounded text-sm h-24" value={editItem.details?.steps||''} onChange={e=>updateDetail('steps',e.target.value)} /></div>
                                     <div><label className="block text-xs text-slate-500">制作时长</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.cookingTime||''} onChange={e=>updateDetail('cookingTime',e.target.value)} /></div>
                                     <div><label className="block text-xs text-slate-500">难度</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.difficulty||''} onChange={e=>updateDetail('difficulty',e.target.value)} /></div>
                                     <div className="col-span-2"><label className="block text-xs text-slate-500">营养成分(AI估算)</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.nutrition||''} onChange={e=>updateDetail('nutrition',e.target.value)} /></div>
+                                    <div><label className="block text-xs text-slate-500">热量 (kcal)</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.cal||''} onChange={e=>updateDetail('cal',e.target.value)} /></div>
                                 </>
                             )}
 
