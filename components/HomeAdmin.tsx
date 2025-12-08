@@ -25,7 +25,7 @@ export const HomeAdmin: React.FC<Props> = ({ onLogout }) => {
         // Map tabs to content types
         let typeMap: any = {
             'diet': ['meal', 'article'],
-            'exercise': ['course', 'article'], 
+            'exercise': ['exercise', 'article'], 
             'community': ['event'],
             'medical': ['drug', 'doctor', 'article']
         };
@@ -33,7 +33,7 @@ export const HomeAdmin: React.FC<Props> = ({ onLogout }) => {
         // Actually, let's fetch strictly based on primary type for the tab
         let type = '';
         if (activeTab === 'diet') type = 'meal';
-        if (activeTab === 'exercise') type = 'course';
+        if (activeTab === 'exercise') type = 'exercise';
         if (activeTab === 'community') type = 'event';
         if (activeTab === 'medical') type = 'drug'; // Default for medical tab
 
@@ -42,7 +42,7 @@ export const HomeAdmin: React.FC<Props> = ({ onLogout }) => {
         const all = await fetchContent();
         
         if (activeTab === 'diet') setItems(all.filter(i => i.type === 'meal' || (i.type === 'article' && i.tags?.includes('饮食'))));
-        else if (activeTab === 'exercise') setItems(all.filter(i => i.type === 'course' || (i.type === 'article' && i.tags?.includes('运动'))));
+        else if (activeTab === 'exercise') setItems(all.filter(i => i.type === 'exercise' || (i.type === 'article' && i.tags?.includes('运动'))));
         else if (activeTab === 'community') setItems(all.filter(i => i.type === 'event'));
         else if (activeTab === 'medical') setItems(all.filter(i => i.type === 'drug' || i.type === 'doctor' || (i.type === 'article' && i.tags?.includes('医疗'))));
         else setItems([]); // Users handled separately
@@ -132,7 +132,7 @@ export const HomeAdmin: React.FC<Props> = ({ onLogout }) => {
                                     {activeTab === 'diet' && <AddBtn label="新增餐品" onClick={() => handleAddNew('meal')} />}
                                     {activeTab === 'diet' && <AddBtn label="新增文章" onClick={() => handleAddNew('article')} color="blue" />}
                                     
-                                    {activeTab === 'exercise' && <AddBtn label="新增课程" onClick={() => handleAddNew('course')} />}
+                                    {activeTab === 'exercise' && <AddBtn label="新增课程" onClick={() => handleAddNew('exercise')} />}
                                     {activeTab === 'exercise' && <AddBtn label="新增文章" onClick={() => handleAddNew('article')} color="blue" />}
 
                                     {activeTab === 'community' && <AddBtn label="发起活动" onClick={() => handleAddNew('event')} />}

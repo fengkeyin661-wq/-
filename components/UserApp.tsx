@@ -1,11 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
 import { UserLayout } from './user/UserLayout';
-import { UserDiet } from './user/UserDiet';
-import { UserExercise } from './user/UserExercise';
-import { UserMedical } from './user/UserMedical';
-import { UserProfile } from './user/UserProfile';
-import { UserCommunity } from './user/UserCommunity';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, updateExercisePlan, ExercisePlanData } from '../services/dataService';
+import { UserDietMotion } from './user/UserDietMotion'; // New
+import { UserMedicalServices } from './user/UserMedicalServices'; // New
+import { UserInteraction } from './user/UserInteraction'; // New
+import { UserProfile } from './user/UserProfile'; // Updated
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
 import { generateHealthAssessment } from '../services/geminiService';
 
 interface Props {
@@ -14,7 +14,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('diet');
+  const [activeTab, setActiveTab] = useState('diet_motion');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
 
@@ -40,32 +40,13 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
-      
       const newRecord = { ...userArchive.health_record, ...updatedData };
-      // Optimistic update
       setUserArchive({ ...userArchive, health_record: newRecord });
-      
       try {
-          // Re-assess since data changed
           const newAssessment = await generateHealthAssessment(newRecord);
-          // Sync to DB
           await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
       } catch (e) {
           console.error("Sync failed", e);
-      }
-  };
-
-  const handleSaveExercisePlan = async (plan: ExercisePlanData) => {
-      if (!userArchive) return;
-      
-      // Optimistic update
-      setUserArchive({ ...userArchive, custom_exercise_plan: plan });
-      
-      try {
-          await updateExercisePlan(userArchive.checkup_id, plan);
-      } catch (e) {
-          console.error("Plan save failed", e);
-          alert("保存失败，请检查网络");
       }
   };
 
@@ -82,15 +63,9 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      {activeTab === 'diet' && <UserDiet />}
-      {activeTab === 'exercise' && (
-          <UserExercise 
-              savedPlan={userArchive.custom_exercise_plan}
-              onSavePlan={handleSaveExercisePlan}
-          />
-      )}
-      {activeTab === 'community' && <UserCommunity />}
-      {activeTab === 'medical' && <UserMedical />}
+      {activeTab === 'diet_motion' && <UserDietMotion assessment={userArchive.assessment_data} />}
+      {activeTab === 'medical' && <UserMedicalServices />}
+      {activeTab === 'interaction' && <UserInteraction />}
       {activeTab === 'profile' && (
           <UserProfile 
               record={userArchive.health_record} 
