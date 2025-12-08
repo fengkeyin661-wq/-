@@ -12,13 +12,13 @@ import { UserApp } from './components/UserApp';
 import { HomeAdmin } from './components/HomeAdmin';
 import { ResourceAdmin } from './components/ResourceAdmin'; 
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
-import { DoctorPatients } from './components/DoctorPatients'; // New Component
+import { DoctorPatients } from './components/DoctorPatients';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, findArchiveByPhone, updateHealthRecordOnly } from './services/dataService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
-import { ContentItem } from './services/contentService'; // Import ContentItem type
+import { ContentItem } from './services/contentService';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -26,10 +26,17 @@ export const App: React.FC = () => {
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | 'resource_admin' | 'doctor' | null>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   
+  // Login Logic State
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginRoleContext, setLoginRoleContext] = useState<{title: string, color: string, allowedRoles: string[]} | undefined>(undefined);
+  
+  // User Entry State
+  const [showUserEntry, setShowUserEntry] = useState(false);
   const [userCheckupId, setUserCheckupId] = useState('');
-  const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); // Store logged in doctor info
+  
+  // Doctor State
+  const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); 
 
   // Medical Data State
   const [archives, setArchives] = useState<HealthArchive[]>([]);
@@ -61,7 +68,7 @@ export const App: React.FC = () => {
         refreshArchives();
     } else if (role === 'doctor') {
         if (doctorInfo) setCurrentDoctor(doctorInfo);
-        setActiveTab('my_patients'); // Default tab for doctor
+        setActiveTab('my_patients'); 
         refreshArchives();
     }
   };
@@ -78,9 +85,21 @@ export const App: React.FC = () => {
       if (archive) {
           setUserCheckupId(archive.checkup_id);
           setCurrentUserRole('user');
+          setIsAuthenticated(true); // User considered authenticated for their scope
       } else {
           alert('未找到档案，请核对体检编号或预留手机号');
       }
+  };
+
+  const openLoginFor = (type: 'admin' | 'resource' | 'doctor') => {
+      if (type === 'admin') {
+          setLoginRoleContext({ title: '管理控制台登录', color: 'slate', allowedRoles: ['admin', 'home'] });
+      } else if (type === 'resource') {
+          setLoginRoleContext({ title: '资源运营台登录', color: 'teal', allowedRoles: ['resource_admin'] });
+      } else if (type === 'doctor') {
+          setLoginRoleContext({ title: '医生工作站登录', color: 'blue', allowedRoles: ['doctor'] });
+      }
+      setShowLoginModal(true);
   };
 
   // --- Core Business Logic Handlers ---
@@ -295,149 +314,226 @@ export const App: React.FC = () => {
       return <UserApp checkupId={userCheckupId} onLogout={() => { setCurrentUserRole(null); setUserCheckupId(''); }} />;
   }
 
-  // 4. Main Dashboard / Admin / Doctor View
+  // 4. Main Dashboard / Admin / Doctor View Logic
+  // If not authenticated, show the 4-entry Landing Page
+  if (!isAuthenticated && activeTab === 'dashboard') {
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 animate-fadeIn">
+            {/* Logo/Header */}
+            <div className="text-center mb-10">
+                <div className="w-24 h-24 bg-teal-600 rounded-3xl flex items-center justify-center text-5xl text-white font-bold mx-auto shadow-2xl mb-4 transform hover:scale-105 transition-transform">
+                    Z
+                </div>
+                <h1 className="text-3xl font-black text-slate-800 tracking-tight">郑州大学医院</h1>
+                <p className="text-slate-500 font-medium mt-1">智慧健康管理中心</p>
+            </div>
+
+            {/* 4 Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
+                
+                {/* 1. Admin */}
+                <button 
+                    onClick={() => openLoginFor('admin')}
+                    className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 hover:shadow-xl hover:border-slate-300 transition-all text-left group relative overflow-hidden"
+                >
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-slate-100 rounded-bl-full -mr-4 -mt-4 opacity-50 group-hover:scale-110 transition-transform"></div>
+                    <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center text-2xl mb-4 text-white relative z-10">
+                        ⚡
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800 mb-1">管理控制台</h3>
+                    <p className="text-xs text-slate-500">Admin Console</p>
+                    <p className="text-sm text-slate-600 mt-3 opacity-80">系统配置、档案管理与全局分析</p>
+                </button>
+
+                {/* 2. Resource */}
+                <button 
+                    onClick={() => openLoginFor('resource')}
+                    className="bg-white p-6 rounded-2xl shadow-lg border border-teal-100 hover:shadow-xl hover:border-teal-300 transition-all text-left group relative overflow-hidden"
+                >
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-teal-50 rounded-bl-full -mr-4 -mt-4 opacity-50 group-hover:scale-110 transition-transform"></div>
+                    <div className="w-12 h-12 bg-teal-500 rounded-xl flex items-center justify-center text-2xl mb-4 text-white relative z-10">
+                        📦
+                    </div>
+                    <h3 className="text-lg font-bold text-teal-900 mb-1">健康资源管理台</h3>
+                    <p className="text-xs text-teal-600">Resource Operations</p>
+                    <p className="text-sm text-slate-600 mt-3 opacity-80">膳食、运动、医疗资源与活动发布</p>
+                </button>
+
+                {/* 3. Doctor */}
+                <button 
+                    onClick={() => openLoginFor('doctor')}
+                    className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 hover:shadow-xl hover:border-blue-300 transition-all text-left group relative overflow-hidden"
+                >
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -mr-4 -mt-4 opacity-50 group-hover:scale-110 transition-transform"></div>
+                    <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-2xl mb-4 text-white relative z-10">
+                        👨‍⚕️
+                    </div>
+                    <h3 className="text-lg font-bold text-blue-900 mb-1">签约医生入口</h3>
+                    <p className="text-xs text-blue-600">Doctor Workstation</p>
+                    <p className="text-sm text-slate-600 mt-3 opacity-80">我的签约用户、随访干预与审核</p>
+                </button>
+
+                {/* 4. User */}
+                {showUserEntry ? (
+                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-green-200 text-left relative overflow-hidden flex flex-col justify-center animate-flipIn">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-green-900">职工健康登录</h3>
+                            <button onClick={() => setShowUserEntry(false)} className="text-slate-400 hover:text-slate-600 text-sm">取消</button>
+                        </div>
+                        <input 
+                            autoFocus
+                            type="text" 
+                            placeholder="输入体检编号或手机号"
+                            className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-3 bg-green-50/50"
+                            onKeyDown={(e) => {
+                                if(e.key === 'Enter') handleUserLogin(e.currentTarget.value);
+                            }}
+                        />
+                        <button className="text-xs text-green-700 font-bold self-start hover:underline" onClick={() => setActiveTab('external_survey')}>
+                            📝 还没有档案？填写健康问卷
+                        </button>
+                    </div>
+                ) : (
+                    <button 
+                        onClick={() => setShowUserEntry(true)}
+                        className="bg-white p-6 rounded-2xl shadow-lg border border-green-100 hover:shadow-xl hover:border-green-300 transition-all text-left group relative overflow-hidden"
+                    >
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-green-50 rounded-bl-full -mr-4 -mt-4 opacity-50 group-hover:scale-110 transition-transform"></div>
+                        <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center text-2xl mb-4 text-white relative z-10">
+                            📱
+                        </div>
+                        <h3 className="text-lg font-bold text-green-900 mb-1">用户健康端</h3>
+                        <p className="text-xs text-green-600">User Health Portal</p>
+                        <p className="text-sm text-slate-600 mt-3 opacity-80">查看个人档案、健康计划与服务</p>
+                    </button>
+                )}
+            </div>
+
+            {/* Footer / Links */}
+            <div className="mt-12 text-xs text-slate-400 flex gap-4">
+                <span className="cursor-pointer hover:text-teal-600" onClick={() => setActiveTab('external_survey')}>健康问卷填报</span>
+                <span>|</span>
+                <span>© 2024 郑州大学医院</span>
+                <span>|</span>
+                <span>联系支持: 0371-67739261</span>
+            </div>
+
+            {/* Global Login Modal */}
+            <LoginModal 
+                isOpen={showLoginModal} 
+                onClose={() => setShowLoginModal(false)} 
+                onLoginSuccess={handleLoginSuccess} 
+                roleContext={loginRoleContext}
+            />
+        </div>
+      );
+  }
+
+  // 5. Authenticated Views (Layout for Admin/Doctor)
   return (
     <div className="h-screen flex flex-col">
-        {!isAuthenticated && activeTab === 'dashboard' ? (
-            <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
-                <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center space-y-6">
-                    <div className="w-20 h-20 bg-teal-600 rounded-2xl flex items-center justify-center text-4xl text-white font-bold mx-auto shadow-lg">
-                        Z
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-800">郑州大学医院</h1>
-                        <p className="text-slate-500">智慧健康管理中心</p>
-                    </div>
-                    
-                    <div className="space-y-3 pt-4">
-                        <button 
-                            onClick={() => setShowLoginModal(true)}
-                            className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition-all shadow-md"
-                        >
-                            后台登录 (管理员/医生)
-                        </button>
-                        
-                        <div className="relative">
-                            <input 
-                                type="text" 
-                                placeholder="输入体检编号或手机号查询"
-                                className="w-full border border-slate-200 bg-slate-50 py-3 px-4 rounded-xl text-center focus:ring-2 focus:ring-teal-500 outline-none"
-                                onKeyDown={(e) => {
-                                    if(e.key === 'Enter') handleUserLogin(e.currentTarget.value);
-                                }}
-                            />
-                        </div>
-
-                        <div className="text-xs text-slate-400 pt-4 flex items-center justify-center gap-4">
-                            <span onClick={() => setActiveTab('external_survey')} className="cursor-pointer hover:text-teal-600 hover:underline">
-                                📝 填写健康问卷
-                            </span>
-                            <span>|</span>
-                            <span>📞 客服: 0371-67739261</span>
-                        </div>
-                    </div>
+        {/* Authenticated or Survey Mode */}
+        <Layout 
+            activeTab={activeTab} 
+            onTabChange={setActiveTab} 
+            isAuthenticated={isAuthenticated}
+            currentUserRole={currentUserRole}
+            onLoginClick={() => setShowLoginModal(true)} // Should ideally not be reachable if using new flow properly, but kept as fallback
+            onLogoutClick={() => { 
+                setIsAuthenticated(false); 
+                setCurrentUserRole(null); 
+                setCurrentDoctor(null); 
+                setActiveTab('dashboard'); 
+                setShowUserEntry(false);
+            }}
+        >
+            {activeTab === 'dashboard' && (
+                // Internal Dashboard (Only if somehow reached while auth'd but no specific tab)
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-6 opacity-60">
+                    <div className="text-8xl">🏥</div>
+                    <h2 className="text-3xl font-bold text-slate-700">欢迎使用健康管理系统</h2>
+                    <p className="text-lg text-slate-500">请从左侧菜单选择功能。</p>
                 </div>
-            </div>
-        ) : (
-            // Authenticated or Survey Mode
-            <Layout 
-                activeTab={activeTab} 
-                onTabChange={setActiveTab} 
-                isAuthenticated={isAuthenticated}
-                currentUserRole={currentUserRole}
-                onLoginClick={() => setShowLoginModal(true)}
-                onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setCurrentDoctor(null); setActiveTab('dashboard'); }}
-            >
-                {activeTab === 'dashboard' && (
-                    <div className="h-full flex flex-col items-center justify-center text-center space-y-6 opacity-60">
-                        <div className="text-8xl">🏥</div>
-                        <h2 className="text-3xl font-bold text-slate-700">欢迎使用健康管理系统</h2>
-                        <p className="text-lg text-slate-500">请从左侧菜单选择功能。</p>
-                        {!isAuthenticated && (
-                            <button onClick={() => setShowLoginModal(true)} className="bg-teal-600 text-white px-6 py-2 rounded-lg font-bold shadow">
-                                登录系统
-                            </button>
-                        )}
-                    </div>
-                )}
+            )}
 
-                {activeTab === 'survey' && (
-                    <HealthSurvey 
-                        onSubmit={handleHealthSurveySubmit} 
-                        initialData={healthRecord} 
-                        isLoading={isLoading} 
-                    />
-                )}
+            {activeTab === 'survey' && (
+                <HealthSurvey 
+                    onSubmit={handleHealthSurveySubmit} 
+                    initialData={healthRecord} 
+                    isLoading={isLoading} 
+                />
+            )}
 
-                {activeTab === 'external_survey' && (
-                    <NativeSurveyForm 
-                        onSubmit={handleSurveySubmit} 
-                        isLoading={isLoading}
-                        initialCheckupId={healthRecord?.profile.checkupId} 
-                    />
-                )}
+            {activeTab === 'external_survey' && (
+                <NativeSurveyForm 
+                    onSubmit={handleSurveySubmit} 
+                    isLoading={isLoading}
+                    initialCheckupId={healthRecord?.profile.checkupId} 
+                />
+            )}
 
-                {activeTab === 'assessment' && assessment && healthRecord && (
-                    <AssessmentReport 
-                        assessment={assessment} patientName={healthRecord.profile.name} profile={healthRecord.profile}
-                        healthRecord={healthRecord} riskAnalysis={riskAnalysis}
-                        onSave={handleSaveAssessment} onUpdateReport={handleUpdateCheckupReport} 
-                        onUpdateRiskAnalysis={refreshArchives} onSupplementQuestionnaire={() => setActiveTab('external_survey')}
-                    />
-                )}
+            {activeTab === 'assessment' && assessment && healthRecord && (
+                <AssessmentReport 
+                    assessment={assessment} patientName={healthRecord.profile.name} profile={healthRecord.profile}
+                    healthRecord={healthRecord} riskAnalysis={riskAnalysis}
+                    onSave={handleSaveAssessment} onUpdateReport={handleUpdateCheckupReport} 
+                    onUpdateRiskAnalysis={refreshArchives} onSupplementQuestionnaire={() => setActiveTab('external_survey')}
+                />
+            )}
 
-                {activeTab === 'risk_portrait' && healthRecord && (
-                    <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-100 min-h-full">
-                        <div className="flex items-center gap-4 mb-6 border-b pb-4">
-                            <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-2xl">🧘</div>
-                            <div>
-                                <h2 className="text-2xl font-bold text-slate-800">全维健康画像与模型评估</h2>
-                                <p className="text-slate-500 text-sm">基于 {healthRecord.profile.name} ({healthRecord.profile.checkupId}) 的多维度数据分析</p>
-                            </div>
+            {activeTab === 'risk_portrait' && healthRecord && (
+                <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-100 min-h-full">
+                    <div className="flex items-center gap-4 mb-6 border-b pb-4">
+                        <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-2xl">🧘</div>
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-800">全维健康画像与模型评估</h2>
+                            <p className="text-slate-500 text-sm">基于 {healthRecord.profile.name} ({healthRecord.profile.checkupId}) 的多维度数据分析</p>
                         </div>
-                        <SystemRiskPortrait 
-                            record={healthRecord} 
-                            existingAnalysis={riskAnalysis} 
-                            onUpdate={refreshArchives} 
-                        />
                     </div>
-                )}
-                
-                {activeTab === 'followup' && (
-                    <FollowUpDashboard 
-                        records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp}
-                        onUpdateData={handleManualDataUpdate} allArchives={archives} onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
-                        currentPatientId={healthRecord?.profile.checkupId} isAuthenticated={isAuthenticated}
-                        healthRecord={healthRecord} onRefresh={refreshArchives}
+                    <SystemRiskPortrait 
+                        record={healthRecord} 
+                        existingAnalysis={riskAnalysis} 
+                        onUpdate={refreshArchives} 
                     />
-                )}
+                </div>
+            )}
+            
+            {activeTab === 'followup' && (
+                <FollowUpDashboard 
+                    records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp}
+                    onUpdateData={handleManualDataUpdate} allArchives={archives} onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
+                    currentPatientId={healthRecord?.profile.checkupId} isAuthenticated={isAuthenticated}
+                    healthRecord={healthRecord} onRefresh={refreshArchives}
+                />
+            )}
 
-                {activeTab === 'heatmap' && (
-                    <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />
-                )}
+            {activeTab === 'heatmap' && (
+                <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />
+            )}
 
-                {activeTab === 'admin' && currentUserRole === 'admin' && (
-                    <AdminConsole 
-                        onSelectPatient={handleSelectPatient} 
-                        onDataUpdate={refreshArchives} 
-                        isAuthenticated={isAuthenticated} 
-                        onTabChange={setActiveTab}
-                    />
-                )}
+            {activeTab === 'admin' && currentUserRole === 'admin' && (
+                <AdminConsole 
+                    onSelectPatient={handleSelectPatient} 
+                    onDataUpdate={refreshArchives} 
+                    isAuthenticated={isAuthenticated} 
+                    onTabChange={setActiveTab}
+                />
+            )}
 
-                {activeTab === 'my_patients' && currentUserRole === 'doctor' && currentDoctor && (
-                    <DoctorPatients 
-                        doctorId={currentDoctor.id}
-                        onSelectPatient={handleSelectPatient}
-                    />
-                )}
-            </Layout>
-        )}
+            {activeTab === 'my_patients' && currentUserRole === 'doctor' && currentDoctor && (
+                <DoctorPatients 
+                    doctorId={currentDoctor.id}
+                    onSelectPatient={handleSelectPatient}
+                />
+            )}
+        </Layout>
 
+        {/* Global Login Modal reused if needed */}
         <LoginModal 
             isOpen={showLoginModal} 
             onClose={() => setShowLoginModal(false)} 
             onLoginSuccess={handleLoginSuccess} 
+            roleContext={loginRoleContext}
         />
     </div>
   );

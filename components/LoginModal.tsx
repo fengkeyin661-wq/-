@@ -6,9 +6,14 @@ interface Props {
     isOpen: boolean;
     onClose: () => void;
     onLoginSuccess: (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => void;
+    roleContext?: {
+        title: string;
+        color: string;
+        allowedRoles: string[]; // 'admin', 'home', 'resource_admin', 'doctor'
+    };
 }
 
-export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess }) => {
+export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess, roleContext }) => {
     const [authStep, setAuthStep] = useState<'login' | 'verify'>('login');
     
     // Login Form State
@@ -37,48 +42,78 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
 
     if (!isOpen) return null;
 
+    // Determine styles based on context
+    const themeColor = roleContext?.color || 'slate';
+    const title = roleContext?.title || '系统登录';
+    
+    // Helper for Tailwind dynamic classes (simplified mapping)
+    const getBtnClass = () => {
+        if (themeColor === 'teal') return 'bg-teal-600 hover:bg-teal-700';
+        if (themeColor === 'blue') return 'bg-blue-600 hover:bg-blue-700';
+        if (themeColor === 'indigo') return 'bg-indigo-600 hover:bg-indigo-700';
+        return 'bg-slate-800 hover:bg-slate-700';
+    };
+
+    const getRingClass = () => {
+        if (themeColor === 'teal') return 'focus:ring-teal-500';
+        if (themeColor === 'blue') return 'focus:ring-blue-500';
+        if (themeColor === 'indigo') return 'focus:ring-indigo-500';
+        return 'focus:ring-slate-500';
+    };
+
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoginError('');
         setIsLoading(true);
 
+        const allowed = roleContext?.allowedRoles || ['admin', 'home', 'resource_admin', 'doctor'];
+
         // 1. Check Static Admin Roles
         if (username === ADMIN_USER && password === ADMIN_PASS) {
-            onLoginSuccess('admin');
-            setIsLoading(false);
-            onClose();
-            return;
-        } else if (username === HOME_USER && password === HOME_PASS) {
-            onLoginSuccess('home');
-            setIsLoading(false);
-            onClose();
-            return;
-        } else if (username === RES_USER && password === RES_PASS) {
-            onLoginSuccess('resource_admin');
-            setIsLoading(false);
-            onClose();
-            return;
-        } 
-
-        // 2. Check Dynamic Doctor Roles
-        try {
-            const doctors = await fetchContent('doctor', 'active');
-            const doctor = doctors.find(doc => 
-                doc.details?.username === username && 
-                doc.details?.password === password
-            );
-
-            if (doctor) {
-                onLoginSuccess('doctor', doctor);
+            if (allowed.includes('admin')) {
+                onLoginSuccess('admin');
                 setIsLoading(false);
                 onClose();
                 return;
             }
-        } catch (e) {
-            console.error("Doctor login check failed", e);
+        } else if (username === HOME_USER && password === HOME_PASS) {
+            // "home" user acts as a super admin or specific home admin
+            if (allowed.includes('home') || allowed.includes('admin')) { 
+                onLoginSuccess('home');
+                setIsLoading(false);
+                onClose();
+                return;
+            }
+        } else if (username === RES_USER && password === RES_PASS) {
+            if (allowed.includes('resource_admin')) {
+                onLoginSuccess('resource_admin');
+                setIsLoading(false);
+                onClose();
+                return;
+            }
+        } 
+
+        // 2. Check Dynamic Doctor Roles
+        if (allowed.includes('doctor')) {
+            try {
+                const doctors = await fetchContent('doctor', 'active');
+                const doctor = doctors.find(doc => 
+                    doc.details?.username === username && 
+                    doc.details?.password === password
+                );
+
+                if (doctor) {
+                    onLoginSuccess('doctor', doctor);
+                    setIsLoading(false);
+                    onClose();
+                    return;
+                }
+            } catch (e) {
+                console.error("Doctor login check failed", e);
+            }
         }
 
-        setLoginError('账号或密码错误');
+        setLoginError('账号密码错误或无权访问此入口');
         setIsLoading(false);
     };
 
@@ -116,8 +151,10 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                 </button>
 
                 <div className="text-center mb-6">
-                    <div className="w-14 h-14 bg-slate-800 rounded-xl flex items-center justify-center text-white text-2xl font-bold mx-auto mb-3">Z</div>
-                    <h2 className="text-xl font-bold text-slate-800">管理后台登录</h2>
+                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-white text-2xl font-bold mx-auto mb-3 ${themeColor === 'teal' ? 'bg-teal-600' : themeColor === 'blue' ? 'bg-blue-600' : themeColor === 'indigo' ? 'bg-indigo-600' : 'bg-slate-800'}`}>
+                        Z
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-800">{title}</h2>
                     <p className="text-slate-500 text-xs mt-1">郑州大学医院健康管理中心</p>
                 </div>
 
@@ -129,8 +166,8 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                                 type="text" 
                                 value={username}
                                 onChange={e => setUsername(e.target.value)}
-                                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
-                                placeholder="管理员或医生账号"
+                                className={`w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 outline-none text-sm ${getRingClass()}`}
+                                placeholder="请输入账号"
                             />
                         </div>
                         <div>
@@ -139,7 +176,7 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                                 type="password" 
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
-                                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
+                                className={`w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 outline-none text-sm ${getRingClass()}`}
                                 placeholder="请输入密码"
                             />
                         </div>
@@ -148,16 +185,19 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                         <button 
                             type="submit" 
                             disabled={isLoading}
-                            className="w-full bg-slate-800 text-white font-bold py-2.5 rounded-lg hover:bg-slate-700 transition-colors shadow-lg text-sm disabled:opacity-50 flex justify-center items-center gap-2"
+                            className={`w-full text-white font-bold py-2.5 rounded-lg transition-colors shadow-lg text-sm disabled:opacity-50 flex justify-center items-center gap-2 ${getBtnClass()}`}
                         >
                             {isLoading ? '验证中...' : '登录系统'}
                         </button>
                         
-                        <div className="text-center">
-                            <button type="button" onClick={() => setAuthStep('verify')} className="text-xs text-teal-600 hover:underline">
-                                忘记密码 / 邮箱验证登录 (仅管理员)
-                            </button>
-                        </div>
+                        {/* Only show verify option for admin-like roles */}
+                        {roleContext?.allowedRoles.includes('admin') && (
+                            <div className="text-center">
+                                <button type="button" onClick={() => setAuthStep('verify')} className="text-xs text-slate-500 hover:underline">
+                                    忘记密码 / 邮箱验证登录 (仅管理员)
+                                </button>
+                            </div>
+                        )}
                     </form>
                 ) : (
                     <form onSubmit={handleVerify} className="space-y-5">
@@ -171,13 +211,13 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                                     type="email" 
                                     value={email}
                                     onChange={e => setEmail(e.target.value)}
-                                    className="flex-1 border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
+                                    className="flex-1 border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-slate-500 outline-none text-sm"
                                     placeholder="xiaoyin...@126.com"
                                 />
                                 <button 
                                     type="button" 
                                     onClick={handleSendCode}
-                                    className="bg-teal-600 text-white text-xs px-3 py-2 rounded-lg hover:bg-teal-700 whitespace-nowrap"
+                                    className="bg-slate-600 text-white text-xs px-3 py-2 rounded-lg hover:bg-slate-700 whitespace-nowrap"
                                 >
                                     获取验证码
                                 </button>
@@ -189,13 +229,13 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                                 type="text" 
                                 value={verifyCode}
                                 onChange={e => setVerifyCode(e.target.value)}
-                                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
+                                className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-slate-500 outline-none text-sm"
                                 placeholder="查看邮件输入验证码"
                             />
                         </div>
                         {verifyMsg && <p className={`text-xs text-center font-bold ${verifyMsg.includes('错误') ? 'text-red-500' : 'text-green-600'}`}>{verifyMsg}</p>}
 
-                        <button type="submit" className="w-full bg-teal-600 text-white font-bold py-2.5 rounded-lg hover:bg-teal-700 transition-colors shadow-lg text-sm">
+                        <button type="submit" className="w-full bg-slate-600 text-white font-bold py-2.5 rounded-lg hover:bg-slate-700 transition-colors shadow-lg text-sm">
                             验证并登录
                         </button>
 
