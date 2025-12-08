@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
@@ -9,6 +10,7 @@ import { LoginModal } from './components/LoginModal';
 import { NativeSurveyForm } from './components/NativeSurveyForm';
 import { UserApp } from './components/UserApp';
 import { HomeAdmin } from './components/HomeAdmin';
+import { ResourceAdmin } from './components/ResourceAdmin'; // New Component
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData } from './types';
@@ -21,7 +23,7 @@ export const App: React.FC = () => {
   
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | 'resource_admin' | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [userCheckupId, setUserCheckupId] = useState('');
 
@@ -37,15 +39,15 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     // Initial fetch if admin
-    if (isAuthenticated) refreshArchives();
-  }, [isAuthenticated]);
+    if (isAuthenticated && currentUserRole === 'admin') refreshArchives();
+  }, [isAuthenticated, currentUserRole]);
 
   const refreshArchives = async () => {
     const data = await fetchArchives();
     setArchives(data);
   };
 
-  const handleLoginSuccess = (role: 'admin' | 'home') => {
+  const handleLoginSuccess = (role: 'admin' | 'home' | 'resource_admin') => {
     setIsAuthenticated(true);
     setCurrentUserRole(role);
     setShowLoginModal(false);
@@ -84,7 +86,6 @@ export const App: React.FC = () => {
       if (mode === 'followup') setActiveTab('followup');
       else if (mode === 'assessment') setActiveTab('assessment');
       else if (mode === 'edit') {
-          // Logic for edit mode if needed, usually handled in AdminConsole or just setting healthRecord allows HealthSurvey to edit
           setActiveTab('survey'); 
       }
       else setActiveTab('dashboard');
@@ -183,8 +184,6 @@ export const App: React.FC = () => {
       if (!healthRecord) return;
       let newFollowUps = followUps;
       if (record) {
-          // Update specific record or add? Assuming update latest if ID matches, or replace list logic?
-          // For simplicity, if record is passed, we update it in the list
           const idx = followUps.findIndex(f => f.id === record.id);
           if (idx !== -1) {
               newFollowUps = [...followUps];
@@ -219,7 +218,7 @@ export const App: React.FC = () => {
                   questionnaire: qData,
                   profile: { ...archive.health_record.profile, gender: profile.gender || archive.gender || '', department: profile.dept || archive.department }
               };
-              assessmentToSave = archive.assessment_data; // Keep existing or re-evaluate? Ideally re-evaluate.
+              assessmentToSave = archive.assessment_data;
               scheduleToSave = archive.follow_up_schedule;
               followUpsToSave = archive.follow_ups;
               analysisToSave = archive.risk_analysis;
@@ -239,8 +238,6 @@ export const App: React.FC = () => {
               } as any;
           }
 
-          // Re-evaluate if we have enough data or just save
-          // Let's re-evaluate just in case questionnaire changes risk
           const newAssessment = await generateHealthAssessment(recordToSave);
           const portraits = generateSystemPortraits(recordToSave);
           const models = evaluateRiskModels(recordToSave);
@@ -256,7 +253,6 @@ export const App: React.FC = () => {
           if (res.success) {
               alert("问卷已提交并存档！");
               refreshArchives();
-              // If logged in as admin, switch to view it
               if (isAuthenticated) {
                   const newArch = await findArchiveByCheckupId(checkupId);
                   if (newArch) handleSelectPatient(newArch);
@@ -275,23 +271,24 @@ export const App: React.FC = () => {
 
   // --- Render ---
 
-  // 1. Home Admin View
+  // 1. Home Admin View (System Level)
   if (currentUserRole === 'home') {
       return <HomeAdmin onLogout={() => { setIsAuthenticated(false); setCurrentUserRole(null); }} />;
   }
 
-  // 2. User Portal View
+  // 2. Resource Admin View (Content/Ops Level) - NEW
+  if (currentUserRole === 'resource_admin') {
+      return <ResourceAdmin onLogout={() => { setIsAuthenticated(false); setCurrentUserRole(null); }} />;
+  }
+
+  // 3. User Portal View
   if (currentUserRole === 'user') {
       return <UserApp checkupId={userCheckupId} onLogout={() => { setCurrentUserRole(null); setUserCheckupId(''); }} />;
   }
 
-  // 3. Main Dashboard / Admin View
+  // 4. Main Dashboard / Admin View
   return (
     <div className="h-screen flex flex-col">
-        {/* Render Layout only if NOT in special modes like login/portal which are handled above */}
-        {/* But we need Layout for standard app usage */}
-        
-        {/* Guest View: Landing Page with Login & Survey Access */}
         {!isAuthenticated && activeTab === 'dashboard' ? (
             <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
                 <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center space-y-6">

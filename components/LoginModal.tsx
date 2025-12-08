@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    onLoginSuccess: (role: 'admin' | 'home') => void;
+    onLoginSuccess: (role: 'admin' | 'home' | 'resource_admin') => void;
 }
 
 export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess }) => {
@@ -28,6 +28,9 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
     const HOME_USER = "home";
     const HOME_PASS = "8888";
 
+    const RES_USER = "zzdx";
+    const RES_PASS = "zzhealthy666";
+
     const ADMIN_EMAIL = "xiaoyin4567@126.com";
 
     if (!isOpen) return null;
@@ -41,6 +44,10 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
         } else if (username === HOME_USER && password === HOME_PASS) {
             setLoginError('');
             onLoginSuccess('home');
+            onClose();
+        } else if (username === RES_USER && password === RES_PASS) {
+            setLoginError('');
+            onLoginSuccess('resource_admin');
             onClose();
         } else {
             setLoginError('账号或密码错误');
@@ -95,7 +102,7 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                                 value={username}
                                 onChange={e => setUsername(e.target.value)}
                                 className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
-                                placeholder="输入账号 (admin / home)"
+                                placeholder="输入账号 (admin / zzdx / home)"
                             />
                         </div>
                         <div>

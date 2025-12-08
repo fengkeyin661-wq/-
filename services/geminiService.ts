@@ -1,5 +1,4 @@
 
-
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 
 // DeepSeek API Configuration
@@ -477,4 +476,27 @@ export const generateExercisePlan = async (input: string): Promise<{ plan: { day
     输出 JSON: { "plan": [ { "day": "周一", "content": "具体运动内容及注意事项" }, ... ] }
     `;
     return await callDeepSeek(systemPrompt, input, true);
+};
+
+/**
+ * 10. (New) 批量食谱营养计算
+ */
+export const calculateNutritionFromIngredients = async (
+    recipes: { name: string, ingredients: string }[]
+): Promise<{ nutritionData: { [key: string]: { nutrition: string, cal: string } } }> => {
+    const systemPrompt = `
+    你是一名临床营养师。我将提供一组食谱的名称和配料。
+    请根据配料和用量，估算每份食谱的：
+    1. 营养成分 (nutrition): 包含蛋白质、脂肪、碳水化合物、主要微量元素等，简短描述。
+    2. 总热量 (cal): 单位 kcal，仅数字或数字+单位。
+    
+    如果配料描述模糊，请基于常见做法进行合理估算。
+    
+    输入格式: JSON Array of { name, ingredients }
+    输出格式 JSON: { "nutritionData": { "食谱名称": { "nutrition": "...", "cal": "..." } } }
+    确保所有输入的食谱都在输出中找到对应结果。
+    `;
+
+    const userContent = JSON.stringify(recipes);
+    return await callDeepSeek(systemPrompt, userContent, true);
 };
