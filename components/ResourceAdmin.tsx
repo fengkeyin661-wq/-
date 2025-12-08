@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
     ContentItem, InteractionItem, 
@@ -201,6 +202,16 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         XLSX.writeFile(wb, `${activeTab}_template.xlsx`);
     };
 
+    // Helper to safely get value from row handling trimming
+    const getVal = (row: any, key: string) => {
+        // Exact match
+        if (row[key] !== undefined) return row[key];
+        // Trimmed match
+        const cleanKey = key.trim();
+        const foundKey = Object.keys(row).find(k => k.trim() === cleanKey);
+        return foundKey ? row[foundKey] : undefined;
+    };
+
     const handleBatchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -228,49 +239,55 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     if (activeTab === 'recipe') {
                         type = 'meal';
                         details = {
-                            ingredients: r['配料及用量'], steps: r['制作步骤'], cookingTime: r['制作时长'],
-                            difficulty: r['难度'], nutrition: r['营养成分(AI估算)'], cal: r['热量']
+                            ingredients: getVal(r, '配料及用量'), 
+                            steps: getVal(r, '制作步骤'), 
+                            cookingTime: getVal(r, '制作时长'),
+                            difficulty: getVal(r, '难度'), 
+                            nutrition: getVal(r, '营养成分(AI估算)'), 
+                            cal: getVal(r, '热量')
                         };
                     } else if (activeTab === 'exercise') {
                         type = 'exercise';
                         details = {
-                            exerciseType: r['运动类型'], frequency: r['频率'], intensity: r['强度'],
-                            duration: r['持续时间'], calories: r['消耗热量'], prepWork: r['准备工作'], contraindications: r['注意事项']
+                            exerciseType: getVal(r, '运动类型'), frequency: getVal(r, '频率'), intensity: getVal(r, '强度'),
+                            duration: getVal(r, '持续时间'), calories: getVal(r, '消耗热量'), prepWork: getVal(r, '准备工作'), contraindications: getVal(r, '注意事项')
                         };
                     } else if (activeTab === 'event') {
                         type = 'event';
                         details = {
-                            eventCategory: r['类别'], date: r['时间(YYYY-MM-DD HH:MM)'], loc: r['地点'],
-                            max: r['人数上限'], organizer: r['组织者'], contact: r['联系方式'], deadline: r['报名截止日期']
+                            eventCategory: getVal(r, '类别'), date: getVal(r, '时间(YYYY-MM-DD HH:MM)'), loc: getVal(r, '地点'),
+                            max: getVal(r, '人数上限'), organizer: getVal(r, '组织者'), contact: getVal(r, '联系方式'), deadline: getVal(r, '报名截止日期')
                         };
                     } else if (activeTab === 'service') {
                         type = 'service';
                         details = {
-                            serviceCategory: r['类别'], dept: r['所属科室'], price: r['单价'],
-                            clinicalSignificance: r['检查意义'], targetAudience: r['适用人群'], preCheckPrep: r['检查须知']
+                            serviceCategory: getVal(r, '类别'), dept: getVal(r, '所属科室'), price: getVal(r, '单价'),
+                            clinicalSignificance: getVal(r, '检查意义'), targetAudience: getVal(r, '适用人群'), preCheckPrep: getVal(r, '检查须知')
                         };
                     } else if (activeTab === 'drug') {
                         type = 'drug';
                         details = {
-                            spec: r['规格'], usage: r['用途/适应症'], dosage: r['用法用量'], adminRoute: r['给药途径'],
-                            timingNotes: r['服用时间与注意事项'], sideEffects: r['副作用'], drugContraindications: r['禁忌症'],
-                            interactions: r['药物相互作用'], storage: r['储存有效期'], missedDose: r['漏服处理']
+                            spec: getVal(r, '规格'), usage: getVal(r, '用途/适应症'), dosage: getVal(r, '用法用量'), adminRoute: getVal(r, '给药途径'),
+                            timingNotes: getVal(r, '服用时间与注意事项'), sideEffects: getVal(r, '副作用'), drugContraindications: getVal(r, '禁忌症'),
+                            interactions: getVal(r, '药物相互作用'), storage: getVal(r, '储存有效期'), missedDose: getVal(r, '漏服处理')
                         };
                     } else if (activeTab === 'doctor') {
                         type = 'doctor';
                         details = {
-                            dept: r['所属科室'], title: r['职称'], specialty: r['擅长领域'], schedule: r['门诊时间'],
-                            hospital: r['医院'], username: r['登录账号'], password: r['密码']
+                            dept: getVal(r, '所属科室'), title: getVal(r, '职称'), specialty: getVal(r, '擅长领域'), schedule: getVal(r, '门诊时间'),
+                            hospital: getVal(r, '医院'), username: getVal(r, '登录账号'), password: getVal(r, '密码')
                         };
                     }
+
+                    const titleVal = getVal(r, '名称') || '未命名';
 
                     const item: ContentItem = {
                         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
                         type,
-                        title: r['名称'] || '未命名',
-                        description: r['描述'] || '',
-                        tags: (r['标签'] || '').split(/[,， ]+/).filter(Boolean),
-                        image: r['图标'] || (type === 'meal' ? '🍱' : '📦'),
+                        title: titleVal,
+                        description: getVal(r, '描述') || '',
+                        tags: (getVal(r, '标签') || '').split(/[,， ]+/).filter(Boolean),
+                        image: getVal(r, '图标') || (type === 'meal' ? '🍱' : '📦'),
                         author: '管理员导入',
                         isUserUpload: false,
                         status: 'active',
@@ -278,13 +295,21 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         details
                     };
                     
+                    // Only save if we found a valid title (strict check)
                     if (item.title && item.title !== '未命名') {
                         await saveContent(item);
                         count++;
                     }
                 }
-                alert(`成功导入 ${count} 条数据`);
-                loadData();
+                
+                if (count > 0) {
+                    alert(`成功导入 ${count} 条数据`);
+                } else {
+                    alert(`⚠️ 导入了 0 条数据！\n可能原因：Excel 表头不匹配。\n请确保第一行包含【名称】、【图标】等列，建议先【下载模板】对照。`);
+                }
+                
+                // Force reload
+                await loadData();
             } catch (error) {
                 console.error(error);
                 alert('导入失败，请检查文件格式。建议先下载模板。');
