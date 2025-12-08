@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { fetchContent, saveContent, fetchInteractions, saveInteraction, updateInteractionStatus, ContentItem, InteractionItem } from '../../services/contentService';
+import React, { useState, useEffect, useRef } from 'react';
+import { fetchContent, saveContent, fetchInteractions, saveInteraction, updateInteractionStatus, ContentItem, InteractionItem, ChatMessage, fetchMessages, sendMessage } from '../../services/contentService';
 
 export const UserInteraction: React.FC = () => {
     const [events, setEvents] = useState<ContentItem[]>([]);
@@ -12,9 +12,15 @@ export const UserInteraction: React.FC = () => {
     // Event Sub Tabs: Lobby, Joined, Managed
     const [eventSubTab, setEventSubTab] = useState<'lobby' | 'joined' | 'managed'>('lobby');
     
-    // Simulated Current User (For demo purposes)
+    // Simulated Current User
     const CURRENT_USER_ID = 'current_user';
     const CURRENT_USER_NAME = '我'; 
+
+    // Chat State
+    const [signedDoctor, setSignedDoctor] = useState<InteractionItem | null>(null);
+    const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+    const [chatInput, setChatInput] = useState('');
+    const chatEndRef = useRef<HTMLDivElement>(null);
 
     // Create Event State
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -32,22 +38,61 @@ export const UserInteraction: React.FC = () => {
         loadData();
     }, [activeSegment, eventSubTab]);
 
+    // Poll for chat messages if user is on chat tab and has a signed doctor
+    useEffect(() => {
+        let interval: any;
+        if (activeSegment === 'chat' && signedDoctor) {
+            loadMessages();
+            interval = setInterval(loadMessages, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [activeSegment, signedDoctor]);
+
+    // Scroll to bottom
+    useEffect(() => {
+        if (activeSegment === 'chat') {
+            chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [chatMessages, activeSegment]);
+
     const loadData = async () => {
-        // Fetch all events (including pending ones for 'managed' view)
+        // Fetch all events
         const allEvents = await fetchContent('event'); 
-        // Fetch all interactions
-        const allInteractions = await fetchInteractions('event_signup');
+        // Fetch interactions
+        const allInteractions = await fetchInteractions();
         
         setEvents(allEvents);
-        setInteractions(allInteractions);
+        setInteractions(allInteractions.filter(i => i.type === 'event_signup'));
+
+        // Check for Signed Doctor
+        const signing = allInteractions.find(i => i.type === 'signing' && i.userId === CURRENT_USER_ID && i.status === 'confirmed');
+        setSignedDoctor(signing || null);
+    };
+
+    const loadMessages = async () => {
+        if (!signedDoctor) return;
+        const msgs = await fetchMessages(CURRENT_USER_ID, signedDoctor.targetId);
+        setChatMessages(msgs);
+    };
+
+    const handleSendMsg = async () => {
+        if (!signedDoctor || !chatInput.trim()) return;
+        
+        await sendMessage({
+            senderId: CURRENT_USER_ID,
+            senderRole: 'user',
+            receiverId: signedDoctor.targetId,
+            content: chatInput
+        });
+        
+        setChatInput('');
+        loadMessages();
     };
 
     // --- Helpers ---
     
-    // Get events for Lobby (Active only)
     const getLobbyEvents = () => events.filter(e => e.status === 'active');
     
-    // Get events I joined
     const getJoinedEvents = () => {
         const mySignups = interactions.filter(i => i.userId === CURRENT_USER_ID);
         return mySignups.map(signup => {
@@ -61,10 +106,7 @@ export const UserInteraction: React.FC = () => {
         });
     };
 
-    // Get events I created
     const getManagedEvents = () => events.filter(e => e.isUserUpload && e.author === '我');
-
-    // Get applicants for a specific event
     const getApplicants = (eventId: string) => interactions.filter(i => i.targetId === eventId);
 
     // --- Actions ---
@@ -105,12 +147,8 @@ export const UserInteraction: React.FC = () => {
     };
 
     const handleJoinEvent = async (event: ContentItem) => {
-        // Check if already joined
         const existing = interactions.find(i => i.targetId === event.id && i.userId === CURRENT_USER_ID);
-        if (existing) {
-            alert("您已报名该活动");
-            return;
-        }
+        if (existing) return alert("您已报名该活动");
 
         const interaction: InteractionItem = {
             id: `signup_${Date.now()}`,
@@ -135,9 +173,9 @@ export const UserInteraction: React.FC = () => {
     };
 
     return (
-        <div className="bg-slate-50 min-h-full">
+        <div className="bg-slate-50 min-h-full flex flex-col h-full">
             {/* Segment Control */}
-            <div className="sticky top-0 z-20 bg-white border-b border-slate-200 flex">
+            <div className="sticky top-0 z-20 bg-white border-b border-slate-200 flex shrink-0">
                 <button 
                     onClick={() => setActiveSegment('chat')}
                     className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${activeSegment === 'chat' ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500'}`}
@@ -152,44 +190,73 @@ export const UserInteraction: React.FC = () => {
                 </button>
             </div>
 
-            <div className="p-4 pb-24">
+            <div className="flex-1 overflow-y-auto">
                 {activeSegment === 'chat' && (
-                    <div className="space-y-4">
-                        {/* Mock Chat List */}
-                        <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-4 flex items-center justify-between">
-                            <div>
-                                <h3 className="font-bold text-blue-800">我的家庭医生</h3>
-                                <p className="text-xs text-blue-600 mt-1">专属健康管家，随时响应</p>
-                            </div>
-                            <button className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md">立即咨询</button>
-                        </div>
-
-                        <div className="space-y-2">
-                            {[
-                                { name: '张主任 (心内科)', lastMsg: '您的血压控制得不错，继续保持。', time: '10:30', unread: 0, avatar: '👨‍⚕️' },
-                                { name: '李营养师', lastMsg: '收到您的饮食打卡，建议晚餐减少碳水...', time: '昨天', unread: 2, avatar: '👩‍⚕️' },
-                                { name: '王康复师', lastMsg: '[图片] 请按照这个视频进行膝关节训练', time: '周一', unread: 0, avatar: '🏃' },
-                            ].map((chat, i) => (
-                                <div key={i} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex gap-3 active:bg-slate-50">
-                                    <div className="relative">
-                                        <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-2xl">{chat.avatar}</div>
-                                        {chat.unread > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center border border-white">{chat.unread}</span>}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <span className="font-bold text-slate-800 text-sm">{chat.name}</span>
-                                            <span className="text-[10px] text-slate-400">{chat.time}</span>
+                    <div className="h-full flex flex-col p-4 pb-24">
+                        {signedDoctor ? (
+                            <>
+                                {/* Chat Header */}
+                                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-4 flex items-center justify-between shrink-0">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-2xl">👨‍⚕️</div>
+                                        <div>
+                                            <h3 className="font-bold text-blue-800">{signedDoctor.targetName} 医生</h3>
+                                            <p className="text-xs text-blue-600 mt-0.5">专属家庭医生 · 24h响应</p>
                                         </div>
-                                        <p className="text-xs text-slate-500 truncate">{chat.lastMsg}</p>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
+
+                                {/* Chat History */}
+                                <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1">
+                                    {chatMessages.length === 0 && (
+                                        <div className="text-center text-xs text-slate-400 mt-10">暂无消息，向医生问个好吧~</div>
+                                    )}
+                                    {chatMessages.map(msg => (
+                                        <div key={msg.id} className={`flex ${msg.senderRole === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`max-w-[85%] p-3 rounded-2xl text-sm shadow-sm ${
+                                                msg.senderRole === 'user' 
+                                                ? 'bg-teal-600 text-white rounded-br-none' 
+                                                : 'bg-white text-slate-700 rounded-bl-none border border-slate-100'
+                                            }`}>
+                                                {msg.content}
+                                                <div className={`text-[10px] mt-1 text-right ${msg.senderRole === 'user' ? 'text-teal-200' : 'text-slate-400'}`}>
+                                                    {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div ref={chatEndRef} />
+                                </div>
+
+                                {/* Input */}
+                                <div className="flex gap-2 shrink-0">
+                                    <input 
+                                        className="flex-1 bg-white border border-slate-300 rounded-full px-4 py-2 text-sm shadow-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                                        placeholder="请输入咨询问题..."
+                                        value={chatInput}
+                                        onChange={e => setChatInput(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && handleSendMsg()}
+                                    />
+                                    <button 
+                                        onClick={handleSendMsg}
+                                        className="bg-teal-600 text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-teal-700 shadow-md active:scale-95 transition-transform"
+                                    >
+                                        ➤
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center pb-20">
+                                <div className="text-6xl mb-4 opacity-50">👨‍⚕️</div>
+                                <h3 className="text-lg font-bold text-slate-600">尚未签约家庭医生</h3>
+                                <p className="text-sm mt-2 max-w-[200px]">请前往“寻医问药”板块查看医生并申请签约。</p>
+                            </div>
+                        )}
                     </div>
                 )}
 
                 {activeSegment === 'event' && (
-                    <div className="space-y-4">
+                    <div className="p-4 space-y-4 pb-24">
                         {/* Event Sub-Navigation */}
                         <div className="flex space-x-2 bg-slate-100 p-1 rounded-lg">
                             {([

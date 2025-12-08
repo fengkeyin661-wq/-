@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { fetchInteractions, updateInteractionStatus, InteractionItem } from '../services/contentService';
+import React, { useState, useEffect, useRef } from 'react';
+import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessage, fetchMessages, sendMessage } from '../services/contentService';
 import { findArchiveByCheckupId, HealthArchive } from '../services/dataService';
 
 interface Props {
@@ -18,9 +18,30 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
     const [list, setList] = useState<PatientData[]>([]);
     const [loading, setLoading] = useState(false);
 
+    // Chat State
+    const [chatPatient, setChatPatient] = useState<PatientData | null>(null);
+    const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+    const [chatInput, setChatInput] = useState('');
+    const chatEndRef = useRef<HTMLDivElement>(null);
+
     useEffect(() => {
         loadData();
     }, [activeTab, doctorId]);
+
+    // Polling for new messages when chat is open
+    useEffect(() => {
+        let interval: any;
+        if (chatPatient) {
+            loadMessages(); // Initial load
+            interval = setInterval(loadMessages, 3000); // Poll every 3s
+        }
+        return () => clearInterval(interval);
+    }, [chatPatient]);
+
+    // Scroll to bottom on new messages
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatMessages]);
 
     const loadData = async () => {
         setLoading(true);
@@ -39,14 +60,32 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         const fullList: PatientData[] = [];
         for (const inter of relevant) {
             // Assume userId in interaction maps to checkup_id or phone.
-            // For this simulation, we use checkup_id matching
             let archive = await findArchiveByCheckupId(inter.userId);
-            // If not found by ID, maybe try searching logic or just display basic info from interaction
             fullList.push({ interaction: inter, archive: archive || undefined });
         }
 
         setList(fullList);
         setLoading(false);
+    };
+
+    const loadMessages = async () => {
+        if (!chatPatient) return;
+        const msgs = await fetchMessages(chatPatient.interaction.userId, doctorId);
+        setChatMessages(msgs);
+    };
+
+    const handleSendMsg = async () => {
+        if (!chatPatient || !chatInput.trim()) return;
+        
+        await sendMessage({
+            senderId: doctorId,
+            senderRole: 'doctor',
+            receiverId: chatPatient.interaction.userId,
+            content: chatInput
+        });
+        
+        setChatInput('');
+        loadMessages();
     };
 
     const handleAction = async (id: string, action: 'confirm' | 'reject' | 'terminate') => {
@@ -62,7 +101,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
     };
 
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-h-[600px] flex flex-col">
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-h-[600px] flex flex-col relative">
             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-xl">
                 <div>
                     <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -132,9 +171,9 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                     </div>
                                 </div>
 
-                                <div className="flex gap-2 pt-3 border-t border-slate-100">
+                                <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
                                     {activeTab === 'pending' ? (
-                                        <>
+                                        <div className="flex gap-2">
                                             <button 
                                                 onClick={() => handleAction(item.interaction.id, 'reject')}
                                                 className="flex-1 py-1.5 rounded text-xs font-bold border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
@@ -147,35 +186,43 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                             >
                                                 同意签约
                                             </button>
-                                        </>
+                                        </div>
                                     ) : (
                                         <>
                                             <button 
-                                                onClick={() => handleAction(item.interaction.id, 'terminate')}
-                                                className="px-3 py-1.5 rounded text-xs font-bold border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200"
+                                                onClick={() => setChatPatient(item)}
+                                                className="w-full py-2 rounded text-xs font-bold bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center gap-2"
                                             >
-                                                解约
+                                                💬 在线咨询
                                             </button>
-                                            {item.archive ? (
-                                                <>
-                                                    <button 
-                                                        onClick={() => onSelectPatient(item.archive!, 'assessment')}
-                                                        className="flex-1 py-1.5 rounded text-xs font-bold bg-white border border-blue-200 text-blue-600 hover:bg-blue-50"
-                                                    >
-                                                        健康档案
+                                            <div className="flex gap-2">
+                                                {item.archive ? (
+                                                    <>
+                                                        <button 
+                                                            onClick={() => onSelectPatient(item.archive!, 'assessment')}
+                                                            className="flex-1 py-1.5 rounded text-xs font-bold bg-white border border-blue-200 text-blue-600 hover:bg-blue-50"
+                                                        >
+                                                            健康档案
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => onSelectPatient(item.archive!, 'followup')}
+                                                            className="flex-1 py-1.5 rounded text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
+                                                        >
+                                                            随访管理
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button disabled className="flex-1 py-1.5 bg-slate-100 text-slate-400 text-xs rounded cursor-not-allowed">
+                                                        档案未关联
                                                     </button>
-                                                    <button 
-                                                        onClick={() => onSelectPatient(item.archive!, 'followup')}
-                                                        className="flex-1 py-1.5 rounded text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
-                                                    >
-                                                        随访管理
-                                                    </button>
-                                                </>
-                                            ) : (
-                                                <button disabled className="flex-1 py-1.5 bg-slate-100 text-slate-400 text-xs rounded cursor-not-allowed">
-                                                    档案未关联
+                                                )}
+                                                <button 
+                                                    onClick={() => handleAction(item.interaction.id, 'terminate')}
+                                                    className="px-3 py-1.5 rounded text-xs font-bold border border-slate-200 text-slate-400 hover:text-red-500 hover:border-red-200"
+                                                >
+                                                    解约
                                                 </button>
-                                            )}
+                                            </div>
                                         </>
                                     )}
                                 </div>
@@ -184,6 +231,65 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                     </div>
                 )}
             </div>
+
+            {/* Chat Modal */}
+            {chatPatient && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[600px] animate-scaleIn">
+                        {/* Header */}
+                        <div className="bg-indigo-600 p-4 flex justify-between items-center text-white shadow-md">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg">
+                                    {chatPatient.archive?.gender === '女' ? '👩' : '👨'}
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-lg">{chatPatient.archive?.name || chatPatient.interaction.userName}</h3>
+                                    <p className="text-xs opacity-80 flex items-center gap-1">
+                                        <span className="w-2 h-2 bg-green-400 rounded-full"></span> 在线
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setChatPatient(null)} className="text-white/80 hover:text-white text-2xl font-bold">×</button>
+                        </div>
+
+                        {/* Messages */}
+                        <div className="flex-1 overflow-y-auto p-4 bg-slate-50 space-y-4">
+                            {chatMessages.map(msg => (
+                                <div key={msg.id} className={`flex ${msg.senderRole === 'doctor' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${
+                                        msg.senderRole === 'doctor' 
+                                        ? 'bg-indigo-600 text-white rounded-br-none' 
+                                        : 'bg-white text-slate-700 rounded-bl-none border border-slate-200'
+                                    }`}>
+                                        {msg.content}
+                                        <div className={`text-[10px] mt-1 text-right ${msg.senderRole === 'doctor' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                                            {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                            <div ref={chatEndRef} />
+                        </div>
+
+                        {/* Input */}
+                        <div className="p-4 bg-white border-t border-slate-200 flex gap-2">
+                            <input 
+                                className="flex-1 border border-slate-300 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                placeholder="输入回复内容..."
+                                value={chatInput}
+                                onChange={e => setChatInput(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleSendMsg()}
+                            />
+                            <button 
+                                onClick={handleSendMsg}
+                                className="bg-indigo-600 text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-indigo-700 shadow-md active:scale-95 transition-transform"
+                            >
+                                ➤
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

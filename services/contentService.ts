@@ -88,8 +88,20 @@ export interface InteractionItem {
     details?: string; // e.g. "Address for delivery" or "Appointment time"
 }
 
+// New Interface for Chat Messages
+export interface ChatMessage {
+    id: string;
+    senderId: string; // userId or doctorId
+    senderRole: 'user' | 'doctor';
+    receiverId: string;
+    content: string;
+    timestamp: string;
+    read: boolean;
+}
+
 const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V3';
 const INTERACTION_KEY = 'HEALTH_GUARD_INTERACTIONS_V1';
+const CHAT_KEY = 'HEALTH_GUARD_CHATS_V1';
 
 // --- Content Functions ---
 
@@ -190,6 +202,35 @@ export const updateInteractionStatus = async (id: string, status: InteractionIte
     return false;
 };
 
+// --- Chat Functions ---
+
+export const fetchMessages = async (userId: string, doctorId: string): Promise<ChatMessage[]> => {
+    const raw = localStorage.getItem(CHAT_KEY);
+    let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
+    
+    // Filter messages between these two entities
+    return all.filter(m => 
+        (m.senderId === userId && m.receiverId === doctorId) || 
+        (m.senderId === doctorId && m.receiverId === userId)
+    ).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+};
+
+export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'read'>): Promise<ChatMessage> => {
+    const raw = localStorage.getItem(CHAT_KEY);
+    let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
+    
+    const newMsg: ChatMessage = {
+        ...msg,
+        id: `msg_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        read: false
+    };
+    
+    all.push(newMsg);
+    localStorage.setItem(CHAT_KEY, JSON.stringify(all));
+    return newMsg;
+};
+
 // --- Seeding ---
 
 export const seedInitialData = () => {
@@ -221,8 +262,16 @@ export const seedInitialData = () => {
         const interactions: InteractionItem[] = [
             { id: 'b1', type: 'booking', userId: 'u1', userName: '王老师', targetId: 's1', targetName: '核磁共振(MRI)', status: 'pending', date: '2024-05-20', details: '上午 10:00' },
             { id: 'do1', type: 'drug_order', userId: 'u2', userName: '张教授', targetId: 'd1', targetName: '阿司匹林肠溶片', status: 'pending', date: '2024-05-19', details: '配送地址: 家属院3号楼2单元' },
-            { id: 'sig1', type: 'signing', userId: '103146', userName: '李工', targetId: 'doc1', targetName: '张主任', status: 'pending', date: '2024-05-18', details: '申请签约家庭医生' },
+            { id: 'sig1', type: 'signing', userId: 'current_user', userName: '李工', targetId: 'doc1', targetName: '张主任', status: 'confirmed', date: '2024-05-18', details: '申请签约家庭医生' },
         ];
         localStorage.setItem(INTERACTION_KEY, JSON.stringify(interactions));
+    }
+    
+    if (!localStorage.getItem(CHAT_KEY)) {
+        // Seed a welcome message
+        const chats: ChatMessage[] = [
+            { id: 'msg1', senderId: 'doc1', senderRole: 'doctor', receiverId: 'current_user', content: '您好，我是张主任，欢迎签约家庭医生。', timestamp: new Date(Date.now() - 86400000).toISOString(), read: false }
+        ];
+        localStorage.setItem(CHAT_KEY, JSON.stringify(chats));
     }
 };
