@@ -1,4 +1,5 @@
 
+// ... (imports remain same, keeping the top part of the file intact until the render method)
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord } from '../types';
 import { HealthArchive } from '../services/dataService'; 
@@ -483,22 +484,69 @@ export const FollowUpDashboard: React.FC<Props> = ({
   return (
     <div className="animate-fadeIn pb-10">
 
-      {/* --- Global Reminder Alert Section --- */}
+      {/* --- Global Reminder Alert Section (Redesigned) --- */}
       {upcomingGlobalTasks.length > 0 && (
-          <div className="bg-orange-50 border-l-4 border-orange-400 p-4 rounded-r-xl shadow-sm mb-6 flex justify-between items-center">
-              <div className="flex items-center gap-2 text-orange-800 font-bold">
-                  <span>🔔</span> 近期随访提醒 ({upcomingGlobalTasks.length})
+          <div className="mb-8 animate-fadeIn">
+              <div className="flex items-center gap-2 mb-4">
+                  <span className="text-2xl">🔔</span>
+                  <h2 className="text-xl font-bold text-slate-800">
+                      近期随访提醒 
+                      <span className="text-sm font-normal text-slate-500 ml-2 bg-slate-100 px-2 py-1 rounded-full">
+                          {upcomingGlobalTasks.length} 人待处理
+                      </span>
+                  </h2>
               </div>
-              <div className="flex gap-2 overflow-x-auto max-w-2xl px-2">
-                  {upcomingGlobalTasks.map((task, idx) => (
-                      <button 
-                        key={idx}
-                        onClick={() => isAuthenticated && onPatientChange && onPatientChange(task.archive)}
-                        className={`text-xs px-2 py-1 rounded border whitespace-nowrap ${task.archive.checkup_id === currentPatientId ? 'bg-orange-200 border-orange-400 text-orange-900' : 'bg-white border-orange-200 text-orange-700'}`}
-                      >
-                          {maskName(task.archive.name)} ({task.daysLeft === 0 ? '今天' : task.daysLeft < 0 ? '逾期' : `${task.daysLeft}天`})
-                      </button>
-                  ))}
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {upcomingGlobalTasks.map((task, idx) => {
+                      const isOverdue = task.daysLeft < 0;
+                      const isToday = task.daysLeft === 0;
+                      const badgeColor = isOverdue ? 'bg-red-100 text-red-700' : isToday ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700';
+                      const statusText = isOverdue ? `逾期 ${Math.abs(task.daysLeft)} 天` : isToday ? '今天' : `${task.daysLeft} 天后`;
+
+                      return (
+                          <div 
+                              key={idx}
+                              onClick={() => isAuthenticated && onPatientChange && onPatientChange(task.archive)}
+                              className={`relative p-4 rounded-xl border-2 transition-all cursor-pointer hover:shadow-md hover:-translate-y-1 bg-white ${
+                                  task.archive.checkup_id === currentPatientId ? 'ring-2 ring-teal-500' : 'border-slate-100'
+                              }`}
+                          >
+                              {/* Status Badge */}
+                              <div className={`absolute top-0 right-0 px-3 py-1 rounded-bl-xl rounded-tr-lg text-xs font-bold ${badgeColor}`}>
+                                  {statusText}
+                              </div>
+
+                              <div className="flex items-center gap-3 mb-3 mt-1">
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${
+                                      task.archive.gender === '女' ? 'bg-pink-50 text-pink-500' : 'bg-blue-50 text-blue-500'
+                                  }`}>
+                                      {task.archive.gender === '女' ? '👩' : '👨'}
+                                  </div>
+                                  <div>
+                                      <div className="font-bold text-slate-800 text-lg leading-tight">
+                                          {maskName(task.archive.name)}
+                                      </div>
+                                      <div className="text-xs text-slate-400">
+                                          {task.archive.age}岁 · {task.archive.department}
+                                      </div>
+                                  </div>
+                              </div>
+
+                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 mb-2">
+                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-1">重点复查</div>
+                                  <div className="text-xs text-slate-600 font-medium line-clamp-2" title={task.focus}>
+                                      {task.focus || '常规复查'}
+                                  </div>
+                              </div>
+                              
+                              <div className="flex justify-between items-center text-xs mt-2">
+                                  <span className="text-slate-400">计划日期: {task.date}</span>
+                                  <span className="text-teal-600 font-bold hover:underline">处理 &rarr;</span>
+                              </div>
+                          </div>
+                      );
+                  })}
               </div>
           </div>
       )}
