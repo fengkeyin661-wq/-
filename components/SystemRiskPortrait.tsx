@@ -26,13 +26,20 @@ export const SystemRiskPortrait: React.FC<Props> = ({
 
     // Initialize or Calculate
     useEffect(() => {
+        // ALWAYS recalculate risk models locally to ensure 'missingParams' definitions are consistent with current code
+        // This fixes issues where DB data might be stale or missing structure
+        const freshModels = evaluateRiskModels(record);
+
         if (existingAnalysis) {
-            setAnalysis(existingAnalysis);
+            // Merge fresh models with existing portraits (which might be AI generated and expensive to redo)
+            setAnalysis({
+                portraits: existingAnalysis.portraits,
+                models: freshModels
+            });
         } else {
-            // Initial calculation if not present
+            // Generate everything fresh
             const portraits = generateSystemPortraits(record);
-            const models = evaluateRiskModels(record);
-            setAnalysis({ portraits, models });
+            setAnalysis({ portraits, models: freshModels });
         }
     }, [record, existingAnalysis]);
 
@@ -41,9 +48,8 @@ export const SystemRiskPortrait: React.FC<Props> = ({
             setActiveModel(model);
             setMissingInputs({});
         } else {
-            // Even if calculated, allow viewing/editing inputs? 
-            // For now, simplify to just fixing missing ones.
-            alert(`${model.modelName}\n评分: ${model.score}\n结果: ${model.description}`);
+            // Even if calculated, allow viewing result
+            // alert(`${model.modelName}\n评分: ${model.score}\n结果: ${model.description}`);
         }
     };
 
@@ -58,7 +64,9 @@ export const SystemRiskPortrait: React.FC<Props> = ({
 
             // 2. Re-evaluate models locally
             const newModels = evaluateRiskModels(tempRecord);
-            const newPortraits = generateSystemPortraits(tempRecord);
+            // We usually don't regenerate portraits here unless we want to trigger AI again (expensive)
+            // So we keep existing portraits or basic regenerate
+            const newPortraits = generateSystemPortraits(tempRecord); // Local logic only
             
             const newAnalysis = { portraits: newPortraits, models: newModels };
             setAnalysis(newAnalysis);
@@ -306,33 +314,42 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                             <h3 className="font-bold text-lg text-slate-800">完善变量: {activeModel.modelName}</h3>
                             <button onClick={() => setActiveModel(null)} className="text-slate-400 hover:text-slate-600 font-bold">×</button>
                         </div>
-                        <p className="text-sm text-slate-500 mb-4">该模型需要以下额外数据才能进行准确评估：</p>
+                        <p className="text-sm text-slate-500 mb-4 bg-blue-50 p-2 rounded border border-blue-100">
+                            该模型需要以下额外数据才能进行准确评估，请补充：
+                        </p>
                         
-                        <div className="space-y-4 mb-6">
-                            {activeModel.missingParams.map(param => (
-                                <div key={param.key}>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">{param.label}</label>
-                                    {param.label.includes('是/否') ? (
-                                        <select 
-                                            className="w-full border border-slate-300 rounded p-2 text-sm bg-white"
-                                            onChange={e => setMissingInputs({...missingInputs, [param.key]: e.target.value})}
-                                            value={missingInputs[param.key] || ''}
-                                        >
-                                            <option value="">请选择</option>
-                                            <option value="是">是</option>
-                                            <option value="否">否</option>
-                                        </select>
-                                    ) : (
-                                        <input 
-                                            type="text" 
-                                            className="w-full border border-slate-300 rounded p-2 text-sm"
-                                            placeholder="请输入数值或描述"
-                                            value={missingInputs[param.key] || ''}
-                                            onChange={e => setMissingInputs({...missingInputs, [param.key]: e.target.value})}
-                                        />
-                                    )}
+                        <div className="space-y-4 mb-6 max-h-[60vh] overflow-y-auto">
+                            {activeModel.missingParams && activeModel.missingParams.length > 0 ? (
+                                activeModel.missingParams.map(param => (
+                                    <div key={param.key}>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">{param.label}</label>
+                                        {param.label.includes('是/否') ? (
+                                            <select 
+                                                className="w-full border border-slate-300 rounded p-2 text-sm bg-white focus:ring-2 focus:ring-teal-500"
+                                                onChange={e => setMissingInputs({...missingInputs, [param.key]: e.target.value})}
+                                                value={missingInputs[param.key] || ''}
+                                            >
+                                                <option value="">请选择</option>
+                                                <option value="是">是</option>
+                                                <option value="否">否</option>
+                                            </select>
+                                        ) : (
+                                            <input 
+                                                type="text" 
+                                                className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-teal-500"
+                                                placeholder="请输入数值或描述"
+                                                value={missingInputs[param.key] || ''}
+                                                onChange={e => setMissingInputs({...missingInputs, [param.key]: e.target.value})}
+                                            />
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-4 text-slate-400">
+                                    <p>暂无具体缺失项列表。</p>
+                                    <p className="text-xs mt-1">这可能是因为数据正在同步，请尝试重新打开此窗口。</p>
                                 </div>
-                            ))}
+                            )}
                         </div>
 
                         <div className="flex justify-end gap-3">
@@ -340,9 +357,9 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                             <button 
                                 onClick={handleSaveInputs}
                                 disabled={isSaving}
-                                className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow text-sm disabled:opacity-50"
+                                className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow text-sm disabled:opacity-50 flex items-center gap-2"
                             >
-                                {isSaving ? '正在评估...' : '提交并重新评估'}
+                                {isSaving ? '⏳ 正在评估...' : '✅ 提交并重新评估'}
                             </button>
                         </div>
                     </div>
