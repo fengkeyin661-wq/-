@@ -6,6 +6,7 @@ interface LayoutProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   isAuthenticated?: boolean;
+  currentUserRole?: string | null;
   onLoginClick?: () => void;
   onLogoutClick?: () => void;
 }
@@ -15,20 +16,28 @@ export const Layout: React.FC<LayoutProps> = ({
   activeTab, 
   onTabChange,
   isAuthenticated = false,
+  currentUserRole,
   onLoginClick,
   onLogoutClick
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const navItems = [
-    { id: 'dashboard', label: '健康总览', icon: '📊' },
-    { id: 'external_survey', label: '在线问卷填写', icon: '🌐' },
-    { id: 'survey', label: '健康建档', icon: '📝' },
-    { id: 'assessment', label: '风险评估与方案', icon: '📋' },
-    { id: 'followup', label: '随访监测', icon: '📅' },
-    { id: 'heatmap', label: '医疗服务热力图', icon: '🏥' },
-    { id: 'admin', label: '管理控制台', icon: '⚡' },
+    { id: 'dashboard', label: '健康总览', icon: '📊', roles: ['admin', 'doctor'] },
+    { id: 'survey', label: '健康调查建档', icon: '📝', roles: ['admin', 'doctor'] },
+    { id: 'assessment', label: '风险评估与方案', icon: '📋', roles: ['admin', 'doctor'] },
+    { id: 'risk_portrait', label: '风险画像与系统评估', icon: '🧘', roles: ['admin', 'doctor'] },
+    { id: 'followup', label: '随访监测', icon: '📅', roles: ['admin', 'doctor'] },
+    { id: 'my_patients', label: '我的签约用户', icon: '🤝', roles: ['doctor'] }, // Doctor Only
+    { id: 'heatmap', label: '医疗服务热力图', icon: '🏥', roles: ['admin', 'doctor'] },
+    { id: 'admin', label: '管理控制台', icon: '⚡', roles: ['admin'] },
   ];
+
+  // Filter items based on role (if authenticated)
+  // If not authenticated, show general items (dashboard/survey/assessment demo)
+  const visibleItems = isAuthenticated 
+    ? navItems.filter(item => item.roles.includes(currentUserRole || 'admin'))
+    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'risk_portrait', 'followup', 'heatmap'].includes(item.id));
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden print:block print:h-auto print:overflow-visible">
@@ -46,7 +55,7 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
         </div>
         <nav className="flex-1 py-6 px-3 space-y-2 min-w-[256px] overflow-y-auto">
-          {navItems.map((item) => (
+          {visibleItems.map((item) => (
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
@@ -67,8 +76,8 @@ export const Layout: React.FC<LayoutProps> = ({
               Dr.
             </div>
             <div>
-              <p className="text-sm font-medium">邱医生</p>
-              <p className="text-xs text-slate-400">主检医生</p>
+              <p className="text-sm font-medium">{currentUserRole === 'doctor' ? '签约医生' : '邱医生'}</p>
+              <p className="text-xs text-slate-400">{currentUserRole === 'admin' ? '主检医生' : currentUserRole === 'doctor' ? '家庭医生' : '访客'}</p>
             </div>
           </div>
         </div>
@@ -95,9 +104,9 @@ export const Layout: React.FC<LayoutProps> = ({
             <div className="flex gap-4 items-center">
                 {isAuthenticated ? (
                     <div className="flex items-center gap-3">
-                        <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full font-bold border border-green-200 flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                            管理员已登录
+                        <span className={`text-xs px-2 py-1 rounded-full font-bold border flex items-center gap-1 ${currentUserRole === 'doctor' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
+                            <span className={`w-2 h-2 rounded-full ${currentUserRole === 'doctor' ? 'bg-blue-500' : 'bg-green-500'}`}></span>
+                            {currentUserRole === 'doctor' ? '医生已登录' : '管理员已登录'}
                         </span>
                         <button 
                             onClick={onLogoutClick}
@@ -111,7 +120,7 @@ export const Layout: React.FC<LayoutProps> = ({
                         onClick={onLoginClick}
                         className="flex items-center gap-2 bg-slate-800 text-white px-4 py-1.5 rounded-full text-sm font-bold hover:bg-slate-700 transition-all shadow-sm hover:shadow-md"
                     >
-                        <span>🔒</span> 管理员登录
+                        <span>🔒</span> 后台登录
                     </button>
                 )}
                 <div className="h-4 w-[1px] bg-slate-200 mx-1"></div>

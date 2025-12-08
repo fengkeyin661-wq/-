@@ -10,22 +10,26 @@ import { LoginModal } from './components/LoginModal';
 import { NativeSurveyForm } from './components/NativeSurveyForm';
 import { UserApp } from './components/UserApp';
 import { HomeAdmin } from './components/HomeAdmin';
-import { ResourceAdmin } from './components/ResourceAdmin'; // New Component
+import { ResourceAdmin } from './components/ResourceAdmin'; 
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
+import { DoctorPatients } from './components/DoctorPatients'; // New Component
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, findArchiveByPhone, updateHealthRecordOnly } from './services/dataService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
+import { ContentItem } from './services/contentService'; // Import ContentItem type
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | 'resource_admin' | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | 'resource_admin' | 'doctor' | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  
   const [userCheckupId, setUserCheckupId] = useState('');
+  const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); // Store logged in doctor info
 
   // Medical Data State
   const [archives, setArchives] = useState<HealthArchive[]>([]);
@@ -38,8 +42,8 @@ export const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    // Initial fetch if admin
-    if (isAuthenticated && currentUserRole === 'admin') refreshArchives();
+    // Initial fetch if admin or doctor
+    if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) refreshArchives();
   }, [isAuthenticated, currentUserRole]);
 
   const refreshArchives = async () => {
@@ -47,12 +51,17 @@ export const App: React.FC = () => {
     setArchives(data);
   };
 
-  const handleLoginSuccess = (role: 'admin' | 'home' | 'resource_admin') => {
+  const handleLoginSuccess = (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
     setIsAuthenticated(true);
     setCurrentUserRole(role);
     setShowLoginModal(false);
+    
     if (role === 'admin') {
         setActiveTab('admin');
+        refreshArchives();
+    } else if (role === 'doctor') {
+        if (doctorInfo) setCurrentDoctor(doctorInfo);
+        setActiveTab('my_patients'); // Default tab for doctor
         refreshArchives();
     }
   };
@@ -276,7 +285,7 @@ export const App: React.FC = () => {
       return <HomeAdmin onLogout={() => { setIsAuthenticated(false); setCurrentUserRole(null); }} />;
   }
 
-  // 2. Resource Admin View (Content/Ops Level) - NEW
+  // 2. Resource Admin View (Content/Ops Level)
   if (currentUserRole === 'resource_admin') {
       return <ResourceAdmin onLogout={() => { setIsAuthenticated(false); setCurrentUserRole(null); }} />;
   }
@@ -286,7 +295,7 @@ export const App: React.FC = () => {
       return <UserApp checkupId={userCheckupId} onLogout={() => { setCurrentUserRole(null); setUserCheckupId(''); }} />;
   }
 
-  // 4. Main Dashboard / Admin View
+  // 4. Main Dashboard / Admin / Doctor View
   return (
     <div className="h-screen flex flex-col">
         {!isAuthenticated && activeTab === 'dashboard' ? (
@@ -305,7 +314,7 @@ export const App: React.FC = () => {
                             onClick={() => setShowLoginModal(true)}
                             className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-700 transition-all shadow-md"
                         >
-                            管理员登录
+                            后台登录 (管理员/医生)
                         </button>
                         
                         <div className="relative">
@@ -335,14 +344,15 @@ export const App: React.FC = () => {
                 activeTab={activeTab} 
                 onTabChange={setActiveTab} 
                 isAuthenticated={isAuthenticated}
+                currentUserRole={currentUserRole}
                 onLoginClick={() => setShowLoginModal(true)}
-                onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setActiveTab('dashboard'); }}
+                onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setCurrentDoctor(null); setActiveTab('dashboard'); }}
             >
                 {activeTab === 'dashboard' && (
                     <div className="h-full flex flex-col items-center justify-center text-center space-y-6 opacity-60">
                         <div className="text-8xl">🏥</div>
                         <h2 className="text-3xl font-bold text-slate-700">欢迎使用健康管理系统</h2>
-                        <p className="text-lg text-slate-500">请从左侧菜单选择功能，或在“管理控制台”中选择一位受检者。</p>
+                        <p className="text-lg text-slate-500">请从左侧菜单选择功能。</p>
                         {!isAuthenticated && (
                             <button onClick={() => setShowLoginModal(true)} className="bg-teal-600 text-white px-6 py-2 rounded-lg font-bold shadow">
                                 登录系统
@@ -406,12 +416,19 @@ export const App: React.FC = () => {
                     <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />
                 )}
 
-                {activeTab === 'admin' && (
+                {activeTab === 'admin' && currentUserRole === 'admin' && (
                     <AdminConsole 
                         onSelectPatient={handleSelectPatient} 
                         onDataUpdate={refreshArchives} 
                         isAuthenticated={isAuthenticated} 
                         onTabChange={setActiveTab}
+                    />
+                )}
+
+                {activeTab === 'my_patients' && currentUserRole === 'doctor' && currentDoctor && (
+                    <DoctorPatients 
+                        doctorId={currentDoctor.id}
+                        onSelectPatient={handleSelectPatient}
                     />
                 )}
             </Layout>

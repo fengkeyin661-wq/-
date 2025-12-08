@@ -1,10 +1,11 @@
 
 import React, { useState } from 'react';
+import { fetchContent, ContentItem } from '../services/contentService';
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    onLoginSuccess: (role: 'admin' | 'home' | 'resource_admin') => void;
+    onLoginSuccess: (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => void;
 }
 
 export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess }) => {
@@ -14,6 +15,7 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [loginError, setLoginError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
     // Verification Form State
     const [email, setEmail] = useState('');
@@ -21,7 +23,7 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
     const [sentCode, setSentCode] = useState('');
     const [verifyMsg, setVerifyMsg] = useState('');
 
-    // Credentials
+    // Static Credentials
     const ADMIN_USER = "zzdxyy";
     const ADMIN_PASS = "xyy67739261#";
     
@@ -35,23 +37,49 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
 
     if (!isOpen) return null;
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
+        setLoginError('');
+        setIsLoading(true);
+
+        // 1. Check Static Admin Roles
         if (username === ADMIN_USER && password === ADMIN_PASS) {
-            setLoginError('');
             onLoginSuccess('admin');
+            setIsLoading(false);
             onClose();
+            return;
         } else if (username === HOME_USER && password === HOME_PASS) {
-            setLoginError('');
             onLoginSuccess('home');
+            setIsLoading(false);
             onClose();
+            return;
         } else if (username === RES_USER && password === RES_PASS) {
-            setLoginError('');
             onLoginSuccess('resource_admin');
+            setIsLoading(false);
             onClose();
-        } else {
-            setLoginError('账号或密码错误');
+            return;
+        } 
+
+        // 2. Check Dynamic Doctor Roles
+        try {
+            const doctors = await fetchContent('doctor', 'active');
+            const doctor = doctors.find(doc => 
+                doc.details?.username === username && 
+                doc.details?.password === password
+            );
+
+            if (doctor) {
+                onLoginSuccess('doctor', doctor);
+                setIsLoading(false);
+                onClose();
+                return;
+            }
+        } catch (e) {
+            console.error("Doctor login check failed", e);
         }
+
+        setLoginError('账号或密码错误');
+        setIsLoading(false);
     };
 
     const handleSendCode = () => {
@@ -96,13 +124,13 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                 {authStep === 'login' ? (
                     <form onSubmit={handleLogin} className="space-y-5">
                         <div>
-                            <label className="block text-xs font-bold text-slate-700 mb-1">管理员账号</label>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">账号</label>
                             <input 
                                 type="text" 
                                 value={username}
                                 onChange={e => setUsername(e.target.value)}
                                 className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-teal-500 outline-none text-sm"
-                                placeholder="输入账号 (admin / zzdx / home)"
+                                placeholder="管理员或医生账号"
                             />
                         </div>
                         <div>
@@ -117,13 +145,17 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess })
                         </div>
                         {loginError && <p className="text-red-500 text-xs text-center font-bold">{loginError}</p>}
                         
-                        <button type="submit" className="w-full bg-slate-800 text-white font-bold py-2.5 rounded-lg hover:bg-slate-700 transition-colors shadow-lg text-sm">
-                            登录系统
+                        <button 
+                            type="submit" 
+                            disabled={isLoading}
+                            className="w-full bg-slate-800 text-white font-bold py-2.5 rounded-lg hover:bg-slate-700 transition-colors shadow-lg text-sm disabled:opacity-50 flex justify-center items-center gap-2"
+                        >
+                            {isLoading ? '验证中...' : '登录系统'}
                         </button>
                         
                         <div className="text-center">
                             <button type="button" onClick={() => setAuthStep('verify')} className="text-xs text-teal-600 hover:underline">
-                                忘记密码 / 邮箱验证登录
+                                忘记密码 / 邮箱验证登录 (仅管理员)
                             </button>
                         </div>
                     </form>

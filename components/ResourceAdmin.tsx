@@ -16,7 +16,7 @@ const TEMPLATE_HEADERS: Record<string, string[]> = {
     'event': ['名称', '类别', '图标(Emoji)', '标签', '活动时间(YYYY-MM-DD HH:mm)', '报名截止时间(YYYY-MM-DD HH:mm)', '地点', '人数上限', '组织者', '联系方式'],
     'service': ['名称', '类别', '图标(Emoji)', '标签', '所属科室', '单价', '检查意义', '适用人群', '检查前准备'],
     'drug': ['药品名称', '图标(Emoji)', '标签', '用途/适应症', '用法用量', '给药途径', '服用时间与注意事项', '副作用', '禁忌症', '药物相互作用', '储存与有效期', '漏服处理', '库存', '规格'],
-    'doctor': ['姓名', '图标(Emoji)', '标签', '科室', '职称', '擅长领域', '门诊时间', '所在医院']
+    'doctor': ['姓名', '图标(Emoji)', '标签', '科室', '职称', '擅长领域', '门诊时间', '所在医院', '后台账号', '后台密码']
 };
 
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
@@ -221,6 +221,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     d.specialty = row['擅长领域'];
                     d.schedule = row['门诊时间'];
                     d.hospital = row['所在医院'];
+                    d.username = row['后台账号'];
+                    d.password = row['后台密码'];
                 }
 
                 item.details = d;
@@ -337,7 +339,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     { header: '职称', key: 'details.title', width: '100px' },
                     { header: '擅长领域', key: 'details.specialty', width: '250px' },
                     { header: '门诊时间', key: 'details.schedule', width: '150px' },
-                    // { header: '所在医院', key: 'details.hospital', width: '150px' },
+                    { header: '后台账号', key: 'details.username', width: '100px' },
+                    { header: '后台密码', key: 'details.password', width: '100px' },
                 ];
                 break;
         }
@@ -584,9 +587,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 </div>
                             )}
                             {currentItem.type === 'doctor' && (
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="block text-xs font-bold text-slate-500">科室</label><input className="w-full border p-2 rounded" value={currentItem.details?.dept||''} onChange={e=>setCurrentItem({...currentItem, details:{...currentItem.details, dept:e.target.value}})} /></div>
-                                    <div><label className="block text-xs font-bold text-slate-500">职称</label><input className="w-full border p-2 rounded" value={currentItem.details?.title||''} onChange={e=>setCurrentItem({...currentItem, details:{...currentItem.details, title:e.target.value}})} /></div>
+                                <div className="space-y-2">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="block text-xs font-bold text-slate-500">科室</label><input className="w-full border p-2 rounded" value={currentItem.details?.dept||''} onChange={e=>setCurrentItem({...currentItem, details:{...currentItem.details, dept:e.target.value}})} /></div>
+                                        <div><label className="block text-xs font-bold text-slate-500">职称</label><input className="w-full border p-2 rounded" value={currentItem.details?.title||''} onChange={e=>setCurrentItem({...currentItem, details:{...currentItem.details, title:e.target.value}})} /></div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 bg-yellow-50 p-2 rounded border border-yellow-200">
+                                        <div><label className="block text-xs font-bold text-yellow-800">后台登录账号</label><input className="w-full border p-2 rounded bg-white" value={currentItem.details?.username||''} onChange={e=>setCurrentItem({...currentItem, details:{...currentItem.details, username:e.target.value}})} /></div>
+                                        <div><label className="block text-xs font-bold text-yellow-800">后台登录密码</label><input className="w-full border p-2 rounded bg-white" value={currentItem.details?.password||''} onChange={e=>setCurrentItem({...currentItem, details:{...currentItem.details, password:e.target.value}})} /></div>
+                                    </div>
                                 </div>
                             )}
                             {currentItem.type === 'event' && (

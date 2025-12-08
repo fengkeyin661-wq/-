@@ -57,6 +57,8 @@ export interface ContentItem {
     specialty?: string; // 擅长领域
     hospital?: string;
     schedule?: string; // 门诊时间
+    username?: string; // 登录账号 (NEW)
+    password?: string; // 登录密码 (NEW)
     
     // --- Event ---
     eventCategory?: string; // 类别
@@ -77,7 +79,7 @@ export interface ContentItem {
 export interface InteractionItem {
     id: string;
     type: 'booking' | 'drug_order' | 'signing' | 'event_signup';
-    userId: string;
+    userId: string; // Creates a link to HealthArchive.checkup_id
     userName: string;
     targetId: string; // ID of the service/drug/doctor
     targetName: string;
@@ -195,7 +197,7 @@ export const seedInitialData = () => {
             { id: 's1', type: 'service', title: '核磁共振(MRI)', image: '🩻', tags: ['检查'], status: 'active', updatedAt: new Date().toISOString(), details: { price: '600', dept: '放射科' } },
             
             // Doctors
-            { id: 'doc1', type: 'doctor', title: '张主任', image: '👨‍⚕️', tags: ['心内科'], status: 'active', updatedAt: new Date().toISOString(), details: { dept: '心血管内科', title: '主任医师', specialty: '高血压, 冠心病' } },
+            { id: 'doc1', type: 'doctor', title: '张主任', image: '👨‍⚕️', tags: ['心内科'], status: 'active', updatedAt: new Date().toISOString(), details: { dept: '心血管内科', title: '主任医师', specialty: '高血压, 冠心病', username: 'doc_zhang', password: '123' } },
             
             // Events
             { id: 'ev1', type: 'event', title: '春季健步走', image: '🚶', tags: ['活动'], status: 'active', updatedAt: new Date().toISOString(), details: { date: '2024-06-01T09:00', deadline: '2024-05-30T18:00', max: 50, registered: 12, loc: '体育场' } },
@@ -207,7 +209,7 @@ export const seedInitialData = () => {
         const interactions: InteractionItem[] = [
             { id: 'b1', type: 'booking', userId: 'u1', userName: '王老师', targetId: 's1', targetName: '核磁共振(MRI)', status: 'pending', date: '2024-05-20', details: '上午 10:00' },
             { id: 'do1', type: 'drug_order', userId: 'u2', userName: '张教授', targetId: 'd1', targetName: '阿司匹林肠溶片', status: 'pending', date: '2024-05-19', details: '配送地址: 家属院3号楼2单元' },
-            { id: 'sig1', type: 'signing', userId: 'u3', userName: '李工', targetId: 'doc1', targetName: '张主任', status: 'pending', date: '2024-05-18', details: '申请签约家庭医生' },
+            { id: 'sig1', type: 'signing', userId: '103146', userName: '李工', targetId: 'doc1', targetName: '张主任', status: 'pending', date: '2024-05-18', details: '申请签约家庭医生' },
         ];
         localStorage.setItem(INTERACTION_KEY, JSON.stringify(interactions));
     }
