@@ -413,7 +413,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </h2>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+              <div className="flex overflow-x-auto pb-4 gap-4 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
                   {upcomingGlobalTasks.map((task, idx) => {
                       const isOverdue = task.daysLeft < 0;
                       const isToday = task.daysLeft === 0;
@@ -424,7 +424,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           <div 
                               key={idx}
                               onClick={() => isAuthenticated && onPatientChange && onPatientChange(task.archive)}
-                              className={`relative p-4 rounded-xl border-2 transition-all cursor-pointer hover:shadow-md hover:-translate-y-1 bg-white ${
+                              className={`relative p-4 rounded-xl border-2 transition-all cursor-pointer hover:shadow-md hover:-translate-y-1 bg-white min-w-[280px] w-[280px] flex-shrink-0 ${
                                   task.archive.checkup_id === currentPatientId ? 'ring-2 ring-teal-500' : 'border-slate-100'
                               }`}
                           >
@@ -446,7 +446,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                       </div>
                                   </div>
                               </div>
-                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 mb-2">
+                              <div className="bg-slate-50 p-2 rounded-lg border border-slate-100 mb-2 h-[50px] overflow-hidden">
                                   <div className="text-[10px] text-slate-400 uppercase font-bold mb-1">重点复查</div>
                                   <div className="text-xs text-slate-600 font-medium line-clamp-2" title={task.focus}>
                                       {task.focus || '常规复查'}
