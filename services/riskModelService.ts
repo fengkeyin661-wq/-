@@ -188,8 +188,8 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         
         if (!age) missing.push({key: 'age', label: '年龄'});
         if (!sbp) missing.push({key: 'sbp', label: '收缩压'});
-        if (!tc) missing.push({key: 'tc', label: '总胆固醇'});
-        if (!waist) missing.push({key: 'waist', label: '腰围(cm)'});
+        if (!tc) missing.push({key: 'tc', label: 'TC'}); // Shortened from 总胆固醇
+        if (!waist) missing.push({key: 'waist', label: '腰围'}); // Shortened
 
         if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少体检基础数据' };
 
@@ -256,8 +256,8 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         const parentHip = getVal('parentHip');
         const steroids = getVal('steroids');
 
-        if (parentHip === undefined) missing.push({key: 'parentHip', label: '父母髋骨骨折史(是/否)'});
-        if (steroids === undefined) missing.push({key: 'steroids', label: '长期使用激素(是/否)'});
+        if (parentHip === undefined) missing.push({key: 'parentHip', label: '父母髋骨骨折'});
+        if (steroids === undefined) missing.push({key: 'steroids', label: '激素史'});
 
         if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少问卷关键因子' };
         
@@ -280,8 +280,8 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         const packYears = getVal('packYears'); // from AI or Calc
         const cough = getVal('chronicCough');
         
-        if (packYears === undefined && getVal('isSmoking') === undefined) missing.push({key: 'packYears', label: '吸烟包年数'});
-        if (cough === undefined) missing.push({key: 'chronicCough', label: '经常咳嗽?'});
+        if (packYears === undefined && getVal('isSmoking') === undefined) missing.push({key: 'packYears', label: '包年数'});
+        if (cough === undefined) missing.push({key: 'chronicCough', label: '咳嗽症状'});
 
         if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善呼吸道症状/吸烟史' };
 
@@ -322,10 +322,10 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         const biopsy = getVal('breastBiopsy');
         const familyBc = getVal('familyBc');
 
-        if (!menarche) missing.push({key: 'menarcheAge', label: '初潮年龄'});
-        if (!firstBirthStr) missing.push({key: 'firstBirthAge', label: '首次生育年龄'});
-        if (biopsy === undefined) missing.push({key: 'breastBiopsy', label: '乳腺活检史'});
-        if (familyBc === undefined) missing.push({key: 'familyBc', label: '直系亲属乳腺癌史'});
+        if (!menarche) missing.push({key: 'menarcheAge', label: '初潮'});
+        if (!firstBirthStr) missing.push({key: 'firstBirthAge', label: '首胎'});
+        if (biopsy === undefined) missing.push({key: 'breastBiopsy', label: '活检'});
+        if (familyBc === undefined) missing.push({key: 'familyBc', label: '家族史'});
 
         if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少女性健康史' };
 
@@ -345,8 +345,15 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         const gad = q.mentalScales.gad7Score;
         const harm = q.mentalScales.selfHarmIdea || 0;
 
-        if (phq === undefined || gad === undefined) {
-             return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing: [{key:'phq9', label:'PHQ-9评分'}], desc: '需完成心理量表' };
+        // Fix: Explicitly check for null or undefined. A value of 0 is valid, but null is missing.
+        if (phq === undefined || phq === null || gad === undefined || gad === null) {
+             return { 
+                 score: '-', 
+                 riskLevel: 'UNKNOWN' as const, 
+                 riskLabel: '待完善' as const, 
+                 missing: [{key:'mental_survey', label:'健康问卷'}], 
+                 desc: '请补全健康问卷' 
+             };
         }
 
         let level = RiskLevel.GREEN;
@@ -375,7 +382,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
     // --- 7. APCS (结直肠癌) ---
     const colonCalc = () => {
         const missing = [];
-        if (getVal('colonCancer') === undefined) missing.push({key: 'colonCancer', label: '亲属肠癌史'});
+        if (getVal('colonCancer') === undefined) missing.push({key: 'colonCancer', label: '家族史'});
         if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '缺少家族史' };
 
         let score = 0;
@@ -399,7 +406,7 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         const quitYearStr = q.substances.smoking.quitYear;
         
         if (!age) missing.push({key: 'age', label: '年龄'});
-        if (packYears === undefined) missing.push({key: 'packYears', label: '吸烟包年数'});
+        if (packYears === undefined) missing.push({key: 'packYears', label: '包年数'});
         
         if (missing.length > 0) return { score: '-', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需吸烟量细节' };
 
@@ -443,10 +450,10 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
 
         if (!age) missing.push({key: 'age', label: '年龄'});
         if (!bmi) missing.push({key: 'bmi', label: 'BMI'});
-        if (ast === undefined) missing.push({key: 'ast', label: '谷草转氨酶 (AST)'});
-        if (alt === undefined) missing.push({key: 'alt', label: '谷丙转氨酶 (ALT)'});
-        if (plt === undefined) missing.push({key: 'plt', label: '血小板计数 (PLT)'});
-        if (alb === undefined) missing.push({key: 'alb', label: '白蛋白 (Alb)'});
+        if (ast === undefined) missing.push({key: 'ast', label: 'AST'}); // Shortened
+        if (alt === undefined) missing.push({key: 'alt', label: 'ALT'}); // Shortened
+        if (plt === undefined) missing.push({key: 'plt', label: 'PLT'}); // Shortened
+        if (alb === undefined) missing.push({key: 'alb', label: '白蛋白'}); // Shortened
 
         if (missing.length > 0) return { score: 'NA', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善生化/血常规指标' };
 
@@ -476,10 +483,9 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
         const pgr = getVal('pgr'); // PGR value
         const g17 = getVal('g17'); // G-17 value
 
-        if (hp === undefined) missing.push({key: 'hp', label: '幽门螺杆菌感染 (是/否)'});
-        if (pgr === undefined) missing.push({key: 'pgr', label: 'PGI/PGII 比值 (PGR)'});
-        // g17 is optional for simplified ABC, but better to have. We rely on PGR mainly for atrophy.
-        if (g17 === undefined) missing.push({key: 'g17', label: '胃泌素-17 (G-17)'});
+        if (hp === undefined) missing.push({key: 'hp', label: 'Hp感染'}); // Shortened
+        if (pgr === undefined) missing.push({key: 'pgr', label: 'PGR'}); // Shortened
+        if (g17 === undefined) missing.push({key: 'g17', label: 'G-17'}); // Shortened
 
         if (missing.length > 0) return { score: 'NA', riskLevel: 'UNKNOWN' as const, riskLabel: '未知' as const, missing, desc: '需完善血清胃功能检测' };
 

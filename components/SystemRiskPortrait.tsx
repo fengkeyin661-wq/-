@@ -255,7 +255,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({
             <section className="print:break-inside-avoid">
                  <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                     <span className="text-2xl">📊</span> 疾病风险预测模型矩阵
-                    <span className="text-xs font-normal text-slate-400 ml-2 bg-slate-100 px-2 py-1 rounded no-print">点击灰色卡片可补全数据进行评估</span>
+                    <span className="text-xs font-normal text-slate-400 ml-2 bg-slate-100 px-2 py-1 rounded no-print">点击卡片补全数据以评估</span>
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                     {analysis.models.map((model) => (
@@ -274,10 +274,17 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                                 <div className="font-bold text-sm leading-tight">{model.modelName}</div>
                             </div>
                             
-                            <div className="mt-2">
+                            <div className="mt-2 h-10 flex flex-col justify-end">
                                 {model.riskLevel === 'UNKNOWN' ? (
-                                    <div className="flex items-center gap-1 text-xs font-bold text-slate-400">
-                                        <span>📝</span> 点击补全
+                                    <div className="flex flex-col">
+                                        <div className="flex items-center gap-1 text-xs font-bold text-teal-600 mb-0.5">
+                                            <span>📝</span> 点击补全
+                                        </div>
+                                        {model.missingParams && model.missingParams.length > 0 && (
+                                            <div className="text-[10px] text-red-500 truncate" title={model.missingParams.map(p=>p.label).join('、')}>
+                                                缺: {model.missingParams.map(p => p.label).join('、')}
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <>
