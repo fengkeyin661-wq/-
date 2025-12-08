@@ -232,9 +232,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
     const baseState = { ...initialFormState };
     
     if (latestRecord) {
-        baseState.medication.currentDrugs = latestRecord.medication.currentDrugs;
-        baseState.organRisks.carotidPlaque = latestRecord.organRisks.carotidPlaque;
-        baseState.organRisks.thyroidNodule = latestRecord.organRisks.thyroidNodule;
+        baseState.medication.currentDrugs = latestRecord.medication.currentDrugs || '';
+        baseState.organRisks.carotidPlaque = latestRecord.organRisks.carotidPlaque || '无';
+        baseState.organRisks.thyroidNodule = latestRecord.organRisks.thyroidNodule || '无';
         baseState.organRisks.carotidStatus = '稳定';
         baseState.organRisks.thyroidStatus = '稳定';
     }
