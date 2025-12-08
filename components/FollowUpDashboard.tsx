@@ -1,5 +1,5 @@
 
-// ... (imports remain same, keeping the top part of the file intact until the render method)
+// ... keep imports ...
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord } from '../types';
 import { HealthArchive } from '../services/dataService'; 
@@ -87,13 +87,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // Derived Active Data for Display (Execution Sheet)
   const activeRiskLevel = isAssessmentNewer && assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
   
-  const activePlanText = isAssessmentNewer && assessment 
+  const activePlanText = (isAssessmentNewer && assessment 
       ? assessment.followUpPlan.nextCheckItems.join('、') // From Assessment Array
-      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || ''); // Added optional chaining for safety
+      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '')) || ''; // Added fallback string
 
-  const activeIssues = isAssessmentNewer && assessment 
+  const activeIssues = (isAssessmentNewer && assessment 
       ? (assessment.isCritical ? assessment.criticalWarning : assessment.summary) // From Assessment Summary/Critical
-      : (latestRecord?.assessment.majorIssues || assessment?.summary || '');
+      : (latestRecord?.assessment.majorIssues || assessment?.summary || '')) || ''; // Added fallback string
 
   const activeGoals = isAssessmentNewer && assessment
       ? assessment.managementPlan.dietary.concat(assessment.managementPlan.exercise).slice(0, 5) // Pick top 5 from plan
@@ -239,7 +239,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
         baseState.organRisks.thyroidStatus = '稳定';
     }
 
-    const itemsToCheck = extractCheckItems(activePlanText);
+    // Ensure activePlanText is a string before passing to extractCheckItems
+    const itemsToCheck = extractCheckItems(activePlanText || '');
     
     if (itemsToCheck.length > 0) {
         baseState.medicalCompliance = itemsToCheck.map(item => ({
@@ -262,9 +263,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
     if (isAssessmentNewer && assessment) {
         baseState.assessment.riskJustification = `基于最新评估：${assessment.summary.slice(0, 50)}...`;
-        baseState.assessment.majorIssues = activeIssues;
+        // Use fallback string to prevent undefined type error
+        baseState.assessment.majorIssues = activeIssues || '';
         baseState.assessment.lifestyleGoals = Array.isArray(activeGoals) ? activeGoals : [];
-        baseState.assessment.nextCheckPlan = activePlanText;
+        baseState.assessment.nextCheckPlan = activePlanText || '';
     }
 
     setFormData(baseState);
