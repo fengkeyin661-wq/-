@@ -89,7 +89,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
   
   const activePlanText = isAssessmentNewer && assessment 
       ? assessment.followUpPlan.nextCheckItems.join('、') // From Assessment Array
-      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan.nextCheckItems.join('、') || ''); // From Record String or Fallback
+      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || ''); // Added optional chaining for safety
 
   const activeIssues = isAssessmentNewer && assessment 
       ? (assessment.isCritical ? assessment.criticalWarning : assessment.summary) // From Assessment Summary/Critical
@@ -117,10 +117,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // Sync state for Editing Guide when data source changes
   useEffect(() => {
       setGuideEditData({
-          plan: activePlanText,
+          plan: activePlanText || '',
           issues: activeIssues || '',
-          goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : activeGoals, // Handle potential type mismatch safely
-          message: activeMessage,
+          goals: Array.isArray(activeGoals) ? activeGoals.join('\n') : (typeof activeGoals === 'string' ? activeGoals : ''),
+          message: activeMessage || '',
           suggestedDate: nextScheduled ? nextScheduled.date : ''
       });
   }, [activePlanText, activeIssues, activeGoals, activeMessage, nextScheduled]);
