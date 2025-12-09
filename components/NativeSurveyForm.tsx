@@ -40,7 +40,7 @@ const OPTIONS = {
     quitDrink: ['无', '想戒', '已尝试'],
     stress: ['很小', '一般', '较大', '很大'],
     willing: ['是', '否'],
-    services: ['必要的医学检查', '规范用药治疗', '生活方式支持', '急救技能培训', '心理健康辅导', '中医药保健', '其他']
+    services: ['常见病专家门诊', '慢性病筛查与管理', '家庭医生签约服务', '急救知识培训', '就医转诊绿色通道', '中医药保健', '其他']
 };
 
 export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initialCheckupId }) => {
@@ -68,11 +68,11 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         smokeStatus: '', quitSmokeYear: '', smokeDaily: '', smokeYears: '',
         // 40-41 Respiratory
         chronicCough: '', shortBreath: '',
-        // 42-46 Alcohol
-        drinkStatus: '', drinkFreq: '', drinkAmount: '', drunkHistory: '', quitDrinkIntent: '',
-        // 47-49 Mental
+        // 42-46 Alcohol (Q46 Removed)
+        drinkStatus: '', drinkFreq: '', drinkAmount: '', drunkHistory: '',
+        // 46-48 Mental (Renumbered)
         stressLevel: '', phq9: Array(9).fill(null), gad7: Array(7).fill(null),
-        // 50-51 Needs (Q51 Removed, remaining renumbered)
+        // 49-50 Needs (Renumbered)
         followUpWilling: '', desiredServices: [], otherSupport: ''
     });
 
@@ -285,7 +285,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                     freq: form.drinkFreq,
                     amount: form.drinkAmount,
                     drunkHistory: form.drunkHistory,
-                    quitIntent: form.quitDrinkIntent
+                    quitIntent: '' // Removed
                 }
             },
             mentalScales: {
@@ -453,22 +453,24 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                                 <InputQ idx={43} label="每周饮酒频次" required desc="次/周" value={form.drinkFreq} onChange={(v: any) => handleChange('drinkFreq', v)} type="number" />
                                 <InputQ idx={44} label="每次饮酒量（几两）" required desc="两/次" value={form.drinkAmount} onChange={(v: any) => handleChange('drinkAmount', v)} type="number" />
                                 <RadioQ idx={45} label="醉酒史 (过去12个月)" required options={OPTIONS.drunk} value={form.drunkHistory} onChange={(v: any) => handleChange('drunkHistory', v)} />
-                                <RadioQ idx={46} label="戒酒意愿" required options={OPTIONS.quitDrink} value={form.quitDrinkIntent} onChange={(v: any) => handleChange('quitDrinkIntent', v)} />
+                                {/* Q46 '戒酒意愿' Removed */}
                             </>
                         )}
                     </div>
 
                     <div className="border-t pt-6"></div>
 
-                    {/* Section 4: Mental */}
+                    {/* Section 4: Mental (Renumbered) */}
                     <div className="space-y-6">
-                        <RadioQ idx={47} label="压力自我评估" required options={OPTIONS.stress} value={form.stressLevel} onChange={(v: any) => handleChange('stressLevel', v)} />
+                        {/* Old Q47 is now Q46 */}
+                        <RadioQ idx={46} label="压力自我评估" required options={OPTIONS.stress} value={form.stressLevel} onChange={(v: any) => handleChange('stressLevel', v)} />
                         
-                        {form.stressLevel !== '很小' && (
+                        {/* Skip Logic: Hide if '很小' or '一般' */}
+                        {form.stressLevel && !['很小', '一般'].includes(form.stressLevel) && (
                             <>
-                                {/* PHQ-9 */}
+                                {/* PHQ-9 (Old Q48 -> Q47) */}
                                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                    <h3 className="font-bold text-slate-800 mb-2">48. 情绪状态 (PHQ-9) *</h3>
+                                    <h3 className="font-bold text-slate-800 mb-2">47. 情绪状态 (PHQ-9) *</h3>
                                     <p className="text-xs text-slate-500 mb-4">请选择过去两周里，您生活中出现以下症状的频率。</p>
                                     <div className="space-y-4">
                                         {['做事时提不起劲或没有兴趣', '感到心情低落、沮丧或绝望', '入睡困难、睡不安稳或睡眠过多', '感到疲倦或没有活力', '食欲不振或吃太多', '觉得自己很失败，或让自己、家人失望', '对事物专注有困难（如看报纸或看电视时）', '动作或说话速度缓慢到别人已经察觉？或者相反，变得烦躁或坐立不安', '有不如死掉或用某种方式伤害自己的念头'].map((q, i) => (
@@ -477,9 +479,9 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                                     </div>
                                 </div>
 
-                                {/* GAD-7 */}
+                                {/* GAD-7 (Old Q49 -> Q48) */}
                                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                    <h3 className="font-bold text-slate-800 mb-2">49. 焦虑状态 (GAD-7) *</h3>
+                                    <h3 className="font-bold text-slate-800 mb-2">48. 焦虑状态 (GAD-7) *</h3>
                                     <p className="text-xs text-slate-500 mb-4">请选择过去两周里，您生活中出现以下症状的频率。</p>
                                     <div className="space-y-4">
                                         {['做事感觉神经质、焦虑或急切', '不能停止或无法控制担忧', '对各种各样的事情担忧过多', '很难放松下来', '由于坐立不安而很难坐得住', '容易烦恼或急躁', '感到害怕，好像有什么可怕的事情要发生'].map((q, i) => (
@@ -493,10 +495,11 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
                     <div className="border-t pt-6"></div>
 
-                    {/* Section 5: Needs (Q51 Removed) */}
+                    {/* Section 5: Needs (Renumbered) */}
                     <div className="space-y-6">
-                        <CheckQ idx={50} label="希望校医院提供的健康服务" required options={OPTIONS.services} value={form.desiredServices} onChange={(v: any) => toggleArray('desiredServices', v)} />
-                        {form.desiredServices.includes('其他') && <TextQ idx={51} label="希望获得的其他健康支持" value={form.otherSupport} onChange={(v: any) => handleChange('otherSupport', v)} />}
+                        {/* Old Q50 -> Q49 */}
+                        <CheckQ idx={49} label="希望校医院提供的健康服务" required options={OPTIONS.services} value={form.desiredServices} onChange={(v: any) => toggleArray('desiredServices', v)} />
+                        {form.desiredServices.includes('其他') && <TextQ idx={50} label="希望获得的其他健康支持" value={form.otherSupport} onChange={(v: any) => handleChange('otherSupport', v)} />}
                     </div>
 
                     {/* Submit */}
