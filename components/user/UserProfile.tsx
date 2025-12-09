@@ -211,4 +211,88 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                             }`}>
                                 {app.status === 'confirmed' ? '通过' : app.status === 'pending' ? '审核中' : '驳回'}
                             </span>
-                            <div className="text-[10
+                            <div className="text-[10px] text-slate-400 mt-1">{app.date}</div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    return (
+        <div className="bg-slate-50 min-h-full">
+            {/* Header / ID Card */}
+            <div className="bg-teal-700 text-white p-6 pb-12 relative shadow-md">
+                <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-3xl border-2 border-white/30 backdrop-blur-sm shadow-inner">
+                        {record.profile.gender === '女' ? '👩' : '👨'}
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold">{record.profile.name}</h1>
+                        <div className="text-xs opacity-80 mt-1 flex items-center gap-2">
+                            <span className="bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">{record.profile.department}</span>
+                            <span>{record.profile.age}岁</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="-mt-6 bg-slate-50 rounded-t-3xl min-h-[calc(100vh-180px)] flex flex-col">
+                
+                {/* Back Button for Sub Views */}
+                {subView !== 'menu' && (
+                    <div className="px-4 pt-4">
+                        <button onClick={() => setSubView('menu')} className="flex items-center gap-1 text-slate-500 font-bold text-sm hover:text-teal-600 transition-colors">
+                            <span>←</span> 返回菜单
+                        </button>
+                    </div>
+                )}
+
+                {subView === 'menu' && (
+                    <div className="p-4 space-y-3 flex-1">
+                        <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
+                        <MenuButton icon="📅" label="我的随访记录" desc="历史随访与医生反馈" onClick={() => setSubView('followup')} />
+                        <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
+                        <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
+                        <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与开药历史" onClick={() => setSubView('apps')} />
+                    </div>
+                )}
+
+                {subView === 'record' && renderRecordView()}
+                {subView === 'followup' && renderFollowupView()}
+                {subView === 'plan' && renderPlanView()}
+                {subView === 'events' && renderEventsView()}
+                {subView === 'apps' && renderAppsView()}
+
+                {/* Logout Button (Only on Menu) */}
+                {subView === 'menu' && (
+                    <div className="p-6 mt-auto">
+                        <button 
+                            onClick={onLogout}
+                            className="w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold border border-red-100 hover:bg-red-100 hover:shadow-md transition-all active:scale-95"
+                        >
+                            退出登录
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const MenuButton: React.FC<{icon: string, label: string, desc: string, onClick: () => void}> = ({ icon, label, desc, onClick }) => (
+    <button 
+        onClick={onClick}
+        className="w-full bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all active:scale-95 text-left group"
+    >
+        <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-xl group-hover:bg-teal-50 transition-colors">
+            {icon}
+        </div>
+        <div className="flex-1">
+            <div className="font-bold text-slate-800 text-sm">{label}</div>
+            <div className="text-xs text-slate-400 mt-0.5">{desc}</div>
+        </div>
+        <span className="text-slate-300">›</span>
+    </button>
+);
