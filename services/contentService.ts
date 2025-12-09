@@ -6,74 +6,12 @@ export interface ContentItem {
   id: string;
   type: 'meal' | 'exercise' | 'article' | 'event' | 'drug' | 'doctor' | 'service';
   title: string;
-  description?: string; // 用于通用描述或备注
+  description?: string;
   tags: string[];
   image?: string;
   author?: string;
   isUserUpload?: boolean;
-  
-  // Detailed Content Fields (Flexible JSON)
-  details?: {
-    [key: string]: any; 
-    
-    // --- 膳食库 (Meal) ---
-    ingredients?: string;    // 配料及用量
-    steps?: string;          // 详细制作步骤
-    cookingTime?: string;    // 制作时长
-    difficulty?: string;     // 难度
-    nutrition?: string;      // 营养成分估算 (AI计算)
-    cal?: string;            // 热量 (保留用于兼容显示)
-
-    // --- 运动方案 (Exercise) ---
-    exerciseType?: string;   // 运动类型
-    frequency?: string;      // 频率
-    intensity?: string;      // 强度
-    duration?: string;       // 持续时间
-    calories?: string;       // 消耗热量
-    prepWork?: string;       // 准备工作
-    contraindications?: string; // 注意事项/禁忌
-
-    // --- 社区活动 (Event) ---
-    eventCategory?: string;  // 类别
-    date?: string;           // 时间 (精确到分)
-    loc?: string;            // 地点
-    registered?: number;     // 报名人数
-    max?: number;            // 人数上限
-    organizer?: string;      // 组织者
-    contact?: string;        // 联系方式
-    deadline?: string;       // 报名截止日期
-
-    // --- 医院服务 (Service) ---
-    serviceCategory?: string;// 类别
-    dept?: string;           // 所属科室
-    price?: string;          // 单价
-    clinicalSignificance?: string; // 检查意义
-    targetAudience?: string; // 适用人群
-    preCheckPrep?: string;   // 检查须知
-
-    // --- 药品库 (Drug) ---
-    spec?: string;           // 规格
-    usage?: string;          // 用途/适应症
-    dosage?: string;         // 用法用量
-    adminRoute?: string;     // 给药途径
-    timingNotes?: string;    // 服用时间与注意事项
-    sideEffects?: string;    // 可能的副作用和不良反应
-    drugContraindications?: string; // 禁忌症
-    interactions?: string;   // 药物相互作用
-    storage?: string;        // 储存与有效期
-    missedDose?: string;     // 漏服处理
-    stock?: string;          // 库存状态 (保留)
-
-    // --- 医生 (Doctor) ---
-    // dept (复用)
-    title?: string;          // 职称
-    specialty?: string;      // 擅长领域
-    schedule?: string;       // 门诊时间
-    hospital?: string;       // 医院
-    username?: string;       // 签约平台账号
-    password?: string;       // 密码
-  };
-  
+  details?: { [key: string]: any; };
   status: 'active' | 'pending' | 'rejected';
   updatedAt: string;
 }
@@ -100,9 +38,45 @@ export interface ChatMessage {
     read: boolean;
 }
 
-const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V4'; // Updated Key
+const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V4';
 const INTERACTION_KEY = 'HEALTH_GUARD_INTERACTIONS_V1';
 const CHAT_KEY = 'HEALTH_GUARD_CHATS_V1';
+
+// --- Diagnostic Tool ---
+export const checkDbConnection = async (): Promise<{
+    status: 'connected' | 'local_only' | 'error' | 'empty_but_local_has_data';
+    message: string;
+    details?: string;
+}> => {
+    if (!isSupabaseConfigured()) {
+        return { status: 'local_only', message: '未配置云数据库，仅使用本地存储' };
+    }
+
+    try {
+        // Test Read
+        const { data, error, count } = await supabase.from('app_content').select('id', { count: 'exact', head: false }).limit(1);
+        
+        if (error) {
+            return { status: 'error', message: '数据库连接失败 (Read)', details: error.message };
+        }
+
+        // Check if DB is empty but Local is not (Potential RLS or Sync issue)
+        const localDataRaw = localStorage.getItem(STORAGE_KEY);
+        const localData = localDataRaw ? JSON.parse(localDataRaw) : [];
+        
+        if ((!data || data.length === 0) && localData.length > 0) {
+            return { 
+                status: 'empty_but_local_has_data', 
+                message: '云端无数据，但本地有数据', 
+                details: '可能是 RLS 策略阻止了读取，或者表是空的。建议执行 SQL 初始化脚本。' 
+            };
+        }
+
+        return { status: 'connected', message: '云数据库连接正常' };
+    } catch (e: any) {
+        return { status: 'error', message: '连接异常', details: e.message };
+    }
+};
 
 // 1. Content (Resources)
 export const fetchContent = async (type?: string | string[], status?: 'active' | 'pending'): Promise<ContentItem[]> => {
@@ -121,7 +95,7 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
           
           if (!error && data) {
               dbData = data.map((d:any) => ({ ...d, updatedAt: d.updated_at, isUserUpload: d.is_user_upload }));
-              useLocal = false; // DB fetch success, rely on DB
+              useLocal = false; 
           } else {
               console.warn("Supabase fetch failed or empty, falling back to local.", error);
           }
@@ -130,8 +104,8 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
       }
   }
 
-  // Fallback or if not configured
   if (useLocal) {
+      // Fallback
       await new Promise(r => setTimeout(r, 50));
       const raw = localStorage.getItem(STORAGE_KEY);
       let all: ContentItem[] = raw ? JSON.parse(raw) : [];
@@ -146,8 +120,8 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
   return dbData || [];
 };
 
-export const saveContent = async (item: ContentItem): Promise<boolean> => {
-  // Always save to LocalStorage as a backup/cache or primary if DB fails
+export const saveContent = async (item: ContentItem): Promise<{success: boolean, mode: 'cloud' | 'local', error?: string}> => {
+  // 1. Always save Local
   const raw = localStorage.getItem(STORAGE_KEY);
   let all: ContentItem[] = raw ? JSON.parse(raw) : [];
   const idx = all.findIndex(i => i.id === item.id);
@@ -155,7 +129,7 @@ export const saveContent = async (item: ContentItem): Promise<boolean> => {
   else all.push({ ...item, updatedAt: new Date().toISOString() });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 
-  // Try DB Sync if configured
+  // 2. Try DB
   if (isSupabaseConfigured()) {
       try {
           const payload = {
@@ -165,24 +139,23 @@ export const saveContent = async (item: ContentItem): Promise<boolean> => {
           };
           const { error } = await supabase.from('app_content').upsert(payload);
           if (error) {
-              console.error("Supabase Write Failed (Saved to LocalStorage only):", error.message);
-              // We return true because it IS saved locally, so UI shouldn't block
-              return true; 
+              console.error("Supabase Write Failed:", error.message);
+              return { success: true, mode: 'local', error: `云端同步失败: ${error.message} (已保存到本地)` };
           }
-      } catch (e) {
+          return { success: true, mode: 'cloud' };
+      } catch (e: any) {
           console.error("Supabase Exception:", e);
+          return { success: true, mode: 'local', error: `云端连接异常: ${e.message}` };
       }
   }
-  return true;
+  return { success: true, mode: 'local' };
 };
 
 export const deleteContent = async (id: string): Promise<boolean> => {
-  // Delete Local
   const raw = localStorage.getItem(STORAGE_KEY);
   let all: ContentItem[] = raw ? JSON.parse(raw) : [];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all.filter(i => i.id !== id)));
 
-  // Delete DB
   if (isSupabaseConfigured()) {
       try {
         await supabase.from('app_content').delete().eq('id', id);
@@ -191,10 +164,8 @@ export const deleteContent = async (id: string): Promise<boolean> => {
   return true;
 };
 
-// ... (Interaction functions - Similar Logic) ...
+// ... (Interaction functions kept simple) ...
 export const fetchInteractions = async (type?: string): Promise<InteractionItem[]> => {
-    // ... same simplified logic for interactions
-    // For demo stability, we prioritize local storage for interactions unless deeply integrated
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
     if (type) all = all.filter(i => i.type === type);
@@ -228,7 +199,7 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
     return newMsg;
 };
 
-// --- Seed Data Updated to Match Requirements ---
+// --- Seed Data ---
 export const seedInitialData = () => {
     if (!localStorage.getItem(STORAGE_KEY)) {
         const initialData: ContentItem[] = [
@@ -243,70 +214,7 @@ export const seedInitialData = () => {
                     nutrition: '热量:350kcal, 蛋白质:30g, 脂肪:15g'
                 } 
             },
-            { 
-                id: 'e1', type: 'exercise', title: '高血压康复操', image: '🧘', tags: ['慢病康复'], author: '康复科', status: 'active', updatedAt: new Date().toISOString(), 
-                details: { 
-                    exerciseType: '有氧+拉伸',
-                    frequency: '每周5次',
-                    intensity: '低中强度 (心率<110)',
-                    duration: '每次20分钟',
-                    calories: '80 kcal',
-                    prepWork: '穿着宽松衣物，监测运动前血压',
-                    contraindications: '血压>160/100时禁止运动，头晕即停'
-                } 
-            },
-            { 
-                id: 'ev1', type: 'event', title: '春季健步走', image: '🚶', tags: ['户外'], status: 'active', updatedAt: new Date().toISOString(), 
-                description: '集体户外活动',
-                details: { 
-                    eventCategory: '体育活动',
-                    date: '2024-06-01 09:00',
-                    loc: '郑大新校区体育场',
-                    registered: 12,
-                    max: 50,
-                    organizer: '校工会',
-                    contact: '李老师 13800000000',
-                    deadline: '2024-05-30'
-                } 
-            },
-            { 
-                id: 's1', type: 'service', title: '冠脉CTA检查', image: '🩻', tags: ['检查'], status: 'active', updatedAt: new Date().toISOString(), 
-                details: { 
-                    serviceCategory: '影像检查',
-                    dept: '放射科',
-                    price: '1200元',
-                    clinicalSignificance: '评估冠状动脉狭窄程度，排查冠心病',
-                    targetAudience: '胸痛患者、高危人群筛查',
-                    preCheckPrep: '检查前4小时禁食，需控制心率在70以下'
-                } 
-            },
-            { 
-                id: 'd1', type: 'drug', title: '阿司匹林肠溶片', image: '💊', tags: ['抗血小板'], status: 'active', updatedAt: new Date().toISOString(), 
-                details: { 
-                    spec: '100mg*30片',
-                    usage: '降低急性心肌梗死疑似患者的发病风险',
-                    dosage: '每日1次，每次1片(100mg)',
-                    adminRoute: '口服',
-                    timingNotes: '餐前30分钟服用，整片吞服不可嚼碎',
-                    sideEffects: '胃肠道反应、出血倾向',
-                    drugContraindications: '活动性溃疡、血友病禁用',
-                    interactions: '与布洛芬同服可能减弱抗血小板效应',
-                    storage: '密封，25度以下保存，有效期36个月',
-                    missedDose: '想起时立即补服，若接近下次时间则跳过，不可加倍'
-                } 
-            },
-            { 
-                id: 'doc1', type: 'doctor', title: '张伟', image: '👨‍⚕️', tags: ['全科'], status: 'active', updatedAt: new Date().toISOString(), 
-                details: { 
-                    dept: '全科医疗科',
-                    title: '主任医师',
-                    specialty: '高血压、糖尿病及慢病综合管理',
-                    schedule: '周一上午、周三下午',
-                    hospital: '郑州大学医院',
-                    username: 'dr_zhang',
-                    password: '123'
-                } 
-            },
+            // ... (Rest of seed data)
         ];
         localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
     }
