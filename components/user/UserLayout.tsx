@@ -5,15 +5,16 @@ interface Props {
   activeTab: string;
   onTabChange: (tab: string) => void;
   children: React.ReactNode;
-  unreadCount?: number; // New Prop
+  unreadCount?: number;
 }
 
 export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, unreadCount = 0 }) => {
   const navItems = [
-    { id: 'diet_motion', label: '饮食与运动', icon: '🥑' },
+    { id: 'diet_motion', label: '饮食运动', icon: '🥑' },
     { id: 'medical', label: '寻医问药', icon: '🏥' },
-    { id: 'interaction', label: '互动咨询', icon: '💬' },
-    { id: 'profile', label: '我的健康', icon: '👤' },
+    { id: 'community', label: '社区活动', icon: '🎉' },
+    { id: 'interaction', label: '咨询', icon: '💬' },
+    { id: 'profile', label: '我的', icon: '👤' },
   ];
 
   return (

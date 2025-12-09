@@ -66,44 +66,13 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                 <span className="absolute left-3 top-3 text-slate-400">🔍</span>
             </div>
 
-            {/* 1. Quick Services */}
+            {/* 1. Doctor Recommendation (Top Priority) */}
             <section>
-                <h2 className="font-bold text-slate-800 mb-3 flex justify-between">
-                    医疗服务
-                    <span className="text-xs text-blue-600 font-normal">支持预约/上门</span>
-                </h2>
-                <div className="grid grid-cols-2 gap-3">
-                    {services.map(s => (
-                        <div 
-                            key={s.id} 
-                            onClick={() => handleInteract('booking', s)}
-                            className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 active:bg-blue-50 cursor-pointer"
-                        >
-                            <div className="text-2xl bg-blue-50 w-10 h-10 rounded-full flex items-center justify-center">{s.image}</div>
-                            <div>
-                                <div className="font-bold text-sm text-slate-800">{s.title}</div>
-                                <div className="text-[10px] text-slate-500">{s.details?.price || '预约咨询'}</div>
-                            </div>
-                        </div>
-                    ))}
-                    {/* Hardcoded Actions */}
-                    <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 active:bg-blue-50 cursor-pointer">
-                        <div className="text-2xl bg-green-50 w-10 h-10 rounded-full flex items-center justify-center">📅</div>
-                        <div>
-                            <div className="font-bold text-sm text-slate-800">门诊预约</div>
-                            <div className="text-[10px] text-slate-500">实时号源</div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            {/* 2. Doctor Recommendation */}
-            <section>
-                <h2 className="font-bold text-slate-800 mb-3">名医专家 & 健康管家</h2>
+                <h2 className="font-bold text-slate-800 mb-3 text-lg">名医专家 & 健康管家</h2>
                 <div className="space-y-3">
                     {filteredDoctors.map(doc => (
                         <div key={doc.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex gap-4">
-                            <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center text-3xl shadow-inner">
+                            <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center text-3xl shadow-inner shrink-0">
                                 {doc.image}
                             </div>
                             <div className="flex-1">
@@ -123,6 +92,30 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                                     {doc.tags.map(t => <span key={t} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{t}</span>)}
                                 </div>
                                 <p className="text-xs text-slate-400 mt-2 line-clamp-1">{doc.description}</p>
+                            </div>
+                        </div>
+                    ))}
+                    {filteredDoctors.length === 0 && <div className="text-center text-xs text-slate-400 py-4">暂无医生信息</div>}
+                </div>
+            </section>
+
+            {/* 2. Medical Services */}
+            <section>
+                <h2 className="font-bold text-slate-800 mb-3 flex justify-between">
+                    医疗服务
+                    <span className="text-xs text-blue-600 font-normal">支持预约/上门</span>
+                </h2>
+                <div className="grid grid-cols-2 gap-3">
+                    {services.map(s => (
+                        <div 
+                            key={s.id} 
+                            onClick={() => handleInteract('booking', s)}
+                            className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 active:bg-blue-50 cursor-pointer"
+                        >
+                            <div className="text-2xl bg-blue-50 w-10 h-10 rounded-full flex items-center justify-center">{s.image}</div>
+                            <div>
+                                <div className="font-bold text-sm text-slate-800">{s.title}</div>
+                                <div className="text-[10px] text-slate-500">{s.details?.price ? `¥${s.details.price}` : '预约咨询'}</div>
                             </div>
                         </div>
                     ))}

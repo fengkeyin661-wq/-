@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserLayout } from './user/UserLayout';
-import { UserDietMotion } from './user/UserDietMotion'; // New
-import { UserMedicalServices } from './user/UserMedicalServices'; // New
-import { UserInteraction } from './user/UserInteraction'; // New
-import { UserProfile } from './user/UserProfile'; // Updated
+import { UserDietMotion } from './user/UserDietMotion';
+import { UserMedicalServices } from './user/UserMedicalServices';
+import { UserInteraction } from './user/UserInteraction';
+import { UserProfile } from './user/UserProfile';
+import { UserCommunity } from './user/UserCommunity'; // Import Community
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
-import { getUnreadCount } from '../services/contentService'; // Import
+import { getUnreadCount } from '../services/contentService';
 
 interface Props {
   checkupId: string;
@@ -43,14 +44,13 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   useEffect(() => {
       const checkUnread = async () => {
           if (!userArchive) return;
-          // Count messages where receiver is user (from any doctor, but usually signed one)
           const count = await getUnreadCount(userArchive.checkup_id);
           setUnreadCount(count);
       };
 
       if (userArchive) {
           checkUnread();
-          const interval = setInterval(checkUnread, 2000); // Check every 2 seconds
+          const interval = setInterval(checkUnread, 2000);
           return () => clearInterval(interval);
       }
   }, [userArchive]);
@@ -68,7 +68,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       setUserArchive({ ...userArchive, health_record: newRecord });
       
       try {
-          // Sync to backend
           await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
       } catch (e) {
           console.error("Sync failed", e);
@@ -100,11 +99,14 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               userName={userArchive.name} 
           />
       )}
+      {activeTab === 'community' && (
+          <UserCommunity />
+      )}
       {activeTab === 'interaction' && (
           <UserInteraction 
               userId={userArchive.checkup_id} 
               archive={userArchive} 
-              onMessageRead={() => setUnreadCount(0)} // Callback to clear badge instantly
+              onMessageRead={() => setUnreadCount(0)}
           />
       )}
       {activeTab === 'profile' && (
@@ -113,17 +115,11 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               assessment={userArchive.assessment_data}
               dailyPlan={userArchive.custom_daily_plan}
               userId={userArchive.checkup_id}
+              archive={userArchive}
               onUpdateRecord={handleUpdateRecord}
+              onLogout={onLogout}
           />
       )}
-      
-      {/* Logout Overlay Button (Top Right) */}
-      <button 
-        onClick={onLogout}
-        className="absolute top-4 right-4 z-50 bg-white/80 p-2 rounded-full shadow-sm backdrop-blur-sm text-xs font-bold text-slate-500 hover:text-red-500"
-      >
-        退出
-      </button>
     </UserLayout>
   );
 };

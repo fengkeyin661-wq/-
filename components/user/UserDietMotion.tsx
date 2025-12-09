@@ -7,13 +7,15 @@ import { updateUserPlan, DailyHealthPlan } from '../../services/dataService';
 
 interface Props {
     assessment?: HealthAssessment;
-    userCheckupId?: string; // Need ID to save
+    userCheckupId?: string;
 }
 
 export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId }) => {
-    const [activeTab, setActiveTab] = useState<'meal' | 'exercise'>('meal');
-    const [items, setItems] = useState<ContentItem[]>([]);
+    const [meals, setMeals] = useState<ContentItem[]>([]);
+    const [exercises, setExercises] = useState<ContentItem[]>([]);
+    
     const [showUpload, setShowUpload] = useState(false);
+    const [uploadType, setUploadType] = useState<'meal'|'exercise'>('meal');
     const [isGenerating, setIsGenerating] = useState(false);
     
     // Upload Form State
@@ -22,48 +24,37 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId }) =
     const [newTags, setNewTags] = useState('');
 
     useEffect(() => {
-        loadData();
-    }, [activeTab]);
+        loadAllData();
+    }, []);
 
-    const loadData = async () => {
-        const data = await fetchContent(activeTab);
-        setItems(data);
+    const loadAllData = async () => {
+        const [mealsData, exercisesData] = await Promise.all([
+            fetchContent('meal'),
+            fetchContent('exercise')
+        ]);
+        setMeals(mealsData);
+        setExercises(exercisesData);
     };
-
-    // Smart Recommendation Logic
-    const getRecommendedItems = () => {
-        if (!assessment) return [];
-        // Combine all risk keywords
-        const risks = [...assessment.risks.red, ...assessment.risks.yellow].join(' ');
-        
-        return items.filter(item => {
-            // Check if item tags match user risks
-            return item.tags.some(tag => risks.includes(tag));
-        });
-    };
-
-    const recommended = getRecommendedItems();
-    const otherItems = items.filter(i => !recommended.includes(i));
 
     const handleUpload = async () => {
         if (!newTitle) return;
         const newItem: ContentItem = {
             id: Date.now().toString(),
-            type: activeTab,
+            type: uploadType,
             title: newTitle,
             description: newDesc,
             tags: newTags.split(/[,， ]+/).filter(Boolean),
-            image: activeTab === 'meal' ? '🍲' : '🏃‍♂️',
+            image: uploadType === 'meal' ? '🍲' : '🏃‍♂️',
             author: '我',
             isUserUpload: true,
             status: 'active',
             updatedAt: new Date().toISOString(),
-            details: {} // Simplified for demo
+            details: {}
         };
         await saveContent(newItem);
         setShowUpload(false);
         setNewTitle(''); setNewDesc(''); setNewTags('');
-        loadData();
+        loadAllData();
         alert("发布成功！");
     };
 
@@ -97,82 +88,71 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId }) =
     return (
         <div className="bg-slate-50 min-h-full">
             {/* Header */}
-            <div className="bg-white sticky top-0 z-20 px-4 py-3 shadow-sm flex justify-between items-center">
-                <div className="flex bg-slate-100 rounded-full p-1">
-                    <button 
-                        onClick={() => setActiveTab('meal')}
-                        className={`px-6 py-1.5 rounded-full text-sm font-bold transition-all ${activeTab === 'meal' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500'}`}
-                    >
-                        健康饮食
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('exercise')}
-                        className={`px-6 py-1.5 rounded-full text-sm font-bold transition-all ${activeTab === 'exercise' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}
-                    >
-                        科学运动
-                    </button>
+            <div className="bg-white sticky top-0 z-20 px-6 py-4 shadow-sm flex justify-between items-center">
+                <div>
+                    <h1 className="text-xl font-black text-slate-800 tracking-tight">饮食与运动</h1>
+                    <p className="text-xs text-slate-500 font-medium">Daily Health Routine</p>
                 </div>
                 <div className="flex gap-2">
                     <button 
                         onClick={handleGenerateOneClick}
                         disabled={isGenerating}
-                        className="bg-gradient-to-r from-orange-400 to-pink-500 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-md animate-pulse disabled:opacity-50"
-                        title="一键生成今日方案"
+                        className="bg-gradient-to-r from-orange-400 to-pink-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md animate-pulse disabled:opacity-50 flex items-center gap-1"
                     >
-                        {isGenerating ? '⏳' : '⚡'}
+                        {isGenerating ? '⏳ 生成中' : '⚡ 智能方案'}
                     </button>
-                    <button onClick={() => setShowUpload(true)} className="text-xl bg-slate-100 w-9 h-9 rounded-full flex items-center justify-center text-slate-600 font-bold hover:bg-slate-200">
+                    <button onClick={() => { setUploadType('meal'); setShowUpload(true); }} className="text-xl bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center text-slate-600 font-bold hover:bg-slate-200">
                         +
                     </button>
                 </div>
             </div>
 
-            <div className="p-4 space-y-6">
-                {/* 1. Smart Recommendation Banner */}
-                {recommended.length > 0 && (
-                    <section>
-                        <div className="flex items-center gap-2 mb-3">
-                            <span className="text-lg">✨</span>
-                            <h2 className="font-bold text-slate-800">
-                                专属推荐
-                                <span className="text-xs font-normal text-slate-500 ml-2 bg-yellow-50 px-2 py-0.5 rounded border border-yellow-100">
-                                    基于您的健康画像
-                                </span>
-                            </h2>
-                        </div>
-                        <div className="flex overflow-x-auto gap-4 pb-2 scrollbar-hide snap-x">
-                            {recommended.map(item => (
-                                <Card key={item.id} item={item} isRec={true} />
-                            ))}
-                        </div>
-                    </section>
-                )}
-
-                {/* 2. Main Feed */}
+            <div className="p-4 space-y-8">
+                {/* 1. Diet Section */}
                 <section>
-                    <h2 className="font-bold text-slate-800 mb-3">
-                        {activeTab === 'meal' ? '精选食谱 & 晒餐' : '运动方案 & 打卡'}
-                    </h2>
+                    <div className="flex items-center gap-2 mb-3 px-1">
+                        <span className="text-lg bg-green-100 w-8 h-8 rounded-full flex items-center justify-center">🥗</span>
+                        <h2 className="font-bold text-slate-800 text-lg">
+                            健康饮食
+                        </h2>
+                    </div>
+                    <div className="flex overflow-x-auto gap-3 pb-2 scrollbar-hide snap-x">
+                        {meals.map(item => (
+                            <Card key={item.id} item={item} />
+                        ))}
+                        {meals.length === 0 && <div className="text-xs text-slate-400 p-2">暂无食谱推荐</div>}
+                    </div>
+                </section>
+
+                {/* 2. Motion Section */}
+                <section>
+                    <div className="flex items-center gap-2 mb-3 px-1 border-t border-slate-200 pt-6">
+                        <span className="text-lg bg-blue-100 w-8 h-8 rounded-full flex items-center justify-center">🏃</span>
+                        <h2 className="font-bold text-slate-800 text-lg">
+                            科学运动
+                        </h2>
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
-                        {otherItems.map(item => (
+                        {exercises.map(item => (
                             <Card key={item.id} item={item} />
                         ))}
                     </div>
+                    {exercises.length === 0 && <div className="text-xs text-slate-400 p-2 text-center">暂无运动课程</div>}
                 </section>
-                
-                {/* Fallback if empty */}
-                {items.length === 0 && (
-                    <div className="text-center py-10 text-slate-400">
-                        暂无内容，快来点击右上角发布第一条吧！
-                    </div>
-                )}
             </div>
 
             {/* Upload Modal */}
             {showUpload && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl w-full max-w-sm p-6 animate-scaleIn">
-                        <h3 className="text-lg font-bold mb-4">发布{activeTab === 'meal' ? '食谱' : '运动心得'}</h3>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold">发布新内容</h3>
+                            <div className="flex bg-slate-100 rounded p-1">
+                                <button onClick={()=>setUploadType('meal')} className={`px-3 py-1 rounded text-xs font-bold ${uploadType==='meal'?'bg-white shadow':''}`}>食谱</button>
+                                <button onClick={()=>setUploadType('exercise')} className={`px-3 py-1 rounded text-xs font-bold ${uploadType==='exercise'?'bg-white shadow':''}`}>运动</button>
+                            </div>
+                        </div>
+                        
                         <div className="space-y-3">
                             <input 
                                 className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
@@ -194,8 +174,8 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId }) =
                             />
                         </div>
                         <div className="flex gap-3 mt-6">
-                            <button onClick={() => setShowUpload(false)} className="flex-1 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">取消</button>
-                            <button onClick={handleUpload} className="flex-1 py-2 bg-teal-600 text-white font-bold rounded-lg hover:bg-teal-700">发布</button>
+                            <button onClick={() => setShowUpload(false)} className="flex-1 py-2 text-slate-500 hover:bg-slate-50 rounded-lg text-sm">取消</button>
+                            <button onClick={handleUpload} className="flex-1 py-2 bg-teal-600 text-white font-bold rounded-lg hover:bg-teal-700 text-sm">发布</button>
                         </div>
                     </div>
                 </div>
@@ -204,9 +184,9 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId }) =
     );
 };
 
-const Card: React.FC<{item: ContentItem, isRec?: boolean}> = ({ item, isRec }) => (
-    <div className={`bg-white rounded-xl overflow-hidden shadow-sm border ${isRec ? 'border-orange-200 min-w-[240px] snap-center' : 'border-slate-100'} flex flex-col group active:scale-95 transition-transform`}>
-        <div className={`h-24 ${isRec ? 'bg-gradient-to-br from-orange-50 to-orange-100' : 'bg-slate-50'} flex items-center justify-center text-5xl relative`}>
+const Card: React.FC<{item: ContentItem}> = ({ item }) => (
+    <div className={`bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 flex flex-col group active:scale-95 transition-transform min-w-[160px]`}>
+        <div className={`h-24 bg-slate-50 flex items-center justify-center text-5xl relative`}>
             {item.image}
             {item.isUserUpload && <span className="absolute top-2 right-2 text-[10px] bg-white/80 px-1.5 rounded text-slate-500 border border-slate-200">用户</span>}
         </div>
@@ -217,13 +197,6 @@ const Card: React.FC<{item: ContentItem, isRec?: boolean}> = ({ item, isRec }) =
                     <span key={i} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 rounded">{t}</span>
                 ))}
             </div>
-            {item.details && (
-                <div className="mt-auto pt-2 text-[10px] text-slate-400 border-t border-slate-50 flex justify-between">
-                    {item.details.calories && <span>{item.details.calories}</span>}
-                    {item.details.difficulty && <span>难度: {item.details.difficulty}</span>}
-                    {item.details.nutrition && <span className="truncate">{item.details.nutrition.split(',')[0]}</span>}
-                </div>
-            )}
         </div>
     </div>
 );
