@@ -120,12 +120,17 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                     const row: any = data[0]; 
                     
                     if (data.length > 1 && initialCheckupId) {
-                        // Try to find the specific user row
-                        const match = data.find((r: any) => String(r['体检编号']) === initialCheckupId);
+                        // Try to find the specific user row (Check keys matching "1.体检编号")
+                        const match = data.find((r: any) => {
+                            const key = Object.keys(r).find(k => k.includes('1.体检编号'));
+                            return key && String(r[key]) === initialCheckupId;
+                        });
                         if (match) Object.assign(row, match);
                     }
 
-                    if (confirm(`解析到数据，是否自动填充问卷？\n(识别到: ${row['姓名'] || '未知姓名'})`)) {
+                    // Extract name for confirmation if possible (though name is usually not in Q1)
+                    // Assuming row has data, proceed.
+                    if (confirm(`解析到数据，是否自动填充问卷？`)) {
                         mapExcelToForm(row);
                     }
                 } else {
@@ -142,39 +147,154 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
     const mapExcelToForm = (row: any) => {
         const newForm = { ...form };
         
-        // Helper to safe split
-        const split = (val: any) => String(val || '').split(/[,，、;；]/).map(s => s.trim()).filter(Boolean);
-        const val = (key: string) => row[key] ? String(row[key]) : '';
+        // Reset Arrays
+        newForm.historyDiseases = [];
+        newForm.cadTypes = [];
+        newForm.strokeTypes = [];
+        newForm.medTypes = [];
+        newForm.familyHistory = [];
+        newForm.dietHabits = [];
+        newForm.exTypes = [];
+        newForm.desiredServices = [];
+        newForm.phq9 = Array(9).fill(null);
+        newForm.gad7 = Array(7).fill(null);
 
-        // Basic
-        if (val('体检编号')) newForm.checkupId = val('体检编号');
-        if (val('性别')) newForm.gender = val('性别');
+        // Helper to check if a cell value represents "Selected"
+        // Matches "1", "是", "checked", "true", "yes"
+        const isSelected = (val: any) => {
+            if (val === undefined || val === null || val === '') return false;
+            const s = String(val).trim().toLowerCase();
+            return s === '1' || s === '是' || s === 'checked' || s === 'true' || s === 'yes';
+        };
 
-        // History
-        if (val('既往病史')) newForm.historyDiseases = split(val('既往病史'));
-        if (val('高血压年份')) newForm.htnYear = val('高血压年份');
-        if (val('冠心病类型')) newForm.cadTypes = split(val('冠心病类型'));
-        if (val('糖尿病年份')) newForm.dmYear = val('糖尿病年份');
-        if (val('是否服药')) newForm.regularMeds = val('是否服药');
-        if (val('服用药物')) newForm.medTypes = split(val('服用药物'));
+        const parseScore = (val: any) => {
+            if (val === undefined || val === null || val === '') return null;
+            if (!isNaN(Number(val))) return Number(val);
+            const s = String(val).trim();
+            if (s.includes('完全不会')) return 0;
+            if (s.includes('好几天')) return 1;
+            if (s.includes('一半以上')) return 2;
+            if (s.includes('几乎每天')) return 3;
+            return 0; 
+        };
 
-        // Family
-        if (val('家族史')) newForm.familyHistory = split(val('家族史'));
+        // Iterate keys
+        Object.keys(row).forEach(key => {
+            const val = row[key];
+            if (val === undefined || val === null || val === '') return;
+            const k = key.trim();
+            const vStr = String(val).trim();
 
-        // Lifestyle
-        if (val('膳食习惯')) newForm.dietHabits = split(val('膳食习惯'));
-        if (val('主食类型')) newForm.stapleType = val('主食类型');
-        if (val('饮水杯数')) newForm.waterCups = val('饮水杯数');
-        if (val('运动频率')) newForm.exFreq = val('运动频率');
-        if (val('睡眠时长')) newForm.sleepHours = val('睡眠时长');
-        
-        // Substance
-        if (val('吸烟状况')) newForm.smokeStatus = val('吸烟状况');
-        if (val('日吸烟量')) newForm.smokeDaily = val('日吸烟量');
-        if (val('饮酒状况')) newForm.drinkStatus = val('饮酒状况');
+            if (k.startsWith('1.体检编号')) newForm.checkupId = vStr;
+            if (k.startsWith('2.性别')) newForm.gender = vStr;
+            
+            // 3. 既往病史
+            if (k.startsWith('3.既往病史:')) {
+                if (isSelected(val)) newForm.historyDiseases.push(k.split(':')[1].trim());
+            } else if (k.startsWith('3.既往病史') && !k.includes(':')) {
+                // Fallback for single column
+                newForm.historyDiseases = vStr.split(/[,，]/).map(s=>s.trim());
+            }
 
-        // Mental (Simple check)
-        if (val('压力等级')) newForm.stressLevel = val('压力等级');
+            if (k.startsWith('4.高血压诊断年份')) newForm.htnYear = vStr;
+            
+            if (k.startsWith('5.冠心病类型:')) {
+                if (isSelected(val)) newForm.cadTypes.push(k.split(':')[1].trim());
+            }
+
+            if (k.startsWith('6.心律失常类型')) newForm.arrhythmiaType = vStr;
+
+            if (k.startsWith('7.脑卒中类型:')) {
+                if (isSelected(val)) newForm.strokeTypes.push(k.split(':')[1].trim());
+            }
+
+            if (k.startsWith('8.脑卒中发生年份')) newForm.strokeYear = vStr;
+            if (k.startsWith('9.糖尿病诊断年份')) newForm.dmYear = vStr;
+            if (k.startsWith('10.肿瘤部位')) newForm.tumorSite = vStr;
+            if (k.startsWith('11.肿瘤诊断年份')) newForm.tumorYear = vStr;
+            if (k.startsWith('12.手术史')) newForm.surgeryHistory = vStr;
+            if (k.startsWith('13.其他既往')) newForm.otherHistory = vStr;
+            
+            if (k.startsWith('14.是否规律服药')) newForm.regularMeds = vStr;
+
+            if (k.startsWith('15.您目前是否正在服用以下药物？:')) {
+                if (isSelected(val)) newForm.medTypes.push(k.split(':')[1].trim());
+            }
+
+            if (k.startsWith('16.您服用的其他药物')) newForm.otherMedName = vStr;
+
+            if (k.startsWith('17.您的父母')) {
+                const lastColon = k.lastIndexOf(':');
+                if (lastColon !== -1 && isSelected(val)) {
+                    newForm.familyHistory.push(k.substring(lastColon + 1).trim());
+                }
+            }
+
+            if (k.startsWith('18.父亲')) newForm.fatherCvdEarly = vStr;
+            if (k.startsWith('19.母亲')) newForm.motherCvdEarly = vStr;
+
+            if (k.startsWith('20.膳食习惯:')) {
+                if (isSelected(val)) newForm.dietHabits.push(k.split(':')[1].trim());
+            }
+
+            if (k.startsWith('21.主食类型')) newForm.stapleType = vStr;
+            if (k.startsWith('22.粗粮')) newForm.coarseFreq = vStr;
+            if (k.startsWith('23.蔬菜')) newForm.vegIntake = vStr;
+            if (k.startsWith('24.水果')) newForm.fruitIntake = vStr;
+            if (k.startsWith('25.肉蛋禽')) newForm.meatIntake = vStr;
+            if (k.startsWith('26.奶制品')) newForm.dairyIntake = vStr;
+            if (k.startsWith('27.豆类')) newForm.beanNutIntake = vStr;
+            if (k.startsWith('28.每日饮水')) newForm.waterCups = vStr;
+            if (k.startsWith('29.运动频率')) newForm.exFreq = vStr;
+
+            if (k.startsWith('30.运动类型:')) {
+                if (isSelected(val)) newForm.exTypes.push(k.split(':')[1].trim());
+            }
+
+            if (k.startsWith('31.平均每次')) newForm.exDuration = vStr;
+            if (k.startsWith('32.平均每晚')) newForm.sleepHours = vStr;
+            if (k.startsWith('33.睡眠质量')) newForm.sleepQuality = vStr;
+            if (k.startsWith('34.打鼾情况')) newForm.snore = vStr;
+            if (k.startsWith('35.打鼾是否')) newForm.snoreMonitor = vStr;
+            if (k.startsWith('36.吸烟情况')) newForm.smokeStatus = vStr;
+            if (k.startsWith('37.戒烟年份')) newForm.quitSmokeYear = vStr;
+            if (k.startsWith('38.目前吸烟')) newForm.smokeDaily = vStr;
+            if (k.startsWith('39.已吸烟')) newForm.smokeYears = vStr;
+            if (k.startsWith('40.您是否在未感冒')) newForm.chronicCough = vStr;
+            if (k.startsWith('41.您是否在活动')) newForm.shortBreath = vStr;
+            if (k.startsWith('42.饮酒情况')) newForm.drinkStatus = vStr;
+            if (k.startsWith('43.每周饮酒')) newForm.drinkFreq = vStr;
+            if (k.startsWith('44.每次饮酒')) newForm.drinkAmount = vStr;
+            if (k.startsWith('45.醉酒史')) newForm.drunkHistory = vStr;
+            
+            if (k.startsWith('46.压力自我评估')) newForm.stressLevel = vStr;
+
+            // PHQ-9 (47)
+            if (k.startsWith('47.情绪状态')) {
+                const qText = k.split(':')[1]?.trim() || '';
+                const keywords = ['做事时', '心情低落', '入睡困难', '感到疲倦', '食欲不振', '觉得自己很失败', '专注有困难', '缓慢', '死掉'];
+                const idx = keywords.findIndex(kw => qText.includes(kw));
+                if (idx !== -1) newForm.phq9[idx] = parseScore(val);
+            }
+
+            // GAD-7 (48)
+            if (k.startsWith('48.焦虑状态')) {
+                const qText = k.split(':')[1]?.trim() || '';
+                const keywords = ['神经质', '不能停止', '担忧过多', '很难放松', '坐立不安', '容易烦恼', '感到害怕'];
+                const idx = keywords.findIndex(kw => qText.includes(kw));
+                if (idx !== -1) newForm.gad7[idx] = parseScore(val);
+            }
+
+            // Services (49)
+            if (k.startsWith('49.希望校医院')) {
+                const lastColon = k.lastIndexOf(':');
+                if (lastColon !== -1 && isSelected(val)) {
+                    newForm.desiredServices.push(k.substring(lastColon + 1).trim());
+                }
+            }
+
+            if (k.startsWith('50.希望获得')) newForm.otherSupport = vStr;
+        });
 
         setForm(newForm);
     };
