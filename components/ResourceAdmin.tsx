@@ -37,7 +37,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const loadData = async () => {
         setLoading(true);
         setLoadingText('加载数据中...');
-        setSelectedIds(new Set()); // Reset selection on tab change
+        setSelectedIds(new Set()); 
         let contentType = '';
         switch(activeTab) {
             case 'recipe': contentType = 'meal'; break;
@@ -128,16 +128,26 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             return;
         }
 
+        // Helper: Wrap promise with timeout
+        const withTimeout = (promise: Promise<any>, ms: number) => {
+            return Promise.race([
+                promise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('AI响应超时')), ms))
+            ]);
+        };
+
         // Auto-AI Calculation for Recipes if ingredients exist but nutrition is missing
         if (editItem.type === 'meal' && editItem.details?.ingredients && (!editItem.details.nutrition || !editItem.details.cal)) {
-            setIsAnalyzing(true); // Reuse UI state inside modal if visible, or global loading
+            setIsAnalyzing(true); 
             try {
-                // Temporary toast or indicator could be added here
-                console.log("Auto-calculating nutrition...");
-                const result = await calculateNutritionFromIngredients([{
-                    name: editItem.title,
-                    ingredients: editItem.details.ingredients
-                }]);
+                // Set 10s timeout for AI to prevent spinning forever
+                const result = await withTimeout(
+                    calculateNutritionFromIngredients([{
+                        name: editItem.title,
+                        ingredients: editItem.details.ingredients
+                    }]), 
+                    10000 // 10 seconds timeout
+                );
                 
                 const data = result.nutritionData[editItem.title];
                 if (data) {
@@ -145,13 +155,20 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     editItem.details.cal = data.cal;
                 }
             } catch (e) {
-                console.warn("Auto-AI failed, saving without nutrition data", e);
+                console.warn("Auto-AI skipped (timeout or error), saving raw data.", e);
+                // Don't alert the user, just proceed to save to avoid blocking flow
             } finally {
                 setIsAnalyzing(false);
             }
         }
 
+        // Force status update visually
+        setLoading(true);
+        setLoadingText('正在保存...');
+        
         await saveContent(editItem as ContentItem);
+        
+        setLoading(false);
         setIsModalOpen(false);
         loadData();
     };
@@ -338,7 +355,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     }
                 }
 
-                // 2. Second Pass: Batch AI Analysis
+                // 2. Second Pass: Batch AI Analysis (With Error Safety)
                 if (recipesToAnalyze.length > 0) {
                     setLoadingText(`AI 正在批量分析 ${recipesToAnalyze.length} 道食谱的营养成分...`);
                     try {
@@ -358,7 +375,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         });
                     } catch (aiError) {
                         console.error("Batch AI Analysis failed:", aiError);
-                        alert("AI 分析部分失败，数据将以原始状态保存。");
+                        alert("AI 分析服务连接失败，系统将跳过营养分析步骤，仅导入基础数据。");
                     }
                 }
 
@@ -371,7 +388,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 }
                 
                 if (savedCount > 0) {
-                    alert(`成功导入 ${savedCount} 条数据！${recipesToAnalyze.length > 0 ? '\n已自动补充营养热量数据。' : ''}`);
+                    alert(`成功导入 ${savedCount} 条数据！${recipesToAnalyze.length > 0 ? '\n部分营养热量数据可能已自动补充。' : ''}`);
                 } else {
                     alert(`未导入任何有效数据，请检查 Excel 格式。`);
                 }
@@ -582,7 +599,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             </td>
                                         </tr>
                                     ))}
-                                    {items.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-slate-400">暂无资源</td></tr>}
+                                    {items.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-slate-400">暂无资源，请先新增。</td></tr>}
                                 </tbody>
                             </table>
                         )}

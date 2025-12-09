@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 // Helper to safely access environment variables
@@ -30,7 +31,7 @@ const getEnvVar = (key: string): string => {
 const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
 const supabaseKey = getEnvVar('VITE_SUPABASE_KEY');
 
-// Log config status for debugging (don't log the actual key in production ideally, but helpful here)
+// Log config status for debugging
 console.log(`[Supabase Config] URL found: ${!!supabaseUrl}, Key found: ${!!supabaseKey}`);
 
 export const supabase = createClient(
@@ -39,9 +40,9 @@ export const supabase = createClient(
 );
 
 export const isSupabaseConfigured = () => {
-    // More lenient check: just ensure variables exist and have some length
-    return !!supabaseUrl && 
-           !!supabaseKey && 
-           supabaseUrl.length > 10 && 
-           supabaseKey.length > 10;
+    // Strict check: Ensure variables exist, are long enough, AND are not placeholders
+    const isUrlValid = supabaseUrl && supabaseUrl.length > 10 && !supabaseUrl.includes('placeholder');
+    const isKeyValid = supabaseKey && supabaseKey.length > 10 && !supabaseKey.includes('placeholder');
+    
+    return !!(isUrlValid && isKeyValid);
 };

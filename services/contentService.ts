@@ -38,7 +38,7 @@ export interface ContentItem {
     date?: string;           // 时间 (精确到分)
     loc?: string;            // 地点
     registered?: number;     // 报名人数
-    max?: number;            // 人数上限 (虽未明确提及但通常需要)
+    max?: number;            // 人数上限
     organizer?: string;      // 组织者
     contact?: string;        // 联系方式
     deadline?: string;       // 报名截止日期
@@ -104,9 +104,11 @@ const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V4'; // Updated Key
 const INTERACTION_KEY = 'HEALTH_GUARD_INTERACTIONS_V1';
 const CHAT_KEY = 'HEALTH_GUARD_CHATS_V1';
 
-// ... (Fetch/Save functions remain same, omitted for brevity, keeping existing logic) ...
 // 1. Content (Resources)
 export const fetchContent = async (type?: string | string[], status?: 'active' | 'pending'): Promise<ContentItem[]> => {
+  let dbData: ContentItem[] | null = null;
+  let useLocal = true;
+
   if (isSupabaseConfigured()) {
       try {
           let query = supabase.from('app_content').select('*');
@@ -116,21 +118,44 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
           }
           if (status) query = query.eq('status', status);
           const { data, error } = await query.order('updated_at', { ascending: false });
-          if (!error && data) return data.map(d => ({ ...d, updatedAt: d.updated_at, isUserUpload: d.is_user_upload })); 
-      } catch (e) {}
+          
+          if (!error && data) {
+              dbData = data.map((d:any) => ({ ...d, updatedAt: d.updated_at, isUserUpload: d.is_user_upload }));
+              useLocal = false; // DB fetch success, rely on DB
+          } else {
+              console.warn("Supabase fetch failed or empty, falling back to local.", error);
+          }
+      } catch (e) {
+          console.warn("Supabase exception, falling back to local.", e);
+      }
   }
-  await new Promise(r => setTimeout(r, 50));
-  const raw = localStorage.getItem(STORAGE_KEY);
-  let all: ContentItem[] = raw ? JSON.parse(raw) : [];
-  if (type) {
-      if (Array.isArray(type)) all = all.filter(i => type.includes(i.type));
-      else all = all.filter(i => i.type === type);
+
+  // Fallback or if not configured
+  if (useLocal) {
+      await new Promise(r => setTimeout(r, 50));
+      const raw = localStorage.getItem(STORAGE_KEY);
+      let all: ContentItem[] = raw ? JSON.parse(raw) : [];
+      if (type) {
+          if (Array.isArray(type)) all = all.filter(i => type.includes(i.type));
+          else all = all.filter(i => i.type === type);
+      }
+      if (status !== undefined) all = all.filter(i => i.status === status);
+      return all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
-  if (status !== undefined) all = all.filter(i => i.status === status);
-  return all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  return dbData || [];
 };
 
 export const saveContent = async (item: ContentItem): Promise<boolean> => {
+  // Always save to LocalStorage as a backup/cache or primary if DB fails
+  const raw = localStorage.getItem(STORAGE_KEY);
+  let all: ContentItem[] = raw ? JSON.parse(raw) : [];
+  const idx = all.findIndex(i => i.id === item.id);
+  if (idx >= 0) all[idx] = { ...item, updatedAt: new Date().toISOString() };
+  else all.push({ ...item, updatedAt: new Date().toISOString() });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+
+  // Try DB Sync if configured
   if (isSupabaseConfigured()) {
       try {
           const payload = {
@@ -139,39 +164,43 @@ export const saveContent = async (item: ContentItem): Promise<boolean> => {
               details: item.details, status: item.status, updated_at: new Date().toISOString()
           };
           const { error } = await supabase.from('app_content').upsert(payload);
-          if (!error) return true;
-      } catch (e) {}
+          if (error) {
+              console.error("Supabase Write Failed (Saved to LocalStorage only):", error.message);
+              // We return true because it IS saved locally, so UI shouldn't block
+              return true; 
+          }
+      } catch (e) {
+          console.error("Supabase Exception:", e);
+      }
   }
-  const raw = localStorage.getItem(STORAGE_KEY);
-  let all: ContentItem[] = raw ? JSON.parse(raw) : [];
-  const idx = all.findIndex(i => i.id === item.id);
-  if (idx >= 0) all[idx] = { ...item, updatedAt: new Date().toISOString() };
-  else all.push({ ...item, updatedAt: new Date().toISOString() });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
   return true;
 };
 
 export const deleteContent = async (id: string): Promise<boolean> => {
-  if (isSupabaseConfigured()) {
-      const { error } = await supabase.from('app_content').delete().eq('id', id);
-      if (!error) return true;
-  }
+  // Delete Local
   const raw = localStorage.getItem(STORAGE_KEY);
   let all: ContentItem[] = raw ? JSON.parse(raw) : [];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all.filter(i => i.id !== id)));
+
+  // Delete DB
+  if (isSupabaseConfigured()) {
+      try {
+        await supabase.from('app_content').delete().eq('id', id);
+      } catch(e) { console.warn("DB delete failed", e); }
+  }
   return true;
 };
 
-// ... (Interaction functions omitted, assume same) ...
+// ... (Interaction functions - Similar Logic) ...
 export const fetchInteractions = async (type?: string): Promise<InteractionItem[]> => {
-    // ... same logic ...
+    // ... same simplified logic for interactions
+    // For demo stability, we prioritize local storage for interactions unless deeply integrated
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
     if (type) all = all.filter(i => i.type === type);
     return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 export const saveInteraction = async (item: InteractionItem): Promise<boolean> => {
-    // ... same logic ...
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
     all.push(item);
@@ -179,7 +208,6 @@ export const saveInteraction = async (item: InteractionItem): Promise<boolean> =
     return true;
 };
 export const updateInteractionStatus = async (id: string, status: InteractionItem['status']): Promise<boolean> => {
-    // ... same logic ...
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
     const idx = all.findIndex(i => i.id === id);
@@ -187,13 +215,11 @@ export const updateInteractionStatus = async (id: string, status: InteractionIte
     return false;
 };
 export const fetchMessages = async (userId: string, doctorId: string): Promise<ChatMessage[]> => {
-    // ... same logic ...
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
     return all.filter(m => (m.senderId === userId && m.receiverId === doctorId) || (m.senderId === doctorId && m.receiverId === userId)).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'read'>): Promise<ChatMessage> => {
-    // ... same logic ...
     const newMsg: ChatMessage = { ...msg, id: `msg_${Date.now()}`, timestamp: new Date().toISOString(), read: false };
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
