@@ -1,8 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { QuestionnaireData } from '../types';
+import { QuestionnaireData, HealthRecord } from '../types';
+import { parseHealthDataFromText } from '../services/geminiService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
+// @ts-ignore
+import * as mammoth from 'mammoth';
+// @ts-ignore
+import * as pdfjsLib from 'pdfjs-dist';
 
 interface Props {
     onSubmit: (data: QuestionnaireData, checkupId: string, profileInfo: {gender: string, dept: string}) => void;
@@ -26,7 +31,6 @@ const OPTIONS = {
     staple: ['以精米白面为主', '常吃粗粮杂豆根块类（≥1次/周）'],
     coarseFreq: ['每天摄入', '每周3-5次', '每周1-2次'],
     vegFruitMeat: ['每天≥300克', '每天约150－300克', '摄入较少（＜150克）'],
-    // Note: Re-using logic for simpler rendering for fruit/meat/veg options which are similar
     dairy: ['每天摄入', '每周3－5次', '偶尔摄入', '几乎不摄入'],
     beanNut: ['经常摄入', '偶尔摄入', '几乎不摄入'],
     exerciseFreq: ['几乎不运动', '每周1－2次', '每周3－5次', '每周5次以上'],
@@ -45,6 +49,7 @@ const OPTIONS = {
 
 export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initialCheckupId }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isParsing, setIsParsing] = useState(false);
     
     // Local State for fields
     const [form, setForm] = useState<any>({
@@ -82,6 +87,27 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         }
     }, [initialCheckupId]);
 
+    // Setup PDF Worker
+    useEffect(() => {
+        const setupPdfWorker = async () => {
+            const workerUrl = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+            // @ts-ignore
+            const lib = pdfjsLib.default || pdfjsLib;
+            if (!lib.GlobalWorkerOptions) return;
+            try {
+                const response = await fetch(workerUrl);
+                if (!response.ok) throw new Error("Failed to fetch worker script");
+                const workerScript = await response.text();
+                const blob = new Blob([workerScript], { type: "text/javascript" });
+                const blobUrl = URL.createObjectURL(blob);
+                lib.GlobalWorkerOptions.workerSrc = blobUrl;
+            } catch (error) {
+                lib.GlobalWorkerOptions.workerSrc = workerUrl;
+            }
+        };
+        setupPdfWorker();
+    }, []);
+
     const handleChange = (key: string, value: any) => {
         setForm({ ...form, [key]: value });
     };
@@ -101,200 +127,157 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         handleChange(scale, newArr);
     };
 
-    // --- Excel Import Logic ---
-    const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // --- Smart File Extraction Logic ---
+    const extractTextFromFile = async (file: File): Promise<string> => {
+        const fileType = file.name.split('.').pop()?.toLowerCase();
+        
+        if (fileType === 'txt') {
+            return await file.text();
+        } 
+        else if (fileType === 'docx' || fileType === 'doc') {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            return result.value;
+        }
+        else if (fileType === 'xlsx' || fileType === 'xls') {
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            let text = "";
+            workbook.SheetNames.forEach((sheetName: string) => {
+                const sheet = workbook.Sheets[sheetName];
+                text += `--- Sheet: ${sheetName} ---\n`;
+                text += XLSX.utils.sheet_to_csv(sheet);
+                text += "\n\n";
+            });
+            return text;
+        }
+        else if (fileType === 'pdf') {
+            const arrayBuffer = await file.arrayBuffer();
+            // @ts-ignore
+            const lib = pdfjsLib.default || pdfjsLib;
+            const loadingTask = lib.getDocument({ data: arrayBuffer });
+            const pdf = await loadingTask.promise;
+            let fullText = "";
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map((item: any) => item.str).join(' ');
+                fullText += `--- Page ${i} ---\n${pageText}\n\n`;
+            }
+            return fullText;
+        }
+        throw new Error("不支持的文件格式，请上传 PDF, Word, Excel 或 TXT");
+    };
+
+    const handleSmartUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = (evt) => {
-            try {
-                const bstr = evt.target?.result;
-                const wb = XLSX.read(bstr, { type: 'binary' });
-                const wsname = wb.SheetNames[0];
-                const ws = wb.Sheets[wsname];
-                const data = XLSX.utils.sheet_to_json(ws);
+        setIsParsing(true);
+        try {
+            const text = await extractTextFromFile(file);
+            if (!text || text.trim().length < 10) throw new Error("未能从文件中提取到有效内容");
 
-                if (data.length > 0) {
-                    // Use the first row, or look for matching ID if multiple
-                    const row: any = data[0]; 
-                    
-                    if (data.length > 1 && initialCheckupId) {
-                        // Try to find the specific user row (Check keys matching "1.体检编号")
-                        const match = data.find((r: any) => {
-                            const key = Object.keys(r).find(k => k.includes('1.体检编号'));
-                            return key && String(r[key]) === initialCheckupId;
-                        });
-                        if (match) Object.assign(row, match);
-                    }
-
-                    // Extract name for confirmation if possible (though name is usually not in Q1)
-                    // Assuming row has data, proceed.
-                    if (confirm(`解析到数据，是否自动填充问卷？`)) {
-                        mapExcelToForm(row);
-                    }
-                } else {
-                    alert('Excel 文件为空');
-                }
-            } catch (err) {
-                console.error(err);
-                alert('解析 Excel 失败');
+            // Use AI Service to parse unstructured or structured text
+            const result = await parseHealthDataFromText(text);
+            
+            if (confirm(`解析成功！\n识别姓名: ${result.profile.name || '未知'}\n识别编号: ${result.profile.checkupId || '未知'}\n是否自动填入问卷？`)) {
+                mapRecordToForm(result);
             }
-        };
-        reader.readAsBinaryString(file);
+
+        } catch (error) {
+            console.error(error);
+            alert("智能解析失败: " + (error instanceof Error ? error.message : "未知错误"));
+        } finally {
+            setIsParsing(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
     };
 
-    const mapExcelToForm = (row: any) => {
+    const mapRecordToForm = (record: HealthRecord) => {
         const newForm = { ...form };
-        
-        // Reset Arrays
-        newForm.historyDiseases = [];
-        newForm.cadTypes = [];
-        newForm.strokeTypes = [];
-        newForm.medTypes = [];
-        newForm.familyHistory = [];
-        newForm.dietHabits = [];
-        newForm.exTypes = [];
-        newForm.desiredServices = [];
-        newForm.phq9 = Array(9).fill(null);
-        newForm.gad7 = Array(7).fill(null);
+        const q = record.questionnaire;
+        const p = record.profile;
 
-        // Helper to check if a cell value represents "Selected"
-        // Matches "1", "是", "checked", "true", "yes"
-        const isSelected = (val: any) => {
-            if (val === undefined || val === null || val === '') return false;
-            const s = String(val).trim().toLowerCase();
-            return s === '1' || s === '是' || s === 'checked' || s === 'true' || s === 'yes';
-        };
+        if (p.checkupId) newForm.checkupId = p.checkupId;
+        if (p.gender) newForm.gender = p.gender;
 
-        const parseScore = (val: any) => {
-            if (val === undefined || val === null || val === '') return null;
-            if (!isNaN(Number(val))) return Number(val);
-            const s = String(val).trim();
-            if (s.includes('完全不会')) return 0;
-            if (s.includes('好几天')) return 1;
-            if (s.includes('一半以上')) return 2;
-            if (s.includes('几乎每天')) return 3;
-            return 0; 
-        };
+        // History
+        if (q.history.diseases) newForm.historyDiseases = q.history.diseases;
+        if (q.history.details.hypertensionYear) newForm.htnYear = q.history.details.hypertensionYear;
+        if (q.history.details.cadTypes) newForm.cadTypes = q.history.details.cadTypes;
+        if (q.history.details.arrhythmiaType) newForm.arrhythmiaType = q.history.details.arrhythmiaType;
+        if (q.history.details.strokeTypes) newForm.strokeTypes = q.history.details.strokeTypes;
+        if (q.history.details.strokeYear) newForm.strokeYear = q.history.details.strokeYear;
+        if (q.history.details.diabetesYear) newForm.dmYear = q.history.details.diabetesYear;
+        if (q.history.details.tumorSite) newForm.tumorSite = q.history.details.tumorSite;
+        if (q.history.details.tumorYear) newForm.tumorYear = q.history.details.tumorYear;
+        if (q.history.surgeries) newForm.surgeryHistory = q.history.surgeries;
+        if (q.history.details.otherHistory) newForm.otherHistory = q.history.details.otherHistory;
 
-        // Iterate keys
-        Object.keys(row).forEach(key => {
-            const val = row[key];
-            if (val === undefined || val === null || val === '') return;
-            const k = key.trim();
-            const vStr = String(val).trim();
+        // Meds
+        if (q.medication.isRegular) newForm.regularMeds = q.medication.isRegular;
+        let meds = [];
+        if (q.medication.details.antihypertensive) meds.push('降压药');
+        if (q.medication.details.hypoglycemic) meds.push('降糖药/胰岛素');
+        if (q.medication.details.lipidLowering) meds.push('降脂药（他汀类等）');
+        if (q.medication.details.antiplatelet) meds.push('阿司匹林/抗凝药');
+        newForm.medTypes = meds;
+        if (q.medication.list) newForm.otherMedName = q.medication.list;
 
-            if (k.startsWith('1.体检编号')) newForm.checkupId = vStr;
-            if (k.startsWith('2.性别')) newForm.gender = vStr;
-            
-            // 3. 既往病史
-            if (k.startsWith('3.既往病史:')) {
-                if (isSelected(val)) newForm.historyDiseases.push(k.split(':')[1].trim());
-            } else if (k.startsWith('3.既往病史') && !k.includes(':')) {
-                // Fallback for single column
-                newForm.historyDiseases = vStr.split(/[,，]/).map(s=>s.trim());
-            }
+        // Family
+        let fam = [];
+        if (q.familyHistory.diabetes) fam.push('父亲/母亲/兄弟姐妹 - 糖尿病');
+        if (q.familyHistory.hypertension) fam.push('父亲/母亲/兄弟姐妹 - 高血压');
+        if (q.familyHistory.stroke) fam.push('父亲/母亲 - 脑卒中（中风）');
+        if (q.familyHistory.lungCancer) fam.push('父亲/母亲/兄弟姐妹 - 肺癌');
+        if (q.familyHistory.colonCancer) fam.push('父亲/母亲/兄弟姐妹 - 结直肠癌');
+        newForm.familyHistory = fam;
+        if (q.familyHistory.fatherCvdEarly) newForm.fatherCvdEarly = '是';
+        if (q.familyHistory.motherCvdEarly) newForm.motherCvdEarly = '是';
 
-            if (k.startsWith('4.高血压诊断年份')) newForm.htnYear = vStr;
-            
-            if (k.startsWith('5.冠心病类型:')) {
-                if (isSelected(val)) newForm.cadTypes.push(k.split(':')[1].trim());
-            }
+        // Diet / Lifestyle
+        if (q.diet.habits) newForm.dietHabits = q.diet.habits;
+        if (q.diet.stapleType) newForm.stapleType = q.diet.stapleType;
+        if (q.diet.coarseGrainFreq) newForm.coarseFreq = q.diet.coarseGrainFreq;
+        if (q.diet.dailyVeg) newForm.vegIntake = q.diet.dailyVeg;
+        if (q.diet.dailyFruit) newForm.fruitIntake = q.diet.dailyFruit;
+        if (q.diet.dailyMeat) newForm.meatIntake = q.diet.dailyMeat;
+        if (q.diet.dailyDairy) newForm.dairyIntake = q.diet.dailyDairy;
+        if (q.diet.dailyBeanNut) newForm.beanNutIntake = q.diet.dailyBeanNut;
+        if (q.hydration.dailyAmount) newForm.waterCups = q.hydration.dailyAmount;
 
-            if (k.startsWith('6.心律失常类型')) newForm.arrhythmiaType = vStr;
+        if (q.exercise.frequency) newForm.exFreq = q.exercise.frequency;
+        if (q.exercise.types) newForm.exTypes = q.exercise.types;
+        if (q.exercise.duration) newForm.exDuration = q.exercise.duration;
 
-            if (k.startsWith('7.脑卒中类型:')) {
-                if (isSelected(val)) newForm.strokeTypes.push(k.split(':')[1].trim());
-            }
+        if (q.sleep.hours) newForm.sleepHours = q.sleep.hours;
+        if (q.sleep.quality) newForm.sleepQuality = q.sleep.quality;
+        if (q.sleep.snore) newForm.snore = q.sleep.snore;
+        if (q.sleep.monitorResult) newForm.monitorResult = q.sleep.monitorResult;
 
-            if (k.startsWith('8.脑卒中发生年份')) newForm.strokeYear = vStr;
-            if (k.startsWith('9.糖尿病诊断年份')) newForm.dmYear = vStr;
-            if (k.startsWith('10.肿瘤部位')) newForm.tumorSite = vStr;
-            if (k.startsWith('11.肿瘤诊断年份')) newForm.tumorYear = vStr;
-            if (k.startsWith('12.手术史')) newForm.surgeryHistory = vStr;
-            if (k.startsWith('13.其他既往')) newForm.otherHistory = vStr;
-            
-            if (k.startsWith('14.是否规律服药')) newForm.regularMeds = vStr;
+        // Substances
+        if (q.substances.smoking.status) newForm.smokeStatus = q.substances.smoking.status;
+        if (q.substances.smoking.quitYear) newForm.quitSmokeYear = q.substances.smoking.quitYear;
+        if (q.substances.smoking.dailyAmount) newForm.smokeDaily = q.substances.smoking.dailyAmount;
+        if (q.substances.smoking.years) newForm.smokeYears = q.substances.smoking.years;
 
-            if (k.startsWith('15.您目前是否正在服用以下药物？:')) {
-                if (isSelected(val)) newForm.medTypes.push(k.split(':')[1].trim());
-            }
+        if (q.respiratory.chronicCough) newForm.chronicCough = '是';
+        if (q.respiratory.shortBreath) newForm.shortBreath = '是';
 
-            if (k.startsWith('16.您服用的其他药物')) newForm.otherMedName = vStr;
+        if (q.substances.alcohol.status) newForm.drinkStatus = q.substances.alcohol.status;
+        if (q.substances.alcohol.freq) newForm.drinkFreq = q.substances.alcohol.freq;
+        if (q.substances.alcohol.amount) newForm.drinkAmount = q.substances.alcohol.amount;
+        if (q.substances.alcohol.drunkHistory) newForm.drunkHistory = q.substances.alcohol.drunkHistory;
 
-            if (k.startsWith('17.您的父母')) {
-                const lastColon = k.lastIndexOf(':');
-                if (lastColon !== -1 && isSelected(val)) {
-                    newForm.familyHistory.push(k.substring(lastColon + 1).trim());
-                }
-            }
+        // Mental
+        if (q.mental.stressLevel) newForm.stressLevel = q.mental.stressLevel;
+        // Note: Individual matrix scores are hard to reverse map perfectly if only total score is available, 
+        // but if parsed data has them (which parseHealthDataFromText implies for structured output), we could map them. 
+        // For now we trust the user to refine the mental scales if they are critical.
 
-            if (k.startsWith('18.父亲')) newForm.fatherCvdEarly = vStr;
-            if (k.startsWith('19.母亲')) newForm.motherCvdEarly = vStr;
-
-            if (k.startsWith('20.膳食习惯:')) {
-                if (isSelected(val)) newForm.dietHabits.push(k.split(':')[1].trim());
-            }
-
-            if (k.startsWith('21.主食类型')) newForm.stapleType = vStr;
-            if (k.startsWith('22.粗粮')) newForm.coarseFreq = vStr;
-            if (k.startsWith('23.蔬菜')) newForm.vegIntake = vStr;
-            if (k.startsWith('24.水果')) newForm.fruitIntake = vStr;
-            if (k.startsWith('25.肉蛋禽')) newForm.meatIntake = vStr;
-            if (k.startsWith('26.奶制品')) newForm.dairyIntake = vStr;
-            if (k.startsWith('27.豆类')) newForm.beanNutIntake = vStr;
-            if (k.startsWith('28.每日饮水')) newForm.waterCups = vStr;
-            if (k.startsWith('29.运动频率')) newForm.exFreq = vStr;
-
-            if (k.startsWith('30.运动类型:')) {
-                if (isSelected(val)) newForm.exTypes.push(k.split(':')[1].trim());
-            }
-
-            if (k.startsWith('31.平均每次')) newForm.exDuration = vStr;
-            if (k.startsWith('32.平均每晚')) newForm.sleepHours = vStr;
-            if (k.startsWith('33.睡眠质量')) newForm.sleepQuality = vStr;
-            if (k.startsWith('34.打鼾情况')) newForm.snore = vStr;
-            if (k.startsWith('35.打鼾是否')) newForm.snoreMonitor = vStr;
-            if (k.startsWith('36.吸烟情况')) newForm.smokeStatus = vStr;
-            if (k.startsWith('37.戒烟年份')) newForm.quitSmokeYear = vStr;
-            if (k.startsWith('38.目前吸烟')) newForm.smokeDaily = vStr;
-            if (k.startsWith('39.已吸烟')) newForm.smokeYears = vStr;
-            if (k.startsWith('40.您是否在未感冒')) newForm.chronicCough = vStr;
-            if (k.startsWith('41.您是否在活动')) newForm.shortBreath = vStr;
-            if (k.startsWith('42.饮酒情况')) newForm.drinkStatus = vStr;
-            if (k.startsWith('43.每周饮酒')) newForm.drinkFreq = vStr;
-            if (k.startsWith('44.每次饮酒')) newForm.drinkAmount = vStr;
-            if (k.startsWith('45.醉酒史')) newForm.drunkHistory = vStr;
-            
-            if (k.startsWith('46.压力自我评估')) newForm.stressLevel = vStr;
-
-            // PHQ-9 (47)
-            if (k.startsWith('47.情绪状态')) {
-                const qText = k.split(':')[1]?.trim() || '';
-                const keywords = ['做事时', '心情低落', '入睡困难', '感到疲倦', '食欲不振', '觉得自己很失败', '专注有困难', '缓慢', '死掉'];
-                const idx = keywords.findIndex(kw => qText.includes(kw));
-                if (idx !== -1) newForm.phq9[idx] = parseScore(val);
-            }
-
-            // GAD-7 (48)
-            if (k.startsWith('48.焦虑状态')) {
-                const qText = k.split(':')[1]?.trim() || '';
-                const keywords = ['神经质', '不能停止', '担忧过多', '很难放松', '坐立不安', '容易烦恼', '感到害怕'];
-                const idx = keywords.findIndex(kw => qText.includes(kw));
-                if (idx !== -1) newForm.gad7[idx] = parseScore(val);
-            }
-
-            // Services (49)
-            if (k.startsWith('49.希望校医院')) {
-                const lastColon = k.lastIndexOf(':');
-                if (lastColon !== -1 && isSelected(val)) {
-                    newForm.desiredServices.push(k.substring(lastColon + 1).trim());
-                }
-            }
-
-            if (k.startsWith('50.希望获得')) newForm.otherSupport = vStr;
-        });
+        if (q.needs.desiredSupport) newForm.desiredServices = q.needs.desiredSupport;
+        if (q.needs.otherSupport) newForm.otherSupport = q.needs.otherSupport;
 
         setForm(newForm);
     };
@@ -445,19 +428,25 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                     <input 
                         type="file" 
                         ref={fileInputRef}
-                        accept=".xlsx, .xls"
+                        accept=".pdf,.docx,.doc,.txt,.xlsx,.xls"
                         className="hidden"
-                        onChange={handleExcelUpload}
+                        onChange={handleSmartUpload}
                     />
                     <button 
                         onClick={() => fileInputRef.current?.click()}
-                        className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-lg border border-white/40 flex items-center gap-1 transition-all"
+                        disabled={isParsing}
+                        className="absolute top-4 right-4 bg-white/20 hover:bg-white/30 text-white text-xs px-3 py-1.5 rounded-lg border border-white/40 flex items-center gap-1 transition-all disabled:opacity-50"
                     >
-                        📂 导入 Excel 问卷
+                        {isParsing ? '⏳ 正在解析...' : '📂 上传附件自动识别'}
                     </button>
                 </div>
                 
                 <div className="p-8 space-y-8">
+                    {isParsing && (
+                        <div className="bg-blue-50 text-blue-700 p-4 rounded-lg text-center animate-pulse border border-blue-200">
+                            正在智能读取文件内容并映射到问卷，请稍候...
+                        </div>
+                    )}
                     <p className="text-sm text-slate-600 bg-slate-50 p-4 rounded border-l-4 border-teal-500">
                         尊敬的各位老师：为更好地关注您的健康状况，提供更具针对性的健康管理服务，我们特制定本问卷。您的所有信息将被严格保密，仅用于健康评估与管理。
                     </p>
