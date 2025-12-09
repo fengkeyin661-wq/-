@@ -18,6 +18,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [items, setItems] = useState<ContentItem[]>([]);
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     const [loading, setLoading] = useState(false);
+    const [loadingText, setLoadingText] = useState('加载中...');
     
     // Content Edit State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,6 +36,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
     const loadData = async () => {
         setLoading(true);
+        setLoadingText('加载数据中...');
         setSelectedIds(new Set()); // Reset selection on tab change
         let contentType = '';
         switch(activeTab) {
@@ -119,8 +121,36 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    // --- Save Content (Manual Add/Edit) with Auto-AI ---
     const handleSaveContent = async () => {
-        if (!editItem.title || !editItem.type) return;
+        if (!editItem.title || !editItem.type) {
+            alert("标题和类型为必填项");
+            return;
+        }
+
+        // Auto-AI Calculation for Recipes if ingredients exist but nutrition is missing
+        if (editItem.type === 'meal' && editItem.details?.ingredients && (!editItem.details.nutrition || !editItem.details.cal)) {
+            setIsAnalyzing(true); // Reuse UI state inside modal if visible, or global loading
+            try {
+                // Temporary toast or indicator could be added here
+                console.log("Auto-calculating nutrition...");
+                const result = await calculateNutritionFromIngredients([{
+                    name: editItem.title,
+                    ingredients: editItem.details.ingredients
+                }]);
+                
+                const data = result.nutritionData[editItem.title];
+                if (data) {
+                    editItem.details.nutrition = data.nutrition;
+                    editItem.details.cal = data.cal;
+                }
+            } catch (e) {
+                console.warn("Auto-AI failed, saving without nutrition data", e);
+            } finally {
+                setIsAnalyzing(false);
+            }
+        }
+
         await saveContent(editItem as ContentItem);
         setIsModalOpen(false);
         loadData();
@@ -229,90 +259,128 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 if (!confirm(`解析到 ${data.length} 条数据，确定导入到当前 [${activeTab}] 分类吗？`)) return;
 
                 setLoading(true);
-                let count = 0;
+                setLoadingText('正在解析 Excel 数据...');
                 
-                for (const row of data) {
+                // 1. First Pass: Create Item Objects
+                const itemsToSave: ContentItem[] = [];
+                const recipesToAnalyze: { index: number, name: string, ingredients: string }[] = [];
+
+                for (let i = 0; i < data.length; i++) {
+                    const row: any = data[i];
                     let type: any = 'meal';
                     let details: any = {};
-                    const r = row as any;
                     
                     if (activeTab === 'recipe') {
                         type = 'meal';
                         details = {
-                            ingredients: getVal(r, '配料及用量'), 
-                            steps: getVal(r, '制作步骤'), 
-                            cookingTime: getVal(r, '制作时长'),
-                            difficulty: getVal(r, '难度'), 
-                            nutrition: getVal(r, '营养成分(AI估算)'), 
-                            cal: getVal(r, '热量')
+                            ingredients: getVal(row, '配料及用量'), 
+                            steps: getVal(row, '制作步骤'), 
+                            cookingTime: getVal(row, '制作时长'),
+                            difficulty: getVal(row, '难度'), 
+                            nutrition: getVal(row, '营养成分(AI估算)'), 
+                            cal: getVal(row, '热量')
                         };
                     } else if (activeTab === 'exercise') {
                         type = 'exercise';
                         details = {
-                            exerciseType: getVal(r, '运动类型'), frequency: getVal(r, '频率'), intensity: getVal(r, '强度'),
-                            duration: getVal(r, '持续时间'), calories: getVal(r, '消耗热量'), prepWork: getVal(r, '准备工作'), contraindications: getVal(r, '注意事项')
+                            exerciseType: getVal(row, '运动类型'), frequency: getVal(row, '频率'), intensity: getVal(row, '强度'),
+                            duration: getVal(row, '持续时间'), calories: getVal(row, '消耗热量'), prepWork: getVal(row, '准备工作'), contraindications: getVal(row, '注意事项')
                         };
                     } else if (activeTab === 'event') {
                         type = 'event';
                         details = {
-                            eventCategory: getVal(r, '类别'), date: getVal(r, '时间(YYYY-MM-DD HH:MM)'), loc: getVal(r, '地点'),
-                            max: getVal(r, '人数上限'), organizer: getVal(r, '组织者'), contact: getVal(r, '联系方式'), deadline: getVal(r, '报名截止日期')
+                            eventCategory: getVal(row, '类别'), date: getVal(row, '时间(YYYY-MM-DD HH:MM)'), loc: getVal(row, '地点'),
+                            max: getVal(row, '人数上限'), organizer: getVal(row, '组织者'), contact: getVal(row, '联系方式'), deadline: getVal(row, '报名截止日期')
                         };
                     } else if (activeTab === 'service') {
                         type = 'service';
                         details = {
-                            serviceCategory: getVal(r, '类别'), dept: getVal(r, '所属科室'), price: getVal(r, '单价'),
-                            clinicalSignificance: getVal(r, '检查意义'), targetAudience: getVal(r, '适用人群'), preCheckPrep: getVal(r, '检查须知')
+                            serviceCategory: getVal(row, '类别'), dept: getVal(row, '所属科室'), price: getVal(row, '单价'),
+                            clinicalSignificance: getVal(row, '检查意义'), targetAudience: getVal(row, '适用人群'), preCheckPrep: getVal(row, '检查须知')
                         };
                     } else if (activeTab === 'drug') {
                         type = 'drug';
                         details = {
-                            spec: getVal(r, '规格'), usage: getVal(r, '用途/适应症'), dosage: getVal(r, '用法用量'), adminRoute: getVal(r, '给药途径'),
-                            timingNotes: getVal(r, '服用时间与注意事项'), sideEffects: getVal(r, '副作用'), drugContraindications: getVal(r, '禁忌症'),
-                            interactions: getVal(r, '药物相互作用'), storage: getVal(r, '储存有效期'), missedDose: getVal(r, '漏服处理')
+                            spec: getVal(row, '规格'), usage: getVal(row, '用途/适应症'), dosage: getVal(row, '用法用量'), adminRoute: getVal(row, '给药途径'),
+                            timingNotes: getVal(row, '服用时间与注意事项'), sideEffects: getVal(row, '副作用'), drugContraindications: getVal(row, '禁忌症'),
+                            interactions: getVal(row, '药物相互作用'), storage: getVal(row, '储存有效期'), missedDose: getVal(row, '漏服处理')
                         };
                     } else if (activeTab === 'doctor') {
                         type = 'doctor';
                         details = {
-                            dept: getVal(r, '所属科室'), title: getVal(r, '职称'), specialty: getVal(r, '擅长领域'), schedule: getVal(r, '门诊时间'),
-                            hospital: getVal(r, '医院'), username: getVal(r, '登录账号'), password: getVal(r, '密码')
+                            dept: getVal(row, '所属科室'), title: getVal(row, '职称'), specialty: getVal(row, '擅长领域'), schedule: getVal(row, '门诊时间'),
+                            hospital: getVal(row, '医院'), username: getVal(row, '登录账号'), password: getVal(row, '密码')
                         };
                     }
 
-                    const titleVal = getVal(r, '名称') || '未命名';
+                    const titleVal = getVal(row, '名称') || '未命名';
 
-                    const item: ContentItem = {
-                        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-                        type,
-                        title: titleVal,
-                        description: getVal(r, '描述') || '',
-                        tags: (getVal(r, '标签') || '').split(/[,， ]+/).filter(Boolean),
-                        image: getVal(r, '图标') || (type === 'meal' ? '🍱' : '📦'),
-                        author: '管理员导入',
-                        isUserUpload: false,
-                        status: 'active',
-                        updatedAt: new Date().toISOString(),
-                        details
-                    };
-                    
-                    // Only save if we found a valid title (strict check)
-                    if (item.title && item.title !== '未命名') {
-                        await saveContent(item);
-                        count++;
+                    if (titleVal && titleVal !== '未命名') {
+                        const item: ContentItem = {
+                            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                            type,
+                            title: titleVal,
+                            description: getVal(row, '描述') || '',
+                            tags: (getVal(row, '标签') || '').split(/[,， ]+/).filter(Boolean),
+                            image: getVal(row, '图标') || (type === 'meal' ? '🍱' : '📦'),
+                            author: '管理员导入',
+                            isUserUpload: false,
+                            status: 'active',
+                            updatedAt: new Date().toISOString(),
+                            details
+                        };
+                        itemsToSave.push(item);
+
+                        // If it's a recipe and needs analysis
+                        if (type === 'meal' && details.ingredients && (!details.nutrition || !details.cal)) {
+                            recipesToAnalyze.push({ index: itemsToSave.length - 1, name: item.title, ingredients: details.ingredients });
+                        }
                     }
                 }
+
+                // 2. Second Pass: Batch AI Analysis
+                if (recipesToAnalyze.length > 0) {
+                    setLoadingText(`AI 正在批量分析 ${recipesToAnalyze.length} 道食谱的营养成分...`);
+                    try {
+                        // Prepare payload for AI service
+                        const aiPayload = recipesToAnalyze.map(r => ({ name: r.name, ingredients: r.ingredients }));
+                        const aiResult = await calculateNutritionFromIngredients(aiPayload);
+                        
+                        // Map results back to items
+                        recipesToAnalyze.forEach(req => {
+                            const res = aiResult.nutritionData[req.name];
+                            if (res && itemsToSave[req.index]) {
+                                if (itemsToSave[req.index].details) {
+                                    itemsToSave[req.index].details!.nutrition = res.nutrition;
+                                    itemsToSave[req.index].details!.cal = res.cal;
+                                }
+                            }
+                        });
+                    } catch (aiError) {
+                        console.error("Batch AI Analysis failed:", aiError);
+                        alert("AI 分析部分失败，数据将以原始状态保存。");
+                    }
+                }
+
+                // 3. Third Pass: Save All
+                setLoadingText('正在保存到数据库...');
+                let savedCount = 0;
+                for (const item of itemsToSave) {
+                    await saveContent(item);
+                    savedCount++;
+                }
                 
-                if (count > 0) {
-                    alert(`成功导入 ${count} 条数据`);
+                if (savedCount > 0) {
+                    alert(`成功导入 ${savedCount} 条数据！${recipesToAnalyze.length > 0 ? '\n已自动补充营养热量数据。' : ''}`);
                 } else {
-                    alert(`⚠️ 导入了 0 条数据！\n可能原因：Excel 表头不匹配。\n请确保第一行包含【名称】、【图标】等列，建议先【下载模板】对照。`);
+                    alert(`未导入任何有效数据，请检查 Excel 格式。`);
                 }
                 
                 // Force reload
                 await loadData();
             } catch (error) {
                 console.error(error);
-                alert('导入失败，请检查文件格式。建议先下载模板。');
+                alert('导入失败，请检查文件格式。');
             } finally {
                 setLoading(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -464,7 +532,12 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             </div>
                         </div>
                         
-                        {loading ? <div className="text-center py-10">加载中...</div> : (
+                        {loading ? (
+                            <div className="text-center py-20 flex flex-col items-center">
+                                <div className="text-4xl animate-spin mb-4">⏳</div>
+                                <p className="text-slate-500 font-bold">{loadingText}</p>
+                            </div>
+                        ) : (
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 text-slate-500">
                                     <tr>
@@ -576,8 +649,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     <div className="col-span-2"><label className="block text-xs text-slate-500">制作步骤</label><textarea className="border w-full p-2 rounded text-sm h-24" value={editItem.details?.steps||''} onChange={e=>updateDetail('steps',e.target.value)} /></div>
                                     <div><label className="block text-xs text-slate-500">制作时长</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.cookingTime||''} onChange={e=>updateDetail('cookingTime',e.target.value)} /></div>
                                     <div><label className="block text-xs text-slate-500">难度</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.difficulty||''} onChange={e=>updateDetail('difficulty',e.target.value)} /></div>
-                                    <div className="col-span-2"><label className="block text-xs text-slate-500">营养成分(AI估算)</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.nutrition||''} onChange={e=>updateDetail('nutrition',e.target.value)} /></div>
-                                    <div><label className="block text-xs text-slate-500">热量 (kcal)</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.cal||''} onChange={e=>updateDetail('cal',e.target.value)} /></div>
+                                    <div className="col-span-2"><label className="block text-xs text-slate-500">营养成分(AI估算)</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.nutrition||''} onChange={e=>updateDetail('nutrition',e.target.value)} placeholder="系统可自动计算" /></div>
+                                    <div><label className="block text-xs text-slate-500">热量 (kcal)</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.cal||''} onChange={e=>updateDetail('cal',e.target.value)} placeholder="系统可自动计算" /></div>
                                 </>
                             )}
 
@@ -645,7 +718,13 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         </div>
                         <div className="flex justify-end gap-2 mt-6 border-t pt-4">
                             <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">取消</button>
-                            <button onClick={handleSaveContent} className="px-4 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 text-sm">保存</button>
+                            <button 
+                                onClick={handleSaveContent} 
+                                disabled={isAnalyzing}
+                                className="px-4 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 text-sm disabled:opacity-50"
+                            >
+                                {isAnalyzing ? 'AI 分析中...' : '保存'}
+                            </button>
                         </div>
                     </div>
                 </div>
