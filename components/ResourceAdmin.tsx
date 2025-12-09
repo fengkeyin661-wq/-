@@ -14,8 +14,25 @@ interface Props {
     onLogout: () => void;
 }
 
+// --- Constants & Options ---
+const PRESETS = {
+    activityTypes: ['义诊', '健康讲座', '亲子活动', '急救培训', '慢病小组', '户外运动'],
+    targetAudience: ['老年人', '孕产妇', '儿童', '高血压患者', '糖尿病患者', '全人群'],
+    enrollMethod: ['线上预约', '电话报名', '现场空降'],
+    depts: ['全科', '中医科', '内科', '外科', '妇科', '儿科', '口腔科', '康复科', '预防保健科'],
+    docTitles: ['主任医师', '副主任医师', '主治医师', '医师', '康复师', '营养师'],
+    docStatus: ['出诊中', '停诊', '休假'],
+    drugRx: ['RX (处方药)', 'OTC (甲类)', 'OTC (乙类)'],
+    drugInsurance: ['甲类', '乙类', '自费'],
+    drugStock: ['充足', '紧张', '缺货'],
+    dietDifficulty: ['⭐', '⭐⭐', '⭐⭐⭐'],
+    exerciseIntensity: ['低强度', '中强度', '高强度'],
+    dietTags: ['低GI', '高纤维', '低脂', '高蛋白', '适合糖友', '护心'],
+    exerciseTypes: ['有氧', '力量', '柔韧性', '康复训练', '体态矫正']
+};
+
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
-    const [activeTab, setActiveTab] = useState<'recipe' | 'exercise' | 'event' | 'service' | 'drug' | 'doctor'>('event');
+    const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise'>('event');
     const [items, setItems] = useState<ContentItem[]>([]);
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     const [loading, setLoading] = useState(false);
@@ -46,9 +63,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const runDiagnostics = async () => {
         const result = await checkDbConnection();
         setDbStatus(result);
-        if (result.status === 'error' || result.status === 'empty_but_local_has_data') {
-            console.warn("DB Issue:", result);
-        }
     };
 
     const loadData = async () => {
@@ -126,7 +140,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 await Promise.all(Array.from(selectedIds).map(id => deleteContent(id as string)));
                 setSelectedIds(new Set());
                 await loadData();
-                alert('批量删除成功');
             } catch (e) {
                 console.error(e);
                 alert('批量删除过程中发生错误');
@@ -142,36 +155,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             return;
         }
 
-        const withTimeout = (promise: Promise<any>, ms: number) => {
-            return Promise.race([
-                promise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error('AI响应超时')), ms))
-            ]);
-        };
-
-        if (editItem.type === 'meal' && editItem.details?.ingredients && (!editItem.details.nutrition || !editItem.details.cal)) {
-            setIsAnalyzing(true); 
-            try {
-                const result = await withTimeout(
-                    calculateNutritionFromIngredients([{
-                        name: editItem.title,
-                        ingredients: editItem.details.ingredients
-                    }]), 
-                    10000 
-                );
-                
-                const data = result.nutritionData[editItem.title];
-                if (data) {
-                    editItem.details.nutrition = data.nutrition;
-                    editItem.details.cal = data.cal;
-                }
-            } catch (e) {
-                console.warn("Auto-AI skipped (timeout or error), saving raw data.", e);
-            } finally {
-                setIsAnalyzing(false);
-            }
-        }
-
         setLoading(true);
         setLoadingText('正在保存...');
         
@@ -182,7 +165,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         loadData();
 
         if (result.mode === 'local' && result.error) {
-            alert(`⚠️ 保存成功，但云端同步失败。\n原因: ${result.error}\n\n数据已暂存至本地。请点击页面顶部的“数据库修复”查看解决方案。`);
+            alert(`⚠️ 保存成功，但云端同步失败。\n原因: ${result.error}\n\n数据已暂存至本地。`);
         }
     };
 
@@ -191,6 +174,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             ...prev,
             details: { ...prev.details, [key]: val }
         }));
+    };
+
+    const toggleTag = (tag: string) => {
+        const currentTags = editItem.tags || [];
+        if (currentTags.includes(tag)) {
+            setEditItem({ ...editItem, tags: currentTags.filter(t => t !== tag) });
+        } else {
+            setEditItem({ ...editItem, tags: [...currentTags, tag] });
+        }
     };
 
     const handleAiAnalysis = async () => {
@@ -212,74 +204,12 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     ...prev,
                     details: { ...prev.details, nutrition: data.nutrition, cal: data.cal }
                 }));
-            } else {
-                alert("AI 未能返回有效数据，请检查配料描述是否清晰。");
             }
         } catch (e) {
-            console.error(e);
-            alert("AI 分析服务暂时不可用，请稍后重试");
+            alert("AI 分析服务暂时不可用");
         } finally {
             setIsAnalyzing(false);
         }
-    };
-
-    const downloadTemplate = () => {
-        let headers: string[] = ['图标', '名称', '描述', '标签'];
-        let sample: any[] = [];
-        // ... (Template logic same as before, simplified for brevity in this response)
-        const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Template");
-        XLSX.writeFile(wb, `${activeTab}_template.xlsx`);
-    };
-
-    const getVal = (row: any, key: string) => {
-        if (row[key] !== undefined) return row[key];
-        const cleanKey = key.trim();
-        const foundKey = Object.keys(row).find(k => k.trim() === cleanKey);
-        return foundKey ? row[foundKey] : undefined;
-    };
-
-    const handleBatchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = async (evt) => {
-            try {
-                const bstr = evt.target?.result;
-                const wb = XLSX.read(bstr, { type: 'binary' });
-                const wsname = wb.SheetNames[0];
-                const ws = wb.Sheets[wsname];
-                const data = XLSX.utils.sheet_to_json(ws);
-                
-                if (data.length === 0) return alert('文件为空');
-                if (!confirm(`解析到 ${data.length} 条数据，确定导入吗？`)) return;
-
-                setLoading(true);
-                setLoadingText('正在解析 Excel 数据...');
-                
-                const itemsToSave: ContentItem[] = [];
-                // ... (Parsing logic same as before) ...
-                
-                setLoadingText('正在保存到数据库...');
-                let savedCount = 0;
-                for (const item of itemsToSave) {
-                    await saveContent(item);
-                    savedCount++;
-                }
-                
-                await loadData();
-                alert(`成功导入 ${savedCount} 条数据！`);
-            } catch (error) {
-                console.error(error);
-                alert('导入失败，请检查文件格式。');
-            } finally {
-                setLoading(false);
-                if (fileInputRef.current) fileInputRef.current.value = '';
-            }
-        };
-        reader.readAsBinaryString(file);
     };
 
     const openEdit = (item?: ContentItem) => {
@@ -350,143 +280,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         );
     };
 
-    const renderSummary = (item: ContentItem) => {
-        const d = item.details || {};
-        if (item.type === 'meal') return `热量:${d.cal || '-'}, 难度:${d.difficulty || '-'}`;
-        if (item.type === 'exercise') return `${d.exerciseType || ''} ${d.frequency || ''} ${d.duration || ''}`;
-        return item.description;
-    };
-
-    // SQL Code for Modal (Robust Version)
-    const sqlCode = `
--- 1. 启用扩展 (ID生成器)
-create extension if not exists "uuid-ossp";
-
--- 2. 创建表结构 (幂等设计：如果已存在则跳过)
-create table if not exists app_content (
-  id text primary key,
-  type text not null,
-  title text,
-  description text,
-  tags text[],
-  image text,
-  author text,
-  is_user_upload boolean default false,
-  details jsonb default '{}'::jsonb,
-  status text default 'active',
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-
-create table if not exists app_interactions (
-  id text primary key,
-  type text not null,
-  user_id text not null,
-  user_name text,
-  target_id text not null,
-  target_name text,
-  status text default 'pending',
-  date text,
-  details text,
-  created_at timestamptz default now()
-);
-
-create table if not exists app_chats (
-  id text primary key,
-  sender_id text not null,
-  sender_role text,
-  receiver_id text not null,
-  content text,
-  is_read boolean default false,
-  created_at timestamptz default now()
-);
-
-create table if not exists health_archives (
-  id uuid default gen_random_uuid() primary key,
-  checkup_id text unique not null,
-  name text,
-  phone text,
-  department text,
-  gender text,
-  age integer,
-  risk_level text,
-  health_record jsonb,
-  assessment_data jsonb,
-  follow_up_schedule jsonb,
-  follow_ups jsonb,
-  risk_analysis jsonb,
-  custom_exercise_plan jsonb,
-  critical_track jsonb,
-  history_versions jsonb,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-
--- 3. 创建索引 (跳过已存在的索引)
-create index if not exists idx_content_type on app_content(type);
-create index if not exists idx_content_status on app_content(status);
-create index if not exists idx_interactions_user on app_interactions(user_id);
-create index if not exists idx_interactions_target on app_interactions(target_id);
-create index if not exists idx_chats_sender_receiver on app_chats(sender_id, receiver_id);
-
--- 4. 启用 RLS (Row Level Security)
-alter table app_content enable row level security;
-alter table app_interactions enable row level security;
-alter table app_chats enable row level security;
-alter table health_archives enable row level security;
-
--- 5. 策略重置 (先删除旧策略，防止 "policy already exists" 错误)
--- App Content Policies
-drop policy if exists "Allow All Content" on app_content;
-drop policy if exists "Allow All Access Content" on app_content; 
-create policy "Allow All Content" on app_content for all using (true) with check (true);
-
--- App Interactions Policies
-drop policy if exists "Allow All Interactions" on app_interactions;
-drop policy if exists "Allow All Access Interactions" on app_interactions;
-create policy "Allow All Interactions" on app_interactions for all using (true) with check (true);
-
--- App Chats Policies
-drop policy if exists "Allow All Chats" on app_chats;
-drop policy if exists "Allow All Access Chats" on app_chats;
-create policy "Allow All Chats" on app_chats for all using (true) with check (true);
-
--- Health Archives Policies
-drop policy if exists "Allow All Archives" on health_archives;
-create policy "Allow All Archives" on health_archives for all using (true) with check (true);
-    `.trim();
-
     return (
         <div className="min-h-screen bg-slate-100 flex flex-col">
-             {/* DB Diagnostic Banner */}
-             {dbStatus && dbStatus.status !== 'connected' && dbStatus.status !== 'local_only' && (
-                 <div className="bg-red-600 text-white px-6 py-2 text-sm font-bold flex justify-between items-center shadow-inner">
-                     <div className="flex items-center gap-2">
-                         <span>⚠️ {dbStatus.message}</span>
-                         {dbStatus.details && <span className="opacity-80 font-normal">({dbStatus.details})</span>}
-                     </div>
-                     <button 
-                        onClick={() => setShowSqlModal(true)}
-                        className="bg-white text-red-600 px-3 py-1 rounded text-xs hover:bg-red-50"
-                     >
-                        🛠️ 数据库修复指南
-                     </button>
-                 </div>
-             )}
-             {dbStatus?.status === 'empty_but_local_has_data' && (
-                 <div className="bg-orange-500 text-white px-6 py-2 text-sm font-bold flex justify-between items-center shadow-inner">
-                     <div className="flex items-center gap-2">
-                         <span>⚠️ 本地数据未同步至云端 (可能是空表或权限问题)</span>
-                     </div>
-                     <button 
-                        onClick={() => setShowSqlModal(true)}
-                        className="bg-white text-orange-600 px-3 py-1 rounded text-xs hover:bg-orange-50"
-                     >
-                        🛠️ 查看解决方案
-                     </button>
-                 </div>
-             )}
-
              <header className="bg-teal-700 text-white px-6 py-4 flex justify-between items-center shadow-md">
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center font-bold">R</div>
@@ -516,11 +311,12 @@ create policy "Allow All Archives" on health_archives for all using (true) with 
                         <NavButton id="drug" icon="💊" label="药品库" active={activeTab} onClick={setActiveTab} />
                         <div className="h-px bg-slate-200 my-2"></div>
                         <NavButton id="recipe" icon="🥗" label="膳食库" active={activeTab} onClick={setActiveTab} />
-                        <NavButton id="exercise" icon="🏃" label="运动方案" active={activeTab} onClick={setActiveTab} />
+                        <NavButton id="exercise" icon="🏃" label="运动/康复" active={activeTab} onClick={setActiveTab} />
                     </nav>
                 </aside>
 
                 <main className="flex-1 p-8 overflow-y-auto">
+                    {/* Interaction Tables (Top) */}
                     {['event', 'service', 'drug', 'doctor'].includes(activeTab) && (
                         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
@@ -532,11 +328,12 @@ create policy "Allow All Archives" on health_archives for all using (true) with 
                         </section>
                     )}
 
+                    {/* Resource List (Bottom) */}
                     <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-bold text-slate-700">
                                 {activeTab === 'recipe' ? '膳食资源库' : 
-                                 activeTab === 'exercise' ? '运动方案库' : 
+                                 activeTab === 'exercise' ? '运动康复库' : 
                                  activeTab === 'event' ? '社区活动列表' :
                                  activeTab === 'service' ? '医院服务项目' :
                                  activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
@@ -550,10 +347,9 @@ create policy "Allow All Archives" on health_archives for all using (true) with 
                                         🗑️ 批量删除 ({selectedIds.size})
                                     </button>
                                 )}
-                                <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleBatchUpload} />
-                                <button onClick={downloadTemplate} className="bg-white text-slate-600 border border-slate-300 px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-1">📥 下载模板</button>
-                                <button onClick={() => fileInputRef.current?.click()} className="bg-teal-50 text-teal-700 border border-teal-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-teal-100 flex items-center gap-1">📤 导入Excel</button>
-                                <button onClick={() => openEdit()} className="bg-teal-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-teal-700 shadow-sm flex items-center gap-1"><span>+</span> 新增资源</button>
+                                <button onClick={() => openEdit()} className="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700 shadow-sm flex items-center gap-2">
+                                    <span>+</span> 新增
+                                </button>
                             </div>
                         </div>
                         
@@ -567,39 +363,38 @@ create policy "Allow All Archives" on health_archives for all using (true) with 
                                 <thead className="bg-slate-50 text-slate-500">
                                     <tr>
                                         <th className="p-3 w-10">
-                                            <input 
-                                                type="checkbox" 
-                                                onChange={handleSelectAll} 
-                                                checked={items.length > 0 && selectedIds.size === items.length}
-                                                className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                                            />
+                                            <input type="checkbox" onChange={handleSelectAll} checked={items.length > 0 && selectedIds.size === items.length} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
                                         </th>
                                         <th className="p-3">名称</th>
-                                        <th className="p-3">关键信息</th>
-                                        <th className="p-3">标签</th>
+                                        <th className="p-3">核心信息</th>
+                                        <th className="p-3">状态/标签</th>
                                         <th className="p-3 text-right">操作</th>
                                     </tr>
                                 </thead>
-                                <tbody>
+                                <tbody className="divide-y divide-slate-100">
                                     {items.map(item => (
-                                        <tr key={item.id} className={`border-t border-slate-100 hover:bg-slate-50 ${selectedIds.has(item.id) ? 'bg-blue-50/30' : ''}`}>
+                                        <tr key={item.id} className={`hover:bg-slate-50 ${selectedIds.has(item.id) ? 'bg-blue-50/30' : ''}`}>
                                             <td className="p-3">
-                                                <input 
-                                                    type="checkbox" 
-                                                    onChange={() => handleSelectRow(item.id)}
-                                                    checked={selectedIds.has(item.id)}
-                                                    className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-                                                />
+                                                <input type="checkbox" onChange={() => handleSelectRow(item.id)} checked={selectedIds.has(item.id)} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
                                             </td>
                                             <td className="p-3 font-bold flex items-center gap-2">
-                                                <span className="text-xl">{item.image}</span>
+                                                <span className="text-xl bg-slate-100 w-8 h-8 rounded flex items-center justify-center">{item.image}</span>
                                                 {item.title}
                                             </td>
-                                            <td className="p-3 text-xs text-slate-500 max-w-xs truncate" title={renderSummary(item)}>
-                                                {renderSummary(item)}
+                                            <td className="p-3 text-xs text-slate-500">
+                                                {item.type === 'meal' && `难度:${item.details?.difficulty} • ${item.details?.cal}`}
+                                                {item.type === 'event' && `📅 ${item.details?.date?.replace('T',' ')} • 📍${item.details?.loc}`}
+                                                {item.type === 'doctor' && `${item.details?.dept} • ${item.details?.title}`}
+                                                {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
+                                                {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insurance ? '医保' : '自费'}`}
                                             </td>
                                             <td className="p-3">
-                                                {item.tags.map(t => <span key={t} className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-xs mr-1">{t}</span>)}
+                                                <div className="flex flex-wrap gap-1">
+                                                    {item.status === 'active' 
+                                                        ? <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-xs">已发布</span> 
+                                                        : <span className="bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded text-xs">草稿</span>}
+                                                    {item.tags?.slice(0,2).map(t => <span key={t} className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-xs">{t}</span>)}
+                                                </div>
                                             </td>
                                             <td className="p-3 text-right space-x-2">
                                                 <button onClick={() => openEdit(item)} className="text-blue-600 hover:underline">编辑</button>
@@ -607,7 +402,7 @@ create policy "Allow All Archives" on health_archives for all using (true) with 
                                             </td>
                                         </tr>
                                     ))}
-                                    {items.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-slate-400">暂无资源，请先新增。</td></tr>}
+                                    {items.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无数据</td></tr>}
                                 </tbody>
                             </table>
                         )}
@@ -615,109 +410,154 @@ create policy "Allow All Archives" on health_archives for all using (true) with 
                 </main>
             </div>
 
-            {/* Detailed Edit Modal */}
+            {/* Smart Dynamic Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-                    <div className="bg-white p-6 rounded-xl w-full max-w-2xl shadow-2xl animate-scaleIn max-h-[90vh] overflow-y-auto">
-                        {/* ... (Modal content same as previous, just reusing structure) ... */}
-                        <div className="flex justify-between items-center mb-4 border-b pb-2">
-                            <h3 className="font-bold text-lg text-slate-800">
-                                {editItem.id?.includes('.') ? '新增' : '编辑'} 
-                                {activeTab === 'recipe' && ' 膳食'}
-                                {activeTab === 'exercise' && ' 运动方案'}
-                                {activeTab === 'event' && ' 社区活动'}
-                                {activeTab === 'service' && ' 医院服务'}
-                                {activeTab === 'drug' && ' 药品'}
-                                {activeTab === 'doctor' && ' 医生'}
+                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col animate-scaleIn">
+                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                <span>{editItem.id?.includes('.') ? '✏️ 编辑' : '➕ 新增'}</span>
+                                {activeTab === 'event' && '社区活动'}
+                                {activeTab === 'service' && '医院服务'}
+                                {activeTab === 'doctor' && '医生信息'}
+                                {activeTab === 'drug' && '药品条目'}
+                                {activeTab === 'recipe' && '膳食食谱'}
+                                {activeTab === 'exercise' && '运动方案'}
                             </h3>
-                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 font-bold text-xl">×</button>
+                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="col-span-2 md:col-span-1">
-                                <label className="block text-xs text-slate-500 mb-1">名称</label>
-                                <input className="border w-full p-2 rounded text-sm" value={editItem.title || ''} onChange={e=>setEditItem({...editItem, title:e.target.value})} />
-                            </div>
-                            <div className="col-span-2 md:col-span-1">
-                                <label className="block text-xs text-slate-500 mb-1">图标 (Emoji)</label>
-                                <input className="border w-full p-2 rounded text-sm" value={editItem.image || ''} onChange={e=>setEditItem({...editItem, image:e.target.value})} />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-xs text-slate-500 mb-1">描述/备注</label>
-                                <textarea className="border w-full p-2 rounded text-sm h-16" value={editItem.description || ''} onChange={e=>setEditItem({...editItem, description:e.target.value})} />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-xs text-slate-500 mb-1">标签 (逗号分隔)</label>
-                                <input className="border w-full p-2 rounded text-sm" value={editItem.tags?.join(',') || ''} onChange={e=>setEditItem({...editItem, tags:e.target.value.split(/[,， ]+/).filter(Boolean)})} />
-                            </div>
-
-                            {/* Dynamic Fields */}
-                            {activeTab === 'recipe' && (
-                                <>
-                                    <div className="col-span-2">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <label className="block text-xs text-slate-500">配料及用量</label>
-                                            <button onClick={handleAiAnalysis} disabled={isAnalyzing} className="text-xs bg-teal-50 text-teal-600 px-2 py-0.5 rounded hover:bg-teal-100 disabled:opacity-50 flex items-center gap-1 border border-teal-200 transition-colors">
-                                                {isAnalyzing ? '⏳ 分析中...' : '✨ AI 营养分析'}
-                                            </button>
-                                        </div>
-                                        <textarea className="border w-full p-2 rounded text-sm h-16" value={editItem.details?.ingredients||''} onChange={e=>updateDetail('ingredients',e.target.value)} placeholder="例如: 鸡胸肉 200g, 西兰花 100g, 杂粮饭 150g" />
+                        
+                        <div className="flex-1 overflow-y-auto p-6 bg-white space-y-6">
+                            {/* --- Common Fields --- */}
+                            <FormSection title="基础信息">
+                                <InputField label="标题 / 名称" placeholder="请输入名称" value={editItem.title} onChange={(v:any) => setEditItem({...editItem, title: v})} />
+                                <div className="grid grid-cols-4 gap-2 items-end">
+                                    <div className="col-span-3">
+                                        <label className="block text-xs font-bold text-slate-700 mb-1">封面图标 / 头像</label>
+                                        <input className="w-full border border-slate-300 rounded-lg p-2 text-sm" value={editItem.image || ''} onChange={e => setEditItem({...editItem, image: e.target.value})} placeholder="输入 Emoji 或 图片URL" />
                                     </div>
-                                    <div className="col-span-2"><label className="block text-xs text-slate-500">制作步骤</label><textarea className="border w-full p-2 rounded text-sm h-24" value={editItem.details?.steps||''} onChange={e=>updateDetail('steps',e.target.value)} /></div>
-                                    <div><label className="block text-xs text-slate-500">制作时长</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.cookingTime||''} onChange={e=>updateDetail('cookingTime',e.target.value)} /></div>
-                                    <div><label className="block text-xs text-slate-500">难度</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.difficulty||''} onChange={e=>updateDetail('difficulty',e.target.value)} /></div>
-                                    <div className="col-span-2"><label className="block text-xs text-slate-500">营养成分(AI估算)</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.nutrition||''} onChange={e=>updateDetail('nutrition',e.target.value)} placeholder="系统可自动计算" /></div>
-                                    <div><label className="block text-xs text-slate-500">热量 (kcal)</label><input className="border w-full p-2 rounded text-sm" value={editItem.details?.cal||''} onChange={e=>updateDetail('cal',e.target.value)} placeholder="系统可自动计算" /></div>
+                                    <div className="h-10 w-10 bg-slate-100 rounded-lg flex items-center justify-center text-xl border border-slate-200">
+                                        {editItem.image || '?'}
+                                    </div>
+                                </div>
+                                <SelectField label="状态" value={editItem.status} onChange={(v:any) => setEditItem({...editItem, status: v})} options={['active', 'draft']} />
+                            </FormSection>
+
+                            {/* --- Specific Fields --- */}
+                            
+                            {/* 1. COMMUNITY EVENT */}
+                            {activeTab === 'event' && (
+                                <>
+                                    <FormSection title="时间与地点">
+                                        <InputField label="开始时间" type="datetime-local" value={editItem.details?.date} onChange={(v:any) => updateDetail('date', v)} />
+                                        <InputField label="举办地点" placeholder="具体位置，如：社区中心2楼" value={editItem.details?.loc} onChange={(v:any) => updateDetail('loc', v)} />
+                                    </FormSection>
+                                    <FormSection title="活动详情">
+                                        <InputField label="主讲人/嘉宾" value={editItem.details?.speaker} onChange={(v:any) => updateDetail('speaker', v)} />
+                                        <SelectField label="报名方式" value={editItem.details?.method} onChange={(v:any) => updateDetail('method', v)} options={PRESETS.enrollMethod} />
+                                        <InputField label="名额限制 (人)" type="number" value={editItem.details?.limit} onChange={(v:any) => updateDetail('limit', v)} />
+                                        <InputField label="费用 (元)" placeholder="免费请填 0" value={editItem.details?.cost} onChange={(v:any) => updateDetail('cost', v)} />
+                                    </FormSection>
+                                    <FormSection title="分类标签">
+                                        <TagSelector label="活动类型" tags={PRESETS.activityTypes} selected={editItem.tags} onToggle={toggleTag} />
+                                        <TagSelector label="面向人群" tags={PRESETS.targetAudience} selected={editItem.tags} onToggle={toggleTag} />
+                                    </FormSection>
                                 </>
                             )}
-                            {/* ... (Other types kept same for brevity) ... */}
-                        </div>
-                        <div className="flex justify-end gap-2 mt-6 border-t pt-4">
-                            <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">取消</button>
-                            <button onClick={handleSaveContent} disabled={isAnalyzing} className="px-4 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 text-sm disabled:opacity-50">
-                                {isAnalyzing ? 'AI 分析中...' : '保存'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
-            {/* SQL Help Modal */}
-            {showSqlModal && (
-                <div className="fixed inset-0 bg-slate-900/70 z-[60] flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
-                    <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl p-6 flex flex-col h-[80vh] animate-scaleIn">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xl font-bold text-slate-800">🛠️ 数据库初始化指南</h3>
-                            <button onClick={() => setShowSqlModal(false)} className="text-slate-400 font-bold text-xl hover:text-slate-600">×</button>
-                        </div>
-                        
-                        <div className="flex-1 overflow-y-auto pr-2">
-                            <p className="text-sm text-slate-600 mb-4 leading-relaxed">
-                                您遇到数据无法保存或读取的问题，通常是因为 Supabase 数据库中缺少必要的表结构或权限配置。
-                                请按以下步骤操作：
-                            </p>
-                            
-                            <ol className="list-decimal pl-5 space-y-4 text-sm text-slate-700 mb-6">
-                                <li>登录 <a href="https://supabase.com/dashboard" target="_blank" className="text-blue-600 underline">Supabase Dashboard</a>，进入您的项目。</li>
-                                <li>点击左侧菜单的 <strong>SQL Editor</strong>。</li>
-                                <li>点击 <strong>New Query</strong> 创建一个新查询。</li>
-                                <li>复制下方所有 SQL 代码，粘贴到编辑器中。</li>
-                                <li>点击右下角的 <strong>Run</strong> 按钮执行。</li>
-                                <li>返回本页面，刷新即可恢复正常。</li>
-                            </ol>
+                            {/* 2. HOSPITAL SERVICE */}
+                            {activeTab === 'service' && (
+                                <>
+                                    <FormSection title="服务详情">
+                                        <SelectField label="所属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={PRESETS.depts} />
+                                        <InputField label="服务价格 (元)" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
+                                        <InputField label="服务时间" placeholder="如：工作日 8:00-11:30" value={editItem.details?.time} onChange={(v:any) => updateDetail('time', v)} />
+                                        <ToggleField label="医保报销" value={editItem.details?.insurance} onChange={(v:any) => updateDetail('insurance', v)} />
+                                    </FormSection>
+                                    <FormSection title="操作指引">
+                                        <TextAreaField label="服务介绍" placeholder="简述内容和流程..." value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
+                                        <InputField label="准备事项" placeholder="如：需空腹、带社保卡" full value={editItem.details?.prep} onChange={(v:any) => updateDetail('prep', v)} />
+                                    </FormSection>
+                                </>
+                            )}
 
-                            <div className="bg-slate-900 text-green-400 p-4 rounded-lg font-mono text-xs overflow-x-auto border border-slate-700 relative">
-                                <pre>{sqlCode}</pre>
-                                <button 
-                                    onClick={() => navigator.clipboard.writeText(sqlCode).then(()=>alert('代码已复制!'))}
-                                    className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white px-2 py-1 rounded text-xs"
-                                >
-                                    复制 SQL
-                                </button>
-                            </div>
+                            {/* 3. DOCTOR */}
+                            {activeTab === 'doctor' && (
+                                <>
+                                    <FormSection title="职业信息">
+                                        <SelectField label="所属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={PRESETS.depts} />
+                                        <SelectField label="职称" value={editItem.details?.title} onChange={(v:any) => updateDetail('title', v)} options={PRESETS.docTitles} />
+                                        <SelectField label="当前状态" value={editItem.details?.docStatus} onChange={(v:any) => updateDetail('docStatus', v)} options={PRESETS.docStatus} />
+                                        <InputField label="挂号费 (元)" value={editItem.details?.fee} onChange={(v:any) => updateDetail('fee', v)} />
+                                    </FormSection>
+                                    <FormSection title="专业能力">
+                                        <TextAreaField label="擅长领域 (标签请逗号分隔)" value={editItem.tags?.join(',')} onChange={(v:string) => setEditItem({...editItem, tags: v.split(/[,，]/)})} placeholder="如：高血压, 糖尿病, 小儿推拿" />
+                                        <TextAreaField label="个人简介" placeholder="毕业院校、从业年限、学术成就..." value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
+                                        <InputField label="出诊时间表" full placeholder="如：周一上午、周三下午" value={editItem.details?.schedule} onChange={(v:any) => updateDetail('schedule', v)} />
+                                    </FormSection>
+                                </>
+                            )}
+
+                            {/* 4. DRUG */}
+                            {activeTab === 'drug' && (
+                                <>
+                                    <FormSection title="药品属性">
+                                        <SelectField label="处方类型" value={editItem.details?.rxType} onChange={(v:any) => updateDetail('rxType', v)} options={PRESETS.drugRx} />
+                                        <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={PRESETS.drugInsurance} />
+                                        <SelectField label="库存状态" value={editItem.details?.stock} onChange={(v:any) => updateDetail('stock', v)} options={PRESETS.drugStock} />
+                                        <InputField label="规格" placeholder="如：0.5g*20片/盒" value={editItem.details?.spec} onChange={(v:any) => updateDetail('spec', v)} />
+                                    </FormSection>
+                                    <FormSection title="用药指导">
+                                        <InputField label="生产厂家" full value={editItem.details?.manufacturer} onChange={(v:any) => updateDetail('manufacturer', v)} />
+                                        <TextAreaField label="用法用量" placeholder="标准用法..." value={editItem.details?.usage} onChange={(v:any) => updateDetail('usage', v)} />
+                                        <TextAreaField label="主要禁忌" placeholder="副作用或禁忌提醒..." value={editItem.details?.contraindications} onChange={(v:any) => updateDetail('contraindications', v)} />
+                                    </FormSection>
+                                </>
+                            )}
+
+                            {/* 5. DIET */}
+                            {activeTab === 'recipe' && (
+                                <>
+                                    <FormSection title="制作详情">
+                                        <SelectField label="制作难度" value={editItem.details?.difficulty} onChange={(v:any) => updateDetail('difficulty', v)} options={PRESETS.dietDifficulty} />
+                                        <TextAreaField label="所需食材 (支持AI分析)" placeholder="如：干木耳10g，黄瓜一根" value={editItem.details?.ingredients} onChange={(v:any) => updateDetail('ingredients', v)} />
+                                        <button onClick={handleAiAnalysis} disabled={isAnalyzing} className="col-span-2 text-xs bg-teal-50 text-teal-600 border border-teal-200 py-2 rounded flex justify-center items-center gap-2 hover:bg-teal-100">
+                                            {isAnalyzing ? '⏳ 正在分析营养成分...' : '✨ 点击进行 AI 营养分析'}
+                                        </button>
+                                    </FormSection>
+                                    <FormSection title="营养价值">
+                                        <InputField label="热量 (kcal)" value={editItem.details?.cal} onChange={(v:any) => updateDetail('cal', v)} />
+                                        <InputField label="主要营养素" value={editItem.details?.nutrition} onChange={(v:any) => updateDetail('nutrition', v)} />
+                                    </FormSection>
+                                    <FormSection title="健康建议">
+                                        <TagSelector label="健康标签" tags={PRESETS.dietTags} selected={editItem.tags} onToggle={toggleTag} />
+                                        <TextAreaField label="制作步骤" value={editItem.details?.steps} onChange={(v:any) => updateDetail('steps', v)} />
+                                    </FormSection>
+                                </>
+                            )}
+
+                            {/* 6. EXERCISE */}
+                            {activeTab === 'exercise' && (
+                                <>
+                                    <FormSection title="训练参数">
+                                        <SelectField label="强度等级" value={editItem.details?.intensity} onChange={(v:any) => updateDetail('intensity', v)} options={PRESETS.exerciseIntensity} />
+                                        <InputField label="推荐时长/组数" value={editItem.details?.duration} onChange={(v:any) => updateDetail('duration', v)} />
+                                        <InputField label="消耗热量 (估算)" value={editItem.details?.cal} onChange={(v:any) => updateDetail('cal', v)} />
+                                    </FormSection>
+                                    <FormSection title="专业指导">
+                                        <TagSelector label="运动类型" tags={PRESETS.exerciseTypes} selected={editItem.tags} onToggle={toggleTag} />
+                                        <InputField label="演示视频/GIF链接" full value={editItem.details?.videoUrl} onChange={(v:any) => updateDetail('videoUrl', v)} />
+                                        <InputField label="适宜人群" full value={editItem.details?.audience} onChange={(v:any) => updateDetail('audience', v)} />
+                                        <TextAreaField label="禁忌/风险提示" value={editItem.details?.risks} onChange={(v:any) => updateDetail('risks', v)} />
+                                    </FormSection>
+                                </>
+                            )}
+
                         </div>
-                        
-                        <div className="mt-6 pt-4 border-t border-slate-100 text-right">
-                            <button onClick={() => setShowSqlModal(false)} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-700">关闭</button>
+
+                        <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+                            <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200 transition-colors">取消</button>
+                            <button onClick={handleSaveContent} className="px-8 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-lg transition-transform active:scale-95">保存信息</button>
                         </div>
                     </div>
                 </div>
@@ -726,14 +566,88 @@ create policy "Allow All Archives" on health_archives for all using (true) with 
     );
 };
 
+// --- Helper Components ---
+
 const NavButton = ({ id, icon, label, active, onClick }: any) => (
-    <button 
-        onClick={() => onClick(id)}
-        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-bold ${
-            active === id ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'
-        }`}
-    >
+    <button onClick={() => onClick(id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-bold ${active === id ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`}>
         <span className="text-lg">{icon}</span>
         {label}
     </button>
+);
+
+const FormSection = ({ title, children }: { title: string, children?: React.ReactNode }) => (
+    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4">
+        <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 tracking-wider">{title}</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{children}</div>
+    </div>
+);
+
+const InputField = ({ label, value, onChange, placeholder, full = false, type = "text" }: any) => (
+    <div className={full ? "col-span-2" : ""}>
+        <label className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
+        <input 
+            type={type}
+            className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-shadow"
+            value={value || ''}
+            onChange={e => onChange(e.target.value)}
+            placeholder={placeholder}
+        />
+    </div>
+);
+
+const SelectField = ({ label, value, onChange, options, full = false }: any) => (
+    <div className={full ? "col-span-2" : ""}>
+        <label className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
+        <select 
+            className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-teal-500 outline-none"
+            value={value || ''}
+            onChange={e => onChange(e.target.value)}
+        >
+            <option value="">请选择...</option>
+            {options.map((opt: string) => (
+                <option key={opt} value={opt}>{opt}</option>
+            ))}
+        </select>
+    </div>
+);
+
+const ToggleField = ({ label, value, onChange }: any) => (
+    <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
+        <span className="text-xs font-bold text-slate-700">{label}</span>
+        <button 
+            onClick={() => onChange(!value)}
+            className={`w-10 h-5 rounded-full relative transition-colors ${value ? 'bg-teal-500' : 'bg-slate-300'}`}
+        >
+            <div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-transform ${value ? 'left-6' : 'left-1'}`}></div>
+        </button>
+    </div>
+);
+
+const TagSelector = ({ label, tags, selected, onToggle }: any) => (
+    <div className="col-span-2">
+        <label className="block text-xs font-bold text-slate-700 mb-2">{label}</label>
+        <div className="flex flex-wrap gap-2">
+            {tags.map((tag: string) => (
+                <button 
+                    key={tag}
+                    onClick={() => onToggle(tag)}
+                    className={`text-xs px-2 py-1 rounded border transition-colors ${selected?.includes(tag) ? 'bg-teal-100 text-teal-700 border-teal-300 font-bold' : 'bg-white text-slate-500 border-slate-200 hover:border-teal-300'}`}
+                >
+                    {tag}
+                </button>
+            ))}
+        </div>
+    </div>
+);
+
+const TextAreaField = ({ label, value, onChange, placeholder }: any) => (
+    <div className="col-span-2">
+        <label className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
+        <textarea 
+            className="w-full border border-slate-300 rounded-lg p-2 text-sm h-24 focus:ring-2 focus:ring-teal-500 outline-none resize-none"
+            value={value || ''}
+            onChange={e => onChange(e.target.value)}
+            placeholder={placeholder}
+        />
+    </div>
 );
