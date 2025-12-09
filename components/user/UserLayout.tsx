@@ -40,7 +40,9 @@ export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, 
                 {item.icon}
                 {/* Red Dot Badge */}
                 {item.id === 'interaction' && unreadCount > 0 && (
-                    <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 ring-2 ring-white text-[10px] text-white font-bold animate-pulse">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
                 )}
               </div>
               <span className={`text-[10px] font-bold absolute bottom-2 transition-opacity duration-300 ${isActive ? 'opacity-100' : 'opacity-70'}`}>

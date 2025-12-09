@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserLayout } from './user/UserLayout';
-import { UserDietMotion } from './user/UserDietMotion';
-import { UserMedicalServices } from './user/UserMedicalServices';
-import { UserInteraction } from './user/UserInteraction';
-import { UserProfile } from './user/UserProfile';
+import { UserDietMotion } from './user/UserDietMotion'; // New
+import { UserMedicalServices } from './user/UserMedicalServices'; // New
+import { UserInteraction } from './user/UserInteraction'; // New
+import { UserProfile } from './user/UserProfile'; // Updated
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
 import { getUnreadCount } from '../services/contentService'; // Import
 
@@ -50,7 +50,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
       if (userArchive) {
           checkUnread();
-          const interval = setInterval(checkUnread, 5000);
+          const interval = setInterval(checkUnread, 2000); // Check every 2 seconds
           return () => clearInterval(interval);
       }
   }, [userArchive]);
@@ -65,10 +65,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       };
 
       const newRecord = { ...userArchive.health_record, checkup: newCheckup };
-      
-      // Update local state
-      const newArchive = { ...userArchive, health_record: newRecord };
-      setUserArchive(newArchive);
+      setUserArchive({ ...userArchive, health_record: newRecord });
       
       try {
           // Sync to backend
