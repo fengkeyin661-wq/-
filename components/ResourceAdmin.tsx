@@ -357,9 +357,12 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         return item.description;
     };
 
-    // SQL Code for Modal
+    // SQL Code for Modal (Robust Version)
     const sqlCode = `
--- 1. 创建资源内容表
+-- 1. 启用扩展 (ID生成器)
+create extension if not exists "uuid-ossp";
+
+-- 2. 创建表结构 (幂等设计：如果已存在则跳过)
 create table if not exists app_content (
   id text primary key,
   type text not null,
@@ -369,12 +372,35 @@ create table if not exists app_content (
   image text,
   author text,
   is_user_upload boolean default false,
-  details jsonb,
-  status text,
-  updated_at timestamptz
+  details jsonb default '{}'::jsonb,
+  status text default 'active',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
 
--- 2. 创建档案表
+create table if not exists app_interactions (
+  id text primary key,
+  type text not null,
+  user_id text not null,
+  user_name text,
+  target_id text not null,
+  target_name text,
+  status text default 'pending',
+  date text,
+  details text,
+  created_at timestamptz default now()
+);
+
+create table if not exists app_chats (
+  id text primary key,
+  sender_id text not null,
+  sender_role text,
+  receiver_id text not null,
+  content text,
+  is_read boolean default false,
+  created_at timestamptz default now()
+);
+
 create table if not exists health_archives (
   id uuid default gen_random_uuid() primary key,
   checkup_id text unique not null,
@@ -396,12 +422,37 @@ create table if not exists health_archives (
   updated_at timestamptz default now()
 );
 
--- 3. 启用 RLS (安全策略)
+-- 3. 创建索引 (跳过已存在的索引)
+create index if not exists idx_content_type on app_content(type);
+create index if not exists idx_content_status on app_content(status);
+create index if not exists idx_interactions_user on app_interactions(user_id);
+create index if not exists idx_interactions_target on app_interactions(target_id);
+create index if not exists idx_chats_sender_receiver on app_chats(sender_id, receiver_id);
+
+-- 4. 启用 RLS (Row Level Security)
 alter table app_content enable row level security;
+alter table app_interactions enable row level security;
+alter table app_chats enable row level security;
 alter table health_archives enable row level security;
 
--- 4. 允许所有操作 (测试环境专用)
+-- 5. 策略重置 (先删除旧策略，防止 "policy already exists" 错误)
+-- App Content Policies
+drop policy if exists "Allow All Content" on app_content;
+drop policy if exists "Allow All Access Content" on app_content; 
 create policy "Allow All Content" on app_content for all using (true) with check (true);
+
+-- App Interactions Policies
+drop policy if exists "Allow All Interactions" on app_interactions;
+drop policy if exists "Allow All Access Interactions" on app_interactions;
+create policy "Allow All Interactions" on app_interactions for all using (true) with check (true);
+
+-- App Chats Policies
+drop policy if exists "Allow All Chats" on app_chats;
+drop policy if exists "Allow All Access Chats" on app_chats;
+create policy "Allow All Chats" on app_chats for all using (true) with check (true);
+
+-- Health Archives Policies
+drop policy if exists "Allow All Archives" on health_archives;
 create policy "Allow All Archives" on health_archives for all using (true) with check (true);
     `.trim();
 
