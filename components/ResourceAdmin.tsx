@@ -490,6 +490,12 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <SelectField label="当前状态" value={editItem.details?.docStatus} onChange={(v:any) => updateDetail('docStatus', v)} options={PRESETS.docStatus} />
                                         <InputField label="挂号费 (元)" value={editItem.details?.fee} onChange={(v:any) => updateDetail('fee', v)} />
                                     </FormSection>
+                                    
+                                    <FormSection title="签约医生登录账号">
+                                        <InputField label="登录用户名" placeholder="用于医生端登录" value={editItem.details?.username} onChange={(v:any) => updateDetail('username', v)} />
+                                        <InputField label="登录密码" placeholder="设置初始密码" type="text" value={editItem.details?.password} onChange={(v:any) => updateDetail('password', v)} />
+                                    </FormSection>
+
                                     <FormSection title="专业能力">
                                         <TextAreaField label="擅长领域 (标签请逗号分隔)" value={editItem.tags?.join(',')} onChange={(v:string) => setEditItem({...editItem, tags: v.split(/[,，]/)})} placeholder="如：高血压, 糖尿病, 小儿推拿" />
                                         <TextAreaField label="个人简介" placeholder="毕业院校、从业年限、学术成就..." value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
