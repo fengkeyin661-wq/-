@@ -194,7 +194,6 @@ export const saveArchive = async (
 
         if (error) {
             // Fallback: If error is due to missing columns (e.g. schema outdated), try saving without new fields
-            // Common Postgres error code for column missing is 42703, but supabase-js returns specific messages
             console.warn("Save with new fields failed, retrying with base fields...", error.message);
             
             // Fallback attempt: exclude risk_analysis and custom_exercise_plan
@@ -233,39 +232,55 @@ export const updateExercisePlan = async (checkupId: string, plan: ExercisePlanDa
 };
 
 /**
- * Update Risk Analysis Data Specifically
+ * Update Risk Analysis Data Specifically and Archive Extra Inputs
  */
 export const updateRiskAnalysis = async (checkupId: string, analysis: RiskAnalysisData, extras?: any): Promise<boolean> => {
      if (!isSupabaseConfigured()) return false;
      
-     // We also need to update the health_record.riskModelExtras if provided
-     let updatePayload: any = { risk_analysis: analysis, updated_at: new Date().toISOString() };
+     // 1. Prepare base update payload for the analysis results
+     let updatePayload: any = { 
+         risk_analysis: analysis, 
+         updated_at: new Date().toISOString() 
+     };
 
-     if (extras) {
-         // Fetch current health_record first to merge
-         const { data } = await supabase.from('health_archives').select('health_record').eq('checkup_id', checkupId).single();
-         if (data) {
-             const newRecord = { 
-                 ...data.health_record, 
-                 riskModelExtras: { ...(data.health_record.riskModelExtras || {}), ...extras } 
-             };
-             updatePayload.health_record = newRecord;
+     // 2. If supplemental inputs (extras) are provided, we must merge them into the health_record
+     // to ensure they are "archived" and persistent.
+     if (extras && Object.keys(extras).length > 0) {
+         try {
+             // Fetch current health_record first to safely merge
+             const { data, error: fetchError } = await supabase
+                .from('health_archives')
+                .select('health_record')
+                .eq('checkup_id', checkupId)
+                .single();
+             
+             if (!fetchError && data) {
+                 const currentRecord = data.health_record as HealthRecord;
+                 
+                 // Merge existing extras with new ones
+                 const updatedExtras = { 
+                     ...(currentRecord.riskModelExtras || {}), 
+                     ...extras 
+                 };
+
+                 const newRecord = { 
+                     ...currentRecord, 
+                     riskModelExtras: updatedExtras 
+                 };
+                 
+                 // Add to payload
+                 updatePayload.health_record = newRecord;
+             }
+         } catch (e) {
+             console.error("Failed to fetch/merge existing record during analysis update", e);
+             // Proceed with just analysis update if merge fails, to avoid total blocking
          }
      }
 
      const { error } = await supabase.from('health_archives').update(updatePayload).eq('checkup_id', checkupId);
      
      if (error) {
-         console.warn("Update Risk Analysis failed (likely schema mismatch):", error.message);
-         // If failed, likely because risk_analysis column doesn't exist. 
-         // We should at least save the 'extras' into health_record if that was part of the request
-         if (extras && updatePayload.health_record) {
-             const { error: retryError } = await supabase.from('health_archives').update({
-                 health_record: updatePayload.health_record,
-                 updated_at: new Date().toISOString()
-             }).eq('checkup_id', checkupId);
-             return !retryError;
-         }
+         console.warn("Update Risk Analysis failed (likely schema mismatch or connection):", error.message);
          return false;
      }
      return true;

@@ -72,12 +72,18 @@ export const SystemRiskPortrait: React.FC<Props> = ({
             setAnalysis(newAnalysis);
 
             // 3. Persist to DB
-            await updateRiskAnalysis(record.profile.checkupId, newAnalysis, missingInputs);
+            const success = await updateRiskAnalysis(record.profile.checkupId, newAnalysis, missingInputs);
             
-            setActiveModel(null);
-            onUpdate(); // Notify parent
+            if (success) {
+                alert(`✅ 已自动归档！\n\n您补充的【${activeModel.modelName}】数据已永久保存至健康档案，模型评估结果已更新。`);
+                setActiveModel(null);
+                onUpdate(); // Notify parent to refresh data
+            } else {
+                alert("保存失败，请检查网络连接");
+            }
         } catch (e) {
-            alert("保存失败，请重试");
+            console.error(e);
+            alert("保存过程中发生错误");
         } finally {
             setIsSaving(false);
         }
@@ -181,7 +187,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                     评估医师签名: ___________________
                 </div>
                 
-                <script>window.print();</script>
+                <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); }</script>
             </body>
             </html>
         `;
@@ -359,7 +365,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                                 disabled={isSaving}
                                 className="px-6 py-2 bg-teal-600 text-white rounded font-bold hover:bg-teal-700 shadow text-sm disabled:opacity-50 flex items-center gap-2"
                             >
-                                {isSaving ? '⏳ 正在评估...' : '✅ 提交并重新评估'}
+                                {isSaving ? '⏳ 正在处理...' : '✅ 提交并自动归档'}
                             </button>
                         </div>
                     </div>
