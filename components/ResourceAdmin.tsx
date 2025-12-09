@@ -566,7 +566,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     );
 };
 
-// --- Helper Components ---
+// --- Helper Components (Moved Outside) ---
 
 const NavButton = ({ id, icon, label, active, onClick }: any) => (
     <button onClick={() => onClick(id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-bold ${active === id ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`}>

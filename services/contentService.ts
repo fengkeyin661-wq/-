@@ -94,7 +94,13 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
           const { data, error } = await query.order('updated_at', { ascending: false });
           
           if (!error && data) {
-              dbData = data.map((d:any) => ({ ...d, updatedAt: d.updated_at, isUserUpload: d.is_user_upload }));
+              dbData = data.map((d:any) => ({ 
+                  ...d, 
+                  updatedAt: d.updated_at, 
+                  isUserUpload: d.is_user_upload,
+                  // Compat: Read description from details if root column missing/empty
+                  description: d.description || d.details?.description || ''
+              }));
               useLocal = false; 
           } else {
               console.warn("Supabase fetch failed or empty, falling back to local.", error);
@@ -132,12 +138,29 @@ export const saveContent = async (item: ContentItem): Promise<{success: boolean,
   // 2. Try DB
   if (isSupabaseConfigured()) {
       try {
-          const payload = {
-              id: item.id, type: item.type, title: item.title, description: item.description,
-              tags: item.tags, image: item.image, author: item.author, is_user_upload: item.isUserUpload,
-              details: item.details, status: item.status, updated_at: new Date().toISOString()
+          // Schema Compat: Pack description into details to avoid "Column not found" error
+          // if the DB schema hasn't been updated to include 'description' column.
+          const packedDetails = {
+              ...item.details,
+              description: item.description 
           };
+
+          const payload = {
+              id: item.id, 
+              type: item.type, 
+              title: item.title, 
+              // description: item.description, // Removed to prevent error
+              tags: item.tags, 
+              image: item.image, 
+              author: item.author, 
+              is_user_upload: item.isUserUpload,
+              details: packedDetails, // Saved here instead
+              status: item.status, 
+              updated_at: new Date().toISOString()
+          };
+          
           const { error } = await supabase.from('app_content').upsert(payload);
+          
           if (error) {
               console.error("Supabase Write Failed:", error.message);
               return { success: true, mode: 'local', error: `云端同步失败: ${error.message} (已保存到本地)` };
