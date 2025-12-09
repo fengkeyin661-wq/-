@@ -1,16 +1,83 @@
-import { GoogleGenAI } from "@google/genai";
+
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 
-// Initialize Gemini Client
-// The API key must be obtained exclusively from the environment variable process.env.API_KEY.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// DeepSeek API Configuration
+const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 
-// Constants for model selection
-// Using 2.5-flash for speed and cost effectiveness on standard tasks
-const MODEL_STANDARD = 'gemini-2.5-flash';
-// Using 3-pro-preview for complex medical text extraction if needed, but flash is often sufficient.
-// Sticking to standard for general use, can be upgraded.
-const MODEL_COMPLEX = 'gemini-2.5-flash'; 
+// Helper to safely access environment variables in different environments (Vite, Webpack, etc.)
+const getEnvVar = (key: string): string => {
+  // 1. Try process.env (Standard Node/Webpack)
+  try {
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  } catch (e) {}
+
+  // 2. Try Vite's import.meta.env with safe checks
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // Explicitly check known keys to support bundler string replacement (Vite)
+      if (key === 'VITE_DEEPSEEK_API_KEY') {
+          // @ts-ignore
+          return import.meta.env.VITE_DEEPSEEK_API_KEY || '';
+      }
+      
+      // Fallback for other keys
+      // @ts-ignore
+      return import.meta.env[key] || '';
+    }
+  } catch (e) {}
+
+  return '';
+};
+
+const getApiKey = () => {
+    return getEnvVar('VITE_DEEPSEEK_API_KEY');
+}
+
+// 通用 DeepSeek 调用函数
+const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode: boolean = true) => {
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error("API Key 未配置。请检查 Vercel 环境变量 VITE_DEEPSEEK_API_KEY。");
+
+    try {
+        const response = await fetch(DEEPSEEK_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat", // 使用 DeepSeek-V3
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userContent }
+                ],
+                // 启用 JSON 模式以保证输出格式稳定
+                response_format: jsonMode ? { type: "json_object" } : undefined,
+                temperature: 0.1, // 低温度以保证医学数据的严谨性
+                stream: false
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`DeepSeek API Error: ${response.status} - ${errText}`);
+        }
+
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        
+        // 清洗 Markdown 代码块标记 (```json ... ```)
+        const cleanJson = content.replace(/```json\n?|```/g, '').trim();
+        
+        return jsonMode ? JSON.parse(cleanJson) : cleanJson;
+    } catch (error) {
+        console.error("DeepSeek Call Failed:", error);
+        throw error; // 向上传递错误以便 UI 提示
+    }
+};
 
 /**
  * 1. 智能解析: 从文本中提取结构化健康档案
@@ -105,42 +172,32 @@ export const parseHealthDataFromText = async (rawText: string): Promise<HealthRe
     }
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-        model: MODEL_COMPLEX,
-        contents: `请解析以下健康档案数据:\n${rawText}`,
-        config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: "application/json",
-        },
-    });
+  const parsedData = await callDeepSeek(systemPrompt, `请解析以下健康档案数据:\n${rawText}`);
 
-    const parsedData = JSON.parse(response.text || "{}");
+  // [Auto-Fix Logic]: Calculate BMI if missing but height/weight present
+  if (parsedData.checkup?.basics) {
+      // Ensure numerical types
+      const height = Number(parsedData.checkup.basics.height);
+      const weight = Number(parsedData.checkup.basics.weight);
+      let bmi = Number(parsedData.checkup.basics.bmi);
 
-    // [Auto-Fix Logic]: Calculate BMI if missing but height/weight present
-    if (parsedData.checkup?.basics) {
-        const height = Number(parsedData.checkup.basics.height);
-        const weight = Number(parsedData.checkup.basics.weight);
-        let bmi = Number(parsedData.checkup.basics.bmi);
-
-        if ((!bmi || bmi === 0) && height > 0 && weight > 0) {
-            const h_m = height / 100;
-            const calculatedBmi = weight / (h_m * h_m);
-            bmi = parseFloat(calculatedBmi.toFixed(1));
-            
-            parsedData.checkup.basics.bmi = bmi;
-            console.log(`[AI Fix] Automatically calculated missing BMI: ${bmi}`);
-        }
-        
-        parsedData.checkup.basics.height = height || undefined;
-        parsedData.checkup.basics.weight = weight || undefined;
-    }
-
-    return parsedData;
-  } catch (error) {
-    console.error("Gemini Parse Failed:", error);
-    throw error;
+      // Fix missing BMI
+      if ((!bmi || bmi === 0) && height > 0 && weight > 0) {
+          // Height from cm -> m
+          const h_m = height / 100;
+          const calculatedBmi = weight / (h_m * h_m);
+          bmi = parseFloat(calculatedBmi.toFixed(1));
+          
+          parsedData.checkup.basics.bmi = bmi;
+          console.log(`[AI Fix] Automatically calculated missing BMI: ${bmi}`);
+      }
+      
+      // Update normalized numbers back to object
+      parsedData.checkup.basics.height = height || undefined;
+      parsedData.checkup.basics.weight = weight || undefined;
   }
+
+  return parsedData;
 }
 
 /**
@@ -217,20 +274,7 @@ export const generateHealthAssessment = async (record: HealthRecord): Promise<He
     }
   `;
 
-  try {
-    const response = await ai.models.generateContent({
-        model: MODEL_STANDARD,
-        contents: `数据:\n${JSON.stringify(record)}`,
-        config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: "application/json",
-        },
-    });
-    return JSON.parse(response.text || "{}") as HealthAssessment;
-  } catch (error) {
-    console.error("Gemini Assessment Failed:", error);
-    throw error;
-  }
+  return await callDeepSeek(systemPrompt, `数据:\n${JSON.stringify(record)}`);
 };
 
 /**
@@ -297,20 +341,13 @@ export const analyzeFollowUpRecord = async (
       }
       `;
       
-      try {
-        const response = await ai.models.generateContent({
-            model: MODEL_STANDARD,
-            contents: `本次随访录入: ${JSON.stringify(formData)}\n基线评估: ${JSON.stringify(assessment)}\n上次记录: ${JSON.stringify(latestRecord)}`,
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: "application/json",
-            },
-        });
-        return JSON.parse(response.text || "{}");
-      } catch (error) {
-        console.error("Gemini Analysis Failed:", error);
-        throw error;
-      }
+      const userContent = `
+      本次随访录入: ${JSON.stringify(formData)}
+      基线评估: ${JSON.stringify(assessment)}
+      上次记录: ${JSON.stringify(latestRecord)}
+      `;
+      
+      return await callDeepSeek(systemPrompt, userContent);
   };
 
 /**
@@ -334,19 +371,9 @@ export const generateFollowUpSMS = async (
     输出 JSON: { "smsContent": "短信内容" }
     `;
 
-    try {
-        const response = await ai.models.generateContent({
-            model: MODEL_STANDARD,
-            contents: `患者姓名: ${patientName}, 医生: ${doctorName}, 医院: ${hospitalName}`,
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: "application/json",
-            },
-        });
-        return JSON.parse(response.text || "{}");
-    } catch (error) {
-        return { smsContent: "生成失败" };
-    }
+    const userContent = `患者姓名: ${patientName}, 医生: ${doctorName}, 医院: ${hospitalName}`;
+    
+    return await callDeepSeek(systemPrompt, userContent, true);
 };
 
 /**
@@ -380,17 +407,13 @@ export const generateHospitalBusinessAnalysis = async (
     ]
     `;
 
+    const userContent = JSON.stringify(aggregatedIssues);
+
     try {
-        const response = await ai.models.generateContent({
-            model: MODEL_STANDARD,
-            contents: JSON.stringify(aggregatedIssues),
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: "application/json",
-            },
-        });
-        const result = JSON.parse(response.text || "[]");
-        if (Array.isArray(result)) return result;
+        const result = await callDeepSeek(systemPrompt, userContent);
+        if (Array.isArray(result)) {
+             return result as DepartmentAnalytics[];
+        }
         return [];
     } catch (e) {
         console.error("Business Analysis Error:", e);
@@ -417,21 +440,15 @@ export const generateAnnualReportSummary = async (
     输出 JSON: { "summary": "摘要内容，200字左右" }
     `;
 
-    const userContent = `基线记录 (${baseline.date}): ${JSON.stringify(baseline)}\n当前记录 (${current.date}): ${JSON.stringify(current)}`;
+    const userContent = `
+    基线记录 (${baseline.date}):
+    ${JSON.stringify(baseline)}
+    
+    当前记录 (${current.date}):
+    ${JSON.stringify(current)}
+    `;
 
-    try {
-        const response = await ai.models.generateContent({
-            model: MODEL_STANDARD,
-            contents: userContent,
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: "application/json",
-            },
-        });
-        return JSON.parse(response.text || "{}");
-    } catch (e) {
-        return { summary: "生成失败" };
-    }
+    return await callDeepSeek(systemPrompt, userContent, true);
 };
 
 /**
@@ -445,19 +462,7 @@ export const generateDietAssessment = async (input: string): Promise<{ reply: st
     
     输出 JSON: { "reply": "你的回复内容" }
     `;
-    try {
-        const response = await ai.models.generateContent({
-            model: MODEL_STANDARD,
-            contents: input,
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: "application/json",
-            },
-        });
-        return JSON.parse(response.text || "{}");
-    } catch (e) {
-        return { reply: "抱歉，服务暂时不可用" };
-    }
+    return await callDeepSeek(systemPrompt, input, true);
 };
 
 /**
@@ -470,19 +475,7 @@ export const generateExercisePlan = async (input: string): Promise<{ plan: { day
     
     输出 JSON: { "plan": [ { "day": "周一", "content": "具体运动内容及注意事项" }, ... ] }
     `;
-    try {
-        const response = await ai.models.generateContent({
-            model: MODEL_STANDARD,
-            contents: input,
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: "application/json",
-            },
-        });
-        return JSON.parse(response.text || "{}");
-    } catch (e) {
-        throw new Error("Generation failed");
-    }
+    return await callDeepSeek(systemPrompt, input, true);
 };
 
 /**
@@ -504,17 +497,6 @@ export const calculateNutritionFromIngredients = async (
     确保所有输入的食谱都在输出中找到对应结果。
     `;
 
-    try {
-        const response = await ai.models.generateContent({
-            model: MODEL_STANDARD,
-            contents: JSON.stringify(recipes),
-            config: {
-                systemInstruction: systemPrompt,
-                responseMimeType: "application/json",
-            },
-        });
-        return JSON.parse(response.text || "{}");
-    } catch (e) {
-        return { nutritionData: {} };
-    }
+    const userContent = JSON.stringify(recipes);
+    return await callDeepSeek(systemPrompt, userContent, true);
 };

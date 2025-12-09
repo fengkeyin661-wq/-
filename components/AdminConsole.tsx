@@ -311,12 +311,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         {loading ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">加载中...</td></tr> : filteredArchives.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">暂无数据</td></tr> : filteredArchives.map((archive) => {
                             const isCritical = archive.assessment_data?.isCritical || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'));
                             return (
-                                <tr 
-                                    key={archive.id} 
-                                    className="hover:bg-blue-50/30 transition-colors group cursor-pointer"
-                                    onDoubleClick={() => onSelectPatient(archive, 'assessment')}
-                                >
-                                    <td className="p-4" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(archive.id)} onChange={() => handleSelectRow(archive.id)} /></td>
+                                <tr key={archive.id} className="hover:bg-blue-50/30 transition-colors group">
+                                    <td className="p-4"><input type="checkbox" checked={selectedIds.has(archive.id)} onChange={() => handleSelectRow(archive.id)} /></td>
                                     <td className="p-4 font-mono text-slate-600">{archive.checkup_id}</td>
                                     <td className="p-4">
                                         <div className="font-bold text-slate-800">{archive.name}</div>
@@ -326,8 +322,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                     <td className="p-4 text-slate-600">{archive.department}</td>
                                     <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold border ${archive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' : archive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' : 'bg-green-50 text-green-600 border-green-200'}`}>{archive.risk_level === 'RED' ? '高风险' : archive.risk_level === 'YELLOW' ? '中风险' : '低风险'}</span></td>
                                     <td className="p-4 text-xs text-slate-400 font-mono">{new Date(archive.updated_at || archive.created_at).toLocaleDateString()}</td>
-                                    <td className="p-4 flex justify-center gap-2 opacity-80 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                                        <button onClick={() => onSelectPatient(archive, 'assessment')} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded hover:bg-indigo-100 font-bold">查看</button>
+                                    <td className="p-4 flex justify-center gap-2 opacity-80 group-hover:opacity-100">
+                                        <button onClick={() => onSelectPatient(archive, 'view')} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded hover:bg-indigo-100 font-bold">查看</button>
                                         <button onClick={() => handleEditClick(archive)} className="text-xs bg-slate-50 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-100">编辑</button>
                                         <button onClick={() => handleDelete(archive.id, archive.name)} className="text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded hover:bg-red-100">删除</button>
                                     </td>
@@ -338,6 +334,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 </table>
             </div>
             
+            {/* ... (Modals remain same structure) ... */}
             {/* Edit Modal */}
             {isEditModalOpen && editForm && (
                 <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 backdrop-blur-sm">
