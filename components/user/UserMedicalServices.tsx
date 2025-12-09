@@ -1,8 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { fetchContent, ContentItem } from '../../services/contentService';
+import { fetchContent, ContentItem, saveInteraction, InteractionItem } from '../../services/contentService';
 
-export const UserMedicalServices: React.FC = () => {
+interface Props {
+    userId: string;
+    userName: string;
+}
+
+export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
     const [doctors, setDoctors] = useState<ContentItem[]>([]);
     const [drugs, setDrugs] = useState<ContentItem[]>([]);
     const [services, setServices] = useState<ContentItem[]>([]);
@@ -19,6 +24,31 @@ export const UserMedicalServices: React.FC = () => {
         };
         load();
     }, []);
+
+    const handleInteract = async (type: InteractionItem['type'], target: ContentItem) => {
+        if (!userId) return alert("用户信息缺失");
+        
+        const textMap: any = {
+            'signing': '签约申请',
+            'booking': '服务预约',
+            'drug_order': '开药申请'
+        };
+
+        if(confirm(`确定要提交【${target.title}】的${textMap[type]}吗？`)) {
+            await saveInteraction({
+                id: `${type}_${Date.now()}`,
+                type: type,
+                userId: userId,
+                userName: userName,
+                targetId: target.id,
+                targetName: target.title,
+                status: 'pending',
+                date: new Date().toISOString().split('T')[0],
+                details: type === 'drug_order' ? `规格: ${target.details?.spec}` : type === 'booking' ? `价格: ${target.details?.price}` : '申请家庭医生签约'
+            });
+            alert("申请已提交，请等待医生审核。");
+        }
+    };
 
     const filteredDoctors = doctors.filter(d => d.title.includes(search) || d.tags.join('').includes(search));
     const filteredDrugs = drugs.filter(d => d.title.includes(search));
@@ -44,7 +74,11 @@ export const UserMedicalServices: React.FC = () => {
                 </h2>
                 <div className="grid grid-cols-2 gap-3">
                     {services.map(s => (
-                        <div key={s.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 active:bg-blue-50 cursor-pointer">
+                        <div 
+                            key={s.id} 
+                            onClick={() => handleInteract('booking', s)}
+                            className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-center gap-3 active:bg-blue-50 cursor-pointer"
+                        >
                             <div className="text-2xl bg-blue-50 w-10 h-10 rounded-full flex items-center justify-center">{s.image}</div>
                             <div>
                                 <div className="font-bold text-sm text-slate-800">{s.title}</div>
@@ -78,7 +112,12 @@ export const UserMedicalServices: React.FC = () => {
                                         <h3 className="font-bold text-slate-800 text-base">{doc.title}</h3>
                                         <div className="text-xs text-slate-500 mt-0.5">{doc.details?.dept} · {doc.details?.title}</div>
                                     </div>
-                                    <button className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow hover:bg-blue-700">问诊</button>
+                                    <button 
+                                        onClick={() => handleInteract('signing', doc)}
+                                        className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow hover:bg-blue-700"
+                                    >
+                                        签约/问诊
+                                    </button>
                                 </div>
                                 <div className="flex flex-wrap gap-1 mt-2">
                                     {doc.tags.map(t => <span key={t} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{t}</span>)}
@@ -106,11 +145,16 @@ export const UserMedicalServices: React.FC = () => {
                                     <div className="text-[10px] text-slate-400">{drug.description}</div>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <div className="text-sm font-bold text-orange-600">{drug.details?.price || '询价'}</div>
+                            <div className="text-right flex flex-col items-end gap-1">
                                 <span className={`text-[10px] px-1.5 rounded ${drug.details?.stock === '充足' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                     {drug.details?.stock || '有货'}
                                 </span>
+                                <button 
+                                    onClick={() => handleInteract('drug_order', drug)}
+                                    className="text-xs bg-orange-50 text-orange-600 px-2 py-1 rounded border border-orange-200"
+                                >
+                                    预约开药
+                                </button>
                             </div>
                         </div>
                     )) : <div className="p-4 text-center text-xs text-slate-400">暂无相关药品</div>}

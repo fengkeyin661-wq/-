@@ -2,15 +2,19 @@
 import React, { useState, useEffect } from 'react';
 import { fetchContent, saveContent, ContentItem } from '../../services/contentService';
 import { HealthAssessment } from '../../types';
+import { generateDailyIntegratedPlan } from '../../services/geminiService';
+import { updateUserPlan, DailyHealthPlan } from '../../services/dataService';
 
 interface Props {
     assessment?: HealthAssessment;
+    userCheckupId?: string; // Need ID to save
 }
 
-export const UserDietMotion: React.FC<Props> = ({ assessment }) => {
+export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId }) => {
     const [activeTab, setActiveTab] = useState<'meal' | 'exercise'>('meal');
     const [items, setItems] = useState<ContentItem[]>([]);
     const [showUpload, setShowUpload] = useState(false);
+    const [isGenerating, setIsGenerating] = useState(false);
     
     // Upload Form State
     const [newTitle, setNewTitle] = useState('');
@@ -63,6 +67,33 @@ export const UserDietMotion: React.FC<Props> = ({ assessment }) => {
         alert("发布成功！");
     };
 
+    const handleGenerateOneClick = async () => {
+        if (!assessment || !userCheckupId) {
+            alert("需要完善健康档案后才能生成方案");
+            return;
+        }
+        setIsGenerating(true);
+        try {
+            const profileStr = `风险评估:${assessment.summary}, 风险点:${assessment.risks.red.join(',')}, ${assessment.risks.yellow.join(',')}`;
+            const plan = await generateDailyIntegratedPlan(profileStr);
+            const dailyPlan: DailyHealthPlan = {
+                generatedAt: new Date().toISOString(),
+                ...plan
+            };
+            
+            const success = await updateUserPlan(userCheckupId, dailyPlan);
+            if (success) {
+                alert("方案已生成并保存到【我的-我的方案】中！");
+            } else {
+                alert("生成成功但保存失败，请检查网络");
+            }
+        } catch (e) {
+            alert("生成失败，请重试");
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
     return (
         <div className="bg-slate-50 min-h-full">
             {/* Header */}
@@ -81,9 +112,19 @@ export const UserDietMotion: React.FC<Props> = ({ assessment }) => {
                         科学运动
                     </button>
                 </div>
-                <button onClick={() => setShowUpload(true)} className="text-xl bg-slate-100 w-9 h-9 rounded-full flex items-center justify-center text-slate-600 font-bold hover:bg-slate-200">
-                    +
-                </button>
+                <div className="flex gap-2">
+                    <button 
+                        onClick={handleGenerateOneClick}
+                        disabled={isGenerating}
+                        className="bg-gradient-to-r from-orange-400 to-pink-500 text-white w-9 h-9 rounded-full flex items-center justify-center font-bold shadow-md animate-pulse disabled:opacity-50"
+                        title="一键生成今日方案"
+                    >
+                        {isGenerating ? '⏳' : '⚡'}
+                    </button>
+                    <button onClick={() => setShowUpload(true)} className="text-xl bg-slate-100 w-9 h-9 rounded-full flex items-center justify-center text-slate-600 font-bold hover:bg-slate-200">
+                        +
+                    </button>
+                </div>
             </div>
 
             <div className="p-4 space-y-6">

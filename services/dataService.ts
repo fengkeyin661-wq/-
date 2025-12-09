@@ -10,6 +10,13 @@ export interface ExercisePlanData {
     logs: string[]; // Array of ISO date strings (YYYY-MM-DD) for completed check-ins
 }
 
+export interface DailyHealthPlan {
+    generatedAt: string;
+    diet: { breakfast: string, lunch: string, dinner: string, snack: string };
+    exercise: { morning: string, afternoon: string, evening: string };
+    tips: string;
+}
+
 export interface HealthArchive {
     id: string;
     checkup_id: string;
@@ -29,6 +36,8 @@ export interface HealthArchive {
     risk_analysis?: RiskAnalysisData;
     // New: User Custom Exercise Plan
     custom_exercise_plan?: ExercisePlanData;
+    // New: User Daily Plan
+    custom_daily_plan?: DailyHealthPlan;
 
     history_versions: {
         date: string;
@@ -108,6 +117,7 @@ export const saveArchive = async (
         let existingCriticalTrack = null;
         let existingRiskAnalysis = riskAnalysis;
         let existingExercisePlan = null;
+        let existingDailyPlan = null;
         
         // Use select('*') to be robust against missing optional columns (like custom_exercise_plan)
         const { data: existing } = await supabase
@@ -121,6 +131,7 @@ export const saveArchive = async (
             existingCriticalTrack = existing.critical_track;
             // Use bracket notation to safely access potentially missing property types
             existingExercisePlan = (existing as any).custom_exercise_plan;
+            existingDailyPlan = (existing as any).custom_daily_plan;
 
             // If new risk analysis not provided, try to keep old one or generate new
             if (!existingRiskAnalysis && existing.risk_analysis) {
@@ -187,7 +198,8 @@ export const saveArchive = async (
         const fullPayload = {
             ...basePayload,
             risk_analysis: existingRiskAnalysis,
-            custom_exercise_plan: existingExercisePlan
+            custom_exercise_plan: existingExercisePlan,
+            custom_daily_plan: existingDailyPlan
         };
 
         const { error } = await supabase.from('health_archives').upsert(fullPayload, { onConflict: 'checkup_id' });
@@ -227,6 +239,26 @@ export const updateExercisePlan = async (checkupId: string, plan: ExercisePlanDa
         return !error;
     } catch (e) {
         console.error("Update Exercise Plan Error:", e);
+        return false;
+    }
+};
+
+/**
+ * Update User Daily Integrated Plan
+ */
+export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): Promise<boolean> => {
+    if (!isSupabaseConfigured()) return false;
+    try {
+        const { error } = await supabase
+            .from('health_archives')
+            .update({ 
+                custom_daily_plan: plan,
+                updated_at: new Date().toISOString()
+            })
+            .eq('checkup_id', checkupId);
+        return !error;
+    } catch (e) {
+        console.error("Update User Daily Plan Error:", e);
         return false;
     }
 };
@@ -378,7 +410,7 @@ export const updateArchiveData = async (
 };
 
 /**
- * Update ONLY the health_record field (Used for BMI auto-fix)
+ * Update ONLY the health_record field (Used for BMI auto-fix and User Profile updates)
  */
 export const updateHealthRecordOnly = async (
     checkupId: string,

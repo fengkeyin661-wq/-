@@ -1,8 +1,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { fetchContent, saveContent, fetchInteractions, saveInteraction, updateInteractionStatus, ContentItem, InteractionItem, ChatMessage, fetchMessages, sendMessage } from '../../services/contentService';
+import { HealthArchive } from '../../services/dataService';
 
-export const UserInteraction: React.FC = () => {
+interface Props {
+    userId: string;
+    archive?: HealthArchive;
+}
+
+export const UserInteraction: React.FC<Props> = ({ userId, archive }) => {
     const [events, setEvents] = useState<ContentItem[]>([]);
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     
@@ -12,9 +18,7 @@ export const UserInteraction: React.FC = () => {
     // Event Sub Tabs: Lobby, Joined, Managed
     const [eventSubTab, setEventSubTab] = useState<'lobby' | 'joined' | 'managed'>('lobby');
     
-    // Simulated Current User
-    const CURRENT_USER_ID = 'current_user';
-    const CURRENT_USER_NAME = '我'; 
+    const CURRENT_USER_NAME = archive?.name || '我'; 
 
     // Chat State
     const [signedDoctor, setSignedDoctor] = useState<InteractionItem | null>(null);
@@ -65,13 +69,13 @@ export const UserInteraction: React.FC = () => {
         setInteractions(allInteractions.filter(i => i.type === 'event_signup'));
 
         // Check for Signed Doctor
-        const signing = allInteractions.find(i => i.type === 'signing' && i.userId === CURRENT_USER_ID && i.status === 'confirmed');
+        const signing = allInteractions.find(i => i.type === 'signing' && i.userId === userId && i.status === 'confirmed');
         setSignedDoctor(signing || null);
     };
 
     const loadMessages = async () => {
         if (!signedDoctor) return;
-        const msgs = await fetchMessages(CURRENT_USER_ID, signedDoctor.targetId);
+        const msgs = await fetchMessages(userId, signedDoctor.targetId);
         setChatMessages(msgs);
     };
 
@@ -79,7 +83,7 @@ export const UserInteraction: React.FC = () => {
         if (!signedDoctor || !chatInput.trim()) return;
         
         await sendMessage({
-            senderId: CURRENT_USER_ID,
+            senderId: userId,
             senderRole: 'user',
             receiverId: signedDoctor.targetId,
             content: chatInput
@@ -94,7 +98,7 @@ export const UserInteraction: React.FC = () => {
     const getLobbyEvents = () => events.filter(e => e.status === 'active');
     
     const getJoinedEvents = () => {
-        const mySignups = interactions.filter(i => i.userId === CURRENT_USER_ID);
+        const mySignups = interactions.filter(i => i.userId === userId);
         return mySignups.map(signup => {
             const evt = events.find(e => e.id === signup.targetId);
             return {
@@ -147,13 +151,13 @@ export const UserInteraction: React.FC = () => {
     };
 
     const handleJoinEvent = async (event: ContentItem) => {
-        const existing = interactions.find(i => i.targetId === event.id && i.userId === CURRENT_USER_ID);
+        const existing = interactions.find(i => i.targetId === event.id && i.userId === userId);
         if (existing) return alert("您已报名该活动");
 
         const interaction: InteractionItem = {
             id: `signup_${Date.now()}`,
             type: 'event_signup',
-            userId: CURRENT_USER_ID,
+            userId: userId,
             userName: CURRENT_USER_NAME,
             targetId: event.id,
             targetName: event.title,
@@ -171,6 +175,8 @@ export const UserInteraction: React.FC = () => {
         await updateInteractionStatus(interactionId, pass ? 'confirmed' : 'cancelled');
         loadData();
     };
+
+    const nextFollowUp = archive?.follow_up_schedule.find(s => s.status === 'pending');
 
     return (
         <div className="bg-slate-50 min-h-full flex flex-col h-full">
@@ -193,6 +199,33 @@ export const UserInteraction: React.FC = () => {
             <div className="flex-1 overflow-y-auto">
                 {activeSegment === 'chat' && (
                     <div className="h-full flex flex-col p-4 pb-24">
+                        {/* Notifications */}
+                        <div className="mb-4 space-y-3">
+                            {archive && (
+                                <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm flex items-start gap-3">
+                                    <div className="text-xl bg-teal-50 w-8 h-8 rounded flex items-center justify-center">📢</div>
+                                    <div>
+                                        <div className="font-bold text-sm text-slate-800">健康档案更新</div>
+                                        <div className="text-xs text-slate-500 mt-1">
+                                            您的健康评估报告已生成 ({new Date(archive.updated_at || archive.created_at).toLocaleDateString()})
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            {nextFollowUp && (
+                                <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm flex items-start gap-3">
+                                    <div className="text-xl bg-blue-50 w-8 h-8 rounded flex items-center justify-center">📅</div>
+                                    <div>
+                                        <div className="font-bold text-sm text-slate-800">随访提醒</div>
+                                        <div className="text-xs text-slate-500 mt-1">
+                                            下次复查时间：{nextFollowUp.date} <br/>
+                                            重点项目：{nextFollowUp.focusItems.join(', ')}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
                         {signedDoctor ? (
                             <>
                                 {/* Chat Header */}
@@ -294,7 +327,7 @@ export const UserInteraction: React.FC = () => {
                                 </div>
 
                                 {getLobbyEvents().map(evt => {
-                                    const mySignup = interactions.find(i => i.targetId === evt.id && i.userId === CURRENT_USER_ID);
+                                    const mySignup = interactions.find(i => i.targetId === evt.id && i.userId === userId);
                                     const isAuthor = evt.isUserUpload && evt.author === '我';
                                     
                                     return (
