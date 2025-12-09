@@ -222,6 +222,38 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
     return newMsg;
 };
 
+// --- New Messaging Helpers ---
+
+export const getUnreadCount = async (receiverId: string, senderId?: string): Promise<number> => {
+    const raw = localStorage.getItem(CHAT_KEY);
+    let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
+    
+    return all.filter(m => {
+        const isRecipient = m.receiverId === receiverId;
+        const isUnread = m.read === false;
+        const isSenderMatch = senderId ? m.senderId === senderId : true;
+        return isRecipient && isUnread && isSenderMatch;
+    }).length;
+};
+
+export const markAsRead = async (receiverId: string, senderId: string): Promise<void> => {
+    const raw = localStorage.getItem(CHAT_KEY);
+    let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
+    
+    let changed = false;
+    all = all.map(m => {
+        if (m.receiverId === receiverId && m.senderId === senderId && !m.read) {
+            changed = true;
+            return { ...m, read: true };
+        }
+        return m;
+    });
+
+    if (changed) {
+        localStorage.setItem(CHAT_KEY, JSON.stringify(all));
+    }
+};
+
 // --- Seed Data ---
 export const seedInitialData = () => {
     if (!localStorage.getItem(STORAGE_KEY)) {

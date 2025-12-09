@@ -5,14 +5,15 @@ interface Props {
   activeTab: string;
   onTabChange: (tab: string) => void;
   children: React.ReactNode;
+  unreadCount?: number; // New Prop
 }
 
-export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children }) => {
+export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, unreadCount = 0 }) => {
   const navItems = [
-    { id: 'diet_motion', label: '饮食与运动', icon: '🥑' }, // Merged Diet & Exercise
-    { id: 'medical', label: '寻医问药', icon: '🏥' }, // Medical, Drugs, Services
-    { id: 'interaction', label: '互动咨询', icon: '💬' }, // Doctor chat, Community
-    { id: 'profile', label: '我的健康', icon: '👤' }, // Profile, Records, Family Doctor
+    { id: 'diet_motion', label: '饮食与运动', icon: '🥑' },
+    { id: 'medical', label: '寻医问药', icon: '🏥' },
+    { id: 'interaction', label: '互动咨询', icon: '💬' },
+    { id: 'profile', label: '我的健康', icon: '👤' },
   ];
 
   return (
@@ -33,10 +34,14 @@ export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children }
                 isActive ? 'text-teal-600' : 'text-slate-400'
               }`}
             >
-              <div className={`text-2xl mb-1 transition-all duration-300 p-2 rounded-2xl ${
+              <div className={`text-2xl mb-1 transition-all duration-300 p-2 rounded-2xl relative ${
                   isActive ? 'bg-teal-50 -translate-y-2 shadow-sm' : 'group-hover:-translate-y-1'
               }`}>
                 {item.icon}
+                {/* Red Dot Badge */}
+                {item.id === 'interaction' && unreadCount > 0 && (
+                    <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
+                )}
               </div>
               <span className={`text-[10px] font-bold absolute bottom-2 transition-opacity duration-300 ${isActive ? 'opacity-100' : 'opacity-70'}`}>
                 {item.label}

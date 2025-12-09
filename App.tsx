@@ -18,7 +18,7 @@ import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, Risk
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, findArchiveByPhone, updateHealthRecordOnly } from './services/dataService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
-import { ContentItem } from './services/contentService';
+import { ContentItem, fetchInteractions } from './services/contentService';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -50,12 +50,40 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     // Initial fetch if admin or doctor
-    if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) refreshArchives();
-  }, [isAuthenticated, currentUserRole]);
+    if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) {
+        refreshArchives();
+    }
+  }, [isAuthenticated, currentUserRole, currentDoctor]); // Added currentDoctor to dependencies
 
   const refreshArchives = async () => {
-    const data = await fetchArchives();
-    setArchives(data);
+    // 1. Fetch all raw archives first
+    const allArchives = await fetchArchives();
+
+    // 2. If current user is a Doctor, filter archives based on confirmed 'signing' interactions
+    if (currentUserRole === 'doctor' && currentDoctor) {
+        try {
+            const interactions = await fetchInteractions();
+            
+            // Find IDs of users who have a CONFIRMED signing with THIS doctor
+            const myPatientIds = interactions
+                .filter(i => 
+                    i.type === 'signing' && 
+                    i.targetId === currentDoctor.id && 
+                    i.status === 'confirmed'
+                )
+                .map(i => i.userId);
+
+            // Filter the global archive list to only show my patients
+            const myArchives = allArchives.filter(a => myPatientIds.includes(a.checkup_id));
+            setArchives(myArchives);
+        } catch (e) {
+            console.error("Failed to filter doctor patients", e);
+            setArchives([]); // Fallback to safety
+        }
+    } else {
+        // Admin or other roles see all archives
+        setArchives(allArchives);
+    }
   };
 
   const handleLoginSuccess = (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
@@ -65,11 +93,11 @@ export const App: React.FC = () => {
     
     if (role === 'admin') {
         setActiveTab('admin');
-        refreshArchives();
+        // refreshArchives called by useEffect
     } else if (role === 'doctor') {
         if (doctorInfo) setCurrentDoctor(doctorInfo);
         setActiveTab('my_patients'); 
-        refreshArchives();
+        // refreshArchives called by useEffect after state update
     }
   };
 
@@ -445,6 +473,7 @@ export const App: React.FC = () => {
                 setCurrentDoctor(null); 
                 setActiveTab('dashboard'); 
                 setShowUserEntry(false);
+                setArchives([]); // Clear data on logout
             }}
         >
             {activeTab === 'dashboard' && (

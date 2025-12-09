@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessage, fetchMessages, sendMessage } from '../services/contentService';
+import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessage, fetchMessages, sendMessage, getUnreadCount, markAsRead } from '../services/contentService';
 import { findArchiveByCheckupId, HealthArchive } from '../services/dataService';
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
 interface PatientData {
     interaction: InteractionItem;
     archive?: HealthArchive;
+    unread?: number; // Add unread count
 }
 
 export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) => {
@@ -29,15 +30,26 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
     const [chatInput, setChatInput] = useState('');
     const chatEndRef = useRef<HTMLDivElement>(null);
 
+    // Calculated total unread
+    const totalUnread = signedPatients.reduce((acc, curr) => acc + (curr.unread || 0), 0);
+
     useEffect(() => {
         loadData();
+        // Poll for unread counts even when not chatting
+        const interval = setInterval(loadData, 5000); 
+        return () => clearInterval(interval);
     }, [doctorId]);
 
-    // Polling for new messages
+    // Polling for new messages in active chat
     useEffect(() => {
         let interval: any;
         if (chatPatient) {
             loadMessages();
+            // Mark as read immediately when chat is open
+            markAsRead(doctorId, chatPatient.interaction.userId).then(() => {
+                 // Update local count after marking
+                 setSignedPatients(prev => prev.map(p => p.interaction.userId === chatPatient.interaction.userId ? { ...p, unread: 0 } : p));
+            });
             interval = setInterval(loadMessages, 3000);
         }
         return () => clearInterval(interval);
@@ -48,35 +60,31 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
     }, [chatMessages]);
 
     const loadData = async () => {
-        setLoading(true);
+        if (!chatPatient) setLoading(true); // Don't show full loading spinner if just background polling
         const interactions = await fetchInteractions();
         
         // 1. Filter Signed Patients (Confirmed Signings)
         const signings = interactions.filter(i => i.type === 'signing' && i.targetId === doctorId && i.status === 'confirmed');
         const patientsList: PatientData[] = [];
+        
         for (const s of signings) {
             let archive = await findArchiveByCheckupId(s.userId);
-            patientsList.push({ interaction: s, archive: archive || undefined });
+            let unreadCount = await getUnreadCount(doctorId, s.userId);
+            patientsList.push({ interaction: s, archive: archive || undefined, unread: unreadCount });
         }
         setSignedPatients(patientsList);
 
-        // 2. Filter Workboard Requests (Pending Signings, Bookings, Drug Orders)
-        // Requests can be directed to doctor (targetId) OR generic if system allows (here simplified to targetId)
+        // 2. Filter Workboard Requests
         const requests = interactions.filter(i => {
-            // Include requests specifically for this doctor
-            // Or general requests if doctor has permission (omitted for simplicity)
             if (i.status !== 'pending') return false;
-            // Signing requests for this doc
             if (i.type === 'signing' && i.targetId === doctorId) return true;
-            // Bookings/Drugs: In real app, might need logic to map doctor to service/drug
-            // Here we assume if doctor provides the service/drug (targetId match) OR if user is signed patient
             const isMyPatient = signings.some(s => s.userId === i.userId);
             if (isMyPatient && (i.type === 'booking' || i.type === 'drug_order')) return true;
             return false;
         });
         setPendingRequests(requests);
 
-        setLoading(false);
+        if (!chatPatient) setLoading(false);
     };
 
     const loadMessages = async () => {
@@ -123,15 +131,19 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                     </button>
                     <button 
                         onClick={() => setMainTab('patients')}
-                        className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${mainTab === 'patients' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
+                        className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${mainTab === 'patients' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
-                        我的签约用户 ({signedPatients.length})
+                        我的签约用户 
+                        <div className="flex items-center gap-1">
+                            <span className="text-xs">({signedPatients.length})</span>
+                            {totalUnread > 0 && <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+                        </div>
                     </button>
                 </div>
             </div>
 
             <div className="flex-1 p-6 overflow-y-auto">
-                {loading ? (
+                {loading && !chatPatient ? (
                     <div className="text-center py-20 text-slate-400">加载中...</div>
                 ) : (
                     <>
@@ -177,7 +189,14 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                 {signedPatients.length === 0 ? (
                                     <div className="col-span-full text-center py-20 text-slate-400">暂无签约用户</div>
                                 ) : signedPatients.map((item) => (
-                                    <div key={item.interaction.id} className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow bg-white flex flex-col justify-between h-full">
+                                    <div key={item.interaction.id} className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow bg-white flex flex-col justify-between h-full relative">
+                                        {/* Unread Badge on Card */}
+                                        {(item.unread || 0) > 0 && (
+                                            <div className="absolute top-2 right-2 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow-sm animate-pulse">
+                                                {item.unread}
+                                            </div>
+                                        )}
+                                        
                                         <div>
                                             <div className="flex justify-between items-start mb-3">
                                                 <div className="flex items-center gap-3">
@@ -208,9 +227,11 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                         <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
                                             <button 
                                                 onClick={() => setChatPatient(item)}
-                                                className="w-full py-2 rounded text-xs font-bold bg-indigo-50 text-indigo-600 hover:bg-indigo-100 flex items-center justify-center gap-2"
+                                                className={`w-full py-2 rounded text-xs font-bold flex items-center justify-center gap-2 transition-colors ${
+                                                    (item.unread || 0) > 0 ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                                                }`}
                                             >
-                                                💬 在线咨询
+                                                💬 在线咨询 {(item.unread || 0) > 0 && '(新消息)'}
                                             </button>
                                             <div className="flex gap-2">
                                                 {item.archive ? (
@@ -259,7 +280,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                     </p>
                                 </div>
                             </div>
-                            <button onClick={() => setChatPatient(null)} className="text-white/80 hover:text-white text-2xl font-bold">×</button>
+                            <button onClick={() => { setChatPatient(null); loadData(); }} className="text-white/80 hover:text-white text-2xl font-bold">×</button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-4 bg-slate-50 space-y-4">

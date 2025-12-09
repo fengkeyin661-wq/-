@@ -1,14 +1,15 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchContent, saveContent, fetchInteractions, saveInteraction, updateInteractionStatus, ContentItem, InteractionItem, ChatMessage, fetchMessages, sendMessage } from '../../services/contentService';
+import { fetchContent, saveContent, fetchInteractions, saveInteraction, updateInteractionStatus, ContentItem, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
 
 interface Props {
     userId: string;
     archive?: HealthArchive;
+    onMessageRead?: () => void; // New callback
 }
 
-export const UserInteraction: React.FC<Props> = ({ userId, archive }) => {
+export const UserInteraction: React.FC<Props> = ({ userId, archive, onMessageRead }) => {
     const [events, setEvents] = useState<ContentItem[]>([]);
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     
@@ -47,7 +48,16 @@ export const UserInteraction: React.FC<Props> = ({ userId, archive }) => {
         let interval: any;
         if (activeSegment === 'chat' && signedDoctor) {
             loadMessages();
-            interval = setInterval(loadMessages, 3000);
+            // Mark as read when entering/polling chat
+            markAsRead(userId, signedDoctor.targetId).then(() => {
+                if(onMessageRead) onMessageRead();
+            });
+            interval = setInterval(() => {
+                loadMessages();
+                markAsRead(userId, signedDoctor.targetId).then(() => {
+                    if(onMessageRead) onMessageRead();
+                });
+            }, 3000);
         }
         return () => clearInterval(interval);
     }, [activeSegment, signedDoctor]);

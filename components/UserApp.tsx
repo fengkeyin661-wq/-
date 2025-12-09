@@ -6,7 +6,7 @@ import { UserMedicalServices } from './user/UserMedicalServices';
 import { UserInteraction } from './user/UserInteraction';
 import { UserProfile } from './user/UserProfile';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
-import { generateHealthAssessment } from '../services/geminiService';
+import { getUnreadCount } from '../services/contentService'; // Import
 
 interface Props {
   checkupId: string;
@@ -17,6 +17,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   const [activeTab, setActiveTab] = useState('diet_motion');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -37,6 +38,22 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     };
     loadUser();
   }, [checkupId]);
+
+  // Poll for unread messages
+  useEffect(() => {
+      const checkUnread = async () => {
+          if (!userArchive) return;
+          // Count messages where receiver is user (from any doctor, but usually signed one)
+          const count = await getUnreadCount(userArchive.checkup_id);
+          setUnreadCount(count);
+      };
+
+      if (userArchive) {
+          checkUnread();
+          const interval = setInterval(checkUnread, 5000);
+          return () => clearInterval(interval);
+      }
+  }, [userArchive]);
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
@@ -73,7 +90,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   if (!userArchive) return null;
 
   return (
-    <UserLayout activeTab={activeTab} onTabChange={setActiveTab}>
+    <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
       {activeTab === 'diet_motion' && (
           <UserDietMotion 
               assessment={userArchive.assessment_data} 
@@ -90,6 +107,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
           <UserInteraction 
               userId={userArchive.checkup_id} 
               archive={userArchive} 
+              onMessageRead={() => setUnreadCount(0)} // Callback to clear badge instantly
           />
       )}
       {activeTab === 'profile' && (

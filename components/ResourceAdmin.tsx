@@ -82,15 +82,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         const content = await fetchContent(contentType);
         setItems(content);
 
-        if (['event', 'service', 'drug', 'doctor'].includes(activeTab)) {
-            let interactionType = '';
-            switch(activeTab) {
-                case 'event': interactionType = 'event_signup'; break;
-                case 'service': interactionType = 'booking'; break;
-                case 'drug': interactionType = 'drug_order'; break;
-                case 'doctor': interactionType = 'signing'; break;
-            }
-            const inters = await fetchInteractions(interactionType);
+        // Updated Logic: Only load interactions for Community Events
+        // Medical, Drug, and Doctor Signing interactions are now handled by the Signed Doctor
+        if (activeTab === 'event') {
+            const inters = await fetchInteractions('event_signup');
             setInteractions(inters);
         } else {
             setInteractions([]);
@@ -316,13 +311,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 </aside>
 
                 <main className="flex-1 p-8 overflow-y-auto">
-                    {/* Interaction Tables (Top) */}
-                    {['event', 'service', 'drug', 'doctor'].includes(activeTab) && (
+                    {/* Interaction Tables (Top) - Only for Events now */}
+                    {activeTab === 'event' && (
                         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
-                                {activeTab === 'event' ? '活动报名审核' : 
-                                 activeTab === 'service' ? '服务预约记录' : 
-                                 activeTab === 'drug' ? '药品订单' : '签约申请'}
+                                活动报名审核
                             </h3>
                             {renderInteractionTable(getBookings(activeTab))}
                         </section>
