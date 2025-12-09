@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserLayout } from './UserLayout';
-import { UserDietMotion } from './UserDietMotion'; // New
-import { UserMedicalServices } from './UserMedicalServices'; // New
-import { UserInteraction } from './UserInteraction'; // New
-import { UserProfile } from './UserProfile'; // Updated
+import { UserDietMotion } from './UserDietMotion';
+import { UserMedicalServices } from './UserMedicalServices';
+import { UserInteraction } from './UserInteraction';
+import { UserProfile } from './UserProfile';
+import { UserCommunity } from './UserCommunity';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../../services/dataService';
-import { generateHealthAssessment } from '../../services/geminiService';
 
 interface Props {
   checkupId: string;
@@ -51,7 +51,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       setUserArchive({ ...userArchive, health_record: newRecord });
       
       try {
-          // Sync to backend
           await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
       } catch (e) {
           console.error("Sync failed", e);
@@ -83,6 +82,9 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               userName={userArchive.name} 
           />
       )}
+      {activeTab === 'community' && (
+          <UserCommunity />
+      )}
       {activeTab === 'interaction' && (
           <UserInteraction 
               userId={userArchive.checkup_id} 
@@ -95,17 +97,11 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               assessment={userArchive.assessment_data}
               dailyPlan={userArchive.custom_daily_plan}
               userId={userArchive.checkup_id}
+              archive={userArchive}
               onUpdateRecord={handleUpdateRecord}
+              onLogout={onLogout}
           />
       )}
-      
-      {/* Logout Overlay Button (Top Right) */}
-      <button 
-        onClick={onLogout}
-        className="absolute top-4 right-4 z-50 bg-white/80 p-2 rounded-full shadow-sm backdrop-blur-sm text-xs font-bold text-slate-500 hover:text-red-500"
-      >
-        退出
-      </button>
     </UserLayout>
   );
 };
