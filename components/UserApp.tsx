@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserLayout } from './user/UserLayout';
-import { UserDietMotion } from './user/UserDietMotion'; // New
-import { UserMedicalServices } from './user/UserMedicalServices'; // New
-import { UserInteraction } from './user/UserInteraction'; // New
-import { UserProfile } from './user/UserProfile'; // Updated
+import { UserDietMotion } from './user/UserDietMotion';
+import { UserMedicalServices } from './user/UserMedicalServices';
+import { UserInteraction } from './user/UserInteraction';
+import { UserProfile } from './user/UserProfile';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
 import { generateHealthAssessment } from '../services/geminiService';
 
@@ -40,10 +40,21 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
-      const newRecord = { ...userArchive.health_record, ...updatedData };
-      setUserArchive({ ...userArchive, health_record: newRecord });
+      
+      const newCheckup = {
+          ...userArchive.health_record.checkup,
+          basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
+          labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic }
+      };
+
+      const newRecord = { ...userArchive.health_record, checkup: newCheckup };
+      
+      // Update local state
+      const newArchive = { ...userArchive, health_record: newRecord };
+      setUserArchive(newArchive);
+      
       try {
-          const newAssessment = await generateHealthAssessment(newRecord);
+          // Sync to backend
           await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
       } catch (e) {
           console.error("Sync failed", e);
@@ -63,13 +74,30 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      {activeTab === 'diet_motion' && <UserDietMotion assessment={userArchive.assessment_data} />}
-      {activeTab === 'medical' && <UserMedicalServices />}
-      {activeTab === 'interaction' && <UserInteraction />}
+      {activeTab === 'diet_motion' && (
+          <UserDietMotion 
+              assessment={userArchive.assessment_data} 
+              userCheckupId={userArchive.checkup_id}
+          />
+      )}
+      {activeTab === 'medical' && (
+          <UserMedicalServices 
+              userId={userArchive.checkup_id} 
+              userName={userArchive.name} 
+          />
+      )}
+      {activeTab === 'interaction' && (
+          <UserInteraction 
+              userId={userArchive.checkup_id} 
+              archive={userArchive} 
+          />
+      )}
       {activeTab === 'profile' && (
           <UserProfile 
               record={userArchive.health_record} 
               assessment={userArchive.assessment_data}
+              dailyPlan={userArchive.custom_daily_plan}
+              userId={userArchive.checkup_id}
               onUpdateRecord={handleUpdateRecord}
           />
       )}
