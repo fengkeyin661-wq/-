@@ -5,7 +5,7 @@ import { UserDietMotion } from './user/UserDietMotion';
 import { UserMedicalServices } from './user/UserMedicalServices';
 import { UserInteraction } from './user/UserInteraction';
 import { UserProfile } from './user/UserProfile';
-import { UserCommunity } from './user/UserCommunity'; // Import Community
+import { UserCommunity } from './user/UserCommunity';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
 import { getUnreadCount } from '../services/contentService';
 
@@ -100,7 +100,10 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
           />
       )}
       {activeTab === 'community' && (
-          <UserCommunity />
+          <UserCommunity 
+              userId={userArchive.checkup_id}
+              userName={userArchive.name}
+          />
       )}
       {activeTab === 'interaction' && (
           <UserInteraction 
