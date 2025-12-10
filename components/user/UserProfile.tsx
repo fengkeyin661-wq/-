@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { HealthRecord, HealthAssessment, FollowUpRecord, RiskLevel } from '../../types';
 import { DailyHealthPlan, HealthArchive } from '../../services/dataService';
-import { fetchInteractions, InteractionItem } from '../../services/contentService';
+import { fetchInteractions, InteractionItem, updateInteractionStatus } from '../../services/contentService';
 
 interface Props {
   record: HealthRecord;
@@ -12,9 +12,10 @@ interface Props {
   archive: HealthArchive;
   onUpdateRecord: (updatedData: any) => void;
   onLogout: () => void;
+  onNavigate: (tab: string) => void; // New prop for navigation
 }
 
-export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, userId, archive, onUpdateRecord, onLogout }) => {
+export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, userId, archive, onUpdateRecord, onLogout, onNavigate }) => {
     const [subView, setSubView] = useState<'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps'>('menu');
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     
@@ -28,12 +29,10 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
         glucose: record.checkup.labBasic.glucose?.fasting || '0'
     });
 
-    // Derive Latest Execution Data (Sync with Admin FollowUpDashboard logic)
+    // Derive Latest Execution Data
     const sortedRecords = [...archive.follow_ups].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const latestRecord = sortedRecords.length > 0 ? sortedRecords[sortedRecords.length - 1] : null;
     
-    // Construct the "Active Plan" (Execution Sheet)
-    // If there is a recent follow-up, use its instructions; otherwise use the initial assessment
     const executionSheet = {
         dateLabel: latestRecord ? "下次复查建议" : "建议随访频率",
         dateValue: latestRecord ? "请遵医嘱定期复查" : assessment?.followUpPlan.frequency,
@@ -46,12 +45,13 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
     };
 
     useEffect(() => {
-        const load = async () => {
-            const all = await fetchInteractions();
-            setInteractions(all.filter(i => i.userId === userId));
-        };
-        load();
+        loadInteractions();
     }, [userId]);
+
+    const loadInteractions = async () => {
+        const all = await fetchInteractions();
+        setInteractions(all.filter(i => i.userId === userId));
+    };
 
     const handleSaveRecord = () => {
         const bmi = editForm.height && editForm.weight 
@@ -71,6 +71,14 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
             }
         });
         setIsEditing(false);
+    };
+
+    const handleCancelInteraction = async (id: string, type: string) => {
+        const label = type === 'doctor_signing' ? '签约' : '预约';
+        if (confirm(`确定要取消此${label}吗？取消后需重新申请。`)) {
+            await updateInteractionStatus(id, 'cancelled');
+            loadInteractions();
+        }
     };
 
     // --- Sub Views ---
@@ -357,6 +365,11 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                                 {ev.status === 'confirmed' ? '报名成功' : ev.status === 'pending' ? '审核中' : '已拒绝'}
                             </span>
                         </div>
+                        {ev.status === 'pending' && (
+                            <div className="text-right mt-2">
+                                <button onClick={() => handleCancelInteraction(ev.id, 'event_signup')} className="text-xs text-slate-400 hover:text-red-500 underline">取消报名</button>
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
@@ -364,35 +377,141 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
     };
 
     const renderAppsView = () => {
-        const myApps = interactions.filter(i => i.type !== 'event_signup'); // Signing, Booking, Drug, Circle, Service
+        // Categorize interactions
+        const signedDoctor = interactions.find(i => i.type === 'doctor_signing' && i.status === 'confirmed');
+        const activeAppointments = interactions.filter(i => 
+            (i.type === 'doctor_booking' || i.type === 'drug_order' || i.type === 'service_booking') && 
+            i.status === 'confirmed'
+        );
+        const historyApps = interactions.filter(i => 
+            i.type !== 'event_signup' && // Exclude events
+            !(i.type === 'doctor_signing' && i.status === 'confirmed') && // Exclude active doctor
+            !(i.status === 'confirmed' && (i.type === 'doctor_booking' || i.type === 'drug_order' || i.type === 'service_booking')) // Exclude active apps
+        );
+
         return (
-            <div className="p-4 space-y-3 animate-slideInRight">
-                {myApps.length === 0 ? <div className="text-center text-slate-400 mt-10">暂无申请记录</div> : myApps.map(app => (
-                    <div key={app.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-center">
-                        <div>
-                            <div className="text-xs text-slate-400 mb-1 uppercase font-bold">
-                                {
-                                    app.type === 'doctor_signing' ? '签约申请' :
-                                    app.type === 'doctor_booking' ? '挂号预约' :
-                                    app.type === 'service_booking' ? '服务预约' :
-                                    app.type === 'drug_order' ? '药品预约' :
-                                    app.type === 'circle_join' ? '圈子申请' : '申请'
-                                }
-                            </div>
-                            <div className="font-bold text-slate-800">{app.targetName}</div>
-                            <div className="text-[10px] text-slate-500 mt-1">{app.details}</div>
-                        </div>
-                        <div className="text-right">
-                            <span className={`text-xs px-2 py-1 rounded font-bold ${
-                                app.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                                app.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
-                            }`}>
-                                {app.status === 'confirmed' ? '通过' : app.status === 'pending' ? '审核中' : '驳回'}
-                            </span>
-                            <div className="text-[10px] text-slate-400 mt-1">{app.date}</div>
-                        </div>
+            <div className="p-4 space-y-6 animate-slideInRight pb-20">
+                {/* 1. Signed Doctor Section */}
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-5 shadow-lg text-white">
+                    <div className="flex justify-between items-start mb-4">
+                        <h3 className="font-bold flex items-center gap-2">
+                            <span className="text-xl">🩺</span> 我的签约医生
+                        </h3>
+                        {signedDoctor && <span className="bg-white/20 px-2 py-0.5 rounded text-xs">已签约</span>}
                     </div>
-                ))}
+                    {signedDoctor ? (
+                        <>
+                            <div className="flex items-center gap-4 mb-4">
+                                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl backdrop-blur-sm">
+                                    👨‍⚕️
+                                </div>
+                                <div>
+                                    <div className="text-lg font-bold">{signedDoctor.targetName}</div>
+                                    <div className="text-xs opacity-80">家庭医生服务</div>
+                                </div>
+                            </div>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => onNavigate('interaction')}
+                                    className="flex-1 bg-white text-blue-700 py-2 rounded-lg font-bold text-sm shadow hover:bg-blue-50 transition-colors"
+                                >
+                                    💬 去咨询
+                                </button>
+                                <button 
+                                    onClick={() => handleCancelInteraction(signedDoctor.id, 'doctor_signing')}
+                                    className="flex-1 bg-white/10 text-white py-2 rounded-lg font-bold text-sm hover:bg-white/20 transition-colors border border-white/20"
+                                >
+                                    🚫 解约
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-center py-4">
+                            <p className="opacity-80 text-sm mb-3">您尚未签约家庭医生</p>
+                            <button 
+                                onClick={() => onNavigate('medical')}
+                                className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+                            >
+                                前往签约
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* 2. Active Appointments */}
+                <div>
+                    <h3 className="font-bold text-slate-800 mb-3 px-1 border-l-4 border-teal-500 pl-2">我的预约服务</h3>
+                    {activeAppointments.length === 0 ? (
+                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 text-center text-slate-400 text-sm">
+                            暂无生效中的预约
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {activeAppointments.map(app => (
+                                <div key={app.id} className="bg-white p-4 rounded-xl shadow-sm border border-teal-100 flex justify-between items-center">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                                app.type === 'doctor_booking' ? 'bg-blue-100 text-blue-700' :
+                                                app.type === 'drug_order' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'
+                                            }`}>
+                                                {app.type === 'doctor_booking' ? '门诊预约' : app.type === 'drug_order' ? '购药预约' : '服务预约'}
+                                            </span>
+                                            <span className="font-bold text-slate-800">{app.targetName}</span>
+                                        </div>
+                                        <div className="text-xs text-slate-500">{app.details}</div>
+                                        <div className="text-xs text-slate-400 mt-1">预约日期: {app.date}</div>
+                                    </div>
+                                    <button 
+                                        onClick={() => handleCancelInteraction(app.id, app.type)}
+                                        className="text-xs bg-slate-50 text-slate-500 border border-slate-200 px-3 py-1.5 rounded hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                                    >
+                                        取消预约
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* 3. History List */}
+                <div>
+                    <h3 className="font-bold text-slate-800 mb-3 px-1 border-l-4 border-slate-300 pl-2">申请历史</h3>
+                    {historyApps.length === 0 ? (
+                        <div className="text-center text-slate-400 py-6 text-sm">无历史记录</div>
+                    ) : (
+                        <div className="space-y-3">
+                            {historyApps.map(app => (
+                                <div key={app.id} className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex justify-between items-center opacity-80">
+                                    <div>
+                                        <div className="text-xs text-slate-400 mb-1 uppercase font-bold">
+                                            {
+                                                app.type === 'doctor_signing' ? '签约申请' :
+                                                app.type === 'doctor_booking' ? '挂号预约' :
+                                                app.type === 'service_booking' ? '服务预约' :
+                                                app.type === 'drug_order' ? '药品预约' :
+                                                app.type === 'circle_join' ? '圈子申请' : '申请'
+                                            }
+                                        </div>
+                                        <div className="font-bold text-slate-700">{app.targetName}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className={`text-xs px-2 py-1 rounded font-bold ${
+                                            app.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                            app.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+                                        }`}>
+                                            {app.status === 'confirmed' ? '已完成' : app.status === 'pending' ? '审核中' : '已取消/拒绝'}
+                                        </span>
+                                        <div className="text-[10px] text-slate-400 mt-1">{app.date}</div>
+                                        {app.status === 'pending' && (
+                                            <button onClick={() => handleCancelInteraction(app.id, app.type)} className="text-[10px] text-red-500 hover:underline mt-1 block w-full text-right">撤销申请</button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
         );
     };
