@@ -187,61 +187,128 @@ export const deleteContent = async (id: string): Promise<boolean> => {
   return true;
 };
 
-// ... (Interaction functions kept simple) ...
+// 2. Interactions (Signups, Bookings, etc.)
 export const fetchInteractions = async (type?: string): Promise<InteractionItem[]> => {
-    const raw = localStorage.getItem(INTERACTION_KEY);
-    let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
-    if (type) all = all.filter(i => i.type === type);
-    return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    let dbData: InteractionItem[] | null = null;
+    let useLocal = true;
+
+    // Try Supabase First
+    if (isSupabaseConfigured()) {
+        try {
+            let query = supabase.from('app_interactions').select('*');
+            if (type) query = query.eq('type', type);
+            
+            const { data, error } = await query;
+            if (!error && data) {
+                // Map DB snake_case to camelCase
+                dbData = data.map((d: any) => ({
+                    id: d.id,
+                    type: d.type,
+                    userId: d.user_id,
+                    userName: d.user_name,
+                    targetId: d.target_id,
+                    targetName: d.target_name,
+                    status: d.status,
+                    date: d.date,
+                    details: d.details
+                }));
+                useLocal = false;
+            }
+        } catch (e) {
+            console.warn("Fetch interactions DB failed", e);
+        }
+    }
+
+    if (useLocal) {
+        const raw = localStorage.getItem(INTERACTION_KEY);
+        let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
+        if (type) all = all.filter(i => i.type === type);
+        return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
+
+    return (dbData || []).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 
 export const saveInteraction = async (item: InteractionItem): Promise<boolean> => {
+    // 1. Local Save (Optimistic UI)
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
 
-    // [DUPLICATION CHECK LOGIC]
-    // If it's a doctor signing or circle join, prevent multiple active requests
+    // [DUPLICATION CHECK]
     if (item.type === 'doctor_signing' || item.type === 'circle_join') {
         const existingIdx = all.findIndex(i => 
             i.type === item.type && 
             i.userId === item.userId && 
             i.targetId === item.targetId &&
-            i.status !== 'cancelled' // Ignore cancelled ones
+            i.status !== 'cancelled'
         );
 
         if (existingIdx >= 0) {
             const existing = all[existingIdx];
-            // If already confirmed, don't allow applying again
-            if (existing.status === 'confirmed') {
-                console.warn("User already signed/joined this target.");
-                return true; 
-            }
-            // If pending, just update the timestamp/details of the EXISTING request (Merges requests)
+            if (existing.status === 'confirmed') return true; 
             if (existing.status === 'pending') {
-                all[existingIdx] = { 
-                    ...existing, 
-                    date: item.date, 
-                    details: item.details,
-                    updatedAt: new Date().toISOString() // Force refresh sort order if needed
-                } as any;
+                // Update existing pending request
+                all[existingIdx] = { ...existing, date: item.date, details: item.details, id: item.id } as any;
                 localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
-                return true;
+                // Fallthrough to sync DB
             }
+        } else {
+            all.push(item);
+            localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
         }
+    } else {
+        all.push(item);
+        localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
     }
 
-    all.push(item);
-    localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
+    // 2. Cloud Save
+    if (isSupabaseConfigured()) {
+        try {
+            const payload = {
+                id: item.id,
+                type: item.type,
+                user_id: item.userId,
+                user_name: item.userName,
+                target_id: item.targetId,
+                target_name: item.targetName,
+                status: item.status,
+                date: item.date,
+                details: item.details
+            };
+            const { error } = await supabase.from('app_interactions').upsert(payload);
+            if (error) console.error("DB Save Interaction Error", error);
+        } catch (e) {
+            console.error("DB Save Interaction Exception", e);
+        }
+    }
     return true;
 };
 
 export const updateInteractionStatus = async (id: string, status: InteractionItem['status']): Promise<boolean> => {
+    // 1. Local Update
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
     const idx = all.findIndex(i => i.id === id);
-    if (idx >= 0) { all[idx].status = status; localStorage.setItem(INTERACTION_KEY, JSON.stringify(all)); return true; }
-    return false;
+    if (idx >= 0) { 
+        all[idx].status = status; 
+        localStorage.setItem(INTERACTION_KEY, JSON.stringify(all)); 
+    }
+
+    // 2. Cloud Update
+    if (isSupabaseConfigured()) {
+        try {
+            const { error } = await supabase.from('app_interactions').update({ status }).eq('id', id);
+            if (error) console.error("DB Update Interaction Error", error);
+        } catch (e) {
+            console.error("DB Update Interaction Exception", e);
+        }
+    }
+    
+    return true;
 };
+
+// 3. Chat Messages
+// (Kept local for now for simplicity, or can be upgraded similarly)
 export const fetchMessages = async (userId: string, doctorId: string): Promise<ChatMessage[]> => {
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
@@ -255,8 +322,6 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
     localStorage.setItem(CHAT_KEY, JSON.stringify(all));
     return newMsg;
 };
-
-// --- New Messaging Helpers ---
 
 export const getUnreadCount = async (receiverId: string, senderId?: string): Promise<number> => {
     const raw = localStorage.getItem(CHAT_KEY);
