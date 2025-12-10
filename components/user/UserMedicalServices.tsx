@@ -9,6 +9,46 @@ interface Props {
     assessment?: HealthAssessment; // Added
 }
 
+// --- Smart Icon Helper for Medical ---
+const getMedicalIcon = (item: ContentItem): string => {
+    const t = (item.title + (item.details?.dept || '') + (item.details?.deptCode || '')).toLowerCase();
+    
+    if (item.type === 'doctor') {
+        if (t.includes('中医')) return '🌿';
+        if (t.includes('牙') || t.includes('口腔')) return '🦷';
+        if (t.includes('眼')) return '👁️';
+        if (t.includes('骨') || t.includes('康复')) return '🦴';
+        if (t.includes('心')) return '🫀';
+        if (t.includes('儿')) return '👶';
+        if (t.includes('妇') || t.includes('产')) return '👩‍⚕️';
+        if (t.includes('心理') || t.includes('精神')) return '🧠';
+        if (t.includes('药')) return '💊';
+        if (t.includes('检')) return '📋';
+        return '👨‍⚕️'; // Default Doctor
+    } 
+    
+    if (item.type === 'drug') {
+        if (t.includes('液') || t.includes('口服液') || t.includes('水')) return '🧪';
+        if (t.includes('膏') || t.includes('乳')) return '🧴';
+        if (t.includes('胶囊')) return '💊';
+        if (t.includes('颗粒') || t.includes('冲剂')) return '🍵';
+        if (t.includes('注射') || t.includes('针')) return '💉';
+        return '💊'; // Default Drug
+    }
+
+    if (item.type === 'service') {
+        if (t.includes('查') || t.includes('ct') || t.includes('核磁')) return '☢️';
+        if (t.includes('超') || t.includes('b超')) return '🖥️';
+        if (t.includes('血') || t.includes('尿') || t.includes('验')) return '🩸';
+        if (t.includes('挂号') || t.includes('预约')) return '📅';
+        if (t.includes('咨询') || t.includes('问诊')) return '💬';
+        if (t.includes('护理') || t.includes('陪诊')) return '👩‍✈️';
+        return '🏥'; // Default Service
+    }
+
+    return '🏥';
+};
+
 // Helper: Score items based on risk profile
 const scoreItem = (item: ContentItem, risks: string[]) => {
     let score = 0;
@@ -165,7 +205,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                                         className="bg-white p-5 rounded-3xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-50 flex items-start gap-4 hover:shadow-md transition-shadow cursor-pointer active:scale-98"
                                     >
                                         <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-3xl shrink-0 shadow-inner">
-                                            {doc.image}
+                                            {getMedicalIcon(doc)}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex justify-between items-start">
@@ -237,7 +277,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                                     >
                                         <div className="flex flex-col items-center text-center gap-2 mb-2">
                                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl mb-1 group-hover:scale-110 transition-transform ${colorClass}`}>
-                                                {s.image}
+                                                {getMedicalIcon(s)}
                                             </div>
                                             <div>
                                                 <div className="font-bold text-sm text-slate-800 line-clamp-1">{s.title}</div>
@@ -283,7 +323,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                                     className="p-4 flex justify-between items-center hover:bg-slate-50 transition-colors cursor-pointer"
                                 >
                                     <div className="flex items-center gap-4">
-                                        <div className="text-2xl bg-slate-50 w-10 h-10 rounded-xl flex items-center justify-center">{drug.image}</div>
+                                        <div className="text-2xl bg-slate-50 w-10 h-10 rounded-xl flex items-center justify-center">{getMedicalIcon(drug)}</div>
                                         <div>
                                             <div className="font-bold text-sm text-slate-700">{drug.title}</div>
                                             <div className="text-[10px] text-slate-400 mt-0.5">{drug.details?.spec}</div>
@@ -329,7 +369,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                                 ×
                             </button>
                             <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">
-                                {selectedItem.image}
+                                {getMedicalIcon(selectedItem)}
                             </div>
                             <h3 className="text-xl font-black text-slate-800 mb-1">{selectedItem.title}</h3>
                             <div className="flex items-center justify-center gap-2">

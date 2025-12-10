@@ -14,6 +14,38 @@ interface Props {
     onRefresh?: () => void;
 }
 
+// --- Smart Icon Helper ---
+const getSmartIcon = (title: string, type: 'meal' | 'exercise'): string => {
+    const t = title.toLowerCase();
+    
+    if (type === 'meal') {
+        if (t.includes('鸡')) return '🍗';
+        if (t.includes('鱼') || t.includes('虾') || t.includes('海鲜')) return '🐟';
+        if (t.includes('牛') || t.includes('排') || t.includes('肉')) return '🥩';
+        if (t.includes('蛋')) return '🥚';
+        if (t.includes('面') || t.includes('粉')) return '🍜';
+        if (t.includes('饭') || t.includes('粥')) return '🍚';
+        if (t.includes('菜') || t.includes('沙拉') || t.includes('素')) return '🥗';
+        if (t.includes('果') || t.includes('苹') || t.includes('蕉')) return '🍎';
+        if (t.includes('奶') || t.includes('拿铁')) return '🥛';
+        if (t.includes('茶') || t.includes('咖')) return '☕';
+        if (t.includes('汤')) return '🥣';
+        return '🍱'; // Default Meal
+    } else {
+        if (t.includes('跑')) return '🏃';
+        if (t.includes('走') || t.includes('步')) return '🚶';
+        if (t.includes('游') || t.includes('水')) return '🏊';
+        if (t.includes('骑') || t.includes('车')) return '🚴';
+        if (t.includes('瑜伽') || t.includes('冥想') || t.includes('静')) return '🧘';
+        if (t.includes('球')) return '🏀';
+        if (t.includes('力量') || t.includes('举') || t.includes('铃')) return '🏋️';
+        if (t.includes('舞') || t.includes('操')) return '💃';
+        if (t.includes('拳')) return '🥊';
+        if (t.includes('爬') || t.includes('山')) return '🧗';
+        return '🤸'; // Default Exercise
+    }
+};
+
 // Helper: Scoring logic for relevance
 const scoreItemRelevance = (item: ContentItem, risks: string[]) => {
     let score = 0;
@@ -157,7 +189,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             title: newTitle,
             description: newDesc,
             tags: newTags.split(/[,， ]+/).filter(Boolean),
-            image: uploadType === 'meal' ? '🍲' : '🏃‍♂️',
+            image: getSmartIcon(newTitle, uploadType), // Use smart icon here too
             author: '我',
             isUserUpload: true,
             status: 'active',
@@ -383,7 +415,8 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
             {/* Dashboard Section */}
             <div className="p-4 space-y-4">
-                {/* 1. Calorie Balance Card */}
+                {/* ... Charts ... */}
+                {/* (Chart code remains the same) */}
                 <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 flex items-center gap-6">
                     <div className="w-28 h-28 relative flex items-center justify-center">
                         <ResponsiveContainer>
@@ -451,7 +484,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                         {dailyPlan?.dietLogs?.map((log, i) => (
                             <div key={`d-${i}`} className="bg-white p-3 rounded-2xl flex justify-between items-center border border-slate-50">
                                 <div className="flex items-center gap-3">
-                                    <span className="text-xl">🥗</span>
+                                    <span className="text-xl">{getSmartIcon(log.name, 'meal')}</span>
                                     <div>
                                         <div className="text-sm font-bold text-slate-700">{log.name}</div>
                                         <div className="text-[10px] text-slate-400">
@@ -465,7 +498,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                         {dailyPlan?.exerciseLogs?.map((log, i) => (
                             <div key={`e-${i}`} className="bg-white p-3 rounded-2xl flex justify-between items-center border border-slate-50">
                                 <div className="flex items-center gap-3">
-                                    <span className="text-xl">🏃</span>
+                                    <span className="text-xl">{getSmartIcon(log.name, 'exercise')}</span>
                                     <div>
                                         <div className="text-sm font-bold text-slate-700">{log.name}</div>
                                         <div className="text-[10px] text-slate-400">{log.duration} 分钟</div>
@@ -532,7 +565,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                                 className={`bg-white rounded-2xl p-2 shadow-sm border border-slate-100 flex flex-col cursor-pointer active:scale-95 transition-transform`}
                             >
                                 <div className="aspect-square bg-slate-50 rounded-xl flex items-center justify-center text-4xl mb-2">
-                                    {item.image}
+                                    {getSmartIcon(item.title, 'meal')}
                                 </div>
                                 <h3 className="font-bold text-slate-800 text-xs truncate px-1">{item.title}</h3>
                                 <div className="flex gap-1 mt-1 px-1">
@@ -561,7 +594,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                                 className={`bg-white rounded-2xl p-2 shadow-sm border border-slate-100 flex flex-col cursor-pointer active:scale-95 transition-transform`}
                             >
                                 <div className="aspect-square bg-slate-50 rounded-xl flex items-center justify-center text-4xl mb-2 relative">
-                                    {item.image}
+                                    {getSmartIcon(item.title, 'exercise')}
                                     <span className="absolute bottom-1 right-1 text-[8px] bg-white/80 px-1 rounded">运动</span>
                                 </div>
                                 <h3 className="font-bold text-slate-800 text-xs truncate px-1">{item.title}</h3>
@@ -577,7 +610,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                 </section>
             </div>
 
-            {/* Plan Preview Modal (New) */}
+            {/* Plan Preview Modal */}
             {previewPlan && (
                 <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
                     <div className="bg-white w-full max-w-sm rounded-2xl p-0 shadow-2xl animate-scaleIn overflow-hidden max-h-[85vh] flex flex-col">
@@ -618,7 +651,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                                     <div className="grid grid-cols-2 gap-3">
                                         {recommendedItems.map(item => (
                                             <div key={item.id} className="bg-white border border-teal-100 p-2 rounded-xl shadow-sm flex flex-col items-center text-center">
-                                                <div className="text-2xl mb-1">{item.image}</div>
+                                                <div className="text-2xl mb-1">{getSmartIcon(item.title, item.type as any)}</div>
                                                 <div className="text-xs font-bold text-slate-700 line-clamp-1">{item.title}</div>
                                                 <div className="text-[10px] text-slate-400 mt-1">
                                                     {item.type === 'meal' ? `${item.details?.cal} kcal` : `${item.details?.duration} min`}
@@ -650,7 +683,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                     <div className="bg-white w-full sm:w-96 rounded-t-3xl sm:rounded-3xl p-6 animate-slideUp max-h-[90vh] overflow-y-auto flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="text-center mb-4">
                             <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-5xl mx-auto mb-3 shadow-inner">
-                                {selectedContent.image}
+                                {getSmartIcon(selectedContent.title, selectedContent.type as any)}
                             </div>
                             <h3 className="text-xl font-black text-slate-800 leading-tight">{selectedContent.title}</h3>
                             <div className="flex justify-center gap-2 mt-2">
@@ -658,6 +691,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                             </div>
                         </div>
 
+                        {/* ... (Rest of Detail Modal) ... */}
                         <div className="space-y-4 flex-1 overflow-y-auto mb-4">
                             <div className="bg-slate-50 p-4 rounded-xl">
                                 <div className="flex justify-between items-center mb-2">
@@ -710,6 +744,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             )}
 
             {/* Manual Log Modal */}
+            {/* ... (Rest of component remains same) ... */}
             {showAddLog && (
                 <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
                     <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl animate-scaleIn">

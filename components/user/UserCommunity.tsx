@@ -15,6 +15,31 @@ interface EventWithStatus extends ContentItem {
     signupStatus: 'open' | 'full' | 'joined' | 'ended';
 }
 
+// --- Smart Icon Helper for Community ---
+const getCommunityIcon = (title: string, type: 'event' | 'circle'): string => {
+    const t = title.toLowerCase();
+    
+    if (type === 'event') {
+        if (t.includes('讲座') || t.includes('课') || t.includes('培训')) return '🎤';
+        if (t.includes('义诊') || t.includes('咨询')) return '🩺';
+        if (t.includes('运动') || t.includes('比赛') || t.includes('跑') || t.includes('球')) return '🏆';
+        if (t.includes('聚会') || t.includes('节') || t.includes('庆祝')) return '🎉';
+        if (t.includes('心理') || t.includes('解压')) return '❤️';
+        if (t.includes('亲子') || t.includes('家庭')) return '👨‍👩‍👧';
+        if (t.includes('户外') || t.includes('游')) return '🌲';
+        return '✨'; // Default Event
+    } else {
+        // Circle
+        if (t.includes('减重') || t.includes('瘦')) return '⚖️';
+        if (t.includes('糖') || t.includes('慢病')) return '🩸';
+        if (t.includes('运动') || t.includes('跑') || t.includes('走')) return '👟';
+        if (t.includes('中医') || t.includes('养生')) return '🌿';
+        if (t.includes('心理') || t.includes('互助')) return '🤝';
+        if (t.includes('食') || t.includes('吃')) return '🥗';
+        return '⭕'; // Default Circle
+    }
+};
+
 // Score Logic
 const scoreEvent = (item: ContentItem, risks: string[]) => {
     let score = 0;
@@ -259,7 +284,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                         {filteredCircles.map((g, i) => (
                             <div key={g.id} onClick={() => setSelectedItem(g)} className="snap-center flex-shrink-0 flex flex-col items-center justify-center w-28 h-32 bg-white border border-slate-100 shadow-[0_4px_12px_rgb(0,0,0,0.02)] rounded-2xl cursor-pointer active:scale-95 transition-transform relative group">
                                 <span className="absolute top-2 right-2 text-[10px] text-slate-300 font-mono">#{i+1}</span>
-                                <div className="text-3xl mb-2 group-hover:scale-110 transition-transform">{g.image}</div>
+                                <div className="text-3xl mb-2 group-hover:scale-110 transition-transform">{getCommunityIcon(g.title, 'circle')}</div>
                                 <span className="text-sm font-bold text-slate-700 mb-1">{g.title}</span>
                                 <span className="text-[10px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">
                                     {g.details?.memberCount || 0} 成员
@@ -312,7 +337,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                         <div className="flex justify-between items-start">
                                             <div className="flex gap-3">
                                                 <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-2xl shrink-0">
-                                                    {evt.image}
+                                                    {getCommunityIcon(evt.title, 'event')}
                                                 </div>
                                                 <div>
                                                     <div className="flex gap-2 items-center mb-1">
@@ -410,7 +435,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                 ×
                             </button>
                             <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">
-                                {selectedItem.image}
+                                {getCommunityIcon(selectedItem.title, selectedItem.type as any)}
                             </div>
                             <h3 className="text-xl font-black text-slate-800 mb-1">{selectedItem.title}</h3>
                             <div className="flex items-center justify-center gap-2">
