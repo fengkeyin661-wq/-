@@ -378,7 +378,8 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
 
     const renderAppsView = () => {
         // Categorize interactions
-        const signedDoctor = interactions.find(i => i.type === 'doctor_signing' && i.status === 'confirmed');
+        // CHANGED: find -> filter to support multiple doctors
+        const signedDoctors = interactions.filter(i => i.type === 'doctor_signing' && i.status === 'confirmed');
         const activeAppointments = interactions.filter(i => 
             (i.type === 'doctor_booking' || i.type === 'drug_order' || i.type === 'service_booking') && 
             i.status === 'confirmed'
@@ -392,45 +393,56 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
         return (
             <div className="p-4 space-y-6 animate-slideInRight pb-20">
                 {/* 1. Signed Doctor Section */}
-                <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-5 shadow-lg text-white">
-                    <div className="flex justify-between items-start mb-4">
-                        <h3 className="font-bold flex items-center gap-2">
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                         <h3 className="font-bold text-slate-800 flex items-center gap-2">
                             <span className="text-xl">🩺</span> 我的签约医生
                         </h3>
-                        {signedDoctor && <span className="bg-white/20 px-2 py-0.5 rounded text-xs">已签约</span>}
                     </div>
-                    {signedDoctor ? (
-                        <>
-                            <div className="flex items-center gap-4 mb-4">
-                                <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl backdrop-blur-sm">
-                                    👨‍⚕️
+                    
+                    {signedDoctors.length > 0 ? (
+                        signedDoctors.map(doc => (
+                            <div key={doc.id} className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-5 shadow-lg text-white relative overflow-hidden">
+                                {/* Decorative circle */}
+                                <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
+                                
+                                <div className="flex justify-between items-start mb-4 relative z-10">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl backdrop-blur-sm border border-white/30">
+                                            👨‍⚕️
+                                        </div>
+                                        <div>
+                                            <div className="text-lg font-bold">{doc.targetName}</div>
+                                            <div className="text-xs opacity-80 bg-white/20 px-2 py-0.5 rounded inline-block mt-1">家庭医生服务</div>
+                                        </div>
+                                    </div>
+                                    <span className="bg-green-400/20 text-green-100 border border-green-400/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                                        已签约
+                                    </span>
                                 </div>
-                                <div>
-                                    <div className="text-lg font-bold">{signedDoctor.targetName}</div>
-                                    <div className="text-xs opacity-80">家庭医生服务</div>
+                                <div className="flex gap-3 relative z-10">
+                                    <button 
+                                        onClick={() => onNavigate('interaction')}
+                                        className="flex-1 bg-white text-blue-700 py-2 rounded-lg font-bold text-sm shadow hover:bg-blue-50 transition-colors flex items-center justify-center gap-1"
+                                    >
+                                        <span>💬</span> 去咨询
+                                    </button>
+                                    <button 
+                                        onClick={() => handleCancelInteraction(doc.id, 'doctor_signing')}
+                                        className="flex-1 bg-white/10 text-white py-2 rounded-lg font-bold text-sm hover:bg-white/20 transition-colors border border-white/20"
+                                    >
+                                        解约
+                                    </button>
                                 </div>
                             </div>
-                            <div className="flex gap-3">
-                                <button 
-                                    onClick={() => onNavigate('interaction')}
-                                    className="flex-1 bg-white text-blue-700 py-2 rounded-lg font-bold text-sm shadow hover:bg-blue-50 transition-colors"
-                                >
-                                    💬 去咨询
-                                </button>
-                                <button 
-                                    onClick={() => handleCancelInteraction(signedDoctor.id, 'doctor_signing')}
-                                    className="flex-1 bg-white/10 text-white py-2 rounded-lg font-bold text-sm hover:bg-white/20 transition-colors border border-white/20"
-                                >
-                                    🚫 解约
-                                </button>
-                            </div>
-                        </>
+                        ))
                     ) : (
-                        <div className="text-center py-4">
-                            <p className="opacity-80 text-sm mb-3">您尚未签约家庭医生</p>
+                        <div className="text-center py-6 bg-white rounded-xl border border-dashed border-slate-200">
+                            <div className="text-4xl opacity-30 mb-2">👨‍⚕️</div>
+                            <p className="opacity-60 text-sm mb-3">您尚未签约家庭医生</p>
                             <button 
                                 onClick={() => onNavigate('medical')}
-                                className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+                                className="bg-teal-600 text-white hover:bg-teal-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm"
                             >
                                 前往签约
                             </button>
