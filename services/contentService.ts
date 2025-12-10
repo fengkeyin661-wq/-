@@ -194,13 +194,47 @@ export const fetchInteractions = async (type?: string): Promise<InteractionItem[
     if (type) all = all.filter(i => i.type === type);
     return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
+
 export const saveInteraction = async (item: InteractionItem): Promise<boolean> => {
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
+
+    // [DUPLICATION CHECK LOGIC]
+    // If it's a doctor signing or circle join, prevent multiple active requests
+    if (item.type === 'doctor_signing' || item.type === 'circle_join') {
+        const existingIdx = all.findIndex(i => 
+            i.type === item.type && 
+            i.userId === item.userId && 
+            i.targetId === item.targetId &&
+            i.status !== 'cancelled' // Ignore cancelled ones
+        );
+
+        if (existingIdx >= 0) {
+            const existing = all[existingIdx];
+            // If already confirmed, don't allow applying again
+            if (existing.status === 'confirmed') {
+                console.warn("User already signed/joined this target.");
+                return true; 
+            }
+            // If pending, just update the timestamp/details of the EXISTING request (Merges requests)
+            if (existing.status === 'pending') {
+                all[existingIdx] = { 
+                    ...existing, 
+                    date: item.date, 
+                    details: item.details,
+                    updatedAt: new Date().toISOString() // Force refresh sort order if needed
+                } as any;
+                localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
+                return true;
+            }
+        }
+    }
+
     all.push(item);
     localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
     return true;
 };
+
 export const updateInteractionStatus = async (id: string, status: InteractionItem['status']): Promise<boolean> => {
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];

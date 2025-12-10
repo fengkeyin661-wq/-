@@ -64,10 +64,18 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         const interactions = await fetchInteractions();
         
         // 1. Filter Signed Patients (Confirmed Signings)
-        const signings = interactions.filter(i => i.type === 'doctor_signing' && i.targetId === doctorId && i.status === 'confirmed');
+        // Deduplicate logic: If a user signed multiple times, only show one entry
+        const signings = interactions
+            .filter(i => i.type === 'doctor_signing' && i.targetId === doctorId && i.status === 'confirmed')
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Sort desc by date
+
         const patientsList: PatientData[] = [];
+        const seenUserIds = new Set<string>();
         
         for (const s of signings) {
+            if (seenUserIds.has(s.userId)) continue; // Skip duplicates
+            seenUserIds.add(s.userId);
+
             let archive = await findArchiveByCheckupId(s.userId);
             let unreadCount = await getUnreadCount(doctorId, s.userId);
             patientsList.push({ interaction: s, archive: archive || undefined, unread: unreadCount });
@@ -75,17 +83,23 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         setSignedPatients(patientsList);
 
         // 2. Filter Workboard Requests
-        const requests = interactions.filter(i => {
-            if (i.status !== 'pending') return false;
-            
+        // Logic: Show pending requests. If duplicate pendings exist (due to old data), show latest.
+        const allPending = interactions.filter(i => i.status === 'pending').sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const seenPendingKeys = new Set<string>(); // key = userId + type
+
+        const requests = allPending.filter(i => {
             // Case A: Signing Request directed to me
-            if (i.type === 'doctor_signing' && i.targetId === doctorId) return true;
+            if (i.type === 'doctor_signing' && i.targetId === doctorId) {
+                if (seenPendingKeys.has(`${i.userId}_signing`)) return false;
+                seenPendingKeys.add(`${i.userId}_signing`);
+                return true;
+            }
             
             // Case B: Appointment Booking directed to me
-            if (i.type === 'doctor_booking' && i.targetId === doctorId) return true;
+            if (i.type === 'doctor_booking' && i.targetId === doctorId) return true; // Bookings can be multiple
 
             // Case C: Drug Order from MY signed patient
-            const isMyPatient = signings.some(s => s.userId === i.userId);
+            const isMyPatient = seenUserIds.has(i.userId); // Check against my signed users
             if (i.type === 'drug_order' && isMyPatient) return true;
 
             return false;
