@@ -75,42 +75,48 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     };
 
     const loadData = async () => {
-        setLoading(true);
-        setLoadingText('加载数据中...');
-        setSelectedIds(new Set()); 
-        let contentType: string | string[] = '';
-        switch(activeTab) {
-            case 'recipe': contentType = 'meal'; break;
-            case 'exercise': contentType = 'exercise'; break;
-            case 'event': 
-                // Load both events and circles for this tab context, filter later
-                contentType = ['event', 'circle']; 
-                break;
-            case 'service': contentType = 'service'; break;
-            case 'drug': contentType = 'drug'; break;
-            case 'doctor': contentType = 'doctor'; break;
-        }
-
-        const content = await fetchContent(contentType);
-        
-        // Filter based on subTab if activeTab is event
-        if (activeTab === 'event') {
-            if (eventSubTab === 'circle') {
-                setItems(content.filter(c => c.type === 'circle'));
-            } else {
-                setItems(content.filter(c => c.type === 'event'));
+        try {
+            setLoading(true);
+            setLoadingText('加载数据中...');
+            setSelectedIds(new Set()); 
+            let contentType: string | string[] = '';
+            switch(activeTab) {
+                case 'recipe': contentType = 'meal'; break;
+                case 'exercise': contentType = 'exercise'; break;
+                case 'event': 
+                    // Load both events and circles for this tab context, filter later
+                    contentType = ['event', 'circle']; 
+                    break;
+                case 'service': contentType = 'service'; break;
+                case 'drug': contentType = 'drug'; break;
+                case 'doctor': contentType = 'doctor'; break;
             }
-        } else {
-            setItems(content);
-        }
 
-        if (activeTab === 'event' && eventSubTab === 'list') {
-            const inters = await fetchInteractions('event_signup');
-            setInteractions(inters);
-        } else {
-            setInteractions([]);
+            const content = await fetchContent(contentType);
+            
+            // Filter based on subTab if activeTab is event
+            if (activeTab === 'event') {
+                if (eventSubTab === 'circle') {
+                    setItems(content.filter(c => c.type === 'circle'));
+                } else {
+                    setItems(content.filter(c => c.type === 'event'));
+                }
+            } else {
+                setItems(content);
+            }
+
+            if (activeTab === 'event' && eventSubTab === 'list') {
+                const inters = await fetchInteractions('event_signup');
+                setInteractions(inters);
+            } else {
+                setInteractions([]);
+            }
+        } catch (error) {
+            console.error("Failed to load data:", error);
+            // Non-blocking error UI, list will just be empty
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const getBookings = (tab: string) => {
@@ -854,9 +860,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             </td>
                                             <td className="p-3 text-xs text-slate-500">
                                                 {item.type === 'meal' && `难度:${item.details?.difficulty} • ${item.details?.cal}`}
-                                                {item.type === 'event' && `📅 ${item.details?.date?.replace('T',' ')} • 📍${item.details?.loc}`}
+                                                {item.type === 'event' && `📅 ${(item.details?.date || '').toString().replace('T',' ')} • 📍${item.details?.loc || ''}`}
                                                 {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人`}
-                                                {item.type === 'doctor' && `${item.details?.deptCode} • ${item.details?.title}`}
+                                                {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
                                                 {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
                                                 {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
                                                 {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
