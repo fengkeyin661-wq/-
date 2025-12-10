@@ -25,7 +25,7 @@ const PRESETS = {
     drugRx: ['RX (处方药)', 'OTC (甲类)', 'OTC (乙类)'],
     drugInsurance: ['甲类', '乙类', '自费'],
     drugStock: ['充足', '紧张', '缺货'],
-    dietDifficulty: ['⭐', '⭐⭐', '⭐⭐⭐'],
+    dietDifficulty: ['初级', '中等', '较难'],
     exerciseIntensity: ['低强度', '中强度', '高强度'],
     dietTags: ['低GI', '高纤维', '低脂', '高蛋白', '适合糖友', '护心'],
     exerciseTypes: ['有氧', '力量', '柔韧性', '康复训练', '体态矫正'],
@@ -338,9 +338,31 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 };
             case 'recipe':
                 return {
-                    name: '膳食食谱库',
+                    name: '膳食食谱库导入模板',
                     data: [{
-                        "食谱名称": "清蒸鲈鱼", "制作难度": "⭐⭐", "所需食材": "鲈鱼1条, 姜葱适量", "制作步骤": "1.洗净... 2.蒸...", "热量(kcal)": 120, "主要营养素": "蛋白质, 优质脂肪", "健康标签": "高蛋白, 低脂"
+                        "食谱ID (系统生成)": "",
+                        "食谱名称": "控糖饱腹：西兰花炒鸡胸肉",
+                        "食谱描述/简介": "低脂高蛋白的快手菜，饱腹感强，适合控糖减脂期。",
+                        "制作难度": "初级",
+                        "预估准备时间(分)": 10,
+                        "预估烹饪时间(分)": 15,
+                        "用餐类型": "午餐",
+                        "适宜人数": 2,
+                        "核心健康标签": "高蛋白, 低GI",
+                        "关联疾病/场景": "2型糖尿病, 减重",
+                        "禁忌提醒": "对鸡肉过敏者禁用",
+                        "封面图URL/路径": "",
+                        "食材清单JSON/结构化文本": '[{"name":"鸡胸肉","amount":"200","unit":"g"},{"name":"西兰花","amount":"300","unit":"g"}]',
+                        "制作步骤": "鸡胸肉切丁... → 热锅少油... → 出锅",
+                        "烹饪技巧/小贴士": "鸡胸肉腌制时加少许淀粉...",
+                        "单份预估热量(kcal)": 325,
+                        "单份蛋白质含量(g)": 35,
+                        "单份脂肪含量(g)": 12,
+                        "单份碳水化合物含量(g)": 15,
+                        "单份膳食纤维含量(g)": 5,
+                        "营养素总结": "本食谱高蛋白、低碳水...",
+                        "状态": "上架",
+                        "排序值": 10
                     }]
                 };
             default:
@@ -515,12 +537,41 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         break;
                     case 'recipe':
                         if (!row['食谱名称']) continue;
+                        
+                        // Combine tags from health labels and scenarios
+                        const healthTags = row['核心健康标签'] ? row['核心健康标签'].split(/[,，]/).map((t: string) => t.trim()) : [];
+                        const scenarioTags = row['关联疾病/场景'] ? row['关联疾病/场景'].split(/[,，]/).map((t: string) => t.trim()) : [];
+                        const allTags = Array.from(new Set([...healthTags, ...scenarioTags]));
+
                         item = {
-                            id, type: 'meal', title: row['食谱名称'], tags: row['健康标签']?.split(/[,，]/) || [],
-                            description: '', image: '🍲', status: 'active', isUserUpload: false, updatedAt: now,
+                            id, 
+                            type: 'meal', 
+                            title: row['食谱名称'], 
+                            tags: allTags,
+                            description: row['食谱描述/简介'] || '', 
+                            image: row['封面图URL/路径'] || '🍲', 
+                            status: row['状态'] === '上架' ? 'active' : 'pending', 
+                            isUserUpload: false, 
+                            updatedAt: now,
                             details: {
-                                difficulty: row['制作难度'], ingredients: row['所需食材'], steps: row['制作步骤'],
-                                cal: row['热量(kcal)'], nutrition: row['主要营养素']
+                                difficulty: row['制作难度'], 
+                                prepTime: row['预估准备时间(分)'],
+                                cookTime: row['预估烹饪时间(分)'],
+                                mealType: row['用餐类型'],
+                                servings: row['适宜人数'],
+                                contraindications: row['禁忌提醒'],
+                                ingredients: row['食材清单JSON/结构化文本'], // Store raw, can be parsed later or in UI
+                                steps: row['制作步骤'],
+                                tips: row['烹饪技巧/小贴士'],
+                                cal: row['单份预估热量(kcal)'], 
+                                nutrition: row['营养素总结'] || `蛋白质:${row['单份蛋白质含量(g)'] || '-'}g, 脂肪:${row['单份脂肪含量(g)'] || '-'}g, 碳水:${row['单份碳水化合物含量(g)'] || '-'}g`,
+                                macros: {
+                                    protein: row['单份蛋白质含量(g)'],
+                                    fat: row['单份脂肪含量(g)'],
+                                    carbs: row['单份碳水化合物含量(g)'],
+                                    fiber: row['单份膳食纤维含量(g)']
+                                },
+                                sortOrder: row['排序值']
                             }
                         };
                         break;
