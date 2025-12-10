@@ -63,6 +63,9 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSavingLog, setIsSavingLog] = useState(false);
 
+    // Content Detail Modal
+    const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
+
     // Manual Log Forms
     const [dietForm, setDietForm] = useState<Omit<DietLogItem, 'id'>>({
         name: '', calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, type: 'lunch'
@@ -170,8 +173,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         setIsSavingLog(true);
         
         let newPlan = dailyPlan;
-        
-        // If no plan exists, create an empty structure
         if (!newPlan) {
             newPlan = {
                 generatedAt: new Date().toISOString(),
@@ -195,10 +196,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
         const success = await updateUserPlan(userCheckupId, newPlan);
         if (success) {
-            // Need to update local state via props refresh in real app, but here we can't easily trigger parent refresh without callback.
-            // For now, reload window is simplest approach in this constraint environment, or just accept optimistic update is hard.
-            // Let's assume parent passes dailyPlan which updates on refresh. 
-            // We will trigger a window reload or alert.
             alert("记录添加成功！");
             window.location.reload();
         } else {
@@ -206,9 +203,55 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         }
         setIsSavingLog(false);
         setShowAddLog(null);
-        // Reset forms
         setDietForm({ name: '', calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, type: 'lunch' });
         setExForm({ name: '', calories: 0, duration: 30 });
+    };
+
+    const handleAddFromCard = async () => {
+        if (!selectedContent || !userCheckupId) return;
+        
+        setIsSavingLog(true);
+        let newPlan = dailyPlan;
+        if (!newPlan) {
+            newPlan = {
+                generatedAt: new Date().toISOString(),
+                diet: { breakfast: '', lunch: '', dinner: '', snack: '' },
+                exercise: { morning: '', afternoon: '', evening: '' },
+                tips: '',
+                dietLogs: [],
+                exerciseLogs: []
+            };
+        }
+
+        if (selectedContent.type === 'meal') {
+            const logItem: DietLogItem = {
+                id: Date.now().toString(),
+                name: selectedContent.title,
+                calories: Number(selectedContent.details?.cal) || 0,
+                protein: Number(selectedContent.details?.macros?.protein) || 0,
+                fat: Number(selectedContent.details?.macros?.fat) || 0,
+                carbs: Number(selectedContent.details?.macros?.carbs) || 0,
+                fiber: Number(selectedContent.details?.macros?.fiber) || 0,
+                type: 'lunch' // Default
+            };
+            newPlan = { ...newPlan, dietLogs: [...(newPlan.dietLogs || []), logItem] };
+        } else if (selectedContent.type === 'exercise') {
+            const logItem: ExerciseLogItem = {
+                id: Date.now().toString(),
+                name: selectedContent.title,
+                calories: Number(selectedContent.details?.cal) || 100, // Estimate if missing
+                duration: Number(selectedContent.details?.duration) || 30
+            };
+            newPlan = { ...newPlan, exerciseLogs: [...(newPlan.exerciseLogs || []), logItem] };
+        }
+
+        const success = await updateUserPlan(userCheckupId, newPlan);
+        if (success) {
+            alert(`已将【${selectedContent.title}】加入今日记录！`);
+            window.location.reload();
+        }
+        setIsSavingLog(false);
+        setSelectedContent(null);
     };
 
     // Chart Data
@@ -369,12 +412,16 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                     <div className="flex items-center justify-between mb-4">
                         <h2 className="font-bold text-slate-800 text-lg flex items-center gap-2">
                             <span className="w-1.5 h-6 bg-teal-500 rounded-full"></span>
-                            推荐食谱
+                            推荐食谱 & 运动
                         </h2>
                     </div>
                     <div className="flex overflow-x-auto gap-4 pb-4 -mx-4 px-4 scrollbar-hide snap-x">
-                        {meals.map(item => (
-                            <div key={item.id} className="snap-center shrink-0 w-40 bg-white rounded-2xl p-2 shadow-sm border border-slate-100 flex flex-col">
+                        {[...meals, ...exercises].map(item => (
+                            <div 
+                                key={item.id} 
+                                onClick={() => setSelectedContent(item)}
+                                className="snap-center shrink-0 w-40 bg-white rounded-2xl p-2 shadow-sm border border-slate-100 flex flex-col cursor-pointer active:scale-95 transition-transform"
+                            >
                                 <div className="aspect-square bg-slate-50 rounded-xl flex items-center justify-center text-4xl mb-2">
                                     {item.image}
                                 </div>
@@ -389,6 +436,71 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                     </div>
                 </section>
             </div>
+
+            {/* Content Detail Modal */}
+            {selectedContent && (
+                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-end sm:items-center justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedContent(null)}>
+                    <div className="bg-white w-full sm:w-96 rounded-t-3xl sm:rounded-3xl p-6 animate-slideUp max-h-[90vh] overflow-y-auto flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="text-center mb-4">
+                            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-5xl mx-auto mb-3 shadow-inner">
+                                {selectedContent.image}
+                            </div>
+                            <h3 className="text-xl font-black text-slate-800 leading-tight">{selectedContent.title}</h3>
+                            <div className="flex justify-center gap-2 mt-2">
+                                {selectedContent.tags.map(t => <span key={t} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{t}</span>)}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 flex-1 overflow-y-auto mb-4">
+                            <div className="bg-slate-50 p-4 rounded-xl">
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-xs font-bold text-slate-400 uppercase">核心数据</span>
+                                    <span className="text-sm font-bold text-teal-600">{selectedContent.details?.cal || 0} kcal</span>
+                                </div>
+                                {selectedContent.type === 'meal' && selectedContent.details?.macros && (
+                                    <div className="grid grid-cols-4 gap-2 text-center">
+                                        <div className="bg-white p-1 rounded"><div className="text-[10px] text-slate-400">蛋</div><div className="text-xs font-bold">{selectedContent.details.macros.protein}</div></div>
+                                        <div className="bg-white p-1 rounded"><div className="text-[10px] text-slate-400">脂</div><div className="text-xs font-bold">{selectedContent.details.macros.fat}</div></div>
+                                        <div className="bg-white p-1 rounded"><div className="text-[10px] text-slate-400">碳</div><div className="text-xs font-bold">{selectedContent.details.macros.carbs}</div></div>
+                                        <div className="bg-white p-1 rounded"><div className="text-[10px] text-slate-400">纤</div><div className="text-xs font-bold">{selectedContent.details.macros.fiber}</div></div>
+                                    </div>
+                                )}
+                                {selectedContent.type === 'exercise' && (
+                                    <div className="text-sm text-slate-600">
+                                        时长: {selectedContent.details?.duration} 分钟 | 强度: {selectedContent.details?.intensity}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="text-sm text-slate-600 leading-relaxed">
+                                <h4 className="font-bold text-slate-800 mb-1">简介</h4>
+                                {selectedContent.description || '暂无描述'}
+                            </div>
+
+                            {selectedContent.details?.steps && (
+                                <div className="text-sm text-slate-600 leading-relaxed">
+                                    <h4 className="font-bold text-slate-800 mb-1">{selectedContent.type === 'meal' ? '制作步骤' : '动作要领'}</h4>
+                                    <p className="whitespace-pre-line bg-slate-50 p-3 rounded-lg border border-slate-100 text-xs">
+                                        {selectedContent.details.steps}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button onClick={() => setSelectedContent(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm">关闭</button>
+                            <button 
+                                onClick={handleAddFromCard}
+                                className={`flex-1 py-3 rounded-xl font-bold text-sm text-white shadow-lg flex items-center justify-center gap-2 ${
+                                    selectedContent.type === 'meal' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-orange-500 hover:bg-orange-600'
+                                }`}
+                            >
+                                <span>+</span> 加入今日记录
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Manual Log Modal */}
             {showAddLog && (

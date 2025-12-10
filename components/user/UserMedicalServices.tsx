@@ -17,7 +17,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
     const [activeCategory, setActiveCategory] = useState('全部');
     
     // Modal State
-    const [selectedService, setSelectedService] = useState<ContentItem | null>(null);
+    const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         const load = async () => {
@@ -53,7 +53,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                 details: type === 'drug_order' ? `规格: ${target.details?.spec}` : type === 'booking' ? `价格: ${target.details?.price}` : '申请家庭医生签约'
             });
             alert("申请已提交，请等待医生审核。");
-            if (type === 'booking') setSelectedService(null);
+            setSelectedItem(null);
         }
     };
 
@@ -97,7 +97,11 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                         {filteredDoctors.length > 0 ? (
                             <div className="space-y-4">
                                 {filteredDoctors.slice(0,3).map(doc => (
-                                    <div key={doc.id} className="bg-white p-5 rounded-3xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-50 flex items-start gap-4 hover:shadow-md transition-shadow cursor-pointer">
+                                    <div 
+                                        key={doc.id} 
+                                        onClick={() => setSelectedItem(doc)}
+                                        className="bg-white p-5 rounded-3xl shadow-[0_4px_20px_rgb(0,0,0,0.03)] border border-slate-50 flex items-start gap-4 hover:shadow-md transition-shadow cursor-pointer active:scale-98"
+                                    >
                                         <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-3xl shrink-0 shadow-inner">
                                             {doc.image}
                                         </div>
@@ -108,10 +112,9 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                                                     <p className="text-xs text-slate-500 font-medium mt-0.5">{doc.details?.dept} · {doc.details?.title}</p>
                                                 </div>
                                                 <button 
-                                                    onClick={() => handleInteract('signing', doc)}
-                                                    className="bg-blue-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-md shadow-blue-200 active:scale-95 transition-transform"
+                                                    className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold"
                                                 >
-                                                    签约
+                                                    详情
                                                 </button>
                                             </div>
                                             <div className="flex flex-wrap gap-1 mt-2">
@@ -159,7 +162,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                                 return (
                                     <div 
                                         key={s.id} 
-                                        onClick={() => setSelectedService(s)}
+                                        onClick={() => setSelectedItem(s)}
                                         className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between h-full active:scale-95 transition-transform cursor-pointer group hover:border-blue-200"
                                     >
                                         <div className="flex flex-col items-center text-center gap-2 mb-2">
@@ -194,7 +197,11 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                         <h2 className="font-bold text-slate-800 mb-4 text-lg">智慧药房</h2>
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 divide-y divide-slate-50 overflow-hidden">
                             {filteredDrugs.length > 0 ? filteredDrugs.map(drug => (
-                                <div key={drug.id} className="p-4 flex justify-between items-center hover:bg-slate-50 transition-colors">
+                                <div 
+                                    key={drug.id} 
+                                    onClick={() => setSelectedItem(drug)}
+                                    className="p-4 flex justify-between items-center hover:bg-slate-50 transition-colors cursor-pointer"
+                                >
                                     <div className="flex items-center gap-4">
                                         <div className="text-2xl bg-slate-50 w-10 h-10 rounded-xl flex items-center justify-center">{drug.image}</div>
                                         <div>
@@ -206,10 +213,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                                         <span className={`text-[10px] px-2 py-1 rounded-md font-bold ${drug.details?.stock === '充足' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                                             {drug.details?.stock || '有货'}
                                         </span>
-                                        <button 
-                                            onClick={() => handleInteract('drug_order', drug)}
-                                            className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 hover:bg-orange-100 hover:text-orange-600 transition-colors"
-                                        >
+                                        <button className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold">
                                             +
                                         </button>
                                     </div>
@@ -220,95 +224,162 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                 )}
             </div>
 
-            {/* Service Detail Modal */}
-            {selectedService && (
-                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedService(null)}>
+            {/* General Item Modal */}
+            {selectedItem && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedItem(null)}>
                     <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         
-                        {/* Modal Header Image/Title */}
+                        {/* Modal Header */}
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
                             <button 
-                                onClick={() => setSelectedService(null)}
+                                onClick={() => setSelectedItem(null)}
                                 className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm z-10"
                             >
                                 ×
                             </button>
                             <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">
-                                {selectedService.image}
+                                {selectedItem.image}
                             </div>
-                            <h3 className="text-xl font-black text-slate-800 mb-1">{selectedService.title}</h3>
+                            <h3 className="text-xl font-black text-slate-800 mb-1">{selectedItem.title}</h3>
                             <div className="flex items-center justify-center gap-2">
-                                <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">
-                                    {selectedService.details?.dept || '综合科'}
-                                </span>
-                                <span className="text-sm text-slate-500">
-                                    预计耗时: {selectedService.details?.duration || '待定'}
-                                </span>
+                                {selectedItem.type === 'doctor' && (
+                                    <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">
+                                        {selectedItem.details?.dept} · {selectedItem.details?.title}
+                                    </span>
+                                )}
+                                {selectedItem.type === 'drug' && (
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${selectedItem.details?.stock === '充足' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                        库存: {selectedItem.details?.stock}
+                                    </span>
+                                )}
+                                {selectedItem.type === 'service' && (
+                                    <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs font-bold">
+                                        {selectedItem.details?.deptCode || '医疗服务'}
+                                    </span>
+                                )}
                             </div>
                         </div>
 
                         {/* Scrollable Content */}
                         <div className="p-6 overflow-y-auto space-y-6 flex-1">
-                            {/* Key Info Grid */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-slate-50 p-3 rounded-xl">
-                                    <div className="text-xs text-slate-400 mb-1">参考价格</div>
-                                    <div className="font-bold text-slate-800">
-                                        {selectedService.details?.price ? `¥${selectedService.details.price}` : '免费'}
+                            
+                            {/* Doctor Specific */}
+                            {selectedItem.type === 'doctor' && (
+                                <>
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm mb-2">医生简介</h4>
+                                        <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl">
+                                            {selectedItem.description || '暂无简介'}
+                                        </p>
                                     </div>
-                                    <div className="text-[10px] text-slate-400 mt-1">{selectedService.details?.insuranceType || '自费'}</div>
-                                </div>
-                                <div className="bg-slate-50 p-3 rounded-xl">
-                                    <div className="text-xs text-slate-400 mb-1">就诊地点</div>
-                                    <div className="font-bold text-slate-800 text-sm line-clamp-2">
-                                        {selectedService.details?.location || '门诊楼'}
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                        <div className="bg-blue-50 p-3 rounded-xl">
+                                            <div className="text-xs text-blue-400 mb-1">出诊时间</div>
+                                            <div className="font-bold text-blue-900">{selectedItem.details?.schedule || '详询导诊台'}</div>
+                                        </div>
+                                        <div className="bg-blue-50 p-3 rounded-xl">
+                                            <div className="text-xs text-blue-400 mb-1">挂号费</div>
+                                            <div className="font-bold text-blue-900">¥{selectedItem.details?.fee || '0'}</div>
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
-
-                            {/* Description */}
-                            <div>
-                                <h4 className="font-bold text-slate-800 text-sm mb-2">项目简介</h4>
-                                <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl">
-                                    {selectedService.description || '暂无简介'}
-                                </p>
-                            </div>
-
-                            {/* Workflow */}
-                            {selectedService.details?.workflow && (
-                                <div>
-                                    <h4 className="font-bold text-slate-800 text-sm mb-2">服务流程</h4>
-                                    <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-line pl-4 border-l-2 border-slate-200">
-                                        {selectedService.details.workflow}
-                                    </div>
-                                </div>
+                                    {selectedItem.details?.resume && (
+                                        <div>
+                                            <h4 className="font-bold text-slate-800 text-sm mb-2">详细履历</h4>
+                                            <p className="text-xs text-slate-500 leading-relaxed whitespace-pre-line">
+                                                {selectedItem.details.resume}
+                                            </p>
+                                        </div>
+                                    )}
+                                </>
                             )}
 
-                            {/* Audience & Warnings */}
-                            <div className="space-y-3">
-                                {selectedService.details?.audience && (
-                                    <div className="flex gap-2 text-sm">
-                                        <span className="text-slate-400 shrink-0">适宜人群:</span>
-                                        <span className="text-slate-700">{selectedService.details.audience}</span>
+                            {/* Drug Specific */}
+                            {selectedItem.type === 'drug' && (
+                                <>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-slate-50 p-3 rounded-xl">
+                                            <div className="text-xs text-slate-400 mb-1">参考价格</div>
+                                            <div className="font-bold text-slate-800">¥{selectedItem.details?.price || '-'}</div>
+                                        </div>
+                                        <div className="bg-slate-50 p-3 rounded-xl">
+                                            <div className="text-xs text-slate-400 mb-1">医保类型</div>
+                                            <div className="font-bold text-slate-800">{selectedItem.details?.insuranceType || '自费'}</div>
+                                        </div>
                                     </div>
-                                )}
-                                {selectedService.details?.contraindications && (
-                                    <div className="flex gap-2 text-sm">
-                                        <span className="text-red-400 shrink-0">注意事项:</span>
-                                        <span className="text-slate-700">{selectedService.details.contraindications}</span>
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm mb-2">主要功效</h4>
+                                        <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl">
+                                            {selectedItem.description || '暂无说明'}
+                                        </p>
                                     </div>
-                                )}
-                            </div>
+                                    {selectedItem.details?.usage && (
+                                        <div>
+                                            <h4 className="font-bold text-slate-800 text-sm mb-2">用法用量</h4>
+                                            <p className="text-sm text-slate-600">{selectedItem.details.usage}</p>
+                                        </div>
+                                    )}
+                                    {selectedItem.details?.contraindications && (
+                                        <div className="bg-red-50 p-3 rounded-xl border border-red-100">
+                                            <h4 className="font-bold text-red-800 text-xs mb-1">⚠️ 禁忌/注意事项</h4>
+                                            <p className="text-xs text-red-700">{selectedItem.details.contraindications}</p>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {/* Service Specific */}
+                            {selectedItem.type === 'service' && (
+                                <>
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm mb-2">项目简介</h4>
+                                        <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl">
+                                            {selectedItem.description || '暂无简介'}
+                                        </p>
+                                    </div>
+                                    {selectedItem.details?.workflow && (
+                                        <div>
+                                            <h4 className="font-bold text-slate-800 text-sm mb-2">服务流程</h4>
+                                            <p className="text-xs text-slate-500 whitespace-pre-line border-l-2 border-slate-200 pl-3">
+                                                {selectedItem.details.workflow}
+                                            </p>
+                                        </div>
+                                    )}
+                                    {selectedItem.details?.location && (
+                                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                                            <span>📍 就诊地点:</span>
+                                            <span className="font-bold">{selectedItem.details.location}</span>
+                                        </div>
+                                    )}
+                                </>
+                            )}
                         </div>
 
                         {/* Footer Action */}
                         <div className="p-4 border-t border-slate-100 bg-white">
-                            <button 
-                                onClick={() => handleInteract('booking', selectedService)}
-                                className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2"
-                            >
-                                <span>📅</span> 立即预约
-                            </button>
+                            {selectedItem.type === 'doctor' && (
+                                <button 
+                                    onClick={() => handleInteract('signing', selectedItem)}
+                                    className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                >
+                                    <span>✍️</span> 申请签约家庭医生
+                                </button>
+                            )}
+                            {selectedItem.type === 'drug' && (
+                                <button 
+                                    onClick={() => handleInteract('drug_order', selectedItem)}
+                                    className="w-full bg-orange-500 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-orange-200 hover:bg-orange-600 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                >
+                                    <span>💊</span> 预约购药
+                                </button>
+                            )}
+                            {selectedItem.type === 'service' && (
+                                <button 
+                                    onClick={() => handleInteract('booking', selectedItem)}
+                                    className="w-full bg-purple-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-purple-200 hover:bg-purple-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                >
+                                    <span>📅</span> 立即预约
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
