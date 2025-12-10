@@ -58,8 +58,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const fileInputRef = useRef<HTMLInputElement>(null);
-    // Specific ref for Service Excel Import
-    const serviceImportRef = useRef<HTMLInputElement>(null);
+    // Generic ref for Excel Import
+    const batchImportRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
@@ -240,48 +240,68 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         loadData();
     };
 
-    // --- Excel Handling Logic for Services ---
-    const handleDownloadTemplate = () => {
-        const headers = [
-            ['基础标识', '项目名称', '归属科室编码', '一级分类', '二级分类', '标签', '核心内容', '项目简介（列表页摘要）', '项目详情/流程', '适宜人群', '禁忌与注意事项', '临床意义', '预约规则', '预约类型', '预约规则模板', '就诊地点详情', '预计耗时', '报告出具时间', '费用信息', '标准价格(元)', '医保类型', '自费金额估算(元)', '医保报销说明', '运营配置', '排序值', '初始状态'],
-            ['(留空)', '必填', '必填', '必填', '必填', '逗号分隔', '', '80字内', '支持换行', '必填', '必填', '选填', '', '需预约/无需预约', '选填', '选填', '如:90分钟', '如:1工作日', '', '数字', '甲类/乙类/自费', '数字', '选填', '', '默认999', '上架/下架']
-        ];
-        
-        // Remove grouping rows for actual csv/xlsx data simplicity in this demo, just using single header row
-        const templateData = [
-            {
-                "项目ID（系统生成）": "",
-                "项目名称": "示例：无痛胃镜检查",
-                "归属科室编码": "DIGEST001",
-                "一级分类": "检查",
-                "二级分类": "内镜",
-                "标签": "消化,胃部,无痛",
-                "项目简介（列表页摘要）": "采用静脉麻醉，舒适无痛，清晰观察食管、胃、十二指肠病变。",
-                "项目详情/流程": "1.预约\n2.禁食水\n3.麻醉评估\n4.检查\n5.苏醒",
-                "适宜人群": "胃部不适、有家族史人群",
-                "禁忌与注意事项": "严重心肺疾病禁用；需家属陪同。",
-                "临床意义": "发现早期胃癌的金标准。",
-                "预约类型": "需预约",
-                "预约规则模板": "常规检查预约",
-                "就诊地点详情": "门诊楼3层内镜中心",
-                "预计耗时": "约30分钟",
-                "报告出具时间": "即时出具（活检除外）",
-                "标准价格(元)": 800.00,
-                "医保类型": "乙类",
-                "自费金额估算(元)": 160.00,
-                "医保报销说明": "医保统筹支付80%",
-                "排序值": 10,
-                "初始状态": "上架"
-            }
-        ];
-
-        const ws = XLSX.utils.json_to_sheet(templateData);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "服务项目导入模板");
-        XLSX.writeFile(wb, "服务项目批量导入模板.xlsx");
+    // --- Generic Excel Handling Logic ---
+    const getTemplateConfig = () => {
+        switch(activeTab) {
+            case 'service':
+                return {
+                    name: '医院服务项目',
+                    data: [{
+                        "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架"
+                    }]
+                };
+            case 'doctor':
+                return {
+                    name: '医生信息库',
+                    data: [{
+                        "姓名": "张三", "科室": "内科", "职称": "主任医师", "擅长领域": "高血压,糖尿病", "个人简介": "毕业于...", "出诊时间": "周一上午", "挂号费": 20, "登录账号": "zhangsan", "登录密码": "123456", "当前状态": "出诊中"
+                    }]
+                };
+            case 'drug':
+                return {
+                    name: '药品信息库',
+                    data: [{
+                        "药品名称": "阿司匹林", "规格": "100mg*30片", "生产厂家": "拜耳", "处方类型": "RX (处方药)", "医保类型": "甲类", "库存状态": "充足", "用法用量": "每日一次...", "主要禁忌": "出血倾向者禁用"
+                    }]
+                };
+            case 'recipe':
+                return {
+                    name: '膳食食谱库',
+                    data: [{
+                        "食谱名称": "清蒸鲈鱼", "制作难度": "⭐⭐", "所需食材": "鲈鱼1条, 姜葱适量", "制作步骤": "1.洗净... 2.蒸...", "热量(kcal)": 120, "主要营养素": "蛋白质, 优质脂肪", "健康标签": "高蛋白, 低脂"
+                    }]
+                };
+            case 'exercise':
+                return {
+                    name: '运动方案库',
+                    data: [{
+                        "运动名称": "慢跑", "强度等级": "中强度", "推荐时长": "30分钟", "消耗热量": 200, "适宜人群": "全人群", "禁忌风险": "膝关节损伤者慎用", "视频链接": "", "类型标签": "有氧"
+                    }]
+                };
+            case 'event':
+                // Community Event
+                return {
+                    name: '社区活动列表',
+                    data: [{
+                        "活动名称": "义诊进社区", "开始时间": "2024-06-01 09:00", "举办地点": "社区广场", "主讲人/嘉宾": "王医生", "报名方式": "现场空降", "名额限制": 100, "费用": 0, "活动简介": "免费测量血压血糖...", "标签": "义诊,福利"
+                    }]
+                };
+            default:
+                return null;
+        }
     };
 
-    const handleServiceImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleDownloadTemplate = () => {
+        const config = getTemplateConfig();
+        if (!config) return;
+
+        const ws = XLSX.utils.json_to_sheet(config.data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, config.name);
+        XLSX.writeFile(wb, `${config.name}_批量导入模板.xlsx`);
+    };
+
+    const handleBatchImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
@@ -295,48 +315,92 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             const worksheet = workbook.Sheets[sheetName];
             const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
 
-            if (jsonData.length === 0) {
-                throw new Error("文件内容为空");
-            }
+            if (jsonData.length === 0) throw new Error("文件内容为空");
 
             let successCount = 0;
             const newItems: ContentItem[] = [];
 
             for (const row of jsonData) {
-                // Map Excel Columns to ContentItem structure
-                if (!row['项目名称'] || !row['归属科室编码']) continue; // Skip invalid rows
+                // Common ID and timestamp
+                const id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+                const now = new Date().toISOString();
+                let item: ContentItem | null = null;
 
-                const item: ContentItem = {
-                    id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                    type: 'service',
-                    title: row['项目名称'],
-                    tags: row['标签'] ? row['标签'].split(/[,，]/) : [],
-                    description: row['项目简介（列表页摘要）'] || '',
-                    image: '🏥', // Default Icon
-                    status: row['初始状态'] === '上架' ? 'active' : 'pending', // Default draft/pending if not explicitly active
-                    isUserUpload: false,
-                    updatedAt: new Date().toISOString(),
-                    details: {
-                        deptCode: row['归属科室编码'],
-                        categoryL1: row['一级分类'],
-                        categoryL2: row['二级分类'],
-                        workflow: row['项目详情/流程'],
-                        audience: row['适宜人群'],
-                        contraindications: row['禁忌与注意事项'],
-                        clinicalSignificance: row['临床意义'],
-                        bookingType: row['预约类型'],
-                        bookingTemplate: row['预约规则模板'],
-                        location: row['就诊地点详情'],
-                        duration: row['预计耗时'],
-                        reportTime: row['报告出具时间'],
-                        price: row['标准价格(元)'],
-                        insuranceType: row['医保类型'],
-                        selfPayEst: row['自费金额估算(元)'],
-                        reimbursementNote: row['医保报销说明'],
-                        sortOrder: row['排序值'] || 999
-                    }
-                };
-                newItems.push(item);
+                // Mapper based on activeTab
+                switch(activeTab) {
+                    case 'service':
+                        if (!row['项目名称']) continue;
+                        item = {
+                            id, type: 'service', title: row['项目名称'], tags: row['标签']?.split(/[,，]/) || [],
+                            description: row['项目简介（列表页摘要）'] || '', image: '🏥', status: row['初始状态'] === '上架' ? 'active' : 'pending',
+                            isUserUpload: false, updatedAt: now,
+                            details: {
+                                deptCode: row['归属科室编码'], categoryL1: row['一级分类'], categoryL2: row['二级分类'],
+                                workflow: row['项目详情/流程'], audience: row['适宜人群'], contraindications: row['禁忌与注意事项'],
+                                clinicalSignificance: row['临床意义'], bookingType: row['预约类型'], bookingTemplate: row['预约规则模板'],
+                                location: row['就诊地点详情'], duration: row['预计耗时'], reportTime: row['报告出具时间'],
+                                price: row['标准价格(元)'], insuranceType: row['医保类型'], selfPayEst: row['自费金额估算(元)'],
+                                reimbursementNote: row['医保报销说明'], sortOrder: row['排序值'] || 999
+                            }
+                        };
+                        break;
+                    case 'doctor':
+                        if (!row['姓名']) continue;
+                        item = {
+                            id, type: 'doctor', title: row['姓名'], tags: row['擅长领域']?.split(/[,，]/) || [],
+                            description: row['个人简介'] || '', image: '👨‍⚕️', status: 'active', isUserUpload: false, updatedAt: now,
+                            details: {
+                                dept: row['科室'], title: row['职称'], schedule: row['出诊时间'], fee: row['挂号费'],
+                                username: row['登录账号'], password: row['登录密码'], docStatus: row['当前状态'] || '出诊中'
+                            }
+                        };
+                        break;
+                    case 'drug':
+                        if (!row['药品名称']) continue;
+                        item = {
+                            id, type: 'drug', title: row['药品名称'], tags: [], description: '', image: '💊', status: 'active', isUserUpload: false, updatedAt: now,
+                            details: {
+                                spec: row['规格'], manufacturer: row['生产厂家'], rxType: row['处方类型'],
+                                insuranceType: row['医保类型'], stock: row['库存状态'], usage: row['用法用量'], contraindications: row['主要禁忌']
+                            }
+                        };
+                        break;
+                    case 'recipe':
+                        if (!row['食谱名称']) continue;
+                        item = {
+                            id, type: 'meal', title: row['食谱名称'], tags: row['健康标签']?.split(/[,，]/) || [],
+                            description: '', image: '🍲', status: 'active', isUserUpload: false, updatedAt: now,
+                            details: {
+                                difficulty: row['制作难度'], ingredients: row['所需食材'], steps: row['制作步骤'],
+                                cal: row['热量(kcal)'], nutrition: row['主要营养素']
+                            }
+                        };
+                        break;
+                    case 'exercise':
+                        if (!row['运动名称']) continue;
+                        item = {
+                            id, type: 'exercise', title: row['运动名称'], tags: row['类型标签']?.split(/[,，]/) || [],
+                            description: '', image: '🏃', status: 'active', isUserUpload: false, updatedAt: now,
+                            details: {
+                                intensity: row['强度等级'], duration: row['推荐时长'], cal: row['消耗热量'],
+                                audience: row['适宜人群'], risks: row['禁忌风险'], videoUrl: row['视频链接']
+                            }
+                        };
+                        break;
+                    case 'event':
+                        if (!row['活动名称']) continue;
+                        item = {
+                            id, type: 'event', title: row['活动名称'], tags: row['标签']?.split(/[,，]/) || [],
+                            description: row['活动简介'] || '', image: '🎉', status: 'active', isUserUpload: false, updatedAt: now,
+                            details: {
+                                date: row['开始时间'], loc: row['举办地点'], speaker: row['主讲人/嘉宾'],
+                                method: row['报名方式'], limit: row['名额限制'], cost: row['费用']
+                            }
+                        };
+                        break;
+                }
+
+                if (item) newItems.push(item);
             }
 
             setLoadingText(`正在导入 ${newItems.length} 条数据...`);
@@ -355,7 +419,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             alert(`导入失败: ${error.message}`);
         } finally {
             setLoading(false);
-            if (serviceImportRef.current) serviceImportRef.current.value = '';
+            if (batchImportRef.current) batchImportRef.current.value = '';
         }
     };
 
@@ -515,7 +579,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                      activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
                                 </h3>
                                 <div className="flex gap-2">
-                                    {activeTab === 'service' && (
+                                    {/* Generic Batch Import for All Tabs except Circle Sub-tab */}
+                                    {!(activeTab === 'event' && eventSubTab === 'circle') && (
                                         <>
                                             <button 
                                                 onClick={handleDownloadTemplate}
@@ -525,13 +590,13 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             </button>
                                             <input 
                                                 type="file" 
-                                                ref={serviceImportRef} 
+                                                ref={batchImportRef} 
                                                 className="hidden" 
                                                 accept=".xlsx, .xls"
-                                                onChange={handleServiceImport}
+                                                onChange={handleBatchImport}
                                             />
                                             <button 
-                                                onClick={() => serviceImportRef.current?.click()}
+                                                onClick={() => batchImportRef.current?.click()}
                                                 className="bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm"
                                             >
                                                 📂 批量导入
@@ -617,6 +682,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                 {item.type === 'doctor' && `${item.details?.dept} • ${item.details?.title}`}
                                                 {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
                                                 {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
+                                                {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
                                             </td>
                                             <td className="p-3">
                                                 <div className="flex flex-wrap gap-1">
