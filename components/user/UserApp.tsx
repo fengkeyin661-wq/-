@@ -7,6 +7,7 @@ import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserCommunity } from './UserCommunity';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../../services/dataService';
+import { getUnreadCount } from '../../services/contentService';
 
 interface Props {
   checkupId: string;
@@ -17,6 +18,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   const [activeTab, setActiveTab] = useState('diet_motion');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -37,6 +39,21 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     };
     loadUser();
   }, [checkupId]);
+
+  // Poll for unread messages
+  useEffect(() => {
+      const checkUnread = async () => {
+          if (!userArchive) return;
+          const count = await getUnreadCount(userArchive.checkup_id);
+          setUnreadCount(count);
+      };
+
+      if (userArchive) {
+          checkUnread();
+          const interval = setInterval(checkUnread, 2000);
+          return () => clearInterval(interval);
+      }
+  }, [userArchive]);
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
@@ -69,26 +86,34 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   if (!userArchive) return null;
 
   return (
-    <UserLayout activeTab={activeTab} onTabChange={setActiveTab}>
+    <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
       {activeTab === 'diet_motion' && (
           <UserDietMotion 
               assessment={userArchive.assessment_data} 
               userCheckupId={userArchive.checkup_id}
+              record={userArchive.health_record}
+              dailyPlan={userArchive.custom_daily_plan}
           />
       )}
       {activeTab === 'medical' && (
           <UserMedicalServices 
               userId={userArchive.checkup_id} 
               userName={userArchive.name} 
+              assessment={userArchive.assessment_data} // Pass assessment
           />
       )}
       {activeTab === 'community' && (
-          <UserCommunity />
+          <UserCommunity 
+              userId={userArchive.checkup_id}
+              userName={userArchive.name}
+              assessment={userArchive.assessment_data} // Pass assessment
+          />
       )}
       {activeTab === 'interaction' && (
           <UserInteraction 
               userId={userArchive.checkup_id} 
               archive={userArchive} 
+              onMessageRead={() => setUnreadCount(0)}
           />
       )}
       {activeTab === 'profile' && (

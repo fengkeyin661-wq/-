@@ -1,10 +1,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { HealthAssessment } from '../../types';
 
 interface Props {
     userId?: string;
     userName?: string;
+    assessment?: HealthAssessment; // Added
 }
 
 interface EventWithStatus extends ContentItem {
@@ -13,10 +15,31 @@ interface EventWithStatus extends ContentItem {
     signupStatus: 'open' | 'full' | 'joined' | 'ended';
 }
 
-export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
+// Score Logic
+const scoreEvent = (item: ContentItem, risks: string[]) => {
+    let score = 0;
+    const text = (item.title + (item.tags?.join(' ') || '') + (item.description || '')).toLowerCase();
+    
+    // Simple Keywords
+    const keywords = ['运动', '饮食', '慢病', '心理', '减重', '讲座'];
+    
+    risks.forEach(r => {
+        if (text.includes(r.replace('风险',''))) score += 2;
+    });
+    
+    // Promote new items slightly
+    if (new Date().getTime() - new Date(item.updatedAt).getTime() < 7 * 24 * 3600 * 1000) score += 0.5;
+
+    return score + Math.random();
+};
+
+export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment }) => {
+    const [allEvents, setAllEvents] = useState<EventWithStatus[]>([]);
+    const [allCircles, setAllCircles] = useState<ContentItem[]>([]);
+    
+    const [displayedEvents, setDisplayedEvents] = useState<EventWithStatus[]>([]);
+    
     const [activeTab, setActiveTab] = useState<'all' | 'lecture' | 'activity'>('all');
-    const [events, setEvents] = useState<EventWithStatus[]>([]);
-    const [circles, setCircles] = useState<ContentItem[]>([]);
     const [loading, setLoading] = useState(true);
     
     // Search & Expand State
@@ -29,6 +52,10 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
     useEffect(() => {
         loadData();
     }, [userId]);
+
+    useEffect(() => {
+        if (allEvents.length > 0) refreshRecommendations();
+    }, [allEvents, assessment]);
 
     const loadData = async () => {
         setLoading(true);
@@ -63,8 +90,8 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
                 };
             });
 
-            setEvents(processedEvents);
-            setCircles(circlesData);
+            setAllEvents(processedEvents);
+            setAllCircles(circlesData);
         } catch (e) {
             console.error(e);
         } finally {
@@ -72,11 +99,21 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
         }
     };
 
+    const refreshRecommendations = () => {
+        const risks = assessment ? [...assessment.risks.red, ...assessment.risks.yellow] : [];
+        const sorted = [...allEvents].sort((a, b) => scoreEvent(b, risks) - scoreEvent(a, risks));
+        
+        // Pick top 10 pool, randomly select 4
+        const topPool = sorted.slice(0, Math.min(sorted.length, 10));
+        const shuffled = topPool.sort(() => 0.5 - Math.random()).slice(0, 4);
+        setDisplayedEvents(shuffled);
+    };
+
     const handleSignup = async (evt: ContentItem) => {
         if (!userId || !userName) return alert("请先登录");
         
         // Cast to check status
-        const evtStatus = events.find(e => e.id === evt.id)?.signupStatus;
+        const evtStatus = allEvents.find(e => e.id === evt.id)?.signupStatus;
         if (evtStatus === 'joined') {
             return alert("您已报名参加此活动");
         }
@@ -103,34 +140,34 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
     };
 
     const handleJoinCircle = async (circle: ContentItem) => {
-        // For circles, we simulate joining by just alerting since there's no backend table strictly for circle members in this demo schema yet
-        // Ideally this would save an interaction or update a member list
         if (!userId) return alert("请先登录");
         alert(`恭喜！您已成功加入【${circle.title}】圈子。`);
         setSelectedItem(null);
     };
 
     // Filter Logic
-    const filteredEvents = useMemo(() => {
-        let list = activeTab === 'all' 
-            ? events 
-            : events.filter(e => e.tags.some(t => t.includes(activeTab === 'lecture' ? '讲座' : '活动') || t.includes(activeTab === 'lecture' ? '培训' : '运动')));
+    const contentToRender = useMemo(() => {
+        let list = allEvents;
+        if (activeTab !== 'all') {
+            list = list.filter(e => e.tags.some(t => t.includes(activeTab === 'lecture' ? '讲座' : '活动') || t.includes(activeTab === 'lecture' ? '培训' : '运动')));
+        }
         
         if (searchTerm) {
-            list = list.filter(e => e.title.includes(searchTerm));
+            return list.filter(e => e.title.includes(searchTerm));
         }
-        return list;
-    }, [events, activeTab, searchTerm]);
+        
+        if (showAllEvents) return list;
+        return displayedEvents;
+    }, [allEvents, displayedEvents, activeTab, searchTerm, showAllEvents]);
 
     const filteredCircles = useMemo(() => {
         if (searchTerm) {
-            return circles.filter(c => c.title.includes(searchTerm));
+            return allCircles.filter(c => c.title.includes(searchTerm));
         }
-        return circles;
-    }, [circles, searchTerm]);
+        return allCircles;
+    }, [allCircles, searchTerm]);
 
-    const displayedEvents = showAllEvents ? filteredEvents : filteredEvents.slice(0, 5);
-    const featuredEvent = events.find(e => e.tags.includes('推荐') || e.tags.includes('置顶')) || events[0];
+    const featuredEvent = allEvents.find(e => e.tags.includes('推荐') || e.tags.includes('置顶')) || allEvents[0];
 
     return (
         <div className="min-h-full bg-[#F8FAFC] pb-24">
@@ -235,34 +272,37 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
 
                 {/* 3. Events List */}
                 <section>
-                    <div className="flex items-center gap-4 mb-5 border-b border-slate-100 pb-1">
-                        {[
-                            { id: 'all', label: '全部活动' },
-                            { id: 'lecture', label: '健康讲座' },
-                            { id: 'activity', label: '户外运动' }
-                        ].map(tab => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id as any)}
-                                className={`pb-2 text-sm font-bold transition-all relative ${
-                                    activeTab === tab.id ? 'text-slate-800' : 'text-slate-400'
-                                }`}
-                            >
-                                {tab.label}
-                                {activeTab === tab.id && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-1 bg-indigo-600 rounded-full"></span>}
+                    <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-1">
+                        <div className="flex gap-4">
+                            {[{ id: 'all', label: '全部' }, { id: 'lecture', label: '讲座' }, { id: 'activity', label: '运动' }].map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id as any)}
+                                    className={`pb-2 text-sm font-bold transition-all relative ${
+                                        activeTab === tab.id ? 'text-slate-800' : 'text-slate-400'
+                                    }`}
+                                >
+                                    {tab.label}
+                                    {activeTab === tab.id && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-1 bg-indigo-600 rounded-full"></span>}
+                                </button>
+                            ))}
+                        </div>
+                        {!searchTerm && !showAllEvents && (
+                            <button onClick={() => refreshRecommendations()} className="text-xs text-slate-500 font-bold flex items-center gap-1 active:scale-95 transition-transform">
+                                🔄 换一换
                             </button>
-                        ))}
+                        )}
                     </div>
 
                     <div className="space-y-5">
                         {loading ? (
                             <div className="text-center py-10 text-slate-400 text-sm">加载中...</div>
-                        ) : displayedEvents.length === 0 ? (
+                        ) : contentToRender.length === 0 ? (
                             <div className="text-center py-10 text-slate-400 text-sm bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                                 暂无相关活动
                             </div>
                         ) : (
-                            displayedEvents.map(evt => {
+                            contentToRender.map(evt => {
                                 const limit = Number(evt.details?.limit) || 100;
                                 const progress = Math.min((evt.currentSignups / limit) * 100, 100);
                                 
@@ -344,12 +384,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
                             })
                         )}
                         
-                        {filteredEvents.length > 5 && (
+                        {!searchTerm && (
                             <button 
                                 onClick={() => setShowAllEvents(!showAllEvents)}
                                 className="w-full text-xs text-slate-500 font-bold bg-white border border-slate-200 py-3 rounded-2xl hover:bg-slate-50 transition-colors shadow-sm"
                             >
-                                {showAllEvents ? '收起列表 ⬆️' : `查看更多活动 (${filteredEvents.length - 5}) ⬇️`}
+                                {showAllEvents ? '收起列表 ⬆️' : `查看全部活动 ⬇️`}
                             </button>
                         )}
                     </div>

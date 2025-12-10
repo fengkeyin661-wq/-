@@ -1,22 +1,54 @@
 
 import React, { useState, useEffect } from 'react';
 import { fetchContent, ContentItem, saveInteraction, InteractionItem } from '../../services/contentService';
+import { HealthAssessment } from '../../types';
 
 interface Props {
     userId: string;
     userName: string;
+    assessment?: HealthAssessment; // Added
 }
 
-export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
-    const [doctors, setDoctors] = useState<ContentItem[]>([]);
-    const [drugs, setDrugs] = useState<ContentItem[]>([]);
-    const [services, setServices] = useState<ContentItem[]>([]);
+// Helper: Score items based on risk profile
+const scoreItem = (item: ContentItem, risks: string[]) => {
+    let score = 0;
+    const text = (item.title + (item.tags?.join(' ') || '') + (item.description || '') + (item.details?.dept || '')).toLowerCase();
+    
+    // Mapping
+    const map: Record<string, string[]> = {
+        '高血压': ['心血管', '内科', '降压', '头晕'],
+        '糖尿病': ['内分泌', '胰岛素', '血糖', '代谢'],
+        '心脏': ['心血管', '胸痛', '心电图'],
+        '骨折': ['骨科', '康复', '钙'],
+        '胃': ['消化', '胃镜', '幽门'],
+        '肺': ['呼吸', 'CT', '咳'],
+        '肿瘤': ['肿瘤', '筛查', '标志物']
+    };
+
+    risks.forEach(r => {
+        const key = Object.keys(map).find(k => r.includes(k));
+        if (key) {
+            map[key].forEach(word => { if (text.includes(word.toLowerCase())) score += 2; });
+        }
+        if (text.includes(r.replace('风险',''))) score += 1;
+    });
+    return score + Math.random();
+};
+
+export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessment }) => {
+    const [allDoctors, setAllDoctors] = useState<ContentItem[]>([]);
+    const [allDrugs, setAllDrugs] = useState<ContentItem[]>([]);
+    const [allServices, setAllServices] = useState<ContentItem[]>([]);
+    
+    // Recommendations (Limited to 4)
+    const [recommendedDoctors, setRecommendedDoctors] = useState<ContentItem[]>([]);
+    const [recommendedDrugs, setRecommendedDrugs] = useState<ContentItem[]>([]);
     
     // Search & Filter State
     const [search, setSearch] = useState('');
     const [activeCategory, setActiveCategory] = useState('全部');
     
-    // UI State for Expansion
+    // UI State for Expansion (Only if searching or explicitly expanding)
     const [showAllDoctors, setShowAllDoctors] = useState(false);
     const [showAllDrugs, setShowAllDrugs] = useState(false);
     
@@ -28,12 +60,29 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
             const docs = await fetchContent('doctor');
             const meds = await fetchContent('drug');
             const svcs = await fetchContent('service');
-            setDoctors(docs);
-            setDrugs(meds);
-            setServices(svcs);
+            setAllDoctors(docs);
+            setAllDrugs(meds);
+            setAllServices(svcs);
+            
+            refreshRecommendations('doctor', docs);
+            refreshRecommendations('drug', meds);
         };
         load();
-    }, []);
+    }, [assessment]); // Re-run if assessment changes
+
+    const refreshRecommendations = (type: 'doctor' | 'drug', sourceList?: ContentItem[]) => {
+        const list = sourceList || (type === 'doctor' ? allDoctors : allDrugs);
+        const risks = assessment ? [...assessment.risks.red, ...assessment.risks.yellow] : [];
+        
+        const sorted = [...list].sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks));
+        
+        // Pick random 4 from top 10
+        const topPool = sorted.slice(0, Math.min(sorted.length, 10));
+        const shuffled = topPool.sort(() => 0.5 - Math.random()).slice(0, 4);
+        
+        if (type === 'doctor') setRecommendedDoctors(shuffled);
+        else setRecommendedDrugs(shuffled);
+    };
 
     const handleInteract = async (type: InteractionItem['type'], target: ContentItem) => {
         if (!userId) return alert("用户信息缺失");
@@ -63,19 +112,14 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
 
     // --- Filtering Logic ---
     
-    // 1. Doctors & Drugs (Simple Search)
-    const filteredDoctors = doctors.filter(d => d.title.includes(search) || d.tags.join('').includes(search));
-    const filteredDrugs = drugs.filter(d => d.title.includes(search));
-
-    // Display Lists based on expansion
-    const visibleDoctors = showAllDoctors ? filteredDoctors : filteredDoctors.slice(0, 3);
-    const visibleDrugs = showAllDrugs ? filteredDrugs : filteredDrugs.slice(0, 5);
+    // 1. Doctors & Drugs (Logic: if search, show all filtered; if no search, show recommendations)
+    const visibleDoctors = search ? allDoctors.filter(d => d.title.includes(search) || d.tags.join('').includes(search)) : (showAllDoctors ? allDoctors : recommendedDoctors);
+    const visibleDrugs = search ? allDrugs.filter(d => d.title.includes(search)) : (showAllDrugs ? allDrugs : recommendedDrugs);
 
     // 2. Services (Search + Category)
-    // Extract unique categories from loaded services
-    const serviceCategories = ['全部', ...Array.from(new Set(services.map(s => s.details?.categoryL1 || '其他').filter(Boolean)))];
+    const serviceCategories = ['全部', ...Array.from(new Set(allServices.map(s => s.details?.categoryL1 || '其他').filter(Boolean)))];
     
-    const filteredServices = services.filter(s => {
+    const filteredServices = allServices.filter(s => {
         const matchesSearch = s.title.includes(search) || (s.description || '').includes(search);
         const matchesCategory = activeCategory === '全部' || (s.details?.categoryL1 || '其他') === activeCategory;
         return matchesSearch && matchesCategory;
@@ -101,7 +145,17 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                 {/* 1. Featured Doctor */}
                 {(!activeCategory || activeCategory === '全部') && (
                     <section>
-                        <h2 className="font-bold text-slate-800 mb-4 text-lg">名医推荐</h2>
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="font-bold text-slate-800 text-lg">名医推荐</h2>
+                            {!search && !showAllDoctors && (
+                                <button 
+                                    onClick={() => refreshRecommendations('doctor')} 
+                                    className="text-xs font-bold text-slate-500 flex items-center gap-1 active:scale-95 transition-transform"
+                                >
+                                    🔄 换一换
+                                </button>
+                            )}
+                        </div>
                         {visibleDoctors.length > 0 ? (
                             <div className="space-y-4">
                                 {visibleDoctors.map(doc => (
@@ -131,12 +185,12 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                                         </div>
                                     </div>
                                 ))}
-                                {filteredDoctors.length > 3 && (
+                                {!search && (
                                     <button 
                                         onClick={() => setShowAllDoctors(!showAllDoctors)}
                                         className="w-full text-xs text-slate-500 font-bold bg-slate-100 py-3 rounded-2xl hover:bg-slate-200 transition-colors"
                                     >
-                                        {showAllDoctors ? '收起 ⬆️' : `查看全部 ${filteredDoctors.length} 位医生 ⬇️`}
+                                        {showAllDoctors ? '收起 ⬆️' : `查看更多医生 ⬇️`}
                                     </button>
                                 )}
                             </div>
@@ -210,7 +264,17 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                 {/* 3. Pharmacy List */}
                 {(!activeCategory || activeCategory === '全部') && (
                     <section>
-                        <h2 className="font-bold text-slate-800 mb-4 text-lg">智慧药房</h2>
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="font-bold text-slate-800 text-lg">智慧药房</h2>
+                            {!search && !showAllDrugs && (
+                                <button 
+                                    onClick={() => refreshRecommendations('drug')} 
+                                    className="text-xs font-bold text-slate-500 flex items-center gap-1 active:scale-95 transition-transform"
+                                >
+                                    🔄 换一换
+                                </button>
+                            )}
+                        </div>
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 divide-y divide-slate-50 overflow-hidden">
                             {visibleDrugs.length > 0 ? visibleDrugs.map(drug => (
                                 <div 
@@ -236,13 +300,13 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                                 </div>
                             )) : <div className="p-6 text-center text-xs text-slate-400">暂无相关药品</div>}
                             
-                            {filteredDrugs.length > 5 && (
+                            {!search && (
                                 <div className="p-3">
                                     <button 
                                         onClick={() => setShowAllDrugs(!showAllDrugs)}
                                         className="w-full text-xs text-slate-500 font-bold bg-slate-50 py-2 rounded-xl hover:bg-slate-100 transition-colors"
                                     >
-                                        {showAllDrugs ? '收起 ⬆️' : `查看更多 (${filteredDrugs.length - 5}) ⬇️`}
+                                        {showAllDrugs ? '收起 ⬆️' : `查看更多药品 ⬇️`}
                                     </button>
                                 </div>
                             )}
@@ -384,12 +448,20 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                         {/* Footer Action */}
                         <div className="p-4 border-t border-slate-100 bg-white">
                             {selectedItem.type === 'doctor' && (
-                                <button 
-                                    onClick={() => handleInteract('signing', selectedItem)}
-                                    className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2"
-                                >
-                                    <span>✍️</span> 申请签约家庭医生
-                                </button>
+                                <div className="flex gap-3">
+                                    <button 
+                                        onClick={() => handleInteract('booking', selectedItem)}
+                                        className="flex-1 bg-white border border-blue-200 text-blue-600 py-3.5 rounded-xl font-bold text-sm shadow-sm hover:bg-blue-50 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <span>📅</span> 预约挂号
+                                    </button>
+                                    <button 
+                                        onClick={() => handleInteract('signing', selectedItem)}
+                                        className="flex-1 bg-blue-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <span>✍️</span> 签约家庭医生
+                                    </button>
+                                </div>
                             )}
                             {selectedItem.type === 'drug' && (
                                 <button 

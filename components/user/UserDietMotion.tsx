@@ -13,49 +13,45 @@ interface Props {
     dailyPlan?: DailyHealthPlan;
 }
 
-// Helper to calculate BMR and Needs
-const calculateNeeds = (record?: HealthRecord) => {
-    if (!record) return { bmr: 0, tdee: 0, protein: 0, fat: 0, carbs: 0, fiber: 25 };
+// Helper: Scoring logic for relevance
+const scoreItemRelevance = (item: ContentItem, risks: string[]) => {
+    let score = 0;
+    const combinedText = (item.title + (item.tags?.join(' ') || '') + (item.description || '')).toLowerCase();
     
-    const weight = record.checkup.basics.weight || 65;
-    const height = record.checkup.basics.height || 170;
-    const age = record.profile.age || 40;
-    const gender = record.profile.gender || '男';
-
-    // Mifflin-St Jeor Equation
-    let bmr = (10 * weight) + (6.25 * height) - (5 * age);
-    bmr += gender === '女' ? -161 : 5;
-
-    // Light Activity Factor (Office work + light exercise)
-    const tdee = Math.round(bmr * 1.375);
-
-    // Macronutrients (Standard Balance)
-    // Protein: ~15-20% (or 1g/kg)
-    const proteinCal = tdee * 0.18; 
-    const proteinG = Math.round(proteinCal / 4);
-
-    // Fat: ~25-30%
-    const fatCal = tdee * 0.28;
-    const fatG = Math.round(fatCal / 9);
-
-    // Carbs: ~50-55%
-    const carbsCal = tdee * 0.54;
-    const carbsG = Math.round(carbsCal / 4);
-
-    return { 
-        bmr: Math.round(bmr), 
-        tdee, 
-        protein: proteinG, 
-        fat: fatG, 
-        carbs: carbsG, 
-        fiber: 25 // Standard guideline > 25g
+    // Keyword Mapping (Simple Heuristic)
+    const keywords: Record<string, string[]> = {
+        '高血压': ['低盐', '降压', '舒缓', '有氧', 'DASH'],
+        '糖尿病': ['低糖', '低GI', '控糖', '膳食纤维', '有氧'],
+        '高血脂': ['低脂', '清淡', '减脂', '有氧'],
+        '肥胖': ['减脂', '低卡', '燃脂', '高蛋白', '力量'],
+        '痛风': ['低嘌呤', '多喝水'],
+        '骨质疏松': ['钙', '维生素D', '力量', '负重'],
+        '颈椎': ['颈椎', '拉伸', '体态'],
+        '失眠': ['助眠', '瑜伽', '冥想']
     };
+
+    risks.forEach(risk => {
+        const key = Object.keys(keywords).find(k => risk.includes(k));
+        if (key) {
+            keywords[key].forEach(word => {
+                if (combinedText.includes(word.toLowerCase())) score += 2;
+            });
+        }
+        // Direct risk match
+        if (combinedText.includes(risk.replace('风险','').replace('高危',''))) score += 1;
+    });
+
+    return score + Math.random(); // Add random jitter for variety
 };
 
 export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, record, dailyPlan }) => {
-    const [meals, setMeals] = useState<ContentItem[]>([]);
-    const [exercises, setExercises] = useState<ContentItem[]>([]);
+    const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
+    const [allExercises, setAllExercises] = useState<ContentItem[]>([]);
     
+    // Displayed (Recommendations)
+    const [displayedMeals, setDisplayedMeals] = useState<ContentItem[]>([]);
+    const [displayedExercises, setDisplayedExercises] = useState<ContentItem[]>([]);
+
     // UI State
     const [showUpload, setShowUpload] = useState(false);
     const [showAddLog, setShowAddLog] = useState<'diet' | 'exercise' | null>(null);
@@ -65,7 +61,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
     // Search & Expand State
     const [searchTerm, setSearchTerm] = useState('');
-    const [isContentExpanded, setIsContentExpanded] = useState(false);
+    const [isContentExpanded, setIsContentExpanded] = useState(false); // Can view more if clicked
 
     // Preview Modal State
     const [previewPlan, setPreviewPlan] = useState<any>(null);
@@ -87,7 +83,23 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const [newDesc, setNewDesc] = useState('');
     const [newTags, setNewTags] = useState('');
 
-    const recommended = useMemo(() => calculateNeeds(record), [record]);
+    const recommended = useMemo(() => {
+        if (!record) return { bmr: 0, tdee: 0, protein: 0, fat: 0, carbs: 0, fiber: 25 };
+        const weight = record.checkup.basics.weight || 65;
+        const height = record.checkup.basics.height || 170;
+        const age = record.profile.age || 40;
+        const gender = record.profile.gender || '男';
+        let bmr = (10 * weight) + (6.25 * height) - (5 * age);
+        bmr += gender === '女' ? -161 : 5;
+        const tdee = Math.round(bmr * 1.375);
+        const proteinCal = tdee * 0.18; 
+        const proteinG = Math.round(proteinCal / 4);
+        const fatCal = tdee * 0.28;
+        const fatG = Math.round(fatCal / 9);
+        const carbsCal = tdee * 0.54;
+        const carbsG = Math.round(carbsCal / 4);
+        return { bmr: Math.round(bmr), tdee, protein: proteinG, fat: fatG, carbs: carbsG, fiber: 25 };
+    }, [record]);
 
     // Current Totals
     const currentIntake = useMemo(() => {
@@ -106,9 +118,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         return dailyPlan.exerciseLogs.reduce((acc, item) => acc + Number(item.calories), 0);
     }, [dailyPlan]);
 
-    // Derived Net Calories
     const netCalories = currentIntake.cal - currentBurn;
-    const balance = Math.round(((netCalories) / recommended.tdee) * 100); 
     const isOver = netCalories > recommended.tdee;
 
     useEffect(() => {
@@ -120,8 +130,27 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             fetchContent('meal'),
             fetchContent('exercise')
         ]);
-        setMeals(mealsData);
-        setExercises(exercisesData);
+        setAllMeals(mealsData);
+        setAllExercises(exercisesData);
+        refreshRecommendations(mealsData, exercisesData);
+    };
+
+    const refreshRecommendations = (meals = allMeals, exercises = allExercises) => {
+        const risks = assessment ? [...assessment.risks.red, ...assessment.risks.yellow] : [];
+        
+        // Sort items by relevance score
+        const sortedMeals = [...meals].sort((a, b) => scoreItemRelevance(b, risks) - scoreItemRelevance(a, risks));
+        const sortedEx = [...exercises].sort((a, b) => scoreItemRelevance(b, risks) - scoreItemRelevance(a, risks));
+
+        // Take top pool (e.g. top 10) then pick 4 randomly to allow "refresh" to still show relevant items
+        const pickRandom = (arr: ContentItem[], count: number) => {
+            const pool = arr.slice(0, Math.max(arr.length, 10)); // Top 10 matches
+            const shuffled = pool.sort(() => 0.5 - Math.random());
+            return shuffled.slice(0, count);
+        };
+
+        setDisplayedMeals(pickRandom(sortedMeals, 4));
+        setDisplayedExercises(pickRandom(sortedEx, 4));
     };
 
     const handleUpload = async () => {
@@ -154,22 +183,15 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         setIsGenerating(true);
         try {
             const profileStr = `风险评估:${assessment.summary}, 风险点:${assessment.risks.red.join(',')}, ${assessment.risks.yellow.join(',')}`;
-            
-            // Prepare resource context
             const resourceContext = JSON.stringify({
-                meals: meals.slice(0, 30).map(m => ({ id: m.id, name: m.title, tags: m.tags })),
-                exercises: exercises.slice(0, 10).map(e => ({ id: e.id, name: e.title, tags: e.tags }))
+                meals: allMeals.slice(0, 30).map(m => ({ id: m.id, name: m.title, tags: m.tags })),
+                exercises: allExercises.slice(0, 10).map(e => ({ id: e.id, name: e.title, tags: e.tags }))
             });
-
             const plan = await generateDailyIntegratedPlan(profileStr, resourceContext);
-            
-            // Resolve recommendations
             const recIds = [...(plan.recommendedMealIds || []), ...(plan.recommendedExerciseIds || [])];
-            const recItems = [...meals, ...exercises].filter(i => recIds.includes(i.id));
-            
+            const recItems = [...allMeals, ...allExercises].filter(i => recIds.includes(i.id));
             setPreviewPlan(plan);
             setRecommendedItems(recItems);
-            
         } catch (e) {
             console.error(e);
             alert("生成失败，请重试");
@@ -180,33 +202,23 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
     const handleConfirmPlan = async () => {
         if (!previewPlan || !userCheckupId) return;
-        
         setIsSavingLog(true);
-        
-        // 1. Convert Recommended Items to Logs
-        const newDietLogs: DietLogItem[] = recommendedItems
-            .filter(i => i.type === 'meal')
-            .map(i => ({
-                id: Date.now().toString() + Math.random().toString(36).substr(2,5),
-                name: i.title,
-                calories: Number(i.details?.cal) || 0,
-                protein: Number(i.details?.macros?.protein) || 0,
-                fat: Number(i.details?.macros?.fat) || 0,
-                carbs: Number(i.details?.macros?.carbs) || 0,
-                fiber: Number(i.details?.macros?.fiber) || 0,
-                type: 'lunch' // Default, user can adjust later if we had that UI
-            }));
-
-        const newExerciseLogs: ExerciseLogItem[] = recommendedItems
-            .filter(i => i.type === 'exercise')
-            .map(i => ({
-                id: Date.now().toString() + Math.random().toString(36).substr(2,5),
-                name: i.title,
-                calories: Number(i.details?.cal) || 100, // Estimate
-                duration: Number(i.details?.duration) || 30
-            }));
-
-        // 2. Merge with existing logs
+        const newDietLogs: DietLogItem[] = recommendedItems.filter(i => i.type === 'meal').map(i => ({
+            id: Date.now().toString() + Math.random().toString(36).substr(2,5),
+            name: i.title,
+            calories: Number(i.details?.cal) || 0,
+            protein: Number(i.details?.macros?.protein) || 0,
+            fat: Number(i.details?.macros?.fat) || 0,
+            carbs: Number(i.details?.macros?.carbs) || 0,
+            fiber: Number(i.details?.macros?.fiber) || 0,
+            type: 'lunch'
+        }));
+        const newExerciseLogs: ExerciseLogItem[] = recommendedItems.filter(i => i.type === 'exercise').map(i => ({
+            id: Date.now().toString() + Math.random().toString(36).substr(2,5),
+            name: i.title,
+            calories: Number(i.details?.cal) || 100,
+            duration: Number(i.details?.duration) || 30
+        }));
         const newDailyPlan: DailyHealthPlan = {
             generatedAt: new Date().toISOString(),
             diet: previewPlan.diet,
@@ -215,13 +227,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             dietLogs: [...(dailyPlan?.dietLogs || []), ...newDietLogs],
             exerciseLogs: [...(dailyPlan?.exerciseLogs || []), ...newExerciseLogs]
         };
-
-        // 3. Save
         try {
             const success = await updateUserPlan(userCheckupId, newDailyPlan);
             if (success) {
                 alert("方案已保存！请前往【我的 - 饮食与运动方案】查看详细记录。");
-                // Optional: reload to ensure data consistency if parent doesn't auto-refresh
                 window.location.reload(); 
             } else {
                 alert("保存失败，请重试");
@@ -237,7 +246,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const handleAddLog = async () => {
         if (!userCheckupId) return;
         setIsSavingLog(true);
-        
         let newPlan = dailyPlan;
         if (!newPlan) {
             newPlan = {
@@ -249,7 +257,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                 exerciseLogs: []
             };
         }
-
         if (showAddLog === 'diet') {
             if (!dietForm.name) return alert("请输入食物名称");
             const logItem: DietLogItem = { ...dietForm, id: Date.now().toString() };
@@ -259,7 +266,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             const logItem: ExerciseLogItem = { ...exForm, id: Date.now().toString() };
             newPlan = { ...newPlan, exerciseLogs: [...(newPlan.exerciseLogs || []), logItem] };
         }
-
         const success = await updateUserPlan(userCheckupId, newPlan);
         if (success) {
             alert("记录添加成功！");
@@ -275,7 +281,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
     const handleAddFromCard = async () => {
         if (!selectedContent || !userCheckupId) return;
-        
         setIsSavingLog(true);
         let newPlan = dailyPlan;
         if (!newPlan) {
@@ -288,7 +293,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                 exerciseLogs: []
             };
         }
-
         if (selectedContent.type === 'meal') {
             const logItem: DietLogItem = {
                 id: Date.now().toString(),
@@ -298,19 +302,18 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                 fat: Number(selectedContent.details?.macros?.fat) || 0,
                 carbs: Number(selectedContent.details?.macros?.carbs) || 0,
                 fiber: Number(selectedContent.details?.macros?.fiber) || 0,
-                type: 'lunch' // Default
+                type: 'lunch' 
             };
             newPlan = { ...newPlan, dietLogs: [...(newPlan.dietLogs || []), logItem] };
         } else if (selectedContent.type === 'exercise') {
             const logItem: ExerciseLogItem = {
                 id: Date.now().toString(),
                 name: selectedContent.title,
-                calories: Number(selectedContent.details?.cal) || 100, // Estimate if missing
+                calories: Number(selectedContent.details?.cal) || 100, 
                 duration: Number(selectedContent.details?.duration) || 30
             };
             newPlan = { ...newPlan, exerciseLogs: [...(newPlan.exerciseLogs || []), logItem] };
         }
-
         const success = await updateUserPlan(userCheckupId, newPlan);
         if (success) {
             alert(`已将【${selectedContent.title}】加入今日记录！`);
@@ -320,16 +323,21 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         setSelectedContent(null);
     };
 
-    // Filter Content based on search
-    const filteredContent = useMemo(() => {
-        const all = [...meals, ...exercises];
-        if (!searchTerm) return all;
-        const lowerSearch = searchTerm.toLowerCase();
-        return all.filter(item => 
-            item.title.toLowerCase().includes(lowerSearch) || 
-            item.tags.some(t => t.toLowerCase().includes(lowerSearch))
-        );
-    }, [meals, exercises, searchTerm]);
+    // Filter Content based on search OR display recommendations
+    const contentToRender = useMemo(() => {
+        if (searchTerm) {
+            const lowerSearch = searchTerm.toLowerCase();
+            return [...allMeals, ...allExercises].filter(item => 
+                item.title.toLowerCase().includes(lowerSearch) || 
+                item.tags.some(t => t.toLowerCase().includes(lowerSearch))
+            );
+        }
+        // If expanded, show all (mixed), else show recommendations
+        if (isContentExpanded) {
+            return [...allMeals, ...allExercises];
+        }
+        return [...displayedMeals, ...displayedExercises];
+    }, [allMeals, allExercises, displayedMeals, displayedExercises, searchTerm, isContentExpanded]);
 
     // Chart Data
     const macroData = [
@@ -340,7 +348,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     ];
 
     const balanceData = [
-        { name: '已摄入', value: netCalories < 0 ? 0 : netCalories }, // Net (Food - Exercise)
+        { name: '已摄入', value: netCalories < 0 ? 0 : netCalories }, 
         { name: '剩余', value: Math.max(0, recommended.tdee - netCalories) }
     ];
 
@@ -503,33 +511,32 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                     <div className="flex items-center justify-between mb-4">
                         <h2 className="font-bold text-slate-800 text-lg flex items-center gap-2">
                             <span className="w-1.5 h-6 bg-teal-500 rounded-full"></span>
-                            推荐食谱 & 运动
+                            {searchTerm ? '搜索结果' : '为您推荐'}
                         </h2>
-                        {filteredContent.length > 3 && (
+                        {!searchTerm && (
                             <button 
-                                onClick={() => setIsContentExpanded(!isContentExpanded)}
-                                className="text-xs font-bold text-teal-600 flex items-center gap-1"
+                                onClick={() => refreshRecommendations()} 
+                                className="text-xs font-bold text-slate-500 flex items-center gap-1 active:scale-95 transition-transform"
                             >
-                                {isContentExpanded ? '收起 ⬆️' : '全部 ⬇️'}
+                                🔄 换一换
                             </button>
                         )}
                     </div>
                     
                     <div className={
-                        isContentExpanded 
+                        (isContentExpanded || searchTerm)
                         ? "grid grid-cols-2 gap-4 animate-fadeIn" 
-                        : "flex overflow-x-auto gap-4 pb-4 -mx-4 px-4 scrollbar-hide snap-x"
+                        : "grid grid-cols-2 gap-4"
                     }>
-                        {filteredContent.map(item => (
+                        {contentToRender.map(item => (
                             <div 
                                 key={item.id} 
                                 onClick={() => setSelectedContent(item)}
-                                className={`bg-white rounded-2xl p-2 shadow-sm border border-slate-100 flex flex-col cursor-pointer active:scale-95 transition-transform ${
-                                    isContentExpanded ? 'w-full' : 'snap-center shrink-0 w-40'
-                                }`}
+                                className={`bg-white rounded-2xl p-2 shadow-sm border border-slate-100 flex flex-col cursor-pointer active:scale-95 transition-transform`}
                             >
-                                <div className="aspect-square bg-slate-50 rounded-xl flex items-center justify-center text-4xl mb-2">
+                                <div className="aspect-square bg-slate-50 rounded-xl flex items-center justify-center text-4xl mb-2 relative">
                                     {item.image}
+                                    {item.type === 'exercise' && <span className="absolute bottom-1 right-1 text-[8px] bg-white/80 px-1 rounded">运动</span>}
                                 </div>
                                 <h3 className="font-bold text-slate-800 text-xs truncate px-1">{item.title}</h3>
                                 <div className="flex gap-1 mt-1 px-1">
@@ -539,8 +546,29 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                                 </div>
                             </div>
                         ))}
-                        {filteredContent.length === 0 && <div className="text-slate-400 text-xs w-full text-center py-4">无相关内容</div>}
+                        {contentToRender.length === 0 && <div className="text-slate-400 text-xs w-full text-center py-4 col-span-2">无相关推荐</div>}
                     </div>
+                    
+                    {!searchTerm && !isContentExpanded && (
+                        <div className="mt-4 text-center">
+                             <button 
+                                onClick={() => setIsContentExpanded(true)}
+                                className="text-xs text-slate-400 hover:text-teal-600 transition-colors"
+                             >
+                                 查看全部资源 ⬇️
+                             </button>
+                        </div>
+                    )}
+                    {isContentExpanded && !searchTerm && (
+                        <div className="mt-4 text-center">
+                             <button 
+                                onClick={() => setIsContentExpanded(false)}
+                                className="text-xs text-slate-400 hover:text-teal-600 transition-colors"
+                             >
+                                 收起 ⬆️
+                             </button>
+                        </div>
+                    )}
                 </section>
             </div>
 
