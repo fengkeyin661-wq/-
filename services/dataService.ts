@@ -307,6 +307,8 @@ export const updateExercisePlan = async (checkupId: string, plan: ExercisePlanDa
  * Update User Daily Integrated Plan
  */
 export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): Promise<boolean> => {
+    let success = false;
+
     // 1. Update Local Storage first
     try {
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
@@ -318,13 +320,16 @@ export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): 
                 all[idx].updated_at = new Date().toISOString();
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
                 console.log("Local storage user plan updated");
+                success = true; // Local update worked
+            } else {
+                console.warn(`Local archive not found for ${checkupId} when updating plan`);
             }
         }
     } catch(e) {
         console.warn("Local storage update failed", e);
     }
 
-    if (!isSupabaseConfigured()) return true; // Treat as success if only local is available
+    if (!isSupabaseConfigured()) return success; // Return local result if no cloud
     
     try {
         const { error } = await supabase
@@ -334,11 +339,14 @@ export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): 
                 updated_at: new Date().toISOString()
             })
             .eq('checkup_id', checkupId);
-        return !error;
+        
+        if (!error) success = true; // Cloud update worked
+        else console.error("Supabase update failed:", error);
     } catch (e) {
         console.error("Update User Daily Plan Error:", e);
-        return false;
     }
+
+    return success;
 };
 
 /**

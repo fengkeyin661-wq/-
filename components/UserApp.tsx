@@ -20,23 +20,24 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
-    const loadUser = async () => {
-      setLoading(true);
-      try {
-        const archive = await findArchiveByCheckupId(checkupId);
-        if (archive) {
-          setUserArchive(archive);
-        } else {
-          alert('未找到您的档案，请联系管理员核对体检编号');
-          onLogout();
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
+  const loadUser = async () => {
+    setLoading(true);
+    try {
+      const archive = await findArchiveByCheckupId(checkupId);
+      if (archive) {
+        setUserArchive(archive);
+      } else {
+        alert('未找到您的档案，请联系管理员核对体检编号');
+        onLogout();
       }
-    };
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadUser();
   }, [checkupId]);
 
@@ -74,7 +75,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       }
   };
 
-  if (loading) {
+  if (loading && !userArchive) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -93,18 +94,21 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               userCheckupId={userArchive.checkup_id}
               record={userArchive.health_record}
               dailyPlan={userArchive.custom_daily_plan}
+              onRefresh={loadUser}
           />
       )}
       {activeTab === 'medical' && (
           <UserMedicalServices 
               userId={userArchive.checkup_id} 
               userName={userArchive.name} 
+              assessment={userArchive.assessment_data}
           />
       )}
       {activeTab === 'community' && (
           <UserCommunity 
               userId={userArchive.checkup_id}
               userName={userArchive.name}
+              assessment={userArchive.assessment_data}
           />
       )}
       {activeTab === 'interaction' && (
