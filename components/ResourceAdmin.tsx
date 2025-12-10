@@ -358,15 +358,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         "关联疾病/场景": "2型糖尿病, 减重",
                         "禁忌提醒": "对鸡肉过敏者禁用",
                         "封面图URL/路径": "",
-                        "食材清单JSON/结构化文本": '[{"name":"鸡胸肉","amount":"200","unit":"g"},{"name":"西兰花","amount":"300","unit":"g"}]',
+                        "食材清单 (格式: 食材:用量; 食材:用量)": "鸡胸肉:200g;西兰花:300g;橄榄油:5ml;大蒜:2瓣",
                         "制作步骤": "鸡胸肉切丁... → 热锅少油... → 出锅",
                         "烹饪技巧/小贴士": "鸡胸肉腌制时加少许淀粉...",
-                        "单份预估热量(kcal)": 325,
-                        "单份蛋白质含量(g)": 35,
-                        "单份脂肪含量(g)": 12,
-                        "单份碳水化合物含量(g)": 15,
-                        "单份膳食纤维含量(g)": 5,
-                        "营养素总结": "本食谱高蛋白、低碳水...",
+                        "单份预估热量(kcal)": "", // Empty to trigger AI
+                        "单份蛋白质含量(g)": "", // Empty to trigger AI
+                        "单份脂肪含量(g)": "", // Empty to trigger AI
+                        "单份碳水化合物含量(g)": "", // Empty to trigger AI
+                        "单份膳食纤维含量(g)": "", // Empty to trigger AI
+                        "营养素总结": "", // Empty to trigger AI
                         "状态": "上架",
                         "排序值": 10
                     }]
@@ -404,6 +404,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
             let successCount = 0;
             const newItems: ContentItem[] = [];
+            const recipesToAnalyze: {name: string, ingredients: string, tempId: string}[] = [];
 
             for (const row of jsonData) {
                 // Common ID and timestamp
@@ -413,6 +414,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
                 // Mapper based on activeTab
                 switch(activeTab) {
+                    // ... (Other cases kept same, skipping for brevity) ...
                     case 'event':
                         if (!row['活动名称']) continue;
                         item = {
@@ -549,6 +551,16 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         const scenarioTags = row['关联疾病/场景'] ? row['关联疾病/场景'].split(/[,，]/).map((t: string) => t.trim()) : [];
                         const allTags = Array.from(new Set([...healthTags, ...scenarioTags]));
 
+                        // Updated field mapping
+                        const ingredients = row['食材清单 (格式: 食材:用量; 食材:用量)'] || row['食材清单JSON/结构化文本'];
+                        
+                        // Check if nutrition info is missing but ingredients exist -> Queue for AI
+                        const needsAnalysis = ingredients && (!row['单份预估热量(kcal)'] || row['单份预估热量(kcal)'] == 0);
+                        
+                        if (needsAnalysis) {
+                            recipesToAnalyze.push({ name: row['食谱名称'], ingredients: ingredients, tempId: id });
+                        }
+
                         item = {
                             id, 
                             type: 'meal', 
@@ -566,11 +578,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 mealType: row['用餐类型'],
                                 servings: row['适宜人数'],
                                 contraindications: row['禁忌提醒'],
-                                ingredients: row['食材清单JSON/结构化文本'], // Store raw, can be parsed later or in UI
+                                ingredients: ingredients, 
                                 steps: row['制作步骤'],
                                 tips: row['烹饪技巧/小贴士'],
                                 cal: row['单份预估热量(kcal)'], 
-                                nutrition: row['营养素总结'] || `蛋白质:${row['单份蛋白质含量(g)'] || '-'}g, 脂肪:${row['单份脂肪含量(g)'] || '-'}g, 碳水:${row['单份碳水化合物含量(g)'] || '-'}g`,
+                                nutrition: row['营养素总结'],
                                 macros: {
                                     protein: row['单份蛋白质含量(g)'],
                                     fat: row['单份脂肪含量(g)'],
@@ -586,7 +598,35 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 if (item) newItems.push(item);
             }
 
-            setLoadingText(`正在导入 ${newItems.length} 条数据...`);
+            // --- AI Analysis Step ---
+            if (recipesToAnalyze.length > 0) {
+                setLoadingText(`正在AI计算 ${recipesToAnalyze.length} 道食谱的营养成分...`);
+                try {
+                    const analysis = await calculateNutritionFromIngredients(recipesToAnalyze);
+                    
+                    // Merge analysis back into newItems
+                    recipesToAnalyze.forEach(req => {
+                        const targetItem = newItems.find(i => i.id === req.tempId);
+                        const result = analysis.nutritionData[req.name];
+                        
+                        if (targetItem && targetItem.details && result) {
+                            targetItem.details.cal = result.cal;
+                            targetItem.details.nutrition = result.nutrition;
+                            targetItem.details.macros = {
+                                protein: result.protein,
+                                fat: result.fat,
+                                carbs: result.carbs,
+                                fiber: result.fiber
+                            };
+                        }
+                    });
+                } catch (e) {
+                    console.error("AI Analysis Failed during import", e);
+                    alert("AI 营养计算部分失败，将保存原始数据。");
+                }
+            }
+
+            setLoadingText(`正在保存 ${newItems.length} 条数据...`);
             
             // Batch Save
             for (const item of newItems) {
@@ -594,7 +634,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 successCount++;
             }
 
-            alert(`导入完成！成功: ${successCount} 条`);
+            alert(`导入完成！成功: ${successCount} 条` + (recipesToAnalyze.length > 0 ? ` (含 ${recipesToAnalyze.length} 条AI营养计算)` : ''));
             loadData();
 
         } catch (error: any) {
@@ -624,7 +664,17 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             if (data) {
                 setEditItem(prev => ({
                     ...prev,
-                    details: { ...prev.details, nutrition: data.nutrition, cal: data.cal }
+                    details: { 
+                        ...prev.details, 
+                        nutrition: data.nutrition, 
+                        cal: data.cal,
+                        macros: {
+                            protein: data.protein,
+                            fat: data.fat,
+                            carbs: data.carbs,
+                            fiber: data.fiber
+                        }
+                    }
                 }));
             }
         } catch (e) {
@@ -1046,7 +1096,13 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     </FormSection>
                                     <FormSection title="营养价值">
                                         <InputField label="热量 (kcal)" value={editItem.details?.cal} onChange={(v:any) => updateDetail('cal', v)} />
-                                        <InputField label="主要营养素" value={editItem.details?.nutrition} onChange={(v:any) => updateDetail('nutrition', v)} />
+                                        <div className="col-span-2 grid grid-cols-4 gap-2">
+                                            <InputField label="蛋白质(g)" value={editItem.details?.macros?.protein} onChange={(v:any) => setEditItem(prev => ({...prev, details: {...prev.details, macros: {...prev.details?.macros, protein: v}}}))} />
+                                            <InputField label="脂肪(g)" value={editItem.details?.macros?.fat} onChange={(v:any) => setEditItem(prev => ({...prev, details: {...prev.details, macros: {...prev.details?.macros, fat: v}}}))} />
+                                            <InputField label="碳水(g)" value={editItem.details?.macros?.carbs} onChange={(v:any) => setEditItem(prev => ({...prev, details: {...prev.details, macros: {...prev.details?.macros, carbs: v}}}))} />
+                                            <InputField label="膳食纤维(g)" value={editItem.details?.macros?.fiber} onChange={(v:any) => setEditItem(prev => ({...prev, details: {...prev.details, macros: {...prev.details?.macros, fiber: v}}}))} />
+                                        </div>
+                                        <InputField label="营养素总结" full value={editItem.details?.nutrition} onChange={(v:any) => updateDetail('nutrition', v)} />
                                     </FormSection>
                                     <FormSection title="健康建议">
                                         <TagSelector label="健康标签" tags={PRESETS.dietTags} selected={editItem.tags} onToggle={toggleTag} />

@@ -479,22 +479,43 @@ export const generateExercisePlan = async (input: string): Promise<{ plan: { day
 };
 
 /**
- * 10. (New) 批量食谱营养计算
+ * 10. (Updated) 批量食谱营养计算 - 支持详细宏量营养素
  */
 export const calculateNutritionFromIngredients = async (
     recipes: { name: string, ingredients: string }[]
-): Promise<{ nutritionData: { [key: string]: { nutrition: string, cal: string } } }> => {
+): Promise<{ 
+    nutritionData: { 
+        [key: string]: { 
+            nutrition: string, 
+            cal: string,
+            protein?: string, 
+            fat?: string, 
+            carbs?: string, 
+            fiber?: string 
+        } 
+    } 
+}> => {
     const systemPrompt = `
     你是一名临床营养师。我将提供一组食谱的名称和配料。
-    请根据配料和用量，估算每份食谱的：
-    1. 营养成分 (nutrition): 包含蛋白质、脂肪、碳水化合物、主要微量元素等，简短描述。
-    2. 总热量 (cal): 单位 kcal，仅数字或数字+单位。
+    请根据配料和用量，估算每份食谱的详细营养数据。
     
-    如果配料描述模糊，请基于常见做法进行合理估算。
+    输入配料格式示例: "鸡胸肉:200g;西兰花:300g;橄榄油:5ml"
     
-    输入格式: JSON Array of { name, ingredients }
-    输出格式 JSON: { "nutritionData": { "食谱名称": { "nutrition": "...", "cal": "..." } } }
-    确保所有输入的食谱都在输出中找到对应结果。
+    请输出 JSON 格式:
+    { 
+      "nutritionData": { 
+        "食谱名称": { 
+           "nutrition": "简短的营养评价(如:高蛋白低脂，适合增肌)", 
+           "cal": "总热量(仅数字，单位kcal)",
+           "protein": "蛋白质(仅数字，单位g)",
+           "fat": "脂肪(仅数字，单位g)",
+           "carbs": "碳水化合物(仅数字，单位g)",
+           "fiber": "膳食纤维(仅数字，单位g)"
+        } 
+      } 
+    }
+    
+    如果配料描述模糊，请基于常见做法进行合理估算。确保返回纯数字用于 cal/protein/fat/carbs/fiber 字段。
     `;
 
     const userContent = JSON.stringify(recipes);
