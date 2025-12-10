@@ -10,11 +10,32 @@ export interface ExercisePlanData {
     logs: string[]; // Array of ISO date strings (YYYY-MM-DD) for completed check-ins
 }
 
+export interface DietLogItem {
+    id: string;
+    name: string;
+    calories: number;
+    protein: number; // g
+    fat: number; // g
+    carbs: number; // g
+    fiber: number; // g
+    type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+}
+
+export interface ExerciseLogItem {
+    id: string;
+    name: string;
+    calories: number; // kcal burned
+    duration: number; // minutes
+}
+
 export interface DailyHealthPlan {
     generatedAt: string;
     diet: { breakfast: string, lunch: string, dinner: string, snack: string };
     exercise: { morning: string, afternoon: string, evening: string };
     tips: string;
+    // New fields for tracking
+    dietLogs?: DietLogItem[];
+    exerciseLogs?: ExerciseLogItem[];
 }
 
 export interface HealthArchive {

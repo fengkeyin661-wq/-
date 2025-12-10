@@ -91,6 +91,8 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
           <UserDietMotion 
               assessment={userArchive.assessment_data} 
               userCheckupId={userArchive.checkup_id}
+              record={userArchive.health_record}
+              dailyPlan={userArchive.custom_daily_plan}
           />
       )}
       {activeTab === 'medical' && (
