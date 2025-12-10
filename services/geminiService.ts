@@ -525,26 +525,43 @@ export const calculateNutritionFromIngredients = async (
 /**
  * 11. (New) 一键生成每日综合健康方案
  */
-export const generateDailyIntegratedPlan = async (userProfileStr: string): Promise<{
+export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string): Promise<{
     diet: { breakfast: string, lunch: string, dinner: string, snack: string },
     exercise: { morning: string, afternoon: string, evening: string },
-    tips: string
+    tips: string,
+    recommendedMealIds?: string[],
+    recommendedExerciseIds?: string[]
 }> => {
     const systemPrompt = `
     你是一名资深健康管理师。请根据用户的健康档案（包含风险因素、疾病史、喜好等），为用户量身定制【明天的一日健康方案】。
+    
+    【重要资源调用】
+    我将提供一个【可选资源库列表】(Available Resources)，其中包含我们医院膳食库的食谱ID和名称，以及运动库的方案ID。
+    请务必从提供的资源库中，为用户**精选**出最适合的 1-3 道食谱和 1 个运动方案，并返回它们的 ID。
     
     要求：
     1. 饮食方案：三餐及加餐要具体到食物名称，符合其健康需求（如糖尿病需控糖、高血压需低盐）。
     2. 运动方案：结合其身体状况（如膝关节问题、心肺功能），安排早中晚的活动。
     3. 贴心小贴士：给出一句温暖且专业的健康提醒。
-    4. 输出 JSON 格式。
+    4. **资源匹配**：请在 recommendedMealIds 和 recommendedExerciseIds 字段中返回你推荐的具体项目ID（必须是资源库中存在的ID）。
+    5. 输出 JSON 格式。
     
     输出结构：
     {
       "diet": { "breakfast": "...", "lunch": "...", "dinner": "...", "snack": "..." },
       "exercise": { "morning": "...", "afternoon": "...", "evening": "..." },
-      "tips": "..."
+      "tips": "...",
+      "recommendedMealIds": ["id1", "id2"],
+      "recommendedExerciseIds": ["id3"]
     }
     `;
-    return await callDeepSeek(systemPrompt, userProfileStr, true);
+    
+    const userContent = `
+    用户档案: ${userProfileStr}
+    
+    可选资源库列表: 
+    ${resourcesContext || '暂无特定资源库，请自由发挥'}
+    `;
+    
+    return await callDeepSeek(systemPrompt, userContent, true);
 };

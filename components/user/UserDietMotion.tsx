@@ -63,6 +63,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSavingLog, setIsSavingLog] = useState(false);
 
+    // Preview Modal State
+    const [previewPlan, setPreviewPlan] = useState<any>(null);
+    const [recommendedItems, setRecommendedItems] = useState<ContentItem[]>([]);
+
     // Content Detail Modal
     const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
 
@@ -146,26 +150,78 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         setIsGenerating(true);
         try {
             const profileStr = `风险评估:${assessment.summary}, 风险点:${assessment.risks.red.join(',')}, ${assessment.risks.yellow.join(',')}`;
-            const plan = await generateDailyIntegratedPlan(profileStr);
-            const newDailyPlan: DailyHealthPlan = {
-                generatedAt: new Date().toISOString(),
-                ...plan,
-                dietLogs: dailyPlan?.dietLogs || [], // Preserve logs
-                exerciseLogs: dailyPlan?.exerciseLogs || []
-            };
             
-            const success = await updateUserPlan(userCheckupId, newDailyPlan);
-            if (success) {
-                alert("方案已生成并保存！");
-                window.location.reload(); // Force refresh to show new plan
-            } else {
-                alert("生成成功但保存失败，请检查网络");
-            }
+            // Prepare resource context
+            const resourceContext = JSON.stringify({
+                meals: meals.slice(0, 30).map(m => ({ id: m.id, name: m.title, tags: m.tags })),
+                exercises: exercises.slice(0, 10).map(e => ({ id: e.id, name: e.title, tags: e.tags }))
+            });
+
+            const plan = await generateDailyIntegratedPlan(profileStr, resourceContext);
+            
+            // Resolve recommendations
+            const recIds = [...(plan.recommendedMealIds || []), ...(plan.recommendedExerciseIds || [])];
+            const recItems = [...meals, ...exercises].filter(i => recIds.includes(i.id));
+            
+            setPreviewPlan(plan);
+            setRecommendedItems(recItems);
+            
         } catch (e) {
+            console.error(e);
             alert("生成失败，请重试");
         } finally {
             setIsGenerating(false);
         }
+    };
+
+    const handleConfirmPlan = async () => {
+        if (!previewPlan || !userCheckupId) return;
+        
+        setIsSavingLog(true);
+        
+        // 1. Convert Recommended Items to Logs
+        const newDietLogs: DietLogItem[] = recommendedItems
+            .filter(i => i.type === 'meal')
+            .map(i => ({
+                id: Date.now().toString() + Math.random().toString(36).substr(2,5),
+                name: i.title,
+                calories: Number(i.details?.cal) || 0,
+                protein: Number(i.details?.macros?.protein) || 0,
+                fat: Number(i.details?.macros?.fat) || 0,
+                carbs: Number(i.details?.macros?.carbs) || 0,
+                fiber: Number(i.details?.macros?.fiber) || 0,
+                type: 'lunch' // Default, user can adjust later if we had that UI
+            }));
+
+        const newExerciseLogs: ExerciseLogItem[] = recommendedItems
+            .filter(i => i.type === 'exercise')
+            .map(i => ({
+                id: Date.now().toString() + Math.random().toString(36).substr(2,5),
+                name: i.title,
+                calories: Number(i.details?.cal) || 100, // Estimate
+                duration: Number(i.details?.duration) || 30
+            }));
+
+        // 2. Merge with existing logs
+        const newDailyPlan: DailyHealthPlan = {
+            generatedAt: new Date().toISOString(),
+            diet: previewPlan.diet,
+            exercise: previewPlan.exercise,
+            tips: previewPlan.tips,
+            dietLogs: [...(dailyPlan?.dietLogs || []), ...newDietLogs],
+            exerciseLogs: [...(dailyPlan?.exerciseLogs || []), ...newExerciseLogs]
+        };
+
+        // 3. Save
+        const success = await updateUserPlan(userCheckupId, newDailyPlan);
+        if (success) {
+            alert("方案已应用，推荐项目已自动加入今日记录！");
+            window.location.reload();
+        } else {
+            alert("保存失败");
+        }
+        setIsSavingLog(false);
+        setPreviewPlan(null);
     };
 
     const handleAddLog = async () => {
@@ -436,6 +492,73 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                     </div>
                 </section>
             </div>
+
+            {/* Plan Preview Modal (New) */}
+            {previewPlan && (
+                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-white w-full max-w-sm rounded-2xl p-0 shadow-2xl animate-scaleIn overflow-hidden max-h-[85vh] flex flex-col">
+                        <div className="bg-gradient-to-r from-teal-500 to-emerald-600 p-6 text-white shrink-0">
+                            <h3 className="text-xl font-bold flex items-center gap-2">
+                                ✨ 今日专属推荐
+                            </h3>
+                            <p className="text-xs opacity-80 mt-1">AI 结合您的健康档案与资源库智能生成</p>
+                        </div>
+                        
+                        <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                            {/* Text Plan */}
+                            <div className="space-y-3">
+                                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">饮食建议</div>
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm text-slate-700 space-y-1">
+                                    <div className="flex gap-2"><span className="text-teal-600 font-bold">早</span> {previewPlan.diet.breakfast}</div>
+                                    <div className="flex gap-2"><span className="text-teal-600 font-bold">午</span> {previewPlan.diet.lunch}</div>
+                                    <div className="flex gap-2"><span className="text-teal-600 font-bold">晚</span> {previewPlan.diet.dinner}</div>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">运动建议</div>
+                                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm text-slate-700 space-y-1">
+                                    {previewPlan.exercise.morning && <div>🌅 {previewPlan.exercise.morning}</div>}
+                                    {previewPlan.exercise.afternoon && <div>🌇 {previewPlan.exercise.afternoon}</div>}
+                                    {previewPlan.exercise.evening && <div>🌙 {previewPlan.exercise.evening}</div>}
+                                </div>
+                            </div>
+
+                            {/* Recommended Cards */}
+                            {recommendedItems.length > 0 && (
+                                <div className="space-y-3">
+                                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider flex justify-between items-center">
+                                        <span>精选内容 (点击添加)</span>
+                                        <span className="text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full text-[10px]">{recommendedItems.length}项</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {recommendedItems.map(item => (
+                                            <div key={item.id} className="bg-white border border-teal-100 p-2 rounded-xl shadow-sm flex flex-col items-center text-center">
+                                                <div className="text-2xl mb-1">{item.image}</div>
+                                                <div className="text-xs font-bold text-slate-700 line-clamp-1">{item.title}</div>
+                                                <div className="text-[10px] text-slate-400 mt-1">
+                                                    {item.type === 'meal' ? `${item.details?.cal} kcal` : `${item.details?.duration} min`}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-4 border-t border-slate-100 bg-slate-50 flex gap-3 shrink-0">
+                            <button onClick={() => setPreviewPlan(null)} className="flex-1 py-3 text-slate-500 font-bold text-sm bg-white border border-slate-200 rounded-xl">取消</button>
+                            <button 
+                                onClick={handleConfirmPlan} 
+                                disabled={isSavingLog}
+                                className="flex-[2] py-3 bg-teal-600 text-white font-bold text-sm rounded-xl shadow-lg hover:bg-teal-700 disabled:opacity-50"
+                            >
+                                {isSavingLog ? '应用中...' : '确认并加入今日记录'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Content Detail Modal */}
             {selectedContent && (
