@@ -364,14 +364,20 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
     };
 
     const renderAppsView = () => {
-        const myApps = interactions.filter(i => i.type !== 'event_signup'); // Signing, Booking, Drug
+        const myApps = interactions.filter(i => i.type !== 'event_signup'); // Signing, Booking, Drug, Circle, Service
         return (
             <div className="p-4 space-y-3 animate-slideInRight">
                 {myApps.length === 0 ? <div className="text-center text-slate-400 mt-10">暂无申请记录</div> : myApps.map(app => (
                     <div key={app.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-center">
                         <div>
                             <div className="text-xs text-slate-400 mb-1 uppercase font-bold">
-                                {app.type==='signing'?'签约':app.type==='booking'?'预约':'开药'}
+                                {
+                                    app.type === 'doctor_signing' ? '签约申请' :
+                                    app.type === 'doctor_booking' ? '挂号预约' :
+                                    app.type === 'service_booking' ? '服务预约' :
+                                    app.type === 'drug_order' ? '药品预约' :
+                                    app.type === 'circle_join' ? '圈子申请' : '申请'
+                                }
                             </div>
                             <div className="font-bold text-slate-800">{app.targetName}</div>
                             <div className="text-[10px] text-slate-500 mt-1">{app.details}</div>
