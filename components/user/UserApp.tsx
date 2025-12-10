@@ -125,6 +125,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               archive={userArchive}
               onUpdateRecord={handleUpdateRecord}
               onLogout={onLogout}
+              onNavigate={setActiveTab}
           />
       )}
     </UserLayout>
