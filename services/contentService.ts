@@ -4,7 +4,7 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 // Shared Interfaces
 export interface ContentItem {
   id: string;
-  type: 'meal' | 'exercise' | 'article' | 'event' | 'drug' | 'doctor' | 'service';
+  type: 'meal' | 'exercise' | 'article' | 'event' | 'drug' | 'doctor' | 'service' | 'circle';
   title: string;
   description?: string;
   tags: string[];

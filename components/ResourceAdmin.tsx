@@ -31,11 +31,16 @@ const PRESETS = {
     exerciseTypes: ['有氧', '力量', '柔韧性', '康复训练', '体态矫正'],
     // New Service Presets
     serviceInsurance: ['甲类', '乙类', '自费'],
-    bookingTypes: ['需预约', '无需预约']
+    bookingTypes: ['需预约', '无需预约'],
+    // Circle Presets
+    circleTags: ['运动', '饮食', '慢病', '养生', '心理']
 };
 
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise'>('event');
+    // Sub-tab for Event (Community) section
+    const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
+    
     const [items, setItems] = useState<ContentItem[]>([]);
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     const [loading, setLoading] = useState(false);
@@ -58,7 +63,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
     useEffect(() => {
         loadData();
-    }, [activeTab]);
+    }, [activeTab, eventSubTab]);
 
     useEffect(() => {
         runDiagnostics();
@@ -73,20 +78,33 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         setLoading(true);
         setLoadingText('加载数据中...');
         setSelectedIds(new Set()); 
-        let contentType = '';
+        let contentType: string | string[] = '';
         switch(activeTab) {
             case 'recipe': contentType = 'meal'; break;
             case 'exercise': contentType = 'exercise'; break;
-            case 'event': contentType = 'event'; break;
+            case 'event': 
+                // Load both events and circles for this tab context, filter later
+                contentType = ['event', 'circle']; 
+                break;
             case 'service': contentType = 'service'; break;
             case 'drug': contentType = 'drug'; break;
             case 'doctor': contentType = 'doctor'; break;
         }
 
         const content = await fetchContent(contentType);
-        setItems(content);
-
+        
+        // Filter based on subTab if activeTab is event
         if (activeTab === 'event') {
+            if (eventSubTab === 'circle') {
+                setItems(content.filter(c => c.type === 'circle'));
+            } else {
+                setItems(content.filter(c => c.type === 'event'));
+            }
+        } else {
+            setItems(content);
+        }
+
+        if (activeTab === 'event' && eventSubTab === 'list') {
             const inters = await fetchInteractions('event_signup');
             setInteractions(inters);
         } else {
@@ -180,6 +198,46 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         } else {
             setEditItem({ ...editItem, tags: [...currentTags, tag] });
         }
+    };
+
+    // --- Circle Presets Logic ---
+    const handleInitCircles = async () => {
+        if (!confirm("确定要一键开通以下热门圈子吗？\n1. 减重打卡\n2. 控糖互助\n3. 每日万步\n4. 中医养生\n\n如果已存在同名圈子将不会重复创建。")) return;
+        
+        setLoading(true);
+        const defaults = [
+            { title: '减重打卡', image: '⚖️', description: '管住嘴迈开腿，一起瘦！科学减重经验分享。', tags: ['运动','饮食'] },
+            { title: '控糖互助', image: '🥗', description: '分享控糖食谱和心得，糖尿病友及高危人群互助。', tags: ['慢病','饮食'] },
+            { title: '每日万步', image: '👟', description: '晒微信步数，赢健康积分，走出健康好身材。', tags: ['运动'] },
+            { title: '中医养生', image: '🌿', description: '四季养生，穴位按摩，中医药膳交流。', tags: ['养生'] }
+        ];
+
+        // Fetch existing to avoid dupe
+        const existing = await fetchContent('circle');
+        const existingTitles = existing.map(e => e.title);
+
+        let addedCount = 0;
+        for (const def of defaults) {
+            if (!existingTitles.includes(def.title)) {
+                await saveContent({
+                    id: `circle_${Date.now()}_${Math.random().toString(36).substr(2,5)}`,
+                    type: 'circle',
+                    title: def.title,
+                    image: def.image,
+                    description: def.description,
+                    tags: def.tags,
+                    status: 'active',
+                    isUserUpload: false,
+                    updatedAt: new Date().toISOString(),
+                    details: { memberCount: Math.floor(Math.random() * 50) + 10 } // Fake initial members
+                });
+                addedCount++;
+            }
+        }
+        
+        setLoading(false);
+        alert(`操作完成！新开通 ${addedCount} 个圈子。`);
+        loadData();
     };
 
     // --- Excel Handling Logic for Services ---
@@ -336,7 +394,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         } else {
             let type: any = 'meal';
             if (activeTab === 'exercise') type = 'exercise';
-            if (activeTab === 'event') type = 'event';
+            if (activeTab === 'event') {
+                type = eventSubTab === 'circle' ? 'circle' : 'event';
+            }
             if (activeTab === 'service') type = 'service';
             if (activeTab === 'drug') type = 'drug';
             if (activeTab === 'doctor') type = 'doctor';
@@ -347,7 +407,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 title: '',
                 status: 'active',
                 tags: [],
-                image: type === 'meal' ? '🍲' : type === 'exercise' ? '🏃' : type === 'event' ? '🎉' : type === 'service' ? '🏥' : type === 'drug' ? '💊' : '👨‍⚕️',
+                image: type === 'meal' ? '🍲' : type === 'exercise' ? '🏃' : type === 'event' ? '🎉' : type === 'service' ? '🏥' : type === 'drug' ? '💊' : type === 'circle' ? '⭕' : '👨‍⚕️',
                 details: {}
             });
         }
@@ -434,7 +494,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
                 <main className="flex-1 p-8 overflow-y-auto">
                     {/* Interaction Tables (Top) - Only for Events now */}
-                    {activeTab === 'event' && (
+                    {activeTab === 'event' && eventSubTab === 'list' && (
                         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
                                 活动报名审核
@@ -445,52 +505,81 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
                     {/* Resource List (Bottom) */}
                     <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-slate-700">
-                                {activeTab === 'recipe' ? '膳食资源库' : 
-                                 activeTab === 'exercise' ? '运动康复库' : 
-                                 activeTab === 'event' ? '社区活动列表' :
-                                 activeTab === 'service' ? '医院服务项目' :
-                                 activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
-                            </h3>
-                            <div className="flex gap-2">
-                                {activeTab === 'service' && (
-                                    <>
-                                        <button 
-                                            onClick={handleDownloadTemplate}
-                                            className="bg-white text-slate-600 border border-slate-300 px-3 py-2 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-2"
-                                        >
-                                            📥 下载模板
-                                        </button>
-                                        <input 
-                                            type="file" 
-                                            ref={serviceImportRef} 
-                                            className="hidden" 
-                                            accept=".xlsx, .xls"
-                                            onChange={handleServiceImport}
-                                        />
-                                        <button 
-                                            onClick={() => serviceImportRef.current?.click()}
-                                            className="bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm"
-                                        >
-                                            📂 批量导入
-                                        </button>
-                                        <div className="w-px h-8 bg-slate-200 mx-1"></div>
-                                    </>
-                                )}
+                        <div className="flex flex-col gap-4 mb-4">
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-lg font-bold text-slate-700">
+                                    {activeTab === 'recipe' ? '膳食资源库' : 
+                                     activeTab === 'exercise' ? '运动康复库' : 
+                                     activeTab === 'event' ? '社区活动与圈子' :
+                                     activeTab === 'service' ? '医院服务项目' :
+                                     activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
+                                </h3>
+                                <div className="flex gap-2">
+                                    {activeTab === 'service' && (
+                                        <>
+                                            <button 
+                                                onClick={handleDownloadTemplate}
+                                                className="bg-white text-slate-600 border border-slate-300 px-3 py-2 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-2"
+                                            >
+                                                📥 下载模板
+                                            </button>
+                                            <input 
+                                                type="file" 
+                                                ref={serviceImportRef} 
+                                                className="hidden" 
+                                                accept=".xlsx, .xls"
+                                                onChange={handleServiceImport}
+                                            />
+                                            <button 
+                                                onClick={() => serviceImportRef.current?.click()}
+                                                className="bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm"
+                                            >
+                                                📂 批量导入
+                                            </button>
+                                            <div className="w-px h-8 bg-slate-200 mx-1"></div>
+                                        </>
+                                    )}
 
-                                {selectedIds.size > 0 && (
-                                    <button 
-                                        onClick={handleBatchDelete}
-                                        className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 animate-fadeIn"
-                                    >
-                                        🗑️ 批量删除 ({selectedIds.size})
+                                    {activeTab === 'event' && eventSubTab === 'circle' && (
+                                        <button 
+                                            onClick={handleInitCircles}
+                                            className="bg-indigo-50 text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-100 flex items-center gap-1 animate-fadeIn"
+                                        >
+                                            🚀 一键开通热门圈子
+                                        </button>
+                                    )}
+
+                                    {selectedIds.size > 0 && (
+                                        <button 
+                                            onClick={handleBatchDelete}
+                                            className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 animate-fadeIn"
+                                        >
+                                            🗑️ 批量删除 ({selectedIds.size})
+                                        </button>
+                                    )}
+                                    <button onClick={() => openEdit()} className="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700 shadow-sm flex items-center gap-2">
+                                        <span>+</span> 新增
                                     </button>
-                                )}
-                                <button onClick={() => openEdit()} className="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700 shadow-sm flex items-center gap-2">
-                                    <span>+</span> 新增
-                                </button>
+                                </div>
                             </div>
+
+                            {/* Event Sub-Tabs */}
+                            {activeTab === 'event' && (
+                                <div className="flex border-b border-slate-100">
+                                    <button 
+                                        onClick={() => setEventSubTab('list')}
+                                        className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${eventSubTab === 'list' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}
+                                    >
+                                        📅 社区活动列表
+                                    </button>
+                                    <button 
+                                        onClick={() => setEventSubTab('circle')}
+                                        className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${eventSubTab === 'circle' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}
+                                    >
+                                        ⭕️ 热门圈子管理
+                                    </button>
+                                </div>
+                            )}
                         </div>
                         
                         {loading ? (
@@ -524,6 +613,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             <td className="p-3 text-xs text-slate-500">
                                                 {item.type === 'meal' && `难度:${item.details?.difficulty} • ${item.details?.cal}`}
                                                 {item.type === 'event' && `📅 ${item.details?.date?.replace('T',' ')} • 📍${item.details?.loc}`}
+                                                {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人`}
                                                 {item.type === 'doctor' && `${item.details?.dept} • ${item.details?.title}`}
                                                 {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
                                                 {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
@@ -557,12 +647,12 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                             <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                                 <span>{editItem.id?.includes('.') ? '✏️ 编辑' : '➕ 新增'}</span>
-                                {activeTab === 'event' && '社区活动'}
-                                {activeTab === 'service' && '医院服务'}
-                                {activeTab === 'doctor' && '医生信息'}
-                                {activeTab === 'drug' && '药品条目'}
-                                {activeTab === 'recipe' && '膳食食谱'}
-                                {activeTab === 'exercise' && '运动方案'}
+                                {activeTab === 'event' && eventSubTab === 'circle' ? '兴趣圈子' : 
+                                 activeTab === 'event' ? '社区活动' :
+                                 activeTab === 'service' ? '医院服务' :
+                                 activeTab === 'doctor' ? '医生信息' :
+                                 activeTab === 'drug' ? '药品条目' :
+                                 activeTab === 'recipe' ? '膳食食谱' : '运动方案'}
                             </h3>
                             <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
                         </div>
@@ -586,7 +676,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {/* --- Specific Fields --- */}
                             
                             {/* 1. COMMUNITY EVENT */}
-                            {activeTab === 'event' && (
+                            {activeTab === 'event' && editItem.type === 'event' && (
                                 <>
                                     <FormSection title="时间与地点">
                                         <InputField label="开始时间" type="datetime-local" value={editItem.details?.date} onChange={(v:any) => updateDetail('date', v)} />
@@ -601,6 +691,19 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     <FormSection title="分类标签">
                                         <TagSelector label="活动类型" tags={PRESETS.activityTypes} selected={editItem.tags} onToggle={toggleTag} />
                                         <TagSelector label="面向人群" tags={PRESETS.targetAudience} selected={editItem.tags} onToggle={toggleTag} />
+                                    </FormSection>
+                                </>
+                            )}
+
+                            {/* 1.1 CIRCLE (NEW) */}
+                            {activeTab === 'event' && editItem.type === 'circle' && (
+                                <>
+                                    <FormSection title="圈子详情">
+                                        <TextAreaField label="圈子简介 / Slogan" placeholder="一句话描述圈子宗旨" value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
+                                        <InputField label="初始成员数 (虚拟)" type="number" value={editItem.details?.memberCount} onChange={(v:any) => updateDetail('memberCount', v)} />
+                                    </FormSection>
+                                    <FormSection title="分类标签">
+                                        <TagSelector label="圈子类型" tags={PRESETS.circleTags} selected={editItem.tags} onToggle={toggleTag} />
                                     </FormSection>
                                 </>
                             )}
