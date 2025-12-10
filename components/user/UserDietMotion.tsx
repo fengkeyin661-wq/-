@@ -14,6 +14,7 @@ interface Props {
     onRefresh?: () => void;
 }
 
+// ... (Smart Icon Helper & Score Helper remain same - omitted for brevity, assuming existing code structure) ...
 // --- Smart Icon Helper ---
 const getSmartIcon = (title: string, type: 'meal' | 'exercise'): string => {
     const t = title.toLowerCase();
@@ -100,7 +101,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     // Content Detail Modal
     const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
 
-    // Manual Log Forms
+    // Manual Log Forms - NOW INCLUDES MACROS
     const [dietForm, setDietForm] = useState<Omit<DietLogItem, 'id'>>({
         name: '', calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, type: 'lunch'
     });
@@ -121,7 +122,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         const gender = record.profile.gender || '男';
         let bmr = (10 * weight) + (6.25 * height) - (5 * age);
         bmr += gender === '女' ? -161 : 5;
-        const tdee = Math.round(bmr * 1.375);
+        const tdee = Math.round(bmr * 1.375); // Light activity base
         const proteinCal = tdee * 0.18; 
         const proteinG = Math.round(proteinCal / 4);
         const fatCal = tdee * 0.28;
@@ -131,21 +132,21 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         return { bmr: Math.round(bmr), tdee, protein: proteinG, fat: fatG, carbs: carbsG, fiber: 25 };
     }, [record]);
 
-    // Current Totals
+    // Current Totals - Calculates directly from the logs
     const currentIntake = useMemo(() => {
         if (!dailyPlan?.dietLogs) return { cal: 0, p: 0, f: 0, c: 0, fib: 0 };
         return dailyPlan.dietLogs.reduce((acc, item) => ({
-            cal: acc.cal + Number(item.calories),
-            p: acc.p + Number(item.protein),
-            f: acc.f + Number(item.fat),
-            c: acc.c + Number(item.carbs),
-            fib: acc.fib + Number(item.fiber),
+            cal: acc.cal + Number(item.calories || 0),
+            p: acc.p + Number(item.protein || 0),
+            f: acc.f + Number(item.fat || 0),
+            c: acc.c + Number(item.carbs || 0),
+            fib: acc.fib + Number(item.fiber || 0),
         }), { cal: 0, p: 0, f: 0, c: 0, fib: 0 });
     }, [dailyPlan]);
 
     const currentBurn = useMemo(() => {
         if (!dailyPlan?.exerciseLogs) return 0;
-        return dailyPlan.exerciseLogs.reduce((acc, item) => acc + Number(item.calories), 0);
+        return dailyPlan.exerciseLogs.reduce((acc, item) => acc + Number(item.calories || 0), 0);
     }, [dailyPlan]);
 
     const netCalories = currentIntake.cal - currentBurn;
@@ -228,33 +229,42 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         }
     };
 
+    // CRITICAL: Transforms AI Plan + Recommended Items into DB Logs
     const handleConfirmPlan = async () => {
         if (!previewPlan || !userCheckupId) return;
         setIsSavingLog(true);
         
-        // Use recommended items if available, otherwise just rely on the text plan
-        const newDietLogs: DietLogItem[] = recommendedItems.filter(i => i.type === 'meal').map(i => ({
-            id: Date.now().toString() + Math.random().toString(36).substr(2,5),
-            name: i.title,
-            calories: Number(i.details?.cal) || 0,
-            protein: Number(i.details?.macros?.protein) || 0,
-            fat: Number(i.details?.macros?.fat) || 0,
-            carbs: Number(i.details?.macros?.carbs) || 0,
-            fiber: Number(i.details?.macros?.fiber) || 0,
-            type: 'lunch'
-        }));
-        const newExerciseLogs: ExerciseLogItem[] = recommendedItems.filter(i => i.type === 'exercise').map(i => ({
-            id: Date.now().toString() + Math.random().toString(36).substr(2,5),
-            name: i.title,
-            calories: Number(i.details?.cal) || 100,
-            duration: Number(i.details?.duration) || 30
-        }));
+        // 1. Convert Recommended Meals to Logs (Auto-Calculation!)
+        const newDietLogs: DietLogItem[] = recommendedItems
+            .filter(i => i.type === 'meal')
+            .map(i => ({
+                id: Date.now().toString() + Math.random().toString(36).substr(2,5),
+                name: i.title,
+                calories: Number(i.details?.cal) || 400, // Fallback avg meal
+                protein: Number(i.details?.macros?.protein) || 20,
+                fat: Number(i.details?.macros?.fat) || 15,
+                carbs: Number(i.details?.macros?.carbs) || 50,
+                fiber: Number(i.details?.macros?.fiber) || 5,
+                type: 'lunch' // Default to lunch for bulk add
+            }));
 
+        // 2. Convert Recommended Exercises to Logs
+        const newExerciseLogs: ExerciseLogItem[] = recommendedItems
+            .filter(i => i.type === 'exercise')
+            .map(i => ({
+                id: Date.now().toString() + Math.random().toString(36).substr(2,5),
+                name: i.title,
+                calories: Number(i.details?.cal) || 150,
+                duration: Number(i.details?.duration) || 30
+            }));
+
+        // 3. Construct Updated Plan Object
         const newDailyPlan: DailyHealthPlan = {
             generatedAt: new Date().toISOString(),
             diet: previewPlan.diet,
             exercise: previewPlan.exercise,
             tips: previewPlan.tips,
+            // MERGE with existing logs or replace? Typically append for the day.
             dietLogs: [...(dailyPlan?.dietLogs || []), ...newDietLogs],
             exerciseLogs: [...(dailyPlan?.exerciseLogs || []), ...newExerciseLogs]
         };
@@ -262,7 +272,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         try {
             const success = await updateUserPlan(userCheckupId, newDailyPlan);
             if (success) {
-                alert("方案已保存！请前往【我的 - 饮食与运动方案】查看详细记录。");
+                alert("方案已应用！相关饮食运动已自动加入今日记录，热量统计已更新。");
                 if (onRefresh) onRefresh(); 
             } else {
                 alert("保存失败，请检查网络或重试");
@@ -744,7 +754,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             )}
 
             {/* Manual Log Modal */}
-            {/* ... (Rest of component remains same) ... */}
             {showAddLog && (
                 <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
                     <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl animate-scaleIn">

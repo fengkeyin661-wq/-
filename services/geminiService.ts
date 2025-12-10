@@ -1,6 +1,8 @@
 
+// ... (imports remain the same) ...
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 
+// ... (config and other functions remain the same) ...
 // DeepSeek API Configuration
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 
@@ -79,6 +81,7 @@ const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode:
     }
 };
 
+// ... (parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule, analyzeFollowUpRecord, generateFollowUpSMS, generateHospitalBusinessAnalysis, generateAnnualReportSummary, generateDietAssessment, generateExercisePlan, calculateNutritionFromIngredients functions remain exactly the same) ...
 /**
  * 1. 智能解析: 从文本中提取结构化健康档案
  */
@@ -537,16 +540,15 @@ export const generateDailyIntegratedPlan = async (userProfileStr: string, resour
     
     【重要资源调用】
     我将提供一个【可选资源库列表】(Available Resources)，其中包含我们医院膳食库的食谱ID和名称，以及运动库的方案ID。
-    请务必从提供的资源库中，为用户**精选**出最适合的 1-3 道食谱和 1 个运动方案，并返回它们的 ID。
+    请务必从提供的资源库中，为用户**精选**出最适合的 1-3 道食谱和 1 个运动方案。
     
-    要求：
-    1. 饮食方案：三餐及加餐要具体到食物名称，符合其健康需求（如糖尿病需控糖、高血压需低盐）。
-    2. 运动方案：结合其身体状况（如膝关节问题、心肺功能），安排早中晚的活动。
-    3. 贴心小贴士：给出一句温暖且专业的健康提醒。
-    4. **资源匹配**：请在 recommendedMealIds 和 recommendedExerciseIds 字段中返回你推荐的具体项目ID（必须是资源库中存在的ID）。
-    5. 输出 JSON 格式。
+    **关键要求**：
+    1. 在 diet/exercise 文本中，你可以自由发挥描述，但建议提及资源库中的食谱名称。
+    2. **必须**在 recommendedMealIds 和 recommendedExerciseIds 字段中返回你选中的具体项目 ID。这些 ID **必须完全匹配**资源库列表中提供的 ID，不能臆造。如果资源库为空或没有合适的，返回空数组。
+    3. 饮食方案：三餐及加餐要具体，符合其健康需求（如糖尿病需控糖）。
+    4. 运动方案：结合其身体状况，安排活动。
     
-    输出结构：
+    输出结构 JSON：
     {
       "diet": { "breakfast": "...", "lunch": "...", "dinner": "...", "snack": "..." },
       "exercise": { "morning": "...", "afternoon": "...", "evening": "..." },
@@ -559,7 +561,7 @@ export const generateDailyIntegratedPlan = async (userProfileStr: string, resour
     const userContent = `
     用户档案: ${userProfileStr}
     
-    可选资源库列表: 
+    可选资源库列表 (请从中选择 ID): 
     ${resourcesContext || '暂无特定资源库，请自由发挥'}
     `;
     
