@@ -28,7 +28,10 @@ const PRESETS = {
     dietDifficulty: ['⭐', '⭐⭐', '⭐⭐⭐'],
     exerciseIntensity: ['低强度', '中强度', '高强度'],
     dietTags: ['低GI', '高纤维', '低脂', '高蛋白', '适合糖友', '护心'],
-    exerciseTypes: ['有氧', '力量', '柔韧性', '康复训练', '体态矫正']
+    exerciseTypes: ['有氧', '力量', '柔韧性', '康复训练', '体态矫正'],
+    // New Service Presets
+    serviceInsurance: ['甲类', '乙类', '自费'],
+    bookingTypes: ['需预约', '无需预约']
 };
 
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
@@ -40,7 +43,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     
     // DB Diagnostics
     const [dbStatus, setDbStatus] = useState<{status: string, message: string, details?: string} | null>(null);
-    const [showSqlModal, setShowSqlModal] = useState(false);
 
     // Content Edit State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -51,6 +53,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Specific ref for Service Excel Import
+    const serviceImportRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
@@ -82,8 +86,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         const content = await fetchContent(contentType);
         setItems(content);
 
-        // Updated Logic: Only load interactions for Community Events
-        // Medical, Drug, and Doctor Signing interactions are now handled by the Signed Doctor
         if (activeTab === 'event') {
             const inters = await fetchInteractions('event_signup');
             setInteractions(inters);
@@ -180,6 +182,126 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    // --- Excel Handling Logic for Services ---
+    const handleDownloadTemplate = () => {
+        const headers = [
+            ['基础标识', '项目名称', '归属科室编码', '一级分类', '二级分类', '标签', '核心内容', '项目简介（列表页摘要）', '项目详情/流程', '适宜人群', '禁忌与注意事项', '临床意义', '预约规则', '预约类型', '预约规则模板', '就诊地点详情', '预计耗时', '报告出具时间', '费用信息', '标准价格(元)', '医保类型', '自费金额估算(元)', '医保报销说明', '运营配置', '排序值', '初始状态'],
+            ['(留空)', '必填', '必填', '必填', '必填', '逗号分隔', '', '80字内', '支持换行', '必填', '必填', '选填', '', '需预约/无需预约', '选填', '选填', '如:90分钟', '如:1工作日', '', '数字', '甲类/乙类/自费', '数字', '选填', '', '默认999', '上架/下架']
+        ];
+        
+        // Remove grouping rows for actual csv/xlsx data simplicity in this demo, just using single header row
+        const templateData = [
+            {
+                "项目ID（系统生成）": "",
+                "项目名称": "示例：无痛胃镜检查",
+                "归属科室编码": "DIGEST001",
+                "一级分类": "检查",
+                "二级分类": "内镜",
+                "标签": "消化,胃部,无痛",
+                "项目简介（列表页摘要）": "采用静脉麻醉，舒适无痛，清晰观察食管、胃、十二指肠病变。",
+                "项目详情/流程": "1.预约\n2.禁食水\n3.麻醉评估\n4.检查\n5.苏醒",
+                "适宜人群": "胃部不适、有家族史人群",
+                "禁忌与注意事项": "严重心肺疾病禁用；需家属陪同。",
+                "临床意义": "发现早期胃癌的金标准。",
+                "预约类型": "需预约",
+                "预约规则模板": "常规检查预约",
+                "就诊地点详情": "门诊楼3层内镜中心",
+                "预计耗时": "约30分钟",
+                "报告出具时间": "即时出具（活检除外）",
+                "标准价格(元)": 800.00,
+                "医保类型": "乙类",
+                "自费金额估算(元)": 160.00,
+                "医保报销说明": "医保统筹支付80%",
+                "排序值": 10,
+                "初始状态": "上架"
+            }
+        ];
+
+        const ws = XLSX.utils.json_to_sheet(templateData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "服务项目导入模板");
+        XLSX.writeFile(wb, "服务项目批量导入模板.xlsx");
+    };
+
+    const handleServiceImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setLoading(true);
+        setLoadingText('正在解析 Excel...');
+
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+            if (jsonData.length === 0) {
+                throw new Error("文件内容为空");
+            }
+
+            let successCount = 0;
+            const newItems: ContentItem[] = [];
+
+            for (const row of jsonData) {
+                // Map Excel Columns to ContentItem structure
+                if (!row['项目名称'] || !row['归属科室编码']) continue; // Skip invalid rows
+
+                const item: ContentItem = {
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                    type: 'service',
+                    title: row['项目名称'],
+                    tags: row['标签'] ? row['标签'].split(/[,，]/) : [],
+                    description: row['项目简介（列表页摘要）'] || '',
+                    image: '🏥', // Default Icon
+                    status: row['初始状态'] === '上架' ? 'active' : 'pending', // Default draft/pending if not explicitly active
+                    isUserUpload: false,
+                    updatedAt: new Date().toISOString(),
+                    details: {
+                        deptCode: row['归属科室编码'],
+                        categoryL1: row['一级分类'],
+                        categoryL2: row['二级分类'],
+                        workflow: row['项目详情/流程'],
+                        audience: row['适宜人群'],
+                        contraindications: row['禁忌与注意事项'],
+                        clinicalSignificance: row['临床意义'],
+                        bookingType: row['预约类型'],
+                        bookingTemplate: row['预约规则模板'],
+                        location: row['就诊地点详情'],
+                        duration: row['预计耗时'],
+                        reportTime: row['报告出具时间'],
+                        price: row['标准价格(元)'],
+                        insuranceType: row['医保类型'],
+                        selfPayEst: row['自费金额估算(元)'],
+                        reimbursementNote: row['医保报销说明'],
+                        sortOrder: row['排序值'] || 999
+                    }
+                };
+                newItems.push(item);
+            }
+
+            setLoadingText(`正在导入 ${newItems.length} 条数据...`);
+            
+            // Batch Save
+            for (const item of newItems) {
+                await saveContent(item);
+                successCount++;
+            }
+
+            alert(`导入完成！成功: ${successCount} 条`);
+            loadData();
+
+        } catch (error: any) {
+            console.error("Import Error", error);
+            alert(`导入失败: ${error.message}`);
+        } finally {
+            setLoading(false);
+            if (serviceImportRef.current) serviceImportRef.current.value = '';
+        }
+    };
+
+    // --- Helper for other features ---
     const handleAiAnalysis = async () => {
         if (!editItem.title || !editItem.details?.ingredients) {
             alert("请先填写【名称】和【配料及用量】以进行准确分析");
@@ -332,6 +454,31 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                  activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
                             </h3>
                             <div className="flex gap-2">
+                                {activeTab === 'service' && (
+                                    <>
+                                        <button 
+                                            onClick={handleDownloadTemplate}
+                                            className="bg-white text-slate-600 border border-slate-300 px-3 py-2 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-2"
+                                        >
+                                            📥 下载模板
+                                        </button>
+                                        <input 
+                                            type="file" 
+                                            ref={serviceImportRef} 
+                                            className="hidden" 
+                                            accept=".xlsx, .xls"
+                                            onChange={handleServiceImport}
+                                        />
+                                        <button 
+                                            onClick={() => serviceImportRef.current?.click()}
+                                            className="bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm"
+                                        >
+                                            📂 批量导入
+                                        </button>
+                                        <div className="w-px h-8 bg-slate-200 mx-1"></div>
+                                    </>
+                                )}
+
                                 {selectedIds.size > 0 && (
                                     <button 
                                         onClick={handleBatchDelete}
@@ -379,7 +526,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                 {item.type === 'event' && `📅 ${item.details?.date?.replace('T',' ')} • 📍${item.details?.loc}`}
                                                 {item.type === 'doctor' && `${item.details?.dept} • ${item.details?.title}`}
                                                 {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
-                                                {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insurance ? '医保' : '自费'}`}
+                                                {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
                                             </td>
                                             <td className="p-3">
                                                 <div className="flex flex-wrap gap-1">
@@ -458,18 +605,38 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 </>
                             )}
 
-                            {/* 2. HOSPITAL SERVICE */}
+                            {/* 2. HOSPITAL SERVICE (Updated) */}
                             {activeTab === 'service' && (
                                 <>
-                                    <FormSection title="服务详情">
-                                        <SelectField label="所属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={PRESETS.depts} />
-                                        <InputField label="服务价格 (元)" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
-                                        <InputField label="服务时间" placeholder="如：工作日 8:00-11:30" value={editItem.details?.time} onChange={(v:any) => updateDetail('time', v)} />
-                                        <ToggleField label="医保报销" value={editItem.details?.insurance} onChange={(v:any) => updateDetail('insurance', v)} />
+                                    <FormSection title="基础分类与标识">
+                                        <SelectField label="归属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={PRESETS.depts} />
+                                        <InputField label="科室编码" placeholder="如：DEPT001" value={editItem.details?.deptCode} onChange={(v:any) => updateDetail('deptCode', v)} />
+                                        <InputField label="一级分类" value={editItem.details?.categoryL1} onChange={(v:any) => updateDetail('categoryL1', v)} />
+                                        <InputField label="二级分类" value={editItem.details?.categoryL2} onChange={(v:any) => updateDetail('categoryL2', v)} />
+                                        <InputField label="排序值" type="number" value={editItem.details?.sortOrder} onChange={(v:any) => updateDetail('sortOrder', v)} />
                                     </FormSection>
-                                    <FormSection title="操作指引">
-                                        <TextAreaField label="服务介绍" placeholder="简述内容和流程..." value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
-                                        <InputField label="准备事项" placeholder="如：需空腹、带社保卡" full value={editItem.details?.prep} onChange={(v:any) => updateDetail('prep', v)} />
+                                    <FormSection title="服务内容">
+                                        <TextAreaField label="项目简介 (列表摘要)" placeholder="80字内最佳" value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
+                                        <TextAreaField label="项目详情/流程" placeholder="支持换行" value={editItem.details?.workflow} onChange={(v:any) => updateDetail('workflow', v)} />
+                                        <InputField label="适宜人群" full value={editItem.details?.audience} onChange={(v:any) => updateDetail('audience', v)} />
+                                        <InputField label="禁忌与注意事项" full value={editItem.details?.contraindications} onChange={(v:any) => updateDetail('contraindications', v)} />
+                                        <InputField label="临床意义" full value={editItem.details?.clinicalSignificance} onChange={(v:any) => updateDetail('clinicalSignificance', v)} />
+                                    </FormSection>
+                                    <FormSection title="预约与执行">
+                                        <SelectField label="预约类型" value={editItem.details?.bookingType} onChange={(v:any) => updateDetail('bookingType', v)} options={PRESETS.bookingTypes} />
+                                        <InputField label="预约规则模板" placeholder="如：常规检查预约" value={editItem.details?.bookingTemplate} onChange={(v:any) => updateDetail('bookingTemplate', v)} />
+                                        <InputField label="就诊地点详情" value={editItem.details?.location} onChange={(v:any) => updateDetail('location', v)} />
+                                        <InputField label="预计耗时" value={editItem.details?.duration} onChange={(v:any) => updateDetail('duration', v)} />
+                                        <InputField label="报告出具时间" value={editItem.details?.reportTime} onChange={(v:any) => updateDetail('reportTime', v)} />
+                                    </FormSection>
+                                    <FormSection title="费用与医保">
+                                        <InputField label="标准价格 (元)" type="number" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
+                                        <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={PRESETS.serviceInsurance} />
+                                        <InputField label="自费估算 (元)" type="number" value={editItem.details?.selfPayEst} onChange={(v:any) => updateDetail('selfPayEst', v)} />
+                                        <InputField label="医保报销说明" full value={editItem.details?.reimbursementNote} onChange={(v:any) => updateDetail('reimbursementNote', v)} />
+                                    </FormSection>
+                                    <FormSection title="标签">
+                                        <InputField label="标签 (逗号分隔)" full value={editItem.tags?.join(',')} onChange={(v:any) => setEditItem({...editItem, tags: v.split(/[,，]/)})} />
                                     </FormSection>
                                 </>
                             )}
