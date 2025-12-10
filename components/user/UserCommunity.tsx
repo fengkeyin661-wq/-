@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
 
 interface Props {
@@ -19,6 +19,10 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
     const [circles, setCircles] = useState<ContentItem[]>([]);
     const [loading, setLoading] = useState(true);
     
+    // Search & Expand State
+    const [searchTerm, setSearchTerm] = useState('');
+    const [showAllEvents, setShowAllEvents] = useState(false);
+
     // Modal State
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
 
@@ -107,27 +111,56 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
     };
 
     // Filter Logic
-    const filteredEvents = activeTab === 'all' 
-        ? events 
-        : events.filter(e => e.tags.some(t => t.includes(activeTab === 'lecture' ? '讲座' : '活动') || t.includes(activeTab === 'lecture' ? '培训' : '运动')));
+    const filteredEvents = useMemo(() => {
+        let list = activeTab === 'all' 
+            ? events 
+            : events.filter(e => e.tags.some(t => t.includes(activeTab === 'lecture' ? '讲座' : '活动') || t.includes(activeTab === 'lecture' ? '培训' : '运动')));
+        
+        if (searchTerm) {
+            list = list.filter(e => e.title.includes(searchTerm));
+        }
+        return list;
+    }, [events, activeTab, searchTerm]);
 
+    const filteredCircles = useMemo(() => {
+        if (searchTerm) {
+            return circles.filter(c => c.title.includes(searchTerm));
+        }
+        return circles;
+    }, [circles, searchTerm]);
+
+    const displayedEvents = showAllEvents ? filteredEvents : filteredEvents.slice(0, 5);
     const featuredEvent = events.find(e => e.tags.includes('推荐') || e.tags.includes('置顶')) || events[0];
 
     return (
         <div className="min-h-full bg-[#F8FAFC] pb-24">
             {/* Header */}
-            <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-md px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                <div>
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">社区生活</h1>
-                    <p className="text-xs text-slate-500 font-medium">发现身边的健康伙伴</p>
+            <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-md border-b border-slate-100">
+                <div className="px-6 py-4 flex justify-between items-center">
+                    <div>
+                        <h1 className="text-2xl font-black text-slate-800 tracking-tight">社区生活</h1>
+                        <p className="text-xs text-slate-500 font-medium">发现身边的健康伙伴</p>
+                    </div>
+                    <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-xl">🎉</div>
                 </div>
-                <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-xl">🎉</div>
+                {/* Search Bar */}
+                <div className="px-6 pb-3">
+                    <div className="relative">
+                        <input 
+                            className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
+                            placeholder="搜索活动、圈子..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                        />
+                        <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
+                    </div>
+                </div>
             </div>
 
             <div className="p-6 space-y-8">
                 
-                {/* 1. Hero / Featured Event */}
-                {featuredEvent && (
+                {/* 1. Hero / Featured Event (Hide if searching) */}
+                {!searchTerm && featuredEvent && (
                     <section className="animate-fadeIn">
                         <div 
                             onClick={() => setSelectedItem(featuredEvent)}
@@ -181,10 +214,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
                 <section>
                     <div className="flex justify-between items-center mb-4 px-1">
                         <h2 className="text-lg font-bold text-slate-800">加入圈子</h2>
-                        <span className="text-xs text-slate-400 font-bold">全部 {circles.length} ›</span>
+                        <span className="text-xs text-slate-400 font-bold">
+                            {filteredCircles.length} 个结果
+                        </span>
                     </div>
                     <div className="flex gap-3 overflow-x-auto pb-4 -mx-6 px-6 scrollbar-hide snap-x">
-                        {circles.map((g, i) => (
+                        {filteredCircles.map((g, i) => (
                             <div key={g.id} onClick={() => setSelectedItem(g)} className="snap-center flex-shrink-0 flex flex-col items-center justify-center w-28 h-32 bg-white border border-slate-100 shadow-[0_4px_12px_rgb(0,0,0,0.02)] rounded-2xl cursor-pointer active:scale-95 transition-transform relative group">
                                 <span className="absolute top-2 right-2 text-[10px] text-slate-300 font-mono">#{i+1}</span>
                                 <div className="text-3xl mb-2 group-hover:scale-110 transition-transform">{g.image}</div>
@@ -194,7 +229,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
                                 </span>
                             </div>
                         ))}
-                        {circles.length === 0 && <div className="text-sm text-slate-400 w-full text-center">暂无圈子</div>}
+                        {filteredCircles.length === 0 && <div className="text-sm text-slate-400 w-full text-center py-4">无匹配圈子</div>}
                     </div>
                 </section>
 
@@ -222,12 +257,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
                     <div className="space-y-5">
                         {loading ? (
                             <div className="text-center py-10 text-slate-400 text-sm">加载中...</div>
-                        ) : filteredEvents.length === 0 ? (
+                        ) : displayedEvents.length === 0 ? (
                             <div className="text-center py-10 text-slate-400 text-sm bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                                 暂无相关活动
                             </div>
                         ) : (
-                            filteredEvents.map(evt => {
+                            displayedEvents.map(evt => {
                                 const limit = Number(evt.details?.limit) || 100;
                                 const progress = Math.min((evt.currentSignups / limit) * 100, 100);
                                 
@@ -307,6 +342,15 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName }) => {
                                     </div>
                                 );
                             })
+                        )}
+                        
+                        {filteredEvents.length > 5 && (
+                            <button 
+                                onClick={() => setShowAllEvents(!showAllEvents)}
+                                className="w-full text-xs text-slate-500 font-bold bg-white border border-slate-200 py-3 rounded-2xl hover:bg-slate-50 transition-colors shadow-sm"
+                            >
+                                {showAllEvents ? '收起列表 ⬆️' : `查看更多活动 (${filteredEvents.length - 5}) ⬇️`}
+                            </button>
                         )}
                     </div>
                 </section>

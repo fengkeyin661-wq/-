@@ -4,7 +4,7 @@ import { fetchContent, saveContent, ContentItem } from '../../services/contentSe
 import { HealthAssessment, HealthRecord } from '../../types';
 import { generateDailyIntegratedPlan } from '../../services/geminiService';
 import { updateUserPlan, DailyHealthPlan, DietLogItem, ExerciseLogItem } from '../../services/dataService';
-import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 interface Props {
     assessment?: HealthAssessment;
@@ -62,6 +62,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const [uploadType, setUploadType] = useState<'meal'|'exercise'>('meal');
     const [isGenerating, setIsGenerating] = useState(false);
     const [isSavingLog, setIsSavingLog] = useState(false);
+
+    // Search & Expand State
+    const [searchTerm, setSearchTerm] = useState('');
+    const [isContentExpanded, setIsContentExpanded] = useState(false);
 
     // Preview Modal State
     const [previewPlan, setPreviewPlan] = useState<any>(null);
@@ -310,6 +314,17 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         setSelectedContent(null);
     };
 
+    // Filter Content based on search
+    const filteredContent = useMemo(() => {
+        const all = [...meals, ...exercises];
+        if (!searchTerm) return all;
+        const lowerSearch = searchTerm.toLowerCase();
+        return all.filter(item => 
+            item.title.toLowerCase().includes(lowerSearch) || 
+            item.tags.some(t => t.toLowerCase().includes(lowerSearch))
+        );
+    }, [meals, exercises, searchTerm]);
+
     // Chart Data
     const macroData = [
         { name: '蛋白质', current: currentIntake.p, target: recommended.protein, unit: 'g', color: '#3b82f6' },
@@ -326,15 +341,29 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     return (
         <div className="bg-[#F8FAFC] min-h-full pb-24">
             {/* Header */}
-            <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                <div>
-                    <h1 className="text-xl font-black text-slate-800 tracking-tight">健康生活</h1>
-                    <p className="text-xs text-slate-500">今日推荐摄入: {recommended.tdee} kcal</p>
+            <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-xl border-b border-slate-100 shadow-sm">
+                <div className="px-6 py-4 flex justify-between items-center">
+                    <div>
+                        <h1 className="text-xl font-black text-slate-800 tracking-tight">健康生活</h1>
+                        <p className="text-xs text-slate-500">今日推荐: {recommended.tdee} kcal</p>
+                    </div>
+                    <div className="flex gap-2">
+                        <button onClick={() => setShowAddLog('exercise')} className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 font-bold hover:bg-orange-200">🏃</button>
+                        <button onClick={() => setShowAddLog('diet')} className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center text-teal-600 font-bold hover:bg-teal-200">🥗</button>
+                        <button onClick={() => { setUploadType('meal'); setShowUpload(true); }} className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold hover:bg-slate-200">+</button>
+                    </div>
                 </div>
-                <div className="flex gap-2">
-                    <button onClick={() => setShowAddLog('exercise')} className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 font-bold hover:bg-orange-200">🏃</button>
-                    <button onClick={() => setShowAddLog('diet')} className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center text-teal-600 font-bold hover:bg-teal-200">🥗</button>
-                    <button onClick={() => { setUploadType('meal'); setShowUpload(true); }} className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold hover:bg-slate-200">+</button>
+                {/* Search Bar */}
+                <div className="px-6 pb-3">
+                    <div className="relative">
+                        <input 
+                            className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 transition-all outline-none"
+                            placeholder="搜索食谱、运动..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                        />
+                        <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
+                    </div>
                 </div>
             </div>
 
@@ -463,20 +492,35 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                     </button>
                 </div>
 
-                {/* 6. Content Feed (Existing) */}
+                {/* 6. Content Feed (Expandable Grid) */}
                 <section>
                     <div className="flex items-center justify-between mb-4">
                         <h2 className="font-bold text-slate-800 text-lg flex items-center gap-2">
                             <span className="w-1.5 h-6 bg-teal-500 rounded-full"></span>
                             推荐食谱 & 运动
                         </h2>
+                        {filteredContent.length > 3 && (
+                            <button 
+                                onClick={() => setIsContentExpanded(!isContentExpanded)}
+                                className="text-xs font-bold text-teal-600 flex items-center gap-1"
+                            >
+                                {isContentExpanded ? '收起 ⬆️' : '全部 ⬇️'}
+                            </button>
+                        )}
                     </div>
-                    <div className="flex overflow-x-auto gap-4 pb-4 -mx-4 px-4 scrollbar-hide snap-x">
-                        {[...meals, ...exercises].map(item => (
+                    
+                    <div className={
+                        isContentExpanded 
+                        ? "grid grid-cols-2 gap-4 animate-fadeIn" 
+                        : "flex overflow-x-auto gap-4 pb-4 -mx-4 px-4 scrollbar-hide snap-x"
+                    }>
+                        {filteredContent.map(item => (
                             <div 
                                 key={item.id} 
                                 onClick={() => setSelectedContent(item)}
-                                className="snap-center shrink-0 w-40 bg-white rounded-2xl p-2 shadow-sm border border-slate-100 flex flex-col cursor-pointer active:scale-95 transition-transform"
+                                className={`bg-white rounded-2xl p-2 shadow-sm border border-slate-100 flex flex-col cursor-pointer active:scale-95 transition-transform ${
+                                    isContentExpanded ? 'w-full' : 'snap-center shrink-0 w-40'
+                                }`}
                             >
                                 <div className="aspect-square bg-slate-50 rounded-xl flex items-center justify-center text-4xl mb-2">
                                     {item.image}
@@ -489,6 +533,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                                 </div>
                             </div>
                         ))}
+                        {filteredContent.length === 0 && <div className="text-slate-400 text-xs w-full text-center py-4">无相关内容</div>}
                     </div>
                 </section>
             </div>

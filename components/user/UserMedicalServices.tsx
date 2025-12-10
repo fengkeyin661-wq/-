@@ -16,6 +16,10 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
     const [search, setSearch] = useState('');
     const [activeCategory, setActiveCategory] = useState('全部');
     
+    // UI State for Expansion
+    const [showAllDoctors, setShowAllDoctors] = useState(false);
+    const [showAllDrugs, setShowAllDrugs] = useState(false);
+    
     // Modal State
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
 
@@ -63,6 +67,10 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
     const filteredDoctors = doctors.filter(d => d.title.includes(search) || d.tags.join('').includes(search));
     const filteredDrugs = drugs.filter(d => d.title.includes(search));
 
+    // Display Lists based on expansion
+    const visibleDoctors = showAllDoctors ? filteredDoctors : filteredDoctors.slice(0, 3);
+    const visibleDrugs = showAllDrugs ? filteredDrugs : filteredDrugs.slice(0, 5);
+
     // 2. Services (Search + Category)
     // Extract unique categories from loaded services
     const serviceCategories = ['全部', ...Array.from(new Set(services.map(s => s.details?.categoryL1 || '其他').filter(Boolean)))];
@@ -94,9 +102,9 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                 {(!activeCategory || activeCategory === '全部') && (
                     <section>
                         <h2 className="font-bold text-slate-800 mb-4 text-lg">名医推荐</h2>
-                        {filteredDoctors.length > 0 ? (
+                        {visibleDoctors.length > 0 ? (
                             <div className="space-y-4">
-                                {filteredDoctors.slice(0,3).map(doc => (
+                                {visibleDoctors.map(doc => (
                                     <div 
                                         key={doc.id} 
                                         onClick={() => setSelectedItem(doc)}
@@ -123,6 +131,14 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                                         </div>
                                     </div>
                                 ))}
+                                {filteredDoctors.length > 3 && (
+                                    <button 
+                                        onClick={() => setShowAllDoctors(!showAllDoctors)}
+                                        className="w-full text-xs text-slate-500 font-bold bg-slate-100 py-3 rounded-2xl hover:bg-slate-200 transition-colors"
+                                    >
+                                        {showAllDoctors ? '收起 ⬆️' : `查看全部 ${filteredDoctors.length} 位医生 ⬇️`}
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             <div className="text-center text-slate-400 text-sm py-4">暂无符合条件的医生</div>
@@ -196,7 +212,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                     <section>
                         <h2 className="font-bold text-slate-800 mb-4 text-lg">智慧药房</h2>
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 divide-y divide-slate-50 overflow-hidden">
-                            {filteredDrugs.length > 0 ? filteredDrugs.map(drug => (
+                            {visibleDrugs.length > 0 ? visibleDrugs.map(drug => (
                                 <div 
                                     key={drug.id} 
                                     onClick={() => setSelectedItem(drug)}
@@ -219,6 +235,17 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName }) => {
                                     </div>
                                 </div>
                             )) : <div className="p-6 text-center text-xs text-slate-400">暂无相关药品</div>}
+                            
+                            {filteredDrugs.length > 5 && (
+                                <div className="p-3">
+                                    <button 
+                                        onClick={() => setShowAllDrugs(!showAllDrugs)}
+                                        className="w-full text-xs text-slate-500 font-bold bg-slate-50 py-2 rounded-xl hover:bg-slate-100 transition-colors"
+                                    >
+                                        {showAllDrugs ? '收起 ⬆️' : `查看更多 (${filteredDrugs.length - 5}) ⬇️`}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </section>
                 )}
