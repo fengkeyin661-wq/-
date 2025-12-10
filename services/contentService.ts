@@ -230,11 +230,11 @@ export const fetchInteractions = async (type?: string): Promise<InteractionItem[
 };
 
 export const saveInteraction = async (item: InteractionItem): Promise<boolean> => {
-    // 1. Local Save (Optimistic UI)
+    // 1. Local Save (Optimistic check)
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
 
-    // [DUPLICATION CHECK]
+    // [DUPLICATION CHECK - LOCAL]
     if (item.type === 'doctor_signing' || item.type === 'circle_join') {
         const existingIdx = all.findIndex(i => 
             i.type === item.type && 
@@ -247,10 +247,10 @@ export const saveInteraction = async (item: InteractionItem): Promise<boolean> =
             const existing = all[existingIdx];
             if (existing.status === 'confirmed') return true; 
             if (existing.status === 'pending') {
-                // Update existing pending request
-                all[existingIdx] = { ...existing, date: item.date, details: item.details, id: item.id } as any;
+                // Update existing pending request locally
+                all[existingIdx] = { ...existing, date: item.date, details: item.details }; 
+                // We do NOT update ID here to avoid breaking local references, but for DB sync we need care
                 localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
-                // Fallthrough to sync DB
             }
         } else {
             all.push(item);
@@ -261,11 +261,33 @@ export const saveInteraction = async (item: InteractionItem): Promise<boolean> =
         localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
     }
 
-    // 2. Cloud Save
+    // 2. Cloud Save (Smart Merge)
     if (isSupabaseConfigured()) {
         try {
+            let itemIdToUse = item.id;
+
+            // Strict deduplication check for cloud to merge repeated applications
+            if (item.type === 'doctor_signing' || item.type === 'circle_join') {
+                const { data: existingRows } = await supabase
+                    .from('app_interactions')
+                    .select('id, status')
+                    .eq('user_id', item.userId)
+                    .eq('target_id', item.targetId)
+                    .eq('type', item.type)
+                    .neq('status', 'cancelled'); // Ignore cancelled ones, treat as new
+
+                if (existingRows && existingRows.length > 0) {
+                    const activeRow = existingRows[0];
+                    if (activeRow.status === 'confirmed') {
+                        return true; // Already confirmed, skip
+                    }
+                    // If pending, reuse the ID to perform an update instead of insert
+                    itemIdToUse = activeRow.id;
+                }
+            }
+
             const payload = {
-                id: item.id,
+                id: itemIdToUse,
                 type: item.type,
                 user_id: item.userId,
                 user_name: item.userName,
@@ -308,7 +330,6 @@ export const updateInteractionStatus = async (id: string, status: InteractionIte
 };
 
 // 3. Chat Messages
-// (Kept local for now for simplicity, or can be upgraded similarly)
 export const fetchMessages = async (userId: string, doctorId: string): Promise<ChatMessage[]> => {
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
@@ -365,10 +386,11 @@ export const seedInitialData = () => {
                     steps: '1. 鱼洗净擦干; 2. 涂抹橄榄油盐黑胡椒; 3. 放上柠檬迷迭香; 4. 烤箱200度20分钟',
                     cookingTime: '30分钟',
                     difficulty: '中等',
-                    nutrition: '热量:350kcal, 蛋白质:30g, 脂肪:15g'
+                    nutrition: '热量:350kcal, 蛋白质:30g, 脂肪:15g',
+                    cal: 350,
+                    macros: { protein: 30, fat: 15, carbs: 5, fiber: 1 }
                 } 
-            },
-            // ... (Rest of seed data)
+            }
         ];
         localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
     }

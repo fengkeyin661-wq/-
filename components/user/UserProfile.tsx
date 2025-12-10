@@ -75,7 +75,7 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
 
     const handleCancelInteraction = async (id: string, type: string) => {
         const label = type === 'doctor_signing' ? '签约' : '预约';
-        if (confirm(`确定要取消此${label}吗？取消后需重新申请。`)) {
+        if (confirm(`确定要取消此${label}吗？`)) {
             await updateInteractionStatus(id, 'cancelled');
             loadInteractions();
         }
