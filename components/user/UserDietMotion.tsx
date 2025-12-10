@@ -217,12 +217,18 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         };
 
         // 3. Save
-        const success = await updateUserPlan(userCheckupId, newDailyPlan);
-        if (success) {
-            alert("方案已应用，推荐项目已自动加入今日记录！");
-            window.location.reload();
-        } else {
-            alert("保存失败");
+        try {
+            const success = await updateUserPlan(userCheckupId, newDailyPlan);
+            if (success) {
+                alert("方案已保存！请前往【我的 - 饮食与运动方案】查看详细记录。");
+                // Optional: reload to ensure data consistency if parent doesn't auto-refresh
+                window.location.reload(); 
+            } else {
+                alert("保存失败，请重试");
+            }
+        } catch (e) {
+            console.error("Save plan failed", e);
+            alert("保存过程发生错误");
         }
         setIsSavingLog(false);
         setPreviewPlan(null);

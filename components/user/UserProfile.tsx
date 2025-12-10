@@ -267,34 +267,71 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
     const renderPlanView = () => (
         <div className="p-4 space-y-4 animate-slideInRight">
             {dailyPlan ? (
-                <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-slate-800">今日健康方案</h3>
-                        <span className="text-xs text-slate-400">{new Date(dailyPlan.generatedAt).toLocaleDateString()}</span>
-                    </div>
-                    <div className="space-y-4">
-                        <div>
-                            <div className="text-xs font-bold text-teal-600 uppercase mb-2">饮食</div>
-                            <div className="bg-teal-50 p-3 rounded text-sm text-teal-900 space-y-1">
-                                <div>🥞 早: {dailyPlan.diet.breakfast}</div>
-                                <div>🍱 午: {dailyPlan.diet.lunch}</div>
-                                <div>🥗 晚: {dailyPlan.diet.dinner}</div>
-                                <div>🍎 加餐: {dailyPlan.diet.snack}</div>
+                <>
+                    <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-slate-800">今日健康方案</h3>
+                            <span className="text-xs text-slate-400">{new Date(dailyPlan.generatedAt).toLocaleDateString()}</span>
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <div className="text-xs font-bold text-teal-600 uppercase mb-2">饮食</div>
+                                <div className="bg-teal-50 p-3 rounded text-sm text-teal-900 space-y-1">
+                                    <div>🥞 早: {dailyPlan.diet.breakfast}</div>
+                                    <div>🍱 午: {dailyPlan.diet.lunch}</div>
+                                    <div>🥗 晚: {dailyPlan.diet.dinner}</div>
+                                    <div>🍎 加餐: {dailyPlan.diet.snack}</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-xs font-bold text-indigo-600 uppercase mb-2">运动</div>
+                                <div className="bg-indigo-50 p-3 rounded text-sm text-indigo-900 space-y-1">
+                                    <div>🌅 晨间: {dailyPlan.exercise.morning}</div>
+                                    <div>🌇 午后: {dailyPlan.exercise.afternoon}</div>
+                                    <div>🌙 晚间: {dailyPlan.exercise.evening}</div>
+                                </div>
+                            </div>
+                            <div className="text-xs text-slate-500 italic text-center mt-4">
+                                💡 {dailyPlan.tips}
                             </div>
                         </div>
-                        <div>
-                            <div className="text-xs font-bold text-indigo-600 uppercase mb-2">运动</div>
-                            <div className="bg-indigo-50 p-3 rounded text-sm text-indigo-900 space-y-1">
-                                <div>🌅 晨间: {dailyPlan.exercise.morning}</div>
-                                <div>🌇 午后: {dailyPlan.exercise.afternoon}</div>
-                                <div>🌙 晚间: {dailyPlan.exercise.evening}</div>
+                    </div>
+
+                    {/* Added Logs Section */}
+                    {(dailyPlan.dietLogs && dailyPlan.dietLogs.length > 0 || dailyPlan.exerciseLogs && dailyPlan.exerciseLogs.length > 0) && (
+                        <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
+                            <h3 className="font-bold text-slate-800 mb-4">今日打卡记录</h3>
+                            <div className="space-y-3">
+                                {dailyPlan.dietLogs?.map((log, i) => (
+                                    <div key={`d-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2 last:border-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-lg">🥗</span>
+                                            <div>
+                                                <div className="font-bold text-slate-700">{log.name}</div>
+                                                <div className="text-[10px] text-slate-400">
+                                                    {log.type === 'breakfast' ? '早餐' : log.type === 'lunch' ? '午餐' : log.type === 'dinner' ? '晚餐' : '加餐'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span className="font-bold text-teal-600">+{log.calories} kcal</span>
+                                    </div>
+                                ))}
+                                {dailyPlan.exerciseLogs?.map((log, i) => (
+                                    <div key={`e-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2 last:border-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-lg">🏃</span>
+                                            <div>
+                                                <div className="font-bold text-slate-700">{log.name}</div>
+                                                <div className="text-[10px] text-slate-400">{log.duration} 分钟</div>
+                                            </div>
+                                        </div>
+                                        <span className="font-bold text-orange-500">-{log.calories} kcal</span>
+                                    </div>
+                                ))}
                             </div>
                         </div>
-                        <div className="text-xs text-slate-500 italic text-center mt-4">
-                            💡 {dailyPlan.tips}
-                        </div>
-                    </div>
-                </div>
+                    )}
+                </>
             ) : (
                 <div className="text-center text-slate-400 mt-10">
                     <p>暂无今日方案</p>

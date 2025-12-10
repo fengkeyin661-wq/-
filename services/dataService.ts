@@ -69,10 +69,20 @@ export interface HealthArchive {
     updated_at?: string;
 }
 
+const ARCHIVE_STORAGE_KEY = 'HEALTH_ARCHIVES_V1_LOCAL';
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- New Helper for Survey Matching ---
 export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthArchive | null> => {
+    // 1. Try Local Storage first (for demo/fallback)
+    const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+    if (localRaw) {
+        const localArchives: HealthArchive[] = JSON.parse(localRaw);
+        const match = localArchives.find(a => a.checkup_id === checkupId);
+        if (match) return match;
+    }
+
     if (!isSupabaseConfigured()) return null;
     try {
         const { data, error } = await supabase
@@ -96,6 +106,14 @@ export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthA
  * Find Archive by Phone Number (For User Login)
  */
 export const findArchiveByPhone = async (phone: string): Promise<HealthArchive | null> => {
+    // 1. Try Local Storage
+    const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+    if (localRaw) {
+        const localArchives: HealthArchive[] = JSON.parse(localRaw);
+        const match = localArchives.find(a => a.phone === phone);
+        if (match) return match;
+    }
+
     if (!isSupabaseConfigured()) return null;
     try {
         // Query database for phone match
@@ -126,21 +144,77 @@ export const saveArchive = async (
     existingFollowUps: FollowUpRecord[] = [],
     riskAnalysis?: RiskAnalysisData
 ): Promise<{ success: boolean; message?: string }> => {
+    const checkupId = record.profile.checkupId || `UNKNOWN_${Date.now()}`;
+    let historyVersions: any[] = [];
+    let existingCriticalTrack = null;
+    let existingRiskAnalysis = riskAnalysis;
+    let existingExercisePlan = null;
+    let existingDailyPlan = null;
+
+    // --- Prepare Payload ---
+    // Start with base fields that are definitely in the schema
+    const basePayload: any = {
+        id: checkupId, // For local simple key
+        checkup_id: checkupId,
+        name: record.profile.name || '未命名',
+        phone: record.profile.phone || null,
+        department: record.profile.department,
+        gender: record.profile.gender,
+        age: record.profile.age || 0,
+        risk_level: assessment.riskLevel,
+        
+        health_record: record,
+        assessment_data: assessment,
+        follow_up_schedule: schedule,
+        
+        follow_ups: existingFollowUps, 
+        history_versions: historyVersions,
+        critical_track: existingCriticalTrack, 
+        
+        updated_at: new Date().toISOString(),
+        created_at: new Date().toISOString()
+    };
+
+    // Try to save with ALL new fields first
+    const fullPayload = {
+        ...basePayload,
+        risk_analysis: existingRiskAnalysis,
+        custom_exercise_plan: existingExercisePlan,
+        custom_daily_plan: existingDailyPlan
+    };
+
+    // 1. Save Local Storage Always
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        let all: HealthArchive[] = raw ? JSON.parse(raw) : [];
+        const idx = all.findIndex(a => a.checkup_id === checkupId);
+        
+        // Merge with existing local data to preserve fields not passed in update
+        if (idx >= 0) {
+            const existing = all[idx];
+            fullPayload.history_versions = existing.history_versions || [];
+            fullPayload.critical_track = existing.critical_track;
+            fullPayload.custom_exercise_plan = existing.custom_exercise_plan;
+            fullPayload.custom_daily_plan = existing.custom_daily_plan;
+            fullPayload.created_at = existing.created_at;
+            if (!existingRiskAnalysis && existing.risk_analysis) {
+                fullPayload.risk_analysis = existing.risk_analysis;
+            }
+            all[idx] = fullPayload;
+        } else {
+            all.push(fullPayload);
+        }
+        localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+    } catch (e) {
+        console.warn("Local storage save failed", e);
+    }
+
     if (!isSupabaseConfigured()) {
-        return { success: false, message: "Supabase 环境变量未配置" };
+        return { success: true, message: "已保存到本地 (无云端连接)" };
     }
 
     try {
-        const checkupId = record.profile.checkupId || `UNKNOWN_${Date.now()}`;
-        
-        // 1. Fetch existing to handle history
-        let historyVersions: any[] = [];
-        let existingCriticalTrack = null;
-        let existingRiskAnalysis = riskAnalysis;
-        let existingExercisePlan = null;
-        let existingDailyPlan = null;
-        
-        // Use select('*') to be robust against missing optional columns (like custom_exercise_plan)
+        // Fetch existing from DB to handle history
         const { data: existing } = await supabase
             .from('health_archives')
             .select('*')
@@ -154,22 +228,10 @@ export const saveArchive = async (
             existingExercisePlan = (existing as any).custom_exercise_plan;
             existingDailyPlan = (existing as any).custom_daily_plan;
 
-            // If new risk analysis not provided, try to keep old one or generate new
             if (!existingRiskAnalysis && existing.risk_analysis) {
                 existingRiskAnalysis = existing.risk_analysis;
-            } else if (!existingRiskAnalysis) {
-                // Auto generate if missing
-                try {
-                    existingRiskAnalysis = {
-                        portraits: generateSystemPortraits(record),
-                        models: evaluateRiskModels(record)
-                    };
-                } catch (e) {
-                    console.warn("Risk analysis generation failed, skipping", e);
-                }
             }
 
-            // Limit history size to prevent payload explosion (last 5 versions)
             if (historyVersions.length > 5) {
                 historyVersions = historyVersions.slice(historyVersions.length - 5);
             }
@@ -179,61 +241,24 @@ export const saveArchive = async (
                 health_record: existing.health_record,
                 assessment_data: existing.assessment_data
             });
-        } else {
-             // New record, generate initial risk analysis
-             if (!existingRiskAnalysis) {
-                try {
-                    existingRiskAnalysis = {
-                        portraits: generateSystemPortraits(record),
-                        models: evaluateRiskModels(record)
-                    };
-                } catch (e) {
-                    console.warn("Risk analysis generation failed, skipping", e);
-                }
-             }
-        }
+        } 
 
-        // 2. Prepare Payload
-        // Start with base fields that are definitely in the schema
-        const basePayload: any = {
-            checkup_id: checkupId,
-            name: record.profile.name || '未命名',
-            phone: record.profile.phone || null,
-            department: record.profile.department,
-            gender: record.profile.gender,
-            age: record.profile.age || 0,
-            risk_level: assessment.riskLevel,
-            
-            health_record: record,
-            assessment_data: assessment,
-            follow_up_schedule: schedule,
-            
-            follow_ups: existingFollowUps, 
+        // Update Payload with fetched DB data
+        const dbPayload = {
+            ...fullPayload,
             history_versions: historyVersions,
-            critical_track: existingCriticalTrack, 
-            
-            updated_at: new Date().toISOString()
-        };
-
-        // Try to save with ALL new fields first
-        const fullPayload = {
-            ...basePayload,
+            critical_track: existingCriticalTrack,
             risk_analysis: existingRiskAnalysis,
             custom_exercise_plan: existingExercisePlan,
             custom_daily_plan: existingDailyPlan
         };
 
-        const { error } = await supabase.from('health_archives').upsert(fullPayload, { onConflict: 'checkup_id' });
+        const { error } = await supabase.from('health_archives').upsert(dbPayload, { onConflict: 'checkup_id' });
 
         if (error) {
-            // Fallback: If error is due to missing columns (e.g. schema outdated), try saving without new fields
             console.warn("Save with new fields failed, retrying with base fields...", error.message);
-            
-            // Fallback attempt: exclude risk_analysis and custom_exercise_plan
             const { error: retryError } = await supabase.from('health_archives').upsert(basePayload, { onConflict: 'checkup_id' });
-            
             if (retryError) throw retryError;
-            
             return { success: true, message: "保存成功 (部分新特性数据因数据库未更新而略过)" };
         }
 
@@ -248,7 +273,21 @@ export const saveArchive = async (
  * Update Exercise Plan Specifically
  */
 export const updateExercisePlan = async (checkupId: string, plan: ExercisePlanData): Promise<boolean> => {
-    if (!isSupabaseConfigured()) return false;
+    // Local
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex(a => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].custom_exercise_plan = plan;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch(e) {}
+
+    if (!isSupabaseConfigured()) return true; // Treat local update as success if no DB
     try {
         const { error } = await supabase
             .from('health_archives')
@@ -268,7 +307,25 @@ export const updateExercisePlan = async (checkupId: string, plan: ExercisePlanDa
  * Update User Daily Integrated Plan
  */
 export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): Promise<boolean> => {
-    if (!isSupabaseConfigured()) return false;
+    // 1. Update Local Storage first
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex(a => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].custom_daily_plan = plan;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+                console.log("Local storage user plan updated");
+            }
+        }
+    } catch(e) {
+        console.warn("Local storage update failed", e);
+    }
+
+    if (!isSupabaseConfigured()) return true; // Treat as success if only local is available
+    
     try {
         const { error } = await supabase
             .from('health_archives')
@@ -288,7 +345,24 @@ export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): 
  * Update Risk Analysis Data Specifically and Archive Extra Inputs
  */
 export const updateRiskAnalysis = async (checkupId: string, analysis: RiskAnalysisData, extras?: any): Promise<boolean> => {
-     if (!isSupabaseConfigured()) return false;
+     // Local
+     try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex(a => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].risk_analysis = analysis;
+                if (extras) {
+                    all[idx].health_record.riskModelExtras = { ...all[idx].health_record.riskModelExtras, ...extras };
+                }
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+     } catch(e) {}
+
+     if (!isSupabaseConfigured()) return true;
      
      // 1. Prepare base update payload for the analysis results
      let updatePayload: any = { 
@@ -345,7 +419,27 @@ export const updateArchiveProfile = async (
     dbId: string, 
     newProfile: HealthProfile
 ): Promise<{ success: boolean; message?: string }> => {
-    if (!isSupabaseConfigured()) return { success: false, message: "Config Error" };
+    // Local Update
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex(a => a.id === dbId); // Local uses 'id' often matching dbId if consistent
+            if (idx >= 0) {
+                all[idx].health_record.profile = { ...all[idx].health_record.profile, ...newProfile };
+                all[idx].name = newProfile.name;
+                all[idx].phone = newProfile.phone;
+                all[idx].checkup_id = newProfile.checkupId;
+                all[idx].department = newProfile.department;
+                all[idx].gender = newProfile.gender;
+                all[idx].age = newProfile.age;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch(e) {}
+
+    if (!isSupabaseConfigured()) return { success: true };
 
     try {
         const { data: current, error: fetchError } = await supabase
@@ -389,7 +483,21 @@ export const updateCriticalTrack = async (
     checkupId: string, 
     trackRecord: CriticalTrackRecord
 ): Promise<{ success: boolean; message?: string }> => {
-    if (!isSupabaseConfigured()) return { success: false, message: "Config Error" };
+    // Local
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex(a => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].critical_track = trackRecord;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch(e) {}
+
+    if (!isSupabaseConfigured()) return { success: true };
     try {
         const { error } = await supabase.from('health_archives').update({ critical_track: trackRecord, updated_at: new Date().toISOString() }).eq('checkup_id', checkupId);
         if (error) throw error;
@@ -405,7 +513,23 @@ export const updateArchiveData = async (
     schedule: ScheduledFollowUp[],
     updatedHealthRecord?: HealthRecord // Support optional health record sync
 ): Promise<{ success: boolean; message?: string }> => {
-    if (!isSupabaseConfigured()) return { success: false, message: "Config Error" };
+    // Local
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex(a => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].follow_ups = followUps;
+                all[idx].follow_up_schedule = schedule;
+                if (updatedHealthRecord) all[idx].health_record = updatedHealthRecord;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch(e) {}
+
+    if (!isSupabaseConfigured()) return { success: true };
     try {
         const payload: any = {
             follow_ups: followUps,
@@ -437,7 +561,21 @@ export const updateHealthRecordOnly = async (
     checkupId: string,
     healthRecord: HealthRecord
 ): Promise<boolean> => {
-    if (!isSupabaseConfigured()) return false;
+    // Local
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex(a => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].health_record = healthRecord;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch(e) {}
+
+    if (!isSupabaseConfigured()) return true;
     try {
         const { error } = await supabase
             .from('health_archives')
@@ -454,7 +592,17 @@ export const updateHealthRecordOnly = async (
 };
 
 export const deleteArchive = async (id: string): Promise<boolean> => {
-    if (!isSupabaseConfigured()) return false;
+    // Local
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            let all: HealthArchive[] = JSON.parse(raw);
+            all = all.filter(a => a.id !== id);
+            localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+        }
+    } catch(e) {}
+
+    if (!isSupabaseConfigured()) return true;
     try {
         const { error } = await supabase.from('health_archives').delete().eq('id', id);
         return !error;
@@ -464,19 +612,32 @@ export const deleteArchive = async (id: string): Promise<boolean> => {
 };
 
 export const fetchArchives = async (): Promise<HealthArchive[]> => {
-    if (!isSupabaseConfigured()) return [];
-    try {
-        const { data, error } = await supabase
-            .from('health_archives')
-            .select('*')
-            .order('updated_at', { ascending: false });
-        
-        if (error) throw error;
-        return data || [];
-    } catch (e) {
-        console.error("Fetch Error:", e);
-        return [];
+    // Try Supabase first
+    if (isSupabaseConfigured()) {
+        try {
+            const { data, error } = await supabase
+                .from('health_archives')
+                .select('*')
+                .order('updated_at', { ascending: false });
+            
+            if (!error && data) {
+                return data;
+            }
+        } catch (e) {
+            console.error("Fetch Error:", e);
+        }
     }
+
+    // Fallback to Local Storage
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            return all.sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
+        }
+    } catch(e) {}
+
+    return [];
 };
 
 /**
