@@ -111,7 +111,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             setOpsStats({
                 totalResources: contents.length,
                 activeDoctors: contents.filter(c => c.type === 'doctor' && c.status === 'active').length,
-                pendingSignings: interactions.filter(i => i.type === 'signing' && i.status === 'pending').length,
+                pendingSignings: interactions.filter(i => i.type === 'doctor_signing' && i.status === 'pending').length,
                 eventSignups: interactions.filter(i => i.type === 'event_signup').length
             });
         } catch (e) {

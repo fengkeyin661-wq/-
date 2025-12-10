@@ -37,7 +37,8 @@ const PRESETS = {
 };
 
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
-    const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise'>('event');
+    // Added 'audit' tab
+    const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise' | 'audit'>('event');
     // Sub-tab for Event (Community) section
     const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
     
@@ -80,47 +81,45 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             setLoadingText('加载数据中...');
             setSelectedIds(new Set()); 
             let contentType: string | string[] = '';
+            
+            // Logic to fetch content based on tab
             switch(activeTab) {
                 case 'recipe': contentType = 'meal'; break;
                 case 'exercise': contentType = 'exercise'; break;
-                case 'event': 
-                    // Load both events and circles for this tab context, filter later
-                    contentType = ['event', 'circle']; 
-                    break;
+                case 'event': contentType = ['event', 'circle']; break;
                 case 'service': contentType = 'service'; break;
                 case 'drug': contentType = 'drug'; break;
                 case 'doctor': contentType = 'doctor'; break;
+                case 'audit': contentType = ''; break; // No content needed, just interactions
             }
 
-            const content = await fetchContent(contentType);
-            
-            // Filter based on subTab if activeTab is event
-            if (activeTab === 'event') {
-                if (eventSubTab === 'circle') {
-                    setItems(content.filter(c => c.type === 'circle'));
+            if (contentType) {
+                const content = await fetchContent(contentType);
+                if (activeTab === 'event') {
+                    if (eventSubTab === 'circle') {
+                        setItems(content.filter(c => c.type === 'circle'));
+                    } else {
+                        setItems(content.filter(c => c.type === 'event'));
+                    }
                 } else {
-                    setItems(content.filter(c => c.type === 'event'));
+                    setItems(content);
                 }
-            } else {
-                setItems(content);
             }
 
-            if (activeTab === 'event' && eventSubTab === 'list') {
-                const inters = await fetchInteractions('event_signup');
-                setInteractions(inters);
+            // Fetch interactions for Audit tab or Event list
+            if (activeTab === 'audit' || (activeTab === 'event' && eventSubTab === 'list')) {
+                const inters = await fetchInteractions();
+                // Filter what admin needs to see
+                const adminTypes = ['event_signup', 'circle_join', 'service_booking'];
+                setInteractions(inters.filter(i => adminTypes.includes(i.type)));
             } else {
                 setInteractions([]);
             }
         } catch (error) {
             console.error("Failed to load data:", error);
-            // Non-blocking error UI, list will just be empty
         } finally {
             setLoading(false);
         }
-    };
-
-    const getBookings = (tab: string) => {
-        return interactions;
     };
 
     const handleInteractionStatus = async (id: string, status: InteractionItem['status']) => {
@@ -218,7 +217,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             { title: '中医养生', image: '🌿', description: '四季养生，穴位按摩，中医药膳交流。', tags: ['养生'] }
         ];
 
-        // Fetch existing to avoid dupe
         const existing = await fetchContent('circle');
         const existingTitles = existing.map(e => e.title);
 
@@ -235,7 +233,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     status: 'active',
                     isUserUpload: false,
                     updatedAt: new Date().toISOString(),
-                    details: { memberCount: Math.floor(Math.random() * 50) + 10 } // Fake initial members
+                    details: { memberCount: Math.floor(Math.random() * 50) + 10 }
                 });
                 addedCount++;
             }
@@ -250,7 +248,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const getTemplateConfig = () => {
         switch(activeTab) {
             case 'event':
-                // Community Event
                 return {
                     name: '社区活动导入模板',
                     data: [{
@@ -361,12 +358,12 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         "食材清单 (格式: 食材:用量; 食材:用量)": "鸡胸肉:200g;西兰花:300g;橄榄油:5ml;大蒜:2瓣",
                         "制作步骤": "鸡胸肉切丁... → 热锅少油... → 出锅",
                         "烹饪技巧/小贴士": "鸡胸肉腌制时加少许淀粉...",
-                        "单份预估热量(kcal)": "", // Empty to trigger AI
-                        "单份蛋白质含量(g)": "", // Empty to trigger AI
-                        "单份脂肪含量(g)": "", // Empty to trigger AI
-                        "单份碳水化合物含量(g)": "", // Empty to trigger AI
-                        "单份膳食纤维含量(g)": "", // Empty to trigger AI
-                        "营养素总结": "", // Empty to trigger AI
+                        "单份预估热量(kcal)": "", 
+                        "单份蛋白质含量(g)": "", 
+                        "单份脂肪含量(g)": "", 
+                        "单份碳水化合物含量(g)": "", 
+                        "单份膳食纤维含量(g)": "", 
+                        "营养素总结": "", 
                         "状态": "上架",
                         "排序值": 10
                     }]
@@ -412,9 +409,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 const now = new Date().toISOString();
                 let item: ContentItem | null = null;
 
-                // Mapper based on activeTab
                 switch(activeTab) {
-                    // ... (Other cases kept same, skipping for brevity) ...
                     case 'event':
                         if (!row['活动名称']) continue;
                         item = {
@@ -435,8 +430,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 content: row['活动详情'],
                                 targetAudience: row['适宜人群'],
                                 method: row['报名方式'],
-                                signupStart: row['报名开始时间'],
-                                signupEnd: row['报名截止时间'],
                                 limit: row['活动人数上限'],
                                 businessStatus: row['状态'],
                                 sortOrder: row['排序值'],
@@ -493,7 +486,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 contraindications: row['重要注意事项'],
                                 manualUrl: row['说明书URL'],
                                 isRx: row['是否处方药'] === '是',
-                                stock: row['状态'] === '在售' ? '充足' : '缺货' // Rough mapping
+                                stock: row['状态'] === '在售' ? '充足' : '缺货' 
                             }
                         };
                         break;
@@ -522,7 +515,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 relatedTags: row['关联疾病/标签']
                             }
                         };
-                        // Append related tags to main tags
                         if (row['关联疾病/标签']) {
                             item.tags.push(...row['关联疾病/标签'].split(/[,，]/));
                         }
@@ -545,22 +537,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         break;
                     case 'recipe':
                         if (!row['食谱名称']) continue;
-                        
-                        // Combine tags from health labels and scenarios
                         const healthTags = row['核心健康标签'] ? row['核心健康标签'].split(/[,，]/).map((t: string) => t.trim()) : [];
                         const scenarioTags = row['关联疾病/场景'] ? row['关联疾病/场景'].split(/[,，]/).map((t: string) => t.trim()) : [];
                         const allTags = Array.from(new Set([...healthTags, ...scenarioTags]));
-
-                        // Updated field mapping
                         const ingredients = row['食材清单 (格式: 食材:用量; 食材:用量)'] || row['食材清单JSON/结构化文本'];
-                        
-                        // Check if nutrition info is missing but ingredients exist -> Queue for AI
                         const needsAnalysis = ingredients && (!row['单份预估热量(kcal)'] || row['单份预估热量(kcal)'] == 0);
-                        
                         if (needsAnalysis) {
                             recipesToAnalyze.push({ name: row['食谱名称'], ingredients: ingredients, tempId: id });
                         }
-
                         item = {
                             id, 
                             type: 'meal', 
@@ -598,17 +582,13 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 if (item) newItems.push(item);
             }
 
-            // --- AI Analysis Step ---
             if (recipesToAnalyze.length > 0) {
                 setLoadingText(`正在AI计算 ${recipesToAnalyze.length} 道食谱的营养成分...`);
                 try {
                     const analysis = await calculateNutritionFromIngredients(recipesToAnalyze);
-                    
-                    // Merge analysis back into newItems
                     recipesToAnalyze.forEach(req => {
                         const targetItem = newItems.find(i => i.id === req.tempId);
                         const result = analysis.nutritionData[req.name];
-                        
                         if (targetItem && targetItem.details && result) {
                             targetItem.details.cal = result.cal;
                             targetItem.details.nutrition = result.nutrition;
@@ -621,20 +601,17 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         }
                     });
                 } catch (e) {
-                    console.error("AI Analysis Failed during import", e);
-                    alert("AI 营养计算部分失败，将保存原始数据。");
+                    console.error("AI Analysis Failed", e);
                 }
             }
 
             setLoadingText(`正在保存 ${newItems.length} 条数据...`);
-            
-            // Batch Save
             for (const item of newItems) {
                 await saveContent(item);
                 successCount++;
             }
 
-            alert(`导入完成！成功: ${successCount} 条` + (recipesToAnalyze.length > 0 ? ` (含 ${recipesToAnalyze.length} 条AI营养计算)` : ''));
+            alert(`导入完成！成功: ${successCount} 条`);
             loadData();
 
         } catch (error: any) {
@@ -646,20 +623,17 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
-    // --- Helper for other features ---
     const handleAiAnalysis = async () => {
         if (!editItem.title || !editItem.details?.ingredients) {
             alert("请先填写【名称】和【配料及用量】以进行准确分析");
             return;
         }
-        
         setIsAnalyzing(true);
         try {
             const result = await calculateNutritionFromIngredients([{
                 name: editItem.title,
                 ingredients: editItem.details.ingredients
             }]);
-            
             const data = result.nutritionData[editItem.title];
             if (data) {
                 setEditItem(prev => ({
@@ -691,9 +665,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         } else {
             let type: any = 'meal';
             if (activeTab === 'exercise') type = 'exercise';
-            if (activeTab === 'event') {
-                type = eventSubTab === 'circle' ? 'circle' : 'event';
-            }
+            if (activeTab === 'event') type = eventSubTab === 'circle' ? 'circle' : 'event';
             if (activeTab === 'service') type = 'service';
             if (activeTab === 'drug') type = 'drug';
             if (activeTab === 'doctor') type = 'doctor';
@@ -717,6 +689,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             <table className="w-full text-sm text-left">
                 <thead className="bg-slate-50 text-slate-500">
                     <tr>
+                        <th className="p-3">类型</th>
                         <th className="p-3">用户</th>
                         <th className="p-3">目标对象</th>
                         <th className="p-3">状态</th>
@@ -727,6 +700,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 <tbody>
                     {data.map(item => (
                         <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
+                            <td className="p-3">
+                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                    item.type === 'event_signup' ? 'bg-indigo-100 text-indigo-700' :
+                                    item.type === 'service_booking' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'
+                                }`}>
+                                    {item.type === 'event_signup' ? '活动报名' : item.type === 'service_booking' ? '服务预约' : '圈子申请'}
+                                </span>
+                            </td>
                             <td className="p-3 font-bold">{item.userName}</td>
                             <td className="p-3">{item.targetName}</td>
                             <td className="p-3">
@@ -742,8 +723,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             <td className="p-3 text-right">
                                 {item.status === 'pending' && (
                                     <div className="flex gap-2 justify-end">
-                                        <button onClick={() => handleInteractionStatus(item.id, 'confirmed')} className="text-green-600 hover:underline">通过</button>
-                                        <button onClick={() => handleInteractionStatus(item.id, 'cancelled')} className="text-red-600 hover:underline">拒绝</button>
+                                        <button onClick={() => handleInteractionStatus(item.id, 'confirmed')} className="text-green-600 hover:underline font-bold">通过</button>
+                                        <button onClick={() => handleInteractionStatus(item.id, 'cancelled')} className="text-red-600 hover:underline font-bold">拒绝</button>
                                     </div>
                                 )}
                             </td>
@@ -779,6 +760,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             <div className="flex flex-1 overflow-hidden">
                 <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
                     <nav className="p-4 space-y-2">
+                        <NavButton id="audit" icon="🛡️" label="审核中心" active={activeTab} onClick={setActiveTab} />
+                        <div className="h-px bg-slate-200 my-2"></div>
                         <NavButton id="event" icon="✨" label="社区活动" active={activeTab} onClick={setActiveTab} />
                         <NavButton id="service" icon="🏥" label="医院服务" active={activeTab} onClick={setActiveTab} />
                         <NavButton id="doctor" icon="👨‍⚕️" label="医生管理" active={activeTab} onClick={setActiveTab} />
@@ -790,152 +773,119 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 </aside>
 
                 <main className="flex-1 p-8 overflow-y-auto">
-                    {/* Interaction Tables (Top) - Only for Events now */}
-                    {activeTab === 'event' && eventSubTab === 'list' && (
-                        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+                    {activeTab === 'audit' ? (
+                        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
-                                活动报名审核
+                                待审核申请 (活动/圈子/服务)
                             </h3>
-                            {renderInteractionTable(getBookings(activeTab))}
+                            {renderInteractionTable(interactions)}
+                        </section>
+                    ) : (
+                        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                            <div className="flex flex-col gap-4 mb-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-lg font-bold text-slate-700">
+                                        {activeTab === 'recipe' ? '膳食资源库' : 
+                                         activeTab === 'exercise' ? '运动康复库' : 
+                                         activeTab === 'event' ? '社区活动与圈子' :
+                                         activeTab === 'service' ? '医院服务项目' :
+                                         activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
+                                    </h3>
+                                    <div className="flex gap-2">
+                                        {/* Generic Batch Import */}
+                                        {!(activeTab === 'event' && eventSubTab === 'circle') && (
+                                            <>
+                                                <button onClick={handleDownloadTemplate} className="bg-white text-slate-600 border border-slate-300 px-3 py-2 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-2">
+                                                    📥 下载模板
+                                                </button>
+                                                <input type="file" ref={batchImportRef} className="hidden" accept=".xlsx, .xls" onChange={handleBatchImport} />
+                                                <button onClick={() => batchImportRef.current?.click()} className="bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
+                                                    📂 批量导入
+                                                </button>
+                                                <div className="w-px h-8 bg-slate-200 mx-1"></div>
+                                            </>
+                                        )}
+
+                                        {activeTab === 'event' && eventSubTab === 'circle' && (
+                                            <button onClick={handleInitCircles} className="bg-indigo-50 text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-100 flex items-center gap-1 animate-fadeIn">
+                                                🚀 一键开通热门圈子
+                                            </button>
+                                        )}
+
+                                        {selectedIds.size > 0 && (
+                                            <button onClick={handleBatchDelete} className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 animate-fadeIn">
+                                                🗑️ 批量删除 ({selectedIds.size})
+                                            </button>
+                                        )}
+                                        <button onClick={() => openEdit()} className="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700 shadow-sm flex items-center gap-2">
+                                            <span>+</span> 新增
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Event Sub-Tabs */}
+                                {activeTab === 'event' && (
+                                    <div className="flex border-b border-slate-100">
+                                        <button onClick={() => setEventSubTab('list')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${eventSubTab === 'list' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>📅 社区活动列表</button>
+                                        <button onClick={() => setEventSubTab('circle')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${eventSubTab === 'circle' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>⭕️ 热门圈子管理</button>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Table Area */}
+                            {loading ? (
+                                <div className="text-center py-20 flex flex-col items-center">
+                                    <div className="text-4xl animate-spin mb-4">⏳</div>
+                                    <p className="text-slate-500 font-bold">{loadingText}</p>
+                                </div>
+                            ) : (
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500">
+                                        <tr>
+                                            <th className="p-3 w-10"><input type="checkbox" onChange={handleSelectAll} checked={items.length > 0 && selectedIds.size === items.length} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></th>
+                                            <th className="p-3">名称</th>
+                                            <th className="p-3">核心信息</th>
+                                            <th className="p-3">状态/标签</th>
+                                            <th className="p-3 text-right">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {items.map(item => (
+                                            <tr key={item.id} className={`hover:bg-slate-50 ${selectedIds.has(item.id) ? 'bg-blue-50/30' : ''}`}>
+                                                <td className="p-3"><input type="checkbox" onChange={() => handleSelectRow(item.id)} checked={selectedIds.has(item.id)} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></td>
+                                                <td className="p-3 font-bold flex items-center gap-2">
+                                                    <span className="text-xl bg-slate-100 w-8 h-8 rounded flex items-center justify-center">{item.image}</span>
+                                                    {item.title}
+                                                </td>
+                                                <td className="p-3 text-xs text-slate-500">
+                                                    {item.type === 'meal' && `难度:${item.details?.difficulty} • ${item.details?.cal}`}
+                                                    {item.type === 'event' && `📅 ${(item.details?.date || '').toString().replace('T',' ')} • 📍${item.details?.loc || ''}`}
+                                                    {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人`}
+                                                    {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
+                                                    {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
+                                                    {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
+                                                    {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
+                                                </td>
+                                                <td className="p-3">
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {item.status === 'active' 
+                                                            ? <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-xs">已发布</span> 
+                                                            : <span className="bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded text-xs">草稿</span>}
+                                                        {item.tags?.slice(0,2).map(t => <span key={t} className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-xs">{t}</span>)}
+                                                    </div>
+                                                </td>
+                                                <td className="p-3 text-right space-x-2">
+                                                    <button onClick={() => openEdit(item)} className="text-blue-600 hover:underline">编辑</button>
+                                                    <button onClick={() => handleDeleteContent(item.id)} className="text-red-600 hover:underline">删除</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {items.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无数据</td></tr>}
+                                    </tbody>
+                                </table>
+                            )}
                         </section>
                     )}
-
-                    {/* Resource List (Bottom) */}
-                    <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                        <div className="flex flex-col gap-4 mb-4">
-                            <div className="flex justify-between items-center">
-                                <h3 className="text-lg font-bold text-slate-700">
-                                    {activeTab === 'recipe' ? '膳食资源库' : 
-                                     activeTab === 'exercise' ? '运动康复库' : 
-                                     activeTab === 'event' ? '社区活动与圈子' :
-                                     activeTab === 'service' ? '医院服务项目' :
-                                     activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
-                                </h3>
-                                <div className="flex gap-2">
-                                    {/* Generic Batch Import for All Tabs except Circle Sub-tab */}
-                                    {!(activeTab === 'event' && eventSubTab === 'circle') && (
-                                        <>
-                                            <button 
-                                                onClick={handleDownloadTemplate}
-                                                className="bg-white text-slate-600 border border-slate-300 px-3 py-2 rounded text-xs font-bold hover:bg-slate-50 flex items-center gap-2"
-                                            >
-                                                📥 下载模板
-                                            </button>
-                                            <input 
-                                                type="file" 
-                                                ref={batchImportRef} 
-                                                className="hidden" 
-                                                accept=".xlsx, .xls"
-                                                onChange={handleBatchImport}
-                                            />
-                                            <button 
-                                                onClick={() => batchImportRef.current?.click()}
-                                                className="bg-indigo-600 text-white px-3 py-2 rounded text-xs font-bold hover:bg-indigo-700 flex items-center gap-2 shadow-sm"
-                                            >
-                                                📂 批量导入
-                                            </button>
-                                            <div className="w-px h-8 bg-slate-200 mx-1"></div>
-                                        </>
-                                    )}
-
-                                    {activeTab === 'event' && eventSubTab === 'circle' && (
-                                        <button 
-                                            onClick={handleInitCircles}
-                                            className="bg-indigo-50 text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-indigo-100 flex items-center gap-1 animate-fadeIn"
-                                        >
-                                            🚀 一键开通热门圈子
-                                        </button>
-                                    )}
-
-                                    {selectedIds.size > 0 && (
-                                        <button 
-                                            onClick={handleBatchDelete}
-                                            className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 animate-fadeIn"
-                                        >
-                                            🗑️ 批量删除 ({selectedIds.size})
-                                        </button>
-                                    )}
-                                    <button onClick={() => openEdit()} className="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700 shadow-sm flex items-center gap-2">
-                                        <span>+</span> 新增
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Event Sub-Tabs */}
-                            {activeTab === 'event' && (
-                                <div className="flex border-b border-slate-100">
-                                    <button 
-                                        onClick={() => setEventSubTab('list')}
-                                        className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${eventSubTab === 'list' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}
-                                    >
-                                        📅 社区活动列表
-                                    </button>
-                                    <button 
-                                        onClick={() => setEventSubTab('circle')}
-                                        className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${eventSubTab === 'circle' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}
-                                    >
-                                        ⭕️ 热门圈子管理
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                        
-                        {loading ? (
-                            <div className="text-center py-20 flex flex-col items-center">
-                                <div className="text-4xl animate-spin mb-4">⏳</div>
-                                <p className="text-slate-500 font-bold">{loadingText}</p>
-                            </div>
-                        ) : (
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500">
-                                    <tr>
-                                        <th className="p-3 w-10">
-                                            <input type="checkbox" onChange={handleSelectAll} checked={items.length > 0 && selectedIds.size === items.length} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
-                                        </th>
-                                        <th className="p-3">名称</th>
-                                        <th className="p-3">核心信息</th>
-                                        <th className="p-3">状态/标签</th>
-                                        <th className="p-3 text-right">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {items.map(item => (
-                                        <tr key={item.id} className={`hover:bg-slate-50 ${selectedIds.has(item.id) ? 'bg-blue-50/30' : ''}`}>
-                                            <td className="p-3">
-                                                <input type="checkbox" onChange={() => handleSelectRow(item.id)} checked={selectedIds.has(item.id)} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
-                                            </td>
-                                            <td className="p-3 font-bold flex items-center gap-2">
-                                                <span className="text-xl bg-slate-100 w-8 h-8 rounded flex items-center justify-center">{item.image}</span>
-                                                {item.title}
-                                            </td>
-                                            <td className="p-3 text-xs text-slate-500">
-                                                {item.type === 'meal' && `难度:${item.details?.difficulty} • ${item.details?.cal}`}
-                                                {item.type === 'event' && `📅 ${(item.details?.date || '').toString().replace('T',' ')} • 📍${item.details?.loc || ''}`}
-                                                {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人`}
-                                                {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
-                                                {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
-                                                {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
-                                                {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
-                                            </td>
-                                            <td className="p-3">
-                                                <div className="flex flex-wrap gap-1">
-                                                    {item.status === 'active' 
-                                                        ? <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-xs">已发布</span> 
-                                                        : <span className="bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded text-xs">草稿</span>}
-                                                    {item.tags?.slice(0,2).map(t => <span key={t} className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-xs">{t}</span>)}
-                                                </div>
-                                            </td>
-                                            <td className="p-3 text-right space-x-2">
-                                                <button onClick={() => openEdit(item)} className="text-blue-600 hover:underline">编辑</button>
-                                                <button onClick={() => handleDeleteContent(item.id)} className="text-red-600 hover:underline">删除</button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {items.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无数据</td></tr>}
-                                </tbody>
-                            </table>
-                        )}
-                    </section>
                 </main>
             </div>
 
@@ -1141,8 +1091,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     );
 };
 
-// --- Helper Components (Moved Outside) ---
-
+// --- Helper Components ---
 const NavButton = ({ id, icon, label, active, onClick }: any) => (
     <button onClick={() => onClick(id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-bold ${active === id ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`}>
         <span className="text-lg">{icon}</span>

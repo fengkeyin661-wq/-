@@ -18,7 +18,10 @@ export interface ContentItem {
 
 export interface InteractionItem {
     id: string;
-    type: 'booking' | 'drug_order' | 'signing' | 'event_signup';
+    // Updated types: 
+    // doctor_signing (签约), doctor_booking (挂号), drug_order (药品) -> 医生审核
+    // event_signup (活动), circle_join (圈子), service_booking (服务) -> 管理员审核
+    type: 'doctor_signing' | 'doctor_booking' | 'drug_order' | 'event_signup' | 'circle_join' | 'service_booking';
     userId: string;
     userName: string;
     targetId: string;
@@ -138,8 +141,6 @@ export const saveContent = async (item: ContentItem): Promise<{success: boolean,
   // 2. Try DB
   if (isSupabaseConfigured()) {
       try {
-          // Schema Compat: Pack description into details to avoid "Column not found" error
-          // if the DB schema hasn't been updated to include 'description' column.
           const packedDetails = {
               ...item.details,
               description: item.description 
@@ -149,12 +150,11 @@ export const saveContent = async (item: ContentItem): Promise<{success: boolean,
               id: item.id, 
               type: item.type, 
               title: item.title, 
-              // description: item.description, // Removed to prevent error
               tags: item.tags, 
               image: item.image, 
               author: item.author, 
               is_user_upload: item.isUserUpload,
-              details: packedDetails, // Saved here instead
+              details: packedDetails, 
               status: item.status, 
               updated_at: new Date().toISOString()
           };

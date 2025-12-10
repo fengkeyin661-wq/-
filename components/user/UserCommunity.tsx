@@ -12,7 +12,7 @@ interface Props {
 interface EventWithStatus extends ContentItem {
     currentSignups: number;
     isSignedUp: boolean;
-    signupStatus: 'open' | 'full' | 'joined' | 'ended';
+    signupStatus: 'open' | 'full' | 'joined' | 'pending' | 'ended';
 }
 
 // --- Smart Icon Helper for Community ---
@@ -92,18 +92,22 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
             ]);
 
             // 2. Fetch Interactions (Signups)
-            const interactions = await fetchInteractions('event_signup');
+            const interactions = await fetchInteractions();
 
             // 3. Process Events with Status
             const processedEvents = eventsData.map(evt => {
-                const evtSignups = interactions.filter(i => i.targetId === evt.id && i.status !== 'cancelled');
+                const evtSignups = interactions.filter(i => i.type === 'event_signup' && i.targetId === evt.id && i.status !== 'cancelled');
                 const count = evtSignups.length;
                 const limit = Number(evt.details?.limit) || 100;
-                const isSigned = userId ? evtSignups.some(i => i.userId === userId) : false;
+                
+                // Check my status
+                const myInteraction = userId ? evtSignups.find(i => i.userId === userId) : null;
+                const isSigned = !!myInteraction;
                 
                 // Determine Status
-                let status: 'open' | 'full' | 'joined' | 'ended' = 'open';
-                if (isSigned) status = 'joined';
+                let status: 'open' | 'full' | 'joined' | 'pending' | 'ended' = 'open';
+                if (myInteraction?.status === 'confirmed') status = 'joined';
+                else if (myInteraction?.status === 'pending') status = 'pending';
                 else if (count >= limit) status = 'full';
                 else if (evt.details?.businessStatus === '已结束' || evt.details?.businessStatus === '已截止') status = 'ended';
 
@@ -139,11 +143,11 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         
         // Cast to check status
         const evtStatus = allEvents.find(e => e.id === evt.id)?.signupStatus;
-        if (evtStatus === 'joined') {
+        if (evtStatus === 'joined' || evtStatus === 'pending') {
             return alert("您已报名参加此活动");
         }
 
-        if (confirm(`确定报名参加【${evt.title}】吗？`)) {
+        if (confirm(`确定报名参加【${evt.title}】吗？\n需等待管理员审核。`)) {
             const success = await saveInteraction({
                 id: `signup_${Date.now()}`,
                 type: 'event_signup',
@@ -151,13 +155,13 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                 userName,
                 targetId: evt.id,
                 targetName: evt.title,
-                status: 'confirmed', // Auto confirm for demo
+                status: 'pending', 
                 date: new Date().toISOString().split('T')[0],
                 details: `活动时间: ${evt.details?.date}`
             });
 
             if (success) {
-                alert("报名成功！");
+                alert("申请已提交，请等待管理员审核！");
                 setSelectedItem(null);
                 loadData(); // Refresh UI
             }
@@ -165,9 +169,24 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
     };
 
     const handleJoinCircle = async (circle: ContentItem) => {
-        if (!userId) return alert("请先登录");
-        alert(`恭喜！您已成功加入【${circle.title}】圈子。`);
-        setSelectedItem(null);
+        if (!userId || !userName) return alert("请先登录");
+        
+        const success = await saveInteraction({
+            id: `circle_join_${Date.now()}`,
+            type: 'circle_join',
+            userId, 
+            userName,
+            targetId: circle.id,
+            targetName: circle.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: '申请加入圈子'
+        });
+
+        if (success) {
+            alert(`申请加入【${circle.title}】已提交，请等待审核。`);
+            setSelectedItem(null);
+        }
     };
 
     // Filter Logic
@@ -264,7 +283,8 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                         </div>
                                     </div>
                                     <button className="bg-white text-slate-900 px-5 py-2 rounded-full text-xs font-bold hover:bg-slate-200 transition-colors shadow-lg">
-                                        {featuredEvent.signupStatus === 'joined' ? '已报名' : '立即报名'}
+                                        {featuredEvent.signupStatus === 'joined' ? '已报名' : 
+                                         featuredEvent.signupStatus === 'pending' ? '审核中' : '立即报名'}
                                     </button>
                                 </div>
                             </div>
@@ -350,11 +370,13 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                             <div className="text-right shrink-0">
                                                 <span className={`text-[10px] px-2 py-1 rounded font-bold ${
                                                     evt.signupStatus === 'joined' ? 'bg-green-100 text-green-700' :
+                                                    evt.signupStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
                                                     evt.signupStatus === 'full' ? 'bg-slate-100 text-slate-500' :
                                                     evt.signupStatus === 'ended' ? 'bg-slate-100 text-slate-400' :
                                                     'bg-blue-50 text-blue-600'
                                                 }`}>
                                                     {evt.signupStatus === 'joined' ? '已报名' : 
+                                                     evt.signupStatus === 'pending' ? '审核中' :
                                                      evt.signupStatus === 'full' ? '名额已满' :
                                                      evt.signupStatus === 'ended' ? '已结束' : '报名中'}
                                                 </span>
@@ -401,7 +423,8 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                     : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
                                                 }`}
                                             >
-                                                {evt.signupStatus === 'joined' ? '查看详情' : '立即报名'}
+                                                {evt.signupStatus === 'joined' ? '查看详情' : 
+                                                 evt.signupStatus === 'pending' ? '审核中' : '立即报名'}
                                             </button>
                                         </div>
                                     </div>
@@ -505,7 +528,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                     onClick={() => handleJoinCircle(selectedItem)}
                                     className="w-full bg-orange-500 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg shadow-orange-200 hover:bg-orange-600 active:scale-95 transition-all flex items-center justify-center gap-2"
                                 >
-                                    <span>➕</span> 加入圈子
+                                    <span>➕</span> 申请加入
                                 </button>
                             )}
                         </div>

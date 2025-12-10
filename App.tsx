@@ -67,7 +67,7 @@ export const App: React.FC = () => {
             // Find IDs of users who have a CONFIRMED signing with THIS doctor
             const myPatientIds = interactions
                 .filter(i => 
-                    i.type === 'signing' && 
+                    i.type === 'doctor_signing' && 
                     i.targetId === currentDoctor.id && 
                     i.status === 'confirmed'
                 )

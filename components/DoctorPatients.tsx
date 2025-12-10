@@ -64,7 +64,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         const interactions = await fetchInteractions();
         
         // 1. Filter Signed Patients (Confirmed Signings)
-        const signings = interactions.filter(i => i.type === 'signing' && i.targetId === doctorId && i.status === 'confirmed');
+        const signings = interactions.filter(i => i.type === 'doctor_signing' && i.targetId === doctorId && i.status === 'confirmed');
         const patientsList: PatientData[] = [];
         
         for (const s of signings) {
@@ -77,9 +77,17 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         // 2. Filter Workboard Requests
         const requests = interactions.filter(i => {
             if (i.status !== 'pending') return false;
-            if (i.type === 'signing' && i.targetId === doctorId) return true;
+            
+            // Case A: Signing Request directed to me
+            if (i.type === 'doctor_signing' && i.targetId === doctorId) return true;
+            
+            // Case B: Appointment Booking directed to me
+            if (i.type === 'doctor_booking' && i.targetId === doctorId) return true;
+
+            // Case C: Drug Order from MY signed patient
             const isMyPatient = signings.some(s => s.userId === i.userId);
-            if (isMyPatient && (i.type === 'booking' || i.type === 'drug_order')) return true;
+            if (i.type === 'drug_order' && isMyPatient) return true;
+
             return false;
         });
         setPendingRequests(requests);
@@ -159,10 +167,10 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                                 <div className="flex justify-between items-start mb-3">
                                                     <div>
                                                         <span className={`text-xs px-2 py-0.5 rounded font-bold ${
-                                                            req.type === 'signing' ? 'bg-blue-100 text-blue-700' :
-                                                            req.type === 'booking' ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700'
+                                                            req.type === 'doctor_signing' ? 'bg-blue-100 text-blue-700' :
+                                                            req.type === 'doctor_booking' ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700'
                                                         }`}>
-                                                            {req.type === 'signing' ? '签约申请' : req.type === 'booking' ? '服务预约' : '开药申请'}
+                                                            {req.type === 'doctor_signing' ? '签约申请' : req.type === 'doctor_booking' ? '挂号预约' : '药品预约'}
                                                         </span>
                                                         <div className="font-bold text-slate-800 mt-1">{req.userName}</div>
                                                     </div>
@@ -174,7 +182,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                                 </div>
                                                 <div className="flex gap-2">
                                                     <button onClick={() => handleAudit(req.id, false)} className="flex-1 py-1.5 border border-slate-200 text-slate-500 rounded text-xs hover:bg-slate-50">拒绝</button>
-                                                    <button onClick={() => handleAudit(req.id, true)} className="flex-1 py-1.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700">同意/接单</button>
+                                                    <button onClick={() => handleAudit(req.id, true)} className="flex-1 py-1.5 bg-blue-600 text-white rounded text-xs font-bold hover:bg-blue-700">同意/确认</button>
                                                 </div>
                                             </div>
                                         ))}

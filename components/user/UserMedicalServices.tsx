@@ -124,28 +124,44 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
         else setRecommendedDrugs(shuffled);
     };
 
-    const handleInteract = async (type: InteractionItem['type'], target: ContentItem) => {
+    const handleInteract = async (type: string, target: ContentItem) => {
         if (!userId) return alert("用户信息缺失");
         
-        const textMap: any = {
-            'signing': '签约申请',
-            'booking': '服务预约',
-            'drug_order': '开药申请'
-        };
+        let interactionType: InteractionItem['type'] = 'doctor_booking'; 
+        let confirmMsg = '';
+        let details = '';
 
-        if(confirm(`确定要提交【${target.title}】的${textMap[type]}吗？`)) {
+        if (type === 'signing') {
+            interactionType = 'doctor_signing';
+            confirmMsg = `确定申请签约【${target.title}】为家庭医生吗？`;
+            details = '申请家庭医生签约';
+        } else if (type === 'booking' && target.type === 'doctor') {
+            interactionType = 'doctor_booking';
+            confirmMsg = `确定预约【${target.title}】医生的号吗？`;
+            details = `预约挂号，费用: ${target.details?.fee || 0}元`;
+        } else if (type === 'drug_order') {
+            interactionType = 'drug_order';
+            confirmMsg = `确定申请预约药品【${target.title}】吗？`;
+            details = `预约药品，规格: ${target.details?.spec}`;
+        } else if (type === 'booking' && target.type === 'service') {
+            interactionType = 'service_booking';
+            confirmMsg = `确定预约服务【${target.title}】吗？`;
+            details = `服务预约，价格: ${target.details?.price || 0}`;
+        }
+
+        if(confirm(confirmMsg)) {
             await saveInteraction({
-                id: `${type}_${Date.now()}`,
-                type: type,
+                id: `${interactionType}_${Date.now()}`,
+                type: interactionType,
                 userId: userId,
                 userName: userName,
                 targetId: target.id,
                 targetName: target.title,
                 status: 'pending',
                 date: new Date().toISOString().split('T')[0],
-                details: type === 'drug_order' ? `规格: ${target.details?.spec}` : type === 'booking' ? `价格: ${target.details?.price}` : '申请家庭医生签约'
+                details: details
             });
-            alert("申请已提交，请等待医生审核。");
+            alert("申请已提交，请等待审核。");
             setSelectedItem(null);
         }
     };

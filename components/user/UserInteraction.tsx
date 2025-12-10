@@ -38,7 +38,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, archive, onMessageRea
 
     const loadData = async () => {
         const allInteractions = await fetchInteractions();
-        const signing = allInteractions.find(i => i.type === 'signing' && i.userId === userId && i.status === 'confirmed');
+        const signing = allInteractions.find(i => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
         setSignedDoctor(signing || null);
     };
 
