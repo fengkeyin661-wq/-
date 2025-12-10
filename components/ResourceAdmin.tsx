@@ -243,6 +243,92 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // --- Generic Excel Handling Logic ---
     const getTemplateConfig = () => {
         switch(activeTab) {
+            case 'event':
+                // Community Event
+                return {
+                    name: '社区活动导入模板',
+                    data: [{
+                        "活动ID（系统生成）": "",
+                        "活动名称": "秋季教职工颈椎健康讲座",
+                        "活动类型": "健康讲座",
+                        "主办科室/部门": "康复医学科",
+                        "主讲/负责人": "王主任",
+                        "活动时间": "2023-10-15 14:00",
+                        "活动地点": "校医院三楼报告厅",
+                        "封面图URL": "",
+                        "活动简介（列表页）": "特邀康复科主任讲解颈椎病预防...",
+                        "活动详情": "1.颈椎病成因\n2.预防手段\n3.现场体验",
+                        "适宜人群": "长期伏案工作者",
+                        "报名方式": "小程序在线报名",
+                        "报名开始时间": "2023-10-01 08:00",
+                        "报名截止时间": "2023-10-14 18:00",
+                        "活动人数上限": 50,
+                        "状态": "报名中",
+                        "排序值": 10,
+                        "关联服务项目": ""
+                    }]
+                };
+            case 'doctor':
+                return {
+                    name: '医生信息库导入模板',
+                    data: [{
+                        "医生ID（系统生成）": "",
+                        "医生工号": "YS1001",
+                        "医生姓名": "张伟",
+                        "所属科室编码": "REHAB001",
+                        "职称": "主任医师",
+                        "专长/简介": "擅长颈椎病、腰椎间盘突出...",
+                        "详细履历": "医学博士，毕业于...",
+                        "头像URL": "",
+                        "出诊安排": "周一上午专家门诊",
+                        "是否可在线咨询": "是",
+                        "咨询费用（元）": 20,
+                        "状态": "在职",
+                        "排序值": 1
+                    }]
+                };
+            case 'drug':
+                return {
+                    name: '药品信息库导入模板',
+                    data: [{
+                        "药品ID（系统生成）": "",
+                        "药品通用名": "阿司匹林肠溶片",
+                        "商品名": "拜阿司匹灵",
+                        "规格": "100mg*30片",
+                        "剂型": "片剂",
+                        "生产厂家": "拜耳医药保健有限公司",
+                        "药品分类": "心血管系统用药",
+                        "医保类型": "甲类",
+                        "参考单价（元）": 15.80,
+                        "库存单位": "盒",
+                        "用法用量": "口服，一次1片，一日1次",
+                        "主要功效": "抗血小板聚集",
+                        "重要注意事项": "活动性溃疡禁用",
+                        "说明书URL": "",
+                        "是否处方药": "是",
+                        "状态": "在售"
+                    }]
+                };
+            case 'exercise':
+                return {
+                    name: '运动方案库导入模板',
+                    data: [{
+                        "方案ID（系统生成）": "",
+                        "运动方案名称": "办公室颈椎保健操",
+                        "运动类型": "综合保健操",
+                        "适用人群/场景": "久坐办公族",
+                        "禁忌人群": "急性损伤期",
+                        "单次时长": "10分钟",
+                        "建议频率": "每日1-2次",
+                        "核心动作与流程": "热身→米字操→肩部绕环→放松",
+                        "强度提示": "低强度",
+                        "所需器材": "无",
+                        "教学视频/图解URL": "",
+                        "注意事项": "动作宜慢不宜快",
+                        "关联疾病/标签": "颈椎病,亚健康",
+                        "状态": "启用"
+                    }]
+                };
             case 'service':
                 return {
                     name: '医院服务项目',
@@ -250,40 +336,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架"
                     }]
                 };
-            case 'doctor':
-                return {
-                    name: '医生信息库',
-                    data: [{
-                        "姓名": "张三", "科室": "内科", "职称": "主任医师", "擅长领域": "高血压,糖尿病", "个人简介": "毕业于...", "出诊时间": "周一上午", "挂号费": 20, "登录账号": "zhangsan", "登录密码": "123456", "当前状态": "出诊中"
-                    }]
-                };
-            case 'drug':
-                return {
-                    name: '药品信息库',
-                    data: [{
-                        "药品名称": "阿司匹林", "规格": "100mg*30片", "生产厂家": "拜耳", "处方类型": "RX (处方药)", "医保类型": "甲类", "库存状态": "充足", "用法用量": "每日一次...", "主要禁忌": "出血倾向者禁用"
-                    }]
-                };
             case 'recipe':
                 return {
                     name: '膳食食谱库',
                     data: [{
                         "食谱名称": "清蒸鲈鱼", "制作难度": "⭐⭐", "所需食材": "鲈鱼1条, 姜葱适量", "制作步骤": "1.洗净... 2.蒸...", "热量(kcal)": 120, "主要营养素": "蛋白质, 优质脂肪", "健康标签": "高蛋白, 低脂"
-                    }]
-                };
-            case 'exercise':
-                return {
-                    name: '运动方案库',
-                    data: [{
-                        "运动名称": "慢跑", "强度等级": "中强度", "推荐时长": "30分钟", "消耗热量": 200, "适宜人群": "全人群", "禁忌风险": "膝关节损伤者慎用", "视频链接": "", "类型标签": "有氧"
-                    }]
-                };
-            case 'event':
-                // Community Event
-                return {
-                    name: '社区活动列表',
-                    data: [{
-                        "活动名称": "义诊进社区", "开始时间": "2024-06-01 09:00", "举办地点": "社区广场", "主讲人/嘉宾": "王医生", "报名方式": "现场空降", "名额限制": 100, "费用": 0, "活动简介": "免费测量血压血糖...", "标签": "义诊,福利"
                     }]
                 };
             default:
@@ -298,7 +355,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         const ws = XLSX.utils.json_to_sheet(config.data);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, config.name);
-        XLSX.writeFile(wb, `${config.name}_批量导入模板.xlsx`);
+        XLSX.writeFile(wb, `${config.name}.xlsx`);
     };
 
     const handleBatchImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -328,6 +385,118 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
                 // Mapper based on activeTab
                 switch(activeTab) {
+                    case 'event':
+                        if (!row['活动名称']) continue;
+                        item = {
+                            id, 
+                            type: 'event', 
+                            title: row['活动名称'], 
+                            tags: row['活动类型'] ? [row['活动类型']] : [], 
+                            description: row['活动简介（列表页）'] || '', 
+                            image: row['封面图URL'] || '🎉', 
+                            author: row['主办科室/部门'],
+                            status: ['报名中', '已截止', '已结束'].includes(row['状态']) ? 'active' : 'pending', 
+                            isUserUpload: false, 
+                            updatedAt: now,
+                            details: {
+                                speaker: row['主讲/负责人'],
+                                date: row['活动时间'],
+                                loc: row['活动地点'],
+                                content: row['活动详情'],
+                                targetAudience: row['适宜人群'],
+                                method: row['报名方式'],
+                                signupStart: row['报名开始时间'],
+                                signupEnd: row['报名截止时间'],
+                                limit: row['活动人数上限'],
+                                businessStatus: row['状态'],
+                                sortOrder: row['排序值'],
+                                relatedServiceIds: row['关联服务项目']
+                            }
+                        };
+                        break;
+                    case 'doctor':
+                        if (!row['医生姓名']) continue;
+                        item = {
+                            id, 
+                            type: 'doctor', 
+                            title: row['医生姓名'], 
+                            tags: row['所属科室编码'] ? [row['所属科室编码']] : [], 
+                            description: row['专长/简介'] || '', 
+                            image: row['头像URL'] || '👨‍⚕️', 
+                            status: ['在职', '出诊中'].includes(row['状态']) ? 'active' : 'pending', 
+                            isUserUpload: false, 
+                            updatedAt: now,
+                            details: {
+                                employeeId: row['医生工号'],
+                                deptCode: row['所属科室编码'],
+                                title: row['职称'],
+                                resume: row['详细履历'],
+                                schedule: row['出诊安排'],
+                                onlineConsult: row['是否可在线咨询'] === '是',
+                                fee: row['咨询费用（元）'],
+                                docStatus: row['状态'],
+                                sortOrder: row['排序值']
+                            }
+                        };
+                        break;
+                    case 'drug':
+                        if (!row['药品通用名']) continue;
+                        item = {
+                            id, 
+                            type: 'drug', 
+                            title: row['药品通用名'], 
+                            tags: row['药品分类'] ? [row['药品分类']] : [], 
+                            description: row['主要功效'] || '', 
+                            image: '💊', 
+                            status: ['在售', '正常'].includes(row['状态']) ? 'active' : 'pending', 
+                            isUserUpload: false, 
+                            updatedAt: now,
+                            details: {
+                                tradeName: row['商品名'],
+                                spec: row['规格'],
+                                dosageForm: row['剂型'],
+                                manufacturer: row['生产厂家'],
+                                insuranceType: row['医保类型'],
+                                price: row['参考单价（元）'],
+                                unit: row['库存单位'],
+                                usage: row['用法用量'],
+                                contraindications: row['重要注意事项'],
+                                manualUrl: row['说明书URL'],
+                                isRx: row['是否处方药'] === '是',
+                                stock: row['状态'] === '在售' ? '充足' : '缺货' // Rough mapping
+                            }
+                        };
+                        break;
+                    case 'exercise':
+                        if (!row['运动方案名称']) continue;
+                        item = {
+                            id, 
+                            type: 'exercise', 
+                            title: row['运动方案名称'], 
+                            tags: row['运动类型'] ? [row['运动类型']] : [], 
+                            description: row['核心动作与流程'] || '', 
+                            image: '🏃', 
+                            status: row['状态'] === '启用' ? 'active' : 'pending', 
+                            isUserUpload: false, 
+                            updatedAt: now,
+                            details: {
+                                audience: row['适用人群/场景'],
+                                contraindications: row['禁忌人群'],
+                                duration: row['单次时长'],
+                                frequency: row['建议频率'],
+                                steps: row['核心动作与流程'],
+                                intensity: row['强度提示'],
+                                equipment: row['所需器材'],
+                                videoUrl: row['教学视频/图解URL'],
+                                risks: row['注意事项'],
+                                relatedTags: row['关联疾病/标签']
+                            }
+                        };
+                        // Append related tags to main tags
+                        if (row['关联疾病/标签']) {
+                            item.tags.push(...row['关联疾病/标签'].split(/[,，]/));
+                        }
+                        break;
                     case 'service':
                         if (!row['项目名称']) continue;
                         item = {
@@ -344,27 +513,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             }
                         };
                         break;
-                    case 'doctor':
-                        if (!row['姓名']) continue;
-                        item = {
-                            id, type: 'doctor', title: row['姓名'], tags: row['擅长领域']?.split(/[,，]/) || [],
-                            description: row['个人简介'] || '', image: '👨‍⚕️', status: 'active', isUserUpload: false, updatedAt: now,
-                            details: {
-                                dept: row['科室'], title: row['职称'], schedule: row['出诊时间'], fee: row['挂号费'],
-                                username: row['登录账号'], password: row['登录密码'], docStatus: row['当前状态'] || '出诊中'
-                            }
-                        };
-                        break;
-                    case 'drug':
-                        if (!row['药品名称']) continue;
-                        item = {
-                            id, type: 'drug', title: row['药品名称'], tags: [], description: '', image: '💊', status: 'active', isUserUpload: false, updatedAt: now,
-                            details: {
-                                spec: row['规格'], manufacturer: row['生产厂家'], rxType: row['处方类型'],
-                                insuranceType: row['医保类型'], stock: row['库存状态'], usage: row['用法用量'], contraindications: row['主要禁忌']
-                            }
-                        };
-                        break;
                     case 'recipe':
                         if (!row['食谱名称']) continue;
                         item = {
@@ -373,28 +521,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             details: {
                                 difficulty: row['制作难度'], ingredients: row['所需食材'], steps: row['制作步骤'],
                                 cal: row['热量(kcal)'], nutrition: row['主要营养素']
-                            }
-                        };
-                        break;
-                    case 'exercise':
-                        if (!row['运动名称']) continue;
-                        item = {
-                            id, type: 'exercise', title: row['运动名称'], tags: row['类型标签']?.split(/[,，]/) || [],
-                            description: '', image: '🏃', status: 'active', isUserUpload: false, updatedAt: now,
-                            details: {
-                                intensity: row['强度等级'], duration: row['推荐时长'], cal: row['消耗热量'],
-                                audience: row['适宜人群'], risks: row['禁忌风险'], videoUrl: row['视频链接']
-                            }
-                        };
-                        break;
-                    case 'event':
-                        if (!row['活动名称']) continue;
-                        item = {
-                            id, type: 'event', title: row['活动名称'], tags: row['标签']?.split(/[,，]/) || [],
-                            description: row['活动简介'] || '', image: '🎉', status: 'active', isUserUpload: false, updatedAt: now,
-                            details: {
-                                date: row['开始时间'], loc: row['举办地点'], speaker: row['主讲人/嘉宾'],
-                                method: row['报名方式'], limit: row['名额限制'], cost: row['费用']
                             }
                         };
                         break;
@@ -679,7 +805,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                 {item.type === 'meal' && `难度:${item.details?.difficulty} • ${item.details?.cal}`}
                                                 {item.type === 'event' && `📅 ${item.details?.date?.replace('T',' ')} • 📍${item.details?.loc}`}
                                                 {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人`}
-                                                {item.type === 'doctor' && `${item.details?.dept} • ${item.details?.title}`}
+                                                {item.type === 'doctor' && `${item.details?.deptCode} • ${item.details?.title}`}
                                                 {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
                                                 {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
                                                 {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
@@ -749,7 +875,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="举办地点" placeholder="具体位置，如：社区中心2楼" value={editItem.details?.loc} onChange={(v:any) => updateDetail('loc', v)} />
                                     </FormSection>
                                     <FormSection title="活动详情">
-                                        <InputField label="主讲人/嘉宾" value={editItem.details?.speaker} onChange={(v:any) => updateDetail('speaker', v)} />
+                                        <InputField label="主讲人/负责人" value={editItem.details?.speaker} onChange={(v:any) => updateDetail('speaker', v)} />
                                         <SelectField label="报名方式" value={editItem.details?.method} onChange={(v:any) => updateDetail('method', v)} options={PRESETS.enrollMethod} />
                                         <InputField label="名额限制 (人)" type="number" value={editItem.details?.limit} onChange={(v:any) => updateDetail('limit', v)} />
                                         <InputField label="费用 (元)" placeholder="免费请填 0" value={editItem.details?.cost} onChange={(v:any) => updateDetail('cost', v)} />
@@ -815,6 +941,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 <>
                                     <FormSection title="职业信息">
                                         <SelectField label="所属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={PRESETS.depts} />
+                                        <InputField label="科室编码" value={editItem.details?.deptCode} onChange={(v:any) => updateDetail('deptCode', v)} />
                                         <SelectField label="职称" value={editItem.details?.title} onChange={(v:any) => updateDetail('title', v)} options={PRESETS.docTitles} />
                                         <SelectField label="当前状态" value={editItem.details?.docStatus} onChange={(v:any) => updateDetail('docStatus', v)} options={PRESETS.docStatus} />
                                         <InputField label="挂号费 (元)" value={editItem.details?.fee} onChange={(v:any) => updateDetail('fee', v)} />
