@@ -280,8 +280,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             const workbook = XLSX.read(arrayBuffer, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
-            // Fix: Explicitly cast to any[] to avoid TS7053 errors when accessing row properties via string index
-            const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+            
+            // Explicitly cast to Record<string, any>[] to allow string indexing without TS error
+            const jsonData = XLSX.utils.sheet_to_json(worksheet) as Record<string, any>[];
 
             if (jsonData.length === 0) throw new Error("文件内容为空");
 
@@ -289,8 +290,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             const newItems: ContentItem[] = [];
             const recipesToAnalyze: {name: string, ingredients: string, tempId: string}[] = [];
 
-            for (const r of jsonData) {
-                const row = r as any; // Explicit cast for row inside loop
+            for (const row of jsonData) {
                 // Common ID and timestamp
                 const id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
                 const now = new Date().toISOString();
@@ -545,6 +545,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    // ... (keep remaining code unchanged)
     const openEdit = (item?: ContentItem) => {
         setIsAnalyzing(false);
         if (item) {

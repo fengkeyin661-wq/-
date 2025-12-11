@@ -133,18 +133,27 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const handleConfirmPlan = async () => {
         if (!previewPlan || !userCheckupId) return;
         
-        const newDietLogs: DietLogItem[] = recommendedItems.filter(i => i.type === 'meal').map(i => ({
+        // Ensure accurate mapping by re-checking ID existence in the current resource lists
+        // This prevents stale or hallucinated IDs from breaking the logic
+        const targetMealIds = previewPlan.recommendedMealIds || [];
+        const targetExIds = previewPlan.recommendedExerciseIds || [];
+
+        // Find items in allMeals/allExercises to ensure we have full details
+        const foundMeals = allMeals.filter(m => targetMealIds.includes(m.id));
+        const foundExercises = allExercises.filter(e => targetExIds.includes(e.id));
+        
+        const newDietLogs: DietLogItem[] = foundMeals.map(i => ({
             id: Date.now() + Math.random().toString(),
             name: i.title,
             calories: Number(i.details?.cal) || 400,
-            protein: Number(i.details?.macros?.protein) || 20,
-            fat: Number(i.details?.macros?.fat) || 10,
-            carbs: Number(i.details?.macros?.carbs) || 50,
-            fiber: 5,
-            type: 'lunch'
+            protein: Number(i.details?.macros?.protein) || 0,
+            fat: Number(i.details?.macros?.fat) || 0,
+            carbs: Number(i.details?.macros?.carbs) || 0,
+            fiber: Number(i.details?.macros?.fiber) || 0,
+            type: 'lunch' // Defaulting to lunch
         }));
 
-        const newExLogs: ExerciseLogItem[] = recommendedItems.filter(i => i.type === 'exercise').map(i => ({
+        const newExLogs: ExerciseLogItem[] = foundExercises.map(i => ({
             id: Date.now() + Math.random().toString(),
             name: i.title,
             calories: Number(i.details?.cal) || 150,
@@ -163,6 +172,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         await updateUserPlan(userCheckupId, newPlan);
         setPreviewPlan(null);
         if (onRefresh) onRefresh();
+        alert("已成功应用方案并生成打卡记录！");
     };
 
     const handleAddManual = async () => {
