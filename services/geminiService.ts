@@ -40,7 +40,7 @@ const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode:
     } catch (error) { throw error; }
 };
 
-// ... (keep parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule, analyzeFollowUpRecord, generateFollowUpSMS, generateHospitalBusinessAnalysis, generateAnnualReportSummary, generateDietAssessment, generateExercisePlan, calculateNutritionFromIngredients, generateDailyIntegratedPlan) ...
+// ... (keep other functions unchanged) ...
 export const parseHealthDataFromText = async (raw: string) => { return {} as HealthRecord }; 
 export const generateHealthAssessment = async (rec: HealthRecord) => { return {} as HealthAssessment };
 export const generateFollowUpSchedule = (ass: HealthAssessment) => { return [] as ScheduledFollowUp[] };
@@ -51,70 +51,56 @@ export const generateAnnualReportSummary = async (b: any, c: any) => { return {s
 export const generateDietAssessment = async (i: string) => { return {reply:''} };
 export const generateExercisePlan = async (i: string) => { return {plan:[]} };
 export const calculateNutritionFromIngredients = async (r: any): Promise<{nutritionData: any}> => { return {nutritionData:{}} };
-export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string) => { return {} as any };
+export const generatePersonalizedHabits = async (assessment: HealthAssessment, record: HealthRecord) => { return { habits: [] as HabitRecord[] } };
 
-// [NEW] Generate Personalized Habits
-export const generatePersonalizedHabits = async (assessment: HealthAssessment, record: HealthRecord): Promise<{ habits: HabitRecord[] }> => {
+// [UPDATED] Generate Daily Plan based on Resource Library
+export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string): Promise<{
+    diet: { breakfast: string, lunch: string, dinner: string },
+    recommendedMealIds: string[],
+    exercise: { morning: string, afternoon: string, evening: string },
+    recommendedExerciseIds: string[],
+    tips: string
+}> => {
     const systemPrompt = `
-    你是一名健康管理专家。请根据用户的健康评估结果和生活方式数据，为其设计 6 个个性化的每日/每周打卡习惯。
+    你是一名精准营养师。请根据用户的健康画像，从提供的【资源库】中挑选最合适的餐品和运动。
     
-    设计原则：
-    1. **针对性强**：如果用户有高血压，应包含“晨起测血压”或“低盐饮食”；如果有糖尿病，应包含“监测空腹血糖”或“不喝含糖饮料”；如果吸烟，包含“今日未吸烟”。
-    2. **可执行性**：习惯必须是简单、明确、可量化的行动。
-    3. **多样性**：涵盖饮食、运动、监测、生活作息等方面。
+    任务：
+    1. 分析用户健康状况（如高血压需低钠，糖尿病需低GI）。
+    2. 从资源库JSON中选择：
+       - 1个早餐 (meal)
+       - 1个午餐 (meal)
+       - 1个晚餐 (meal)
+       - 1-2个运动项目 (exercise)
+    3. 返回选中项目的 ID。
     
-    请生成 JSON 格式，包含 6 个习惯对象。
-    
-    输出结构 HabitRecord:
+    输出格式 JSON:
     {
-      "id": "h1"..."h6",
-      "title": "简短标题(5字内)",
-      "icon": "Emoji图标",
-      "frequency": "daily" 或 "weekly",
-      "targetDay": 如果是weekly，指定周几(0-6, 0是周日), daily则不填或null,
-      "color": 颜色代码，仅限从以下选择: "orange", "green", "blue", "rose", "red", "pink", "purple"
-    }
-    
-    JSON输出示例:
-    {
-      "habits": [
-        { "id": "h1", "title": "吃早餐", "icon": "🍳", "frequency": "daily", "color": "orange" },
-        ...
-      ]
+      "diet": { "breakfast": "餐品名", "lunch": "餐品名", "dinner": "餐品名" },
+      "recommendedMealIds": ["id1", "id2", "id3"],
+      "exercise": { "morning": "描述", "afternoon": "描述", "evening": "描述" },
+      "recommendedExerciseIds": ["exId1", "exId2"],
+      "tips": "针对性的一句话建议"
     }
     `;
 
-    const userProfileSummary = `
-    风险等级: ${assessment.riskLevel}
-    主要健康问题: ${assessment.summary}
-    高危因素: ${assessment.risks.red.join(', ')}
-    中危因素: ${assessment.risks.yellow.join(', ')}
-    既往病史: ${record.questionnaire.history.diseases.join(', ')}
-    吸烟状况: ${record.questionnaire.substances.smoking.status}
-    运动频率: ${record.questionnaire.exercise.frequency}
+    const userContent = `
+    用户画像: ${userProfileStr}
+    
+    可用资源库 (JSON):
+    ${resourcesContext || '[]'}
     `;
 
     try {
-        const result = await callDeepSeek(systemPrompt, userProfileSummary, true);
-        // Add required fields for local state that AI doesn't generate
-        const habits = result.habits.map((h: any) => ({
-            ...h,
-            history: [],
-            streak: 0
-        }));
-        return { habits };
+        return await callDeepSeek(systemPrompt, userContent, true);
     } catch (e) {
-        console.error("Habit Gen Error", e);
-        // Fallback
+        console.error("Plan Gen Error", e);
+        // Fallback with empty IDs
         return {
-            habits: [
-                { id: 'h1', title: '吃早餐', icon: '🍳', frequency: 'daily', history: [], streak: 0, color: 'orange' },
-                { id: 'h2', title: '蔬菜300g+', icon: '🥦', frequency: 'daily', history: [], streak: 0, color: 'green' },
-                { id: 'h3', title: '多喝水', icon: '💧', frequency: 'daily', history: [], streak: 0, color: 'blue' },
-                { id: 'h4', title: '早睡早起', icon: '🌙', frequency: 'daily', history: [], streak: 0, color: 'purple' },
-                { id: 'h5', title: '适量运动', icon: '🏃', frequency: 'daily', history: [], streak: 0, color: 'red' },
-                { id: 'h6', title: '心情愉快', icon: '😄', frequency: 'daily', history: [], streak: 0, color: 'pink' },
-            ]
+            diet: { breakfast: '燕麦牛奶', lunch: '清淡饮食', dinner: '蔬菜沙拉' },
+            recommendedMealIds: [],
+            exercise: { morning: '拉伸', afternoon: '步行', evening: '休息' },
+            recommendedExerciseIds: [],
+            tips: '生成服务繁忙，请参考通用建议。'
         };
     }
 };

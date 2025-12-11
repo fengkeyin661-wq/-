@@ -38,7 +38,7 @@ const MEAL_SLOTS = [
     { id: 'breakfast', label: '早餐', icon: '🍳', color: 'bg-orange-50 text-orange-600' },
     { id: 'lunch', label: '午餐', icon: '🍱', color: 'bg-green-50 text-green-600' },
     { id: 'dinner', label: '晚餐', icon: '🍲', color: 'bg-indigo-50 text-indigo-600' },
-    { id: 'snack', label: '加餐', icon: '🥨', color: 'bg-pink-50 text-pink-600' }
+    // Removed Snack slot for simplified auto-planning
 ];
 
 const parseCal = (val: any): number => {
@@ -73,7 +73,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
     const [allExercises, setAllExercises] = useState<ContentItem[]>([]);
     
-    // UI State (Removed 'habits' tab)
     const [activeTab, setActiveTab] = useState<'diary' | 'resources'>('diary');
     const [searchTerm, setSearchTerm] = useState('');
     const [resourceFilter, setResourceFilter] = useState<'all' | 'meal' | 'exercise'>('all');
@@ -84,7 +83,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     // AI Gen State
     const [isGenerating, setIsGenerating] = useState(false);
     const [previewPlan, setPreviewPlan] = useState<any>(null);
-    const [recommendedItems, setRecommendedItems] = useState<ContentItem[]>([]);
+    const [calculatedStats, setCalculatedStats] = useState({ totalCal: 0, protein: 0, fat: 0, carbs: 0, burn: 0 });
 
     // --- 1. Target Calculations (TDEE) ---
     const targets = useMemo(() => {
@@ -107,7 +106,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         };
     }, [record]);
 
-    // --- 2. Current Intake Calculations ---
+    // --- 2. Current Intake Calculations (From saved plan) ---
     const intake = useMemo(() => {
         const dLogs = dailyPlan?.dietLogs || [];
         const eLogs = dailyPlan?.exerciseLogs || [];
@@ -130,88 +129,74 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     // Initial Load
     useEffect(() => {
         const load = async () => {
-            const [m, e] = await Promise.all([fetchContent('meal'), fetchContent('exercise')]);
+            const [m, e] = await Promise.all([fetchContent('meal', 'active'), fetchContent('exercise', 'active')]);
             setAllMeals(m); setAllExercises(e);
         };
         load();
     }, [userCheckupId]);
-
-    // --- Logic: Add Log ---
-    const handleAddLog = async (item: Partial<DietLogItem> | Partial<ExerciseLogItem>, type: 'meal' | 'exercise') => {
-        if (!userCheckupId) return;
-        
-        // 1. Get Fresh Data
-        let currentDiet = dailyPlan?.dietLogs || [];
-        let currentEx = dailyPlan?.exerciseLogs || [];
-        
-        try {
-            const fresh = await findArchiveByCheckupId(userCheckupId);
-            if(fresh?.custom_daily_plan) {
-                currentDiet = fresh.custom_daily_plan.dietLogs || [];
-                currentEx = fresh.custom_daily_plan.exerciseLogs || [];
-            }
-        } catch(e) {}
-
-        // 2. Prepare Payload
-        const newPlan = dailyPlan || { generatedAt: new Date().toISOString(), diet: {} as any, exercise: {} as any, tips: '', dietLogs: [], exerciseLogs: [] };
-        
-        if (type === 'meal') {
-            const log: DietLogItem = {
-                id: Date.now().toString(),
-                name: item.name || '未知餐食',
-                calories: parseCal(item.calories),
-                protein: Number((item as DietLogItem).protein) || 0,
-                fat: Number((item as DietLogItem).fat) || 0,
-                carbs: Number((item as DietLogItem).carbs) || 0,
-                fiber: 0,
-                type: (item as DietLogItem).type || 'lunch'
-            };
-            newPlan.dietLogs = [...currentDiet, log];
-        } else {
-            const dur = Number((item as ExerciseLogItem).duration) || 30;
-            // [UPDATE] Use Smart Estimator
-            let cal = parseCal(item.calories);
-            if (cal <= 0) {
-                cal = estimateCalories(item.name || '运动', dur);
-            }
-
-            const log: ExerciseLogItem = {
-                id: Date.now().toString(),
-                name: item.name || '未知运动',
-                calories: Math.round(cal),
-                duration: dur
-            };
-            newPlan.exerciseLogs = [...currentEx, log];
-        }
-
-        // 3. Save
-        const success = await updateUserPlan(userCheckupId, newPlan);
-        if (success) {
-            setSelectedItem(null);
-            if(onRefresh) onRefresh();
-        } else {
-            alert("保存失败");
-        }
-    };
 
     // --- Logic: AI Generation ---
     const handleGenerate = async () => {
         if (!assessment || !userCheckupId) return alert("请先完善档案");
         setIsGenerating(true);
         try {
+            // Provide context to AI
             const context = JSON.stringify({
-                meals: allMeals.slice(0, 30).map(m => ({ id: m.id, name: m.title })),
-                exercises: allExercises.slice(0, 10).map(e => ({ id: e.id, name: e.title }))
+                meals: allMeals.slice(0, 30).map(m => ({ 
+                    id: m.id, 
+                    name: m.title, 
+                    cal: m.details?.cal,
+                    tags: m.tags
+                })),
+                exercises: allExercises.slice(0, 15).map(e => ({ 
+                    id: e.id, 
+                    name: e.title,
+                    intensity: e.details?.intensity
+                }))
             });
-            const profileStr = `风险:${assessment.riskLevel}, ${assessment.summary}`;
+            const profileStr = `风险:${assessment.riskLevel}, ${assessment.summary}, TDEE目标:${targets.tdee}`;
+            
             const plan = await generateDailyIntegratedPlan(profileStr, context);
             
-            // Map IDs back to objects for display preview
-            const recIds = [...(plan.recommendedMealIds || []), ...(plan.recommendedExerciseIds || [])];
-            const recItems = [...allMeals, ...allExercises].filter(i => recIds.includes(i.id));
+            // Map IDs back to full objects for calculation
+            const recMealIds = plan.recommendedMealIds || [];
+            const recExIds = plan.recommendedExerciseIds || [];
+
+            const recMeals = allMeals.filter(m => recMealIds.includes(m.id));
+            const recExercises = allExercises.filter(e => recExIds.includes(e.id));
+
+            // Fallback: If AI fails to pick specific IDs or picks invalid ones, auto-select based on tags
+            if (recMeals.length < 3) {
+                // Simple logic: pick 1 breakfast-like, 1 lunch-like, 1 dinner-like if possible, or random
+                const remaining = 3 - recMeals.length;
+                const randomFill = allMeals.filter(m => !recMealIds.includes(m.id)).slice(0, remaining);
+                recMeals.push(...randomFill);
+            }
+
+            // Calculate Planned Nutrition
+            let stats = { totalCal: 0, protein: 0, fat: 0, carbs: 0, burn: 0 };
             
-            setPreviewPlan(plan);
-            setRecommendedItems(recItems);
+            recMeals.forEach(m => {
+                stats.totalCal += parseCal(m.details?.cal);
+                stats.protein += Number(m.details?.macros?.protein) || 0;
+                stats.fat += Number(m.details?.macros?.fat) || 0;
+                stats.carbs += Number(m.details?.macros?.carbs) || 0;
+            });
+
+            recExercises.forEach(e => {
+                const duration = parseCal(e.details?.duration) || 30;
+                let burned = parseCal(e.details?.cal);
+                if (burned <= 0) burned = estimateCalories(e.title, duration);
+                stats.burn += burned;
+            });
+
+            setPreviewPlan({
+                ...plan,
+                fullMeals: recMeals,
+                fullExercises: recExercises
+            });
+            setCalculatedStats(stats);
+
         } catch (e) {
             console.error(e);
             alert("AI 生成服务繁忙，请稍后再试");
@@ -223,71 +208,53 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const handleConfirmPlan = async () => {
         if (!previewPlan || !userCheckupId) return;
         
-        // 1. Precise Mapping with Data Extraction
-        const targetMealIds = previewPlan.recommendedMealIds || [];
-        const targetExIds = previewPlan.recommendedExerciseIds || [];
+        // Transform Preview to Log Items
+        const dietLogs: DietLogItem[] = previewPlan.fullMeals.map((m: ContentItem, index: number) => {
+            const types: DietLogItem['type'][] = ['breakfast', 'lunch', 'dinner'];
+            return {
+                id: Date.now() + index + '_meal',
+                name: m.title,
+                calories: parseCal(m.details?.cal),
+                protein: Number(m.details?.macros?.protein) || 0,
+                fat: Number(m.details?.macros?.fat) || 0,
+                carbs: Number(m.details?.macros?.carbs) || 0,
+                fiber: 0,
+                type: types[index] || 'lunch'
+            };
+        });
 
-        const foundMeals = allMeals.filter(m => targetMealIds.includes(m.id));
-        const foundExercises = allExercises.filter(e => targetExIds.includes(e.id));
-        
-        // Extract Macros & Calories
-        const recMeals: DietLogItem[] = foundMeals.map(i => ({
-            id: Date.now() + Math.random().toString(),
-            name: i.title,
-            calories: parseCal(i.details?.cal),
-            protein: Number(i.details?.macros?.protein) || 0,
-            fat: Number(i.details?.macros?.fat) || 0,
-            carbs: Number(i.details?.macros?.carbs) || 0,
-            fiber: Number(i.details?.macros?.fiber) || 0,
-            type: 'lunch'
-        }));
-
-        const recExercises: ExerciseLogItem[] = foundExercises.map(i => {
-            const dur = parseCal(i.details?.duration) || 30;
-            // [UPDATE] Use Smart Estimator if calorie data is missing from resource
-            let cal = parseCal(i.details?.cal);
-            if (cal <= 0) {
-                cal = estimateCalories(i.title, dur);
-            }
+        const exerciseLogs: ExerciseLogItem[] = previewPlan.fullExercises.map((e: ContentItem, index: number) => {
+            const dur = parseCal(e.details?.duration) || 30;
+            let cal = parseCal(e.details?.cal);
+            if (cal <= 0) cal = estimateCalories(e.title, dur);
             
             return {
-                id: Date.now() + Math.random().toString(),
-                name: i.title,
-                calories: cal,
+                id: Date.now() + index + '_ex',
+                name: e.title,
+                calories: Math.round(cal),
                 duration: dur
             };
         });
 
-        // 2. Fetch Fresh & Merge
-        let existingDietLogs = dailyPlan?.dietLogs || [];
-        let existingExerciseLogs = dailyPlan?.exerciseLogs || [];
-        
-        try {
-            const freshArchive = await findArchiveByCheckupId(userCheckupId);
-            if (freshArchive && freshArchive.custom_daily_plan) {
-                existingDietLogs = freshArchive.custom_daily_plan.dietLogs || [];
-                existingExerciseLogs = freshArchive.custom_daily_plan.exerciseLogs || [];
-            }
-        } catch (e) {}
-
         const newPlan: DailyHealthPlan = {
             generatedAt: new Date().toISOString(),
-            diet: previewPlan.diet,
+            diet: previewPlan.diet, // Text summary
             exercise: previewPlan.exercise,
             tips: previewPlan.tips,
-            dietLogs: existingDietLogs,
-            exerciseLogs: existingExerciseLogs,
-            recommendations: {
-                meals: recMeals,
-                exercises: recExercises
+            dietLogs: dietLogs, // Actual Data
+            exerciseLogs: exerciseLogs,
+            recommendations: { // Keep for reference
+                meals: dietLogs,
+                exercises: exerciseLogs
             }
         };
 
         const success = await updateUserPlan(userCheckupId, newPlan);
         if (success) {
             setPreviewPlan(null);
-            alert("方案已更新！推荐内容已保存至「我的方案」");
             if(onRefresh) onRefresh();
+        } else {
+            alert("保存失败");
         }
     };
 
@@ -352,93 +319,102 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
             {/* 2. Navigation Tabs */}
             <div className="px-6 mt-4 mb-2 flex gap-4">
-                <button onClick={() => setActiveTab('diary')} className={`text-sm font-bold pb-2 transition-all ${activeTab==='diary' ? 'text-slate-800 border-b-2 border-teal-500' : 'text-slate-400'}`}>今日日记</button>
+                <button onClick={() => setActiveTab('diary')} className={`text-sm font-bold pb-2 transition-all ${activeTab==='diary' ? 'text-slate-800 border-b-2 border-teal-500' : 'text-slate-400'}`}>今日方案</button>
                 <button onClick={() => setActiveTab('resources')} className={`text-sm font-bold pb-2 transition-all ${activeTab==='resources' ? 'text-slate-800 border-b-2 border-teal-500' : 'text-slate-400'}`}>资源库</button>
             </div>
 
-            {/* 3. Diary View */}
+            {/* 3. Diary View (My Plan) */}
             {activeTab === 'diary' && (
                 <div className="px-4 space-y-4 animate-fadeIn">
-                    {/* Meal Slots */}
-                    {MEAL_SLOTS.map(slot => {
-                        const items = dailyPlan?.dietLogs?.filter(l => l.type === slot.id) || [];
-                        const slotCal = items.reduce((sum, i) => sum + i.calories, 0);
-                        
-                        return (
-                            <div key={slot.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                    
+                    {/* Only show AI Button if plan is empty or user wants to regenerate */}
+                    <button onClick={handleGenerate} disabled={isGenerating} className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
+                        {isGenerating ? '🔮 AI 正在从资源库匹配方案...' : (dailyPlan?.dietLogs?.length ? '🔄 重新生成今日方案' : '✨ 智能生成今日方案')}
+                    </button>
+
+                    {dailyPlan?.dietLogs && dailyPlan.dietLogs.length > 0 ? (
+                        <>
+                            {/* Meal Slots */}
+                            {MEAL_SLOTS.map(slot => {
+                                const items = dailyPlan.dietLogs?.filter(l => l.type === slot.id) || [];
+                                const slotCal = items.reduce((sum, i) => sum + i.calories, 0);
+                                
+                                return (
+                                    <div key={slot.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                                        <div className="flex justify-between items-center mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg ${slot.color}`}>
+                                                    {slot.icon}
+                                                </div>
+                                                <span className="font-bold text-slate-700">{slot.label}</span>
+                                            </div>
+                                            <div className="text-xs text-slate-400 font-bold">{slotCal} kcal</div>
+                                        </div>
+                                        {items.length > 0 ? (
+                                            <div className="space-y-2">
+                                                {items.map((item, idx) => (
+                                                    <div key={idx} className="flex justify-between text-sm py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded px-2 -mx-2 transition-colors">
+                                                        <div className="flex flex-col">
+                                                            <span className="font-bold text-slate-700">{item.name}</span>
+                                                            <div className="text-[10px] text-slate-400 flex gap-2">
+                                                                <span>C:{item.carbs}</span>
+                                                                <span>P:{item.protein}</span>
+                                                                <span>F:{item.fat}</span>
+                                                            </div>
+                                                        </div>
+                                                        <span className="font-mono text-slate-500 self-center">{item.calories}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-xs text-slate-300 text-center py-2">无内容 (由AI自动规划)</div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+
+                            {/* Exercise Slot */}
+                            <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
                                 <div className="flex justify-between items-center mb-3">
                                     <div className="flex items-center gap-2">
-                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg ${slot.color}`}>
-                                            {slot.icon}
-                                        </div>
-                                        <span className="font-bold text-slate-700">{slot.label}</span>
+                                        <div className="w-8 h-8 bg-orange-50 text-orange-600 rounded-lg flex items-center justify-center text-lg">🏃</div>
+                                        <span className="font-bold text-slate-700">运动消耗</span>
                                     </div>
-                                    <div className="text-xs text-slate-400 font-bold">{slotCal} kcal</div>
+                                    <div className="text-xs text-orange-500 font-bold">-{intake.burned} kcal</div>
                                 </div>
-                                {items.length > 0 ? (
+                                {dailyPlan.exerciseLogs && dailyPlan.exerciseLogs.length > 0 ? (
                                     <div className="space-y-2">
-                                        {items.map((item, idx) => (
-                                            <div key={idx} className="flex justify-between text-sm py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded px-2 -mx-2 transition-colors">
-                                                <span>{item.name}</span>
-                                                <span className="font-mono text-slate-500">{item.calories}</span>
+                                        {dailyPlan.exerciseLogs.map((item, idx) => (
+                                            <div key={idx} className="flex justify-between text-sm py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded px-2 -mx-2">
+                                                <span className="flex items-center gap-2 font-bold text-slate-700">
+                                                    {item.name}
+                                                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded font-normal">{item.duration} min</span>
+                                                </span>
+                                                <span className="font-mono text-orange-500">-{item.calories}</span>
                                             </div>
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="text-center py-2">
-                                        <button onClick={() => { setActiveTab('resources'); setResourceFilter('meal'); }} className="text-xs text-teal-600 font-bold bg-teal-50 px-3 py-1.5 rounded-full hover:bg-teal-100">
-                                            + 添加{slot.label}
-                                        </button>
-                                    </div>
+                                    <div className="text-xs text-slate-300 text-center py-2">无内容 (由AI自动规划)</div>
                                 )}
                             </div>
-                        );
-                    })}
-
-                    {/* Exercise Slot */}
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                        <div className="flex justify-between items-center mb-3">
-                            <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 bg-orange-50 text-orange-600 rounded-lg flex items-center justify-center text-lg">🏃</div>
-                                <span className="font-bold text-slate-700">运动消耗</span>
-                            </div>
-                            <div className="text-xs text-orange-500 font-bold">-{intake.burned} kcal</div>
+                        </>
+                    ) : (
+                        <div className="text-center py-10 text-slate-400 text-sm">
+                            <div className="text-4xl mb-2 opacity-50">📋</div>
+                            点击上方按钮，生成您的专属健康方案
                         </div>
-                        {dailyPlan?.exerciseLogs && dailyPlan.exerciseLogs.length > 0 ? (
-                            <div className="space-y-2">
-                                {dailyPlan.exerciseLogs.map((item, idx) => (
-                                    <div key={idx} className="flex justify-between text-sm py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded px-2 -mx-2">
-                                        <span className="flex items-center gap-2">
-                                            {item.name}
-                                            <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded">{item.duration} min</span>
-                                        </span>
-                                        <span className="font-mono text-orange-500">-{item.calories}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-center py-2">
-                                <button onClick={() => { setActiveTab('resources'); setResourceFilter('exercise'); }} className="text-xs text-orange-600 font-bold bg-orange-50 px-3 py-1.5 rounded-full hover:bg-orange-100">
-                                    + 添加运动
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* AI Button */}
-                    <button onClick={handleGenerate} disabled={isGenerating} className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold shadow-lg shadow-indigo-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
-                        {isGenerating ? '🔮 AI 正在思考中...' : '✨ 生成今日 AI 方案'}
-                    </button>
+                    )}
                 </div>
             )}
 
-            {/* 4. Resources View (Pinterest Style) */}
+            {/* 4. Resources View (Read Only Browser) */}
             {activeTab === 'resources' && (
                 <div className="px-4 animate-fadeIn">
                     <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
                         {['all', 'meal', 'exercise'].map(f => (
                             <button key={f} onClick={() => setResourceFilter(f as any)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${resourceFilter===f ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 border'}`}>
-                                {f==='all'?'全部':f==='meal'?'食谱':'运动'}
+                                {f==='all'?'全部':f==='meal'?'食谱库':'运动库'}
                             </button>
                         ))}
                     </div>
@@ -458,7 +434,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
             {/* --- MODALS --- */}
 
-            {/* 1. Item Detail Modal */}
+            {/* 1. Item Detail Modal (Read Only) */}
             {selectedItem && (
                 <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setSelectedItem(null)}>
                     <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-scaleIn relative overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -497,54 +473,44 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                             </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <button onClick={() => setSelectedItem(null)} className="py-3 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200">取消</button>
-                            {selectedItem.type === 'meal' ? (
-                                <button 
-                                    onClick={() => handleAddLog({
-                                        name: selectedItem.title,
-                                        calories: selectedItem.details?.cal,
-                                        protein: selectedItem.details?.macros?.protein,
-                                        fat: selectedItem.details?.macros?.fat,
-                                        carbs: selectedItem.details?.macros?.carbs,
-                                        type: 'lunch' // Default, maybe add selector later
-                                    }, 'meal')}
-                                    className="py-3 rounded-xl font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-lg"
-                                >
-                                    + 加入午餐
-                                </button>
-                            ) : (
-                                <button 
-                                    onClick={() => handleAddLog({
-                                        name: selectedItem.title,
-                                        calories: selectedItem.details?.cal,
-                                        duration: selectedItem.details?.duration
-                                    }, 'exercise')}
-                                    className="py-3 rounded-xl font-bold text-white bg-orange-500 hover:bg-orange-600 shadow-lg"
-                                >
-                                    + 加入运动
-                                </button>
-                            )}
-                        </div>
+                        <button onClick={() => setSelectedItem(null)} className="w-full py-3 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200">关闭</button>
                     </div>
                 </div>
             )}
 
-            {/* 3. AI Preview Modal */}
+            {/* 3. AI Preview Modal (Confirmation) */}
             {previewPlan && (
                 <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-scaleIn">
-                        <h3 className="text-xl font-bold mb-4 text-center">✨ AI 专属方案预览</h3>
-                        <div className="bg-gradient-to-br from-indigo-50 to-white p-4 rounded-2xl border border-indigo-100 text-sm space-y-3 mb-6 max-h-60 overflow-y-auto">
-                            <div><span className="font-bold text-indigo-600">🍳 早餐:</span> {previewPlan.diet.breakfast}</div>
-                            <div><span className="font-bold text-indigo-600">🍱 午餐:</span> {previewPlan.diet.lunch}</div>
-                            <div><span className="font-bold text-indigo-600">🥗 晚餐:</span> {previewPlan.diet.dinner}</div>
-                            <div className="pt-2 border-t border-indigo-100 text-xs text-slate-500 italic">"{previewPlan.tips}"</div>
+                        <h3 className="text-xl font-bold mb-2 text-center">✨ AI 自动生成方案</h3>
+                        <p className="text-xs text-center text-slate-400 mb-4">已为您从资源库自动匹配并计算营养</p>
+                        
+                        {/* Nutrition Summary */}
+                        <div className="bg-slate-50 rounded-xl p-3 grid grid-cols-3 gap-2 text-center mb-4">
+                            <div><div className="text-xs text-slate-400">总热量</div><div className="font-bold text-teal-600">{calculatedStats.totalCal}</div></div>
+                            <div><div className="text-xs text-slate-400">蛋白质</div><div className="font-bold text-slate-700">{calculatedStats.protein}g</div></div>
+                            <div><div className="text-xs text-slate-400">预计消耗</div><div className="font-bold text-orange-500">{calculatedStats.burn}</div></div>
                         </div>
-                        <p className="text-xs text-slate-400 text-center mb-4">包含 {recommendedItems.length} 项精选资源，确认后将自动匹配营养数据并存入。</p>
+
+                        <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden text-sm space-y-0 mb-6 max-h-60 overflow-y-auto">
+                            {previewPlan.fullMeals.map((m: any, i: number) => (
+                                <div key={i} className="p-3 border-b border-slate-50 flex justify-between">
+                                    <span className="font-bold text-slate-700">{i===0?'早':i===1?'午':'晚'}: {m.title}</span>
+                                    <span className="text-xs text-slate-400">{m.details?.cal} kcal</span>
+                                </div>
+                            ))}
+                            {previewPlan.fullExercises.map((e: any, i: number) => (
+                                <div key={i} className="p-3 bg-orange-50/50 flex justify-between">
+                                    <span className="font-bold text-orange-800">🏃 {e.title}</span>
+                                    <span className="text-xs text-orange-600">{e.details?.duration} min</span>
+                                </div>
+                            ))}
+                            <div className="p-3 text-xs text-slate-500 italic bg-slate-50">"{previewPlan.tips}"</div>
+                        </div>
+                        
                         <div className="flex gap-2">
                             <button onClick={() => setPreviewPlan(null)} className="flex-1 py-3 border rounded-xl text-sm font-bold text-slate-500">取消</button>
-                            <button onClick={handleConfirmPlan} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg">确认应用</button>
+                            <button onClick={handleConfirmPlan} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 shadow-lg">确认应用此方案</button>
                         </div>
                     </div>
                 </div>
