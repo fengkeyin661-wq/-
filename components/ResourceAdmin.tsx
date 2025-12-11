@@ -395,7 +395,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             const workbook = XLSX.read(arrayBuffer, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
-            const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
+            // Fix: Explicitly cast to any[] to avoid TS7053 errors when accessing row properties via string index
+            const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
 
             if (jsonData.length === 0) throw new Error("文件内容为空");
 
