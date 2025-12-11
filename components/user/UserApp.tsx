@@ -1,12 +1,13 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
 import { UserDietMotion } from './UserDietMotion';
+import { UserHabits } from './UserHabits'; // New import
 import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserCommunity } from './UserCommunity';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../../services/dataService';
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
 
 interface Props {
@@ -15,30 +16,32 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('diet_motion');
+  const [activeTab, setActiveTab] = useState('habits'); // Default to habits
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
-    const loadUser = async () => {
-      setLoading(true);
-      try {
-        const archive = await findArchiveByCheckupId(checkupId);
-        if (archive) {
-          setUserArchive(archive);
-        } else {
-          alert('未找到您的档案，请联系管理员核对体检编号');
-          onLogout();
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
+  const loadUser = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    try {
+      const archive = await findArchiveByCheckupId(checkupId);
+      if (archive) {
+        setUserArchive(archive);
+        syncArchiveToLocal(archive); 
+      } else {
+        alert('未找到您的档案，请联系管理员核对体检编号');
+        onLogout();
       }
-    };
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (!isSilent) setLoading(false);
+    }
+  }, [checkupId, onLogout]);
+
+  useEffect(() => {
     loadUser();
-  }, [checkupId]);
+  }, [loadUser]);
 
   // Poll for unread messages
   useEffect(() => {
@@ -50,10 +53,10 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
       if (userArchive) {
           checkUnread();
-          const interval = setInterval(checkUnread, 2000);
+          const interval = setInterval(checkUnread, 5000);
           return () => clearInterval(interval);
       }
-  }, [userArchive]);
+  }, [userArchive?.checkup_id]);
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
@@ -87,26 +90,35 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
+      {activeTab === 'habits' && (
+          <UserHabits 
+              assessment={userArchive.assessment_data}
+              userCheckupId={userArchive.checkup_id}
+              record={userArchive.health_record}
+              onRefresh={() => loadUser(true)}
+          />
+      )}
       {activeTab === 'diet_motion' && (
           <UserDietMotion 
               assessment={userArchive.assessment_data} 
               userCheckupId={userArchive.checkup_id}
               record={userArchive.health_record}
               dailyPlan={userArchive.custom_daily_plan}
+              onRefresh={() => loadUser(true)}
           />
       )}
       {activeTab === 'medical' && (
           <UserMedicalServices 
               userId={userArchive.checkup_id} 
               userName={userArchive.name} 
-              assessment={userArchive.assessment_data} // Pass assessment
+              assessment={userArchive.assessment_data} 
           />
       )}
       {activeTab === 'community' && (
           <UserCommunity 
               userId={userArchive.checkup_id}
               userName={userArchive.name}
-              assessment={userArchive.assessment_data} // Pass assessment
+              assessment={userArchive.assessment_data} 
           />
       )}
       {activeTab === 'interaction' && (

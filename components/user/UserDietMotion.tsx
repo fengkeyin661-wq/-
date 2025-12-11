@@ -2,9 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, ContentItem } from '../../services/contentService';
 import { HealthAssessment, HealthRecord } from '../../types';
-import { generateDailyIntegratedPlan, generatePersonalizedHabits } from '../../services/geminiService';
-import { updateUserPlan, DailyHealthPlan, DietLogItem, ExerciseLogItem, findArchiveByCheckupId, HabitRecord, updateHabits } from '../../services/dataService';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { generateDailyIntegratedPlan } from '../../services/geminiService';
+import { updateUserPlan, DailyHealthPlan, DietLogItem, ExerciseLogItem, findArchiveByCheckupId } from '../../services/dataService';
 
 interface Props {
     assessment?: HealthAssessment;
@@ -74,15 +73,11 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
     const [allExercises, setAllExercises] = useState<ContentItem[]>([]);
     
-    // UI State
-    const [activeTab, setActiveTab] = useState<'habits' | 'diary' | 'resources'>('habits');
+    // UI State (Removed 'habits' tab)
+    const [activeTab, setActiveTab] = useState<'diary' | 'resources'>('diary');
     const [searchTerm, setSearchTerm] = useState('');
     const [resourceFilter, setResourceFilter] = useState<'all' | 'meal' | 'exercise'>('all');
     
-    // Habits State
-    const [habits, setHabits] = useState<HabitRecord[]>([]);
-    const [isHabitsLoading, setIsHabitsLoading] = useState(false);
-
     // Modals
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
     
@@ -132,84 +127,14 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const remainingCal = Math.max(0, targets.tdee - intake.cal + intake.burned);
     const progressCal = Math.min(100, ((intake.cal - intake.burned) / targets.tdee) * 100);
 
-    // Initial Load & Habit Logic
+    // Initial Load
     useEffect(() => {
         const load = async () => {
             const [m, e] = await Promise.all([fetchContent('meal'), fetchContent('exercise')]);
             setAllMeals(m); setAllExercises(e);
-            
-            // Load Habits
-            if (userCheckupId) {
-                const archive = await findArchiveByCheckupId(userCheckupId);
-                
-                if (archive && archive.habit_tracker && archive.habit_tracker.length > 0) {
-                    setHabits(archive.habit_tracker);
-                } else if (assessment && record) {
-                    // Initialize if empty and we have data
-                    await initializeHabits(assessment, record);
-                }
-            }
         };
         load();
-    }, [userCheckupId, assessment, record]);
-
-    const initializeHabits = async (ass: HealthAssessment, rec: HealthRecord) => {
-        if (!userCheckupId) return;
-        setIsHabitsLoading(true);
-        try {
-            const { habits: newHabits } = await generatePersonalizedHabits(ass, rec);
-            setHabits(newHabits);
-            await updateHabits(userCheckupId, newHabits);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setIsHabitsLoading(false);
-        }
-    };
-
-    const handleRegenerateHabits = () => {
-        if (assessment && record && confirm("确定要基于最新健康状况重新生成打卡习惯吗？当前的连续打卡记录将被重置。")) {
-            initializeHabits(assessment, record);
-        }
-    };
-
-    // --- Logic: Habit Tracker ---
-    const toggleHabit = async (id: string) => {
-        if (!userCheckupId) return;
-        const today = new Date().toISOString().split('T')[0];
-        
-        const newHabits = habits.map(h => {
-            if (h.id === id) {
-                const completedToday = h.history.includes(today);
-                let newHistory = [];
-                let newStreak = h.streak;
-
-                if (completedToday) {
-                    // Undo
-                    newHistory = h.history.filter(d => d !== today);
-                    // Naive streak recalc (simplified)
-                    newStreak = Math.max(0, newStreak - 1); 
-                } else {
-                    // Complete
-                    newHistory = [...h.history, today];
-                    // Check if consecutive with yesterday
-                    const yesterday = new Date();
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    const yStr = yesterday.toISOString().split('T')[0];
-                    if (h.history.includes(yStr)) {
-                        newStreak += 1;
-                    } else {
-                        newStreak = 1; // Start streak (or restart if broken, assuming logic)
-                    }
-                }
-                return { ...h, history: newHistory, streak: newStreak };
-            }
-            return h;
-        });
-
-        setHabits(newHabits);
-        await updateHabits(userCheckupId, newHabits);
-    };
+    }, [userCheckupId]);
 
     // --- Logic: Add Log ---
     const handleAddLog = async (item: Partial<DietLogItem> | Partial<ExerciseLogItem>, type: 'meal' | 'exercise') => {
@@ -378,32 +303,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         return list;
     }, [allMeals, allExercises, resourceFilter, searchTerm]);
 
-    const getColorClass = (color: string) => {
-        const map: any = {
-            'orange': 'bg-orange-500 border-orange-600',
-            'green': 'bg-green-500 border-green-600',
-            'blue': 'bg-blue-500 border-blue-600',
-            'rose': 'bg-rose-500 border-rose-600',
-            'red': 'bg-red-500 border-red-600',
-            'pink': 'bg-pink-500 border-pink-600',
-            'purple': 'bg-purple-500 border-purple-600'
-        };
-        return map[color] || 'bg-slate-500 border-slate-600';
-    };
-
-    const getLightColorClass = (color: string) => {
-        const map: any = {
-            'orange': 'text-orange-500',
-            'green': 'text-green-500',
-            'blue': 'text-blue-500',
-            'rose': 'text-rose-500',
-            'red': 'text-red-500',
-            'pink': 'text-pink-500',
-            'purple': 'text-purple-500'
-        };
-        return map[color] || 'text-slate-500';
-    };
-
     return (
         <div className="bg-slate-50 min-h-full pb-28">
             {/* 1. Header & Dashboard */}
@@ -453,74 +352,9 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
             {/* 2. Navigation Tabs */}
             <div className="px-6 mt-4 mb-2 flex gap-4">
-                <button onClick={() => setActiveTab('habits')} className={`text-sm font-bold pb-2 transition-all ${activeTab==='habits' ? 'text-slate-800 border-b-2 border-teal-500' : 'text-slate-400'}`}>习惯打卡</button>
                 <button onClick={() => setActiveTab('diary')} className={`text-sm font-bold pb-2 transition-all ${activeTab==='diary' ? 'text-slate-800 border-b-2 border-teal-500' : 'text-slate-400'}`}>今日日记</button>
                 <button onClick={() => setActiveTab('resources')} className={`text-sm font-bold pb-2 transition-all ${activeTab==='resources' ? 'text-slate-800 border-b-2 border-teal-500' : 'text-slate-400'}`}>资源库</button>
             </div>
-
-            {/* --- HABITS TAB (Streaks Style) --- */}
-            {activeTab === 'habits' && (
-                <div className="px-4 animate-fadeIn">
-                    <div className="flex justify-between items-center mb-4">
-                        <span className="text-xs text-slate-400 font-bold">AI 个性化定制</span>
-                        <button onClick={handleRegenerateHabits} disabled={isHabitsLoading} className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded flex items-center gap-1 active:scale-95">
-                            {isHabitsLoading ? '生成中...' : '🔄 重新生成'}
-                        </button>
-                    </div>
-                    
-                    {isHabitsLoading ? (
-                        <div className="py-12 text-center text-slate-400 text-sm">
-                            <div className="text-2xl animate-spin mb-2">🔮</div>
-                            AI 正在分析您的健康档案...
-                        </div>
-                    ) : (
-                        <>
-                            <div className="grid grid-cols-3 gap-4 mb-6">
-                                {habits.map(habit => {
-                                    const today = new Date().toISOString().split('T')[0];
-                                    const isDone = habit.history.includes(today);
-                                    const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon
-                                    // If it's a weekly task and today is not the target day, we can either hide it or show it as disabled
-                                    const isWrongDay = habit.frequency === 'weekly' && habit.targetDay !== undefined && habit.targetDay !== dayOfWeek;
-
-                                    return (
-                                        <div key={habit.id} className="flex flex-col items-center group">
-                                            <button 
-                                                onClick={() => !isWrongDay && toggleHabit(habit.id)}
-                                                disabled={isWrongDay}
-                                                className={`w-20 h-20 rounded-full flex items-center justify-center border-4 text-3xl shadow-sm transition-all duration-300 relative ${
-                                                    isDone 
-                                                    ? `${getColorClass(habit.color)} text-white scale-105 shadow-md` 
-                                                    : isWrongDay 
-                                                        ? 'bg-slate-50 border-slate-100 text-slate-300 grayscale cursor-not-allowed'
-                                                        : `bg-white border-slate-100 ${getLightColorClass(habit.color)} hover:border-slate-200 active:scale-95`
-                                                }`}
-                                            >
-                                                <span className="z-10">{habit.icon}</span>
-                                                {/* Badge for Streak */}
-                                                {(habit.streak > 0 && !isWrongDay) && (
-                                                    <div className="absolute -top-1 -right-1 bg-white text-slate-700 text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow border border-slate-100">
-                                                        {habit.streak}
-                                                    </div>
-                                                )}
-                                            </button>
-                                            <span className={`text-xs font-bold mt-2 text-center ${isWrongDay ? 'text-slate-300' : 'text-slate-600'}`}>
-                                                {habit.title}
-                                                {isWrongDay && <span className="block text-[9px] font-normal">周{['日','一','二','三','四','五','六'][habit.targetDay || 0]}开启</span>}
-                                            </span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            {habits.length === 0 && <div className="text-center text-slate-400 text-sm py-4">暂无习惯，请尝试重新生成</div>}
-                        </>
-                    )}
-                    
-                    <div className="bg-slate-100/50 p-4 rounded-xl text-center mt-2">
-                        <p className="text-xs text-slate-400">坚持每日打卡，养成健康生活方式</p>
-                    </div>
-                </div>
-            )}
 
             {/* 3. Diary View */}
             {activeTab === 'diary' && (

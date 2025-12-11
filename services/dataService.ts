@@ -39,6 +39,15 @@ export interface HabitRecord {
     streak: number;
 }
 
+// [NEW] Gamification Data
+export interface UserGamification {
+    totalXP: number;
+    level: number;
+    currentStreak: number; // Global streak (days checked in at least once)
+    lastCheckInDate: string; // YYYY-MM-DD
+    badges: string[]; // IDs of unlocked badges
+}
+
 export interface DailyHealthPlan {
     generatedAt: string;
     diet: { breakfast: string, lunch: string, dinner: string, snack: string };
@@ -73,7 +82,8 @@ export interface HealthArchive {
     risk_analysis?: RiskAnalysisData;
     custom_exercise_plan?: ExercisePlanData;
     custom_daily_plan?: DailyHealthPlan; 
-    habit_tracker?: HabitRecord[]; // [NEW] Habits
+    habit_tracker?: HabitRecord[]; 
+    gamification?: UserGamification; // [NEW]
 
     history_versions: {
         date: string;
@@ -169,6 +179,7 @@ export const saveArchive = async (
     let existingExercisePlan = null;
     let existingDailyPlan = null;
     let existingHabits = null;
+    let existingGamification = null;
 
     const basePayload: any = {
         id: checkupId,
@@ -194,7 +205,8 @@ export const saveArchive = async (
         risk_analysis: existingRiskAnalysis,
         custom_exercise_plan: existingExercisePlan,
         custom_daily_plan: existingDailyPlan,
-        habit_tracker: existingHabits
+        habit_tracker: existingHabits,
+        gamification: existingGamification
     };
 
     // Local Storage
@@ -210,6 +222,7 @@ export const saveArchive = async (
             fullPayload.custom_exercise_plan = existing.custom_exercise_plan;
             fullPayload.custom_daily_plan = existing.custom_daily_plan;
             fullPayload.habit_tracker = existing.habit_tracker;
+            fullPayload.gamification = existing.gamification;
             fullPayload.created_at = existing.created_at;
             if (!existingRiskAnalysis && existing.risk_analysis) {
                 fullPayload.risk_analysis = existing.risk_analysis;
@@ -234,6 +247,7 @@ export const saveArchive = async (
             existingExercisePlan = (existing as any).custom_exercise_plan;
             existingDailyPlan = (existing as any).custom_daily_plan;
             existingHabits = (existing as any).habit_tracker;
+            existingGamification = (existing as any).gamification;
             if (!existingRiskAnalysis && existing.risk_analysis) existingRiskAnalysis = existing.risk_analysis;
 
             if (historyVersions.length > 5) historyVersions = historyVersions.slice(historyVersions.length - 5);
@@ -247,7 +261,8 @@ export const saveArchive = async (
             risk_analysis: existingRiskAnalysis,
             custom_exercise_plan: existingExercisePlan,
             custom_daily_plan: existingDailyPlan,
-            habit_tracker: existingHabits
+            habit_tracker: existingHabits,
+            gamification: existingGamification
         };
 
         const { error } = await supabase.from('health_archives').upsert(dbPayload, { onConflict: 'checkup_id' });
@@ -297,7 +312,7 @@ export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): 
 };
 
 // [NEW] Update Habit Tracker
-export const updateHabits = async (checkupId: string, habits: HabitRecord[]): Promise<boolean> => {
+export const updateHabits = async (checkupId: string, habits: HabitRecord[], gamification?: UserGamification): Promise<boolean> => {
     let localSuccess = false;
     let dbSuccess = false;
 
@@ -309,6 +324,7 @@ export const updateHabits = async (checkupId: string, habits: HabitRecord[]): Pr
             const idx = all.findIndex(a => a.checkup_id === checkupId);
             if (idx >= 0) {
                 all[idx].habit_tracker = habits;
+                if (gamification) all[idx].gamification = gamification;
                 all[idx].updated_at = new Date().toISOString();
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
                 localSuccess = true;
@@ -319,7 +335,10 @@ export const updateHabits = async (checkupId: string, habits: HabitRecord[]): Pr
     // 2. DB
     if (isSupabaseConfigured()) {
         try {
-            const { error } = await supabase.from('health_archives').update({ habit_tracker: habits, updated_at: new Date().toISOString() }).eq('checkup_id', checkupId);
+            const payload: any = { habit_tracker: habits, updated_at: new Date().toISOString() };
+            if (gamification) payload.gamification = gamification;
+            
+            const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
             if (!error) dbSuccess = true;
         } catch (e) { console.error("DB habit update exception", e); }
     } else {
