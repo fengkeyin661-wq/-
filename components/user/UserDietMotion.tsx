@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, saveContent, ContentItem } from '../../services/contentService';
 import { HealthAssessment, HealthRecord } from '../../types';
 import { generateDailyIntegratedPlan } from '../../services/geminiService';
-import { updateUserPlan, DailyHealthPlan, DietLogItem, ExerciseLogItem } from '../../services/dataService';
+import { updateUserPlan, DailyHealthPlan, DietLogItem, ExerciseLogItem, findArchiveByCheckupId } from '../../services/dataService';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 interface Props {
@@ -133,8 +133,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
     const handleConfirmPlan = async () => {
         if (!previewPlan || !userCheckupId) return;
         
-        // Ensure accurate mapping by re-checking ID existence in the current resource lists
-        // This prevents stale or hallucinated IDs from breaking the logic
+        // Ensure accurate mapping
         const targetMealIds = previewPlan.recommendedMealIds || [];
         const targetExIds = previewPlan.recommendedExerciseIds || [];
 
@@ -159,43 +158,92 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             duration: Number(i.details?.duration) || 30
         }));
 
+        // Fetch FRESH data from DB to avoid overwriting recent changes (e.g. manual logs) with stale props
+        let existingDietLogs = dailyPlan?.dietLogs || [];
+        let existingExerciseLogs = dailyPlan?.exerciseLogs || [];
+        
+        try {
+            const freshArchive = await findArchiveByCheckupId(userCheckupId);
+            if (freshArchive && freshArchive.custom_daily_plan) {
+                existingDietLogs = freshArchive.custom_daily_plan.dietLogs || [];
+                existingExerciseLogs = freshArchive.custom_daily_plan.exerciseLogs || [];
+            }
+        } catch (e) {
+            console.warn("Failed to fetch fresh archive, using props fallback", e);
+        }
+
         const newPlan: DailyHealthPlan = {
             generatedAt: new Date().toISOString(),
             diet: previewPlan.diet,
             exercise: previewPlan.exercise,
             tips: previewPlan.tips,
-            dietLogs: dailyPlan?.dietLogs || [], // Keep existing logs
-            exerciseLogs: dailyPlan?.exerciseLogs || [], // Keep existing logs
+            dietLogs: existingDietLogs,
+            exerciseLogs: existingExerciseLogs,
             recommendations: {
                 meals: recMeals,
                 exercises: recExercises
             }
         };
 
-        await updateUserPlan(userCheckupId, newPlan);
-        setPreviewPlan(null);
-        if (onRefresh) onRefresh();
-        alert("方案已保存到“我的饮食与运动方案”！");
+        const success = await updateUserPlan(userCheckupId, newPlan);
+        
+        if (success) {
+            setPreviewPlan(null);
+            alert("方案已保存到“我的饮食与运动方案”！");
+            if (onRefresh) onRefresh();
+        } else {
+            alert("保存失败，请检查网络或重试。");
+        }
     };
 
     const handleAddManual = async () => {
         if (!userCheckupId) return;
-        let newPlan = dailyPlan || { generatedAt: '', diet: {} as any, exercise: {} as any, tips: '', dietLogs: [], exerciseLogs: [] };
+        
+        // Fetch fresh data for logs too
+        let currentLogsD = dailyPlan?.dietLogs || [];
+        let currentLogsE = dailyPlan?.exerciseLogs || [];
+        try {
+            const fresh = await findArchiveByCheckupId(userCheckupId);
+            if(fresh?.custom_daily_plan) {
+                currentLogsD = fresh.custom_daily_plan.dietLogs || [];
+                currentLogsE = fresh.custom_daily_plan.exerciseLogs || [];
+            }
+        } catch(e){}
+
+        // Construct new plan based on existing or default
+        const basePlan = dailyPlan || { generatedAt: new Date().toISOString(), diet: {} as any, exercise: {} as any, tips: '', dietLogs: [], exerciseLogs: [] };
+        
+        let newPlan = { ...basePlan, dietLogs: currentLogsD, exerciseLogs: currentLogsE };
         
         if (showAddLog === 'diet') {
-            newPlan = { ...newPlan, dietLogs: [...(newPlan.dietLogs || []), { ...dietForm, id: Date.now().toString() }] };
+            newPlan.dietLogs = [...newPlan.dietLogs, { ...dietForm, id: Date.now().toString() }];
         } else {
-            newPlan = { ...newPlan, exerciseLogs: [...(newPlan.exerciseLogs || []), { ...exForm, id: Date.now().toString() }] };
+            newPlan.exerciseLogs = [...newPlan.exerciseLogs, { ...exForm, id: Date.now().toString() }];
         }
         
-        await updateUserPlan(userCheckupId, newPlan);
-        setShowAddLog(null);
-        if (onRefresh) onRefresh();
+        const success = await updateUserPlan(userCheckupId, newPlan);
+        if (success) {
+            setShowAddLog(null);
+            if (onRefresh) onRefresh();
+        }
     };
 
     const handleAddFromCard = async () => {
         if (!selectedContent || !userCheckupId) return;
-        let newPlan = dailyPlan || { generatedAt: '', diet: {} as any, exercise: {} as any, tips: '', dietLogs: [], exerciseLogs: [] };
+        
+        // Fetch fresh logs
+        let currentLogsD = dailyPlan?.dietLogs || [];
+        let currentLogsE = dailyPlan?.exerciseLogs || [];
+        try {
+            const fresh = await findArchiveByCheckupId(userCheckupId);
+            if(fresh?.custom_daily_plan) {
+                currentLogsD = fresh.custom_daily_plan.dietLogs || [];
+                currentLogsE = fresh.custom_daily_plan.exerciseLogs || [];
+            }
+        } catch(e){}
+
+        const basePlan = dailyPlan || { generatedAt: new Date().toISOString(), diet: {} as any, exercise: {} as any, tips: '', dietLogs: [], exerciseLogs: [] };
+        let newPlan = { ...basePlan, dietLogs: currentLogsD, exerciseLogs: currentLogsE };
         
         if (selectedContent.type === 'meal') {
             const log: DietLogItem = {
@@ -208,7 +256,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                 fiber: 0,
                 type: 'lunch'
             };
-            newPlan = { ...newPlan, dietLogs: [...(newPlan.dietLogs || []), log] };
+            newPlan.dietLogs = [...newPlan.dietLogs, log];
         } else {
             const log: ExerciseLogItem = {
                 id: Date.now().toString(),
@@ -216,11 +264,15 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                 calories: Number(selectedContent.details?.cal) || 100,
                 duration: Number(selectedContent.details?.duration) || 30
             };
-            newPlan = { ...newPlan, exerciseLogs: [...(newPlan.exerciseLogs || []), log] };
+            newPlan.exerciseLogs = [...newPlan.exerciseLogs, log];
         }
-        await updateUserPlan(userCheckupId, newPlan);
-        setSelectedContent(null);
-        if (onRefresh) onRefresh();
+        
+        const success = await updateUserPlan(userCheckupId, newPlan);
+        if (success) {
+            setSelectedContent(null);
+            alert("已添加！");
+            if (onRefresh) onRefresh();
+        }
     };
 
     return (

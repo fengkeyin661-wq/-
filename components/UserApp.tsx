@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './user/UserLayout';
 import { UserDietMotion } from './user/UserDietMotion';
 import { UserMedicalServices } from './user/UserMedicalServices';
@@ -20,25 +20,26 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
-    const loadUser = async () => {
-      setLoading(true);
-      try {
-        const archive = await findArchiveByCheckupId(checkupId);
-        if (archive) {
-          setUserArchive(archive);
-        } else {
-          alert('未找到您的档案，请联系管理员核对体检编号');
-          onLogout();
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
+  const loadUser = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
+    try {
+      const archive = await findArchiveByCheckupId(checkupId);
+      if (archive) {
+        setUserArchive(archive);
+      } else {
+        alert('未找到您的档案，请联系管理员核对体检编号');
+        onLogout();
       }
-    };
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (!isSilent) setLoading(false);
+    }
+  }, [checkupId, onLogout]);
+
+  useEffect(() => {
     loadUser();
-  }, [checkupId]);
+  }, [loadUser]);
 
   // Poll for unread messages
   useEffect(() => {
@@ -50,10 +51,10 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
       if (userArchive) {
           checkUnread();
-          const interval = setInterval(checkUnread, 2000);
+          const interval = setInterval(checkUnread, 5000);
           return () => clearInterval(interval);
       }
-  }, [userArchive]);
+  }, [userArchive?.checkup_id]);
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
@@ -93,6 +94,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               userCheckupId={userArchive.checkup_id}
               record={userArchive.health_record}
               dailyPlan={userArchive.custom_daily_plan}
+              onRefresh={() => loadUser(true)}
           />
       )}
       {activeTab === 'medical' && (
@@ -125,7 +127,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               archive={userArchive}
               onUpdateRecord={handleUpdateRecord}
               onLogout={onLogout}
-              onNavigate={setActiveTab} // Pass navigation handler
+              onNavigate={setActiveTab}
           />
       )}
     </UserLayout>
