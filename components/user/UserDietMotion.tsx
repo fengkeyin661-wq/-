@@ -42,6 +42,12 @@ const MEAL_SLOTS = [
     { id: 'snack', label: '加餐', icon: '🥨', color: 'bg-pink-50 text-pink-600' }
 ];
 
+const parseCal = (val: any): number => {
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') return parseFloat(val.replace(/[^\d.]/g, '')) || 0;
+    return 0;
+};
+
 // --- Main Component ---
 export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, record, dailyPlan, onRefresh }) => {
     const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
@@ -63,7 +69,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
     // Manual Form
     const [manualForm, setManualForm] = useState<Partial<DietLogItem & ExerciseLogItem>>({ 
-        name: '', calories: undefined, protein: undefined, fat: undefined, carbs: undefined, type: 'lunch' 
+        name: '', calories: undefined, protein: undefined, fat: undefined, carbs: undefined, type: 'lunch', duration: 30 
     });
     const [manualType, setManualType] = useState<'meal' | 'exercise'>('meal');
 
@@ -140,7 +146,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             const log: DietLogItem = {
                 id: Date.now().toString(),
                 name: item.name || '未知餐食',
-                calories: Number(item.calories) || 0,
+                calories: parseCal(item.calories),
                 protein: Number((item as DietLogItem).protein) || 0,
                 fat: Number((item as DietLogItem).fat) || 0,
                 carbs: Number((item as DietLogItem).carbs) || 0,
@@ -149,11 +155,18 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             };
             newPlan.dietLogs = [...currentDiet, log];
         } else {
+            const dur = Number((item as ExerciseLogItem).duration) || 30;
+            // Calorie Estimation: User Input -> Resource Detail -> Auto Estimate (7 kcal/min)
+            let cal = parseCal(item.calories);
+            if (cal <= 0) {
+                cal = dur * 7; // ~420 kcal/hour for moderate intensity
+            }
+
             const log: ExerciseLogItem = {
                 id: Date.now().toString(),
                 name: item.name || '未知运动',
-                calories: Number(item.calories) || 0,
-                duration: (item as ExerciseLogItem).duration || 30
+                calories: Math.round(cal),
+                duration: dur
             };
             newPlan.exerciseLogs = [...currentEx, log];
         }
@@ -209,19 +222,19 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         const recMeals: DietLogItem[] = foundMeals.map(i => ({
             id: Date.now() + Math.random().toString(),
             name: i.title,
-            calories: Number(i.details?.cal) || 0,
+            calories: parseCal(i.details?.cal),
             protein: Number(i.details?.macros?.protein) || 0,
             fat: Number(i.details?.macros?.fat) || 0,
             carbs: Number(i.details?.macros?.carbs) || 0,
             fiber: Number(i.details?.macros?.fiber) || 0,
-            type: 'lunch' // Default, user can move later if we implement that
+            type: 'lunch'
         }));
 
         const recExercises: ExerciseLogItem[] = foundExercises.map(i => ({
             id: Date.now() + Math.random().toString(),
             name: i.title,
-            calories: Number(i.details?.cal) || 150,
-            duration: Number(i.details?.duration) || 30
+            calories: parseCal(i.details?.cal) || 150,
+            duration: parseCal(i.details?.duration) || 30
         }));
 
         // 2. Fetch Fresh & Merge
@@ -377,7 +390,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                             <div className="space-y-2">
                                 {dailyPlan.exerciseLogs.map((item, idx) => (
                                     <div key={idx} className="flex justify-between text-sm py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50 rounded px-2 -mx-2">
-                                        <span>{item.name}</span>
+                                        <span className="flex items-center gap-2">
+                                            {item.name}
+                                            <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded">{item.duration} min</span>
+                                        </span>
                                         <span className="font-mono text-orange-500">-{item.calories}</span>
                                     </div>
                                 ))}
@@ -455,7 +471,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                             </div>
                         ) : (
                             <div className="mb-6 bg-orange-50 p-4 rounded-xl border border-orange-100 text-center">
-                                <div className="text-2xl font-black text-orange-600">{selectedItem.details?.cal || 100} <span className="text-sm font-normal text-orange-400">kcal</span></div>
+                                <div className="text-2xl font-black text-orange-600">{parseCal(selectedItem.details?.cal) || (parseCal(selectedItem.details?.duration) * 7) || 150} <span className="text-sm font-normal text-orange-400">kcal</span></div>
                                 <div className="text-xs text-orange-400 mt-1">预计消耗 ({selectedItem.details?.duration || 30}分钟)</div>
                             </div>
                         )}
@@ -506,6 +522,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
                         <div className="space-y-3 mb-6">
                             <input className="w-full border p-3 rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none transition-all" placeholder="名称 (如: 红烧肉)" value={manualForm.name} onChange={e => setManualForm({...manualForm, name: e.target.value})} />
+                            
                             <div className="flex gap-3">
                                 <input type="number" className="flex-1 border p-3 rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" placeholder="热量 (kcal)" value={manualForm.calories || ''} onChange={e => setManualForm({...manualForm, calories: Number(e.target.value)})} />
                                 {manualType === 'meal' && (
@@ -513,7 +530,21 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                                         {MEAL_SLOTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                                     </select>
                                 )}
+                                {manualType === 'exercise' && (
+                                    <input 
+                                        type="number" 
+                                        className="flex-1 border p-3 rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" 
+                                        placeholder="时长 (分钟)" 
+                                        value={(manualForm as ExerciseLogItem).duration || ''} 
+                                        onChange={e => setManualForm({...manualForm, duration: Number(e.target.value)})} 
+                                    />
+                                )}
                             </div>
+                            
+                            {manualType === 'exercise' && (
+                                <div className="text-[10px] text-slate-400 pl-1">* 未填写热量将按时长自动估算</div>
+                            )}
+
                             {manualType === 'meal' && (
                                 <div className="grid grid-cols-3 gap-3">
                                     <input type="number" className="border p-2 rounded-xl text-xs bg-slate-50" placeholder="蛋白(g)" onChange={e => setManualForm({...manualForm, protein: Number(e.target.value)})} />
