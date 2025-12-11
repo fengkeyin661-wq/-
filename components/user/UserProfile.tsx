@@ -181,6 +181,36 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                         </div>
                     </div>
 
+                    {/* Recommendations Display */}
+                    {(dailyPlan.recommendations?.meals?.length || dailyPlan.recommendations?.exercises?.length) ? (
+                        <div className="bg-white rounded-xl shadow-sm p-5 border border-teal-100">
+                            <h3 className="font-bold text-teal-800 mb-4 flex items-center gap-2">
+                                <span>✨</span> 推荐执行项目
+                            </h3>
+                            <div className="space-y-3">
+                                {dailyPlan.recommendations.meals.map((item, i) => (
+                                    <div key={`rm-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                                        <div>
+                                            <span className="mr-2">🥗</span>
+                                            <span className="font-bold text-slate-700">{item.name}</span>
+                                        </div>
+                                        <div className="text-slate-500 font-mono text-xs">{item.calories} kcal</div>
+                                    </div>
+                                ))}
+                                {dailyPlan.recommendations.exercises.map((item, i) => (
+                                    <div key={`re-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
+                                        <div>
+                                            <span className="mr-2">🏃</span>
+                                            <span className="font-bold text-slate-700">{item.name}</span>
+                                            <span className="text-xs text-slate-400 ml-2">({item.duration}min)</span>
+                                        </div>
+                                        <div className="text-slate-500 font-mono text-xs">{item.calories} kcal</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
+
                     {/* Structured Logs Display */}
                     {(dailyPlan.dietLogs?.length || dailyPlan.exerciseLogs?.length) ? (
                         <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">

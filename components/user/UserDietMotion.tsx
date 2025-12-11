@@ -138,11 +138,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         const targetMealIds = previewPlan.recommendedMealIds || [];
         const targetExIds = previewPlan.recommendedExerciseIds || [];
 
-        // Find items in allMeals/allExercises to ensure we have full details
         const foundMeals = allMeals.filter(m => targetMealIds.includes(m.id));
         const foundExercises = allExercises.filter(e => targetExIds.includes(e.id));
         
-        const newDietLogs: DietLogItem[] = foundMeals.map(i => ({
+        const recMeals: DietLogItem[] = foundMeals.map(i => ({
             id: Date.now() + Math.random().toString(),
             name: i.title,
             calories: Number(i.details?.cal) || 400,
@@ -153,7 +152,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             type: 'lunch' // Defaulting to lunch
         }));
 
-        const newExLogs: ExerciseLogItem[] = foundExercises.map(i => ({
+        const recExercises: ExerciseLogItem[] = foundExercises.map(i => ({
             id: Date.now() + Math.random().toString(),
             name: i.title,
             calories: Number(i.details?.cal) || 150,
@@ -165,14 +164,18 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             diet: previewPlan.diet,
             exercise: previewPlan.exercise,
             tips: previewPlan.tips,
-            dietLogs: [...(dailyPlan?.dietLogs || []), ...newDietLogs],
-            exerciseLogs: [...(dailyPlan?.exerciseLogs || []), ...newExLogs]
+            dietLogs: dailyPlan?.dietLogs || [], // Keep existing logs
+            exerciseLogs: dailyPlan?.exerciseLogs || [], // Keep existing logs
+            recommendations: {
+                meals: recMeals,
+                exercises: recExercises
+            }
         };
 
         await updateUserPlan(userCheckupId, newPlan);
         setPreviewPlan(null);
         if (onRefresh) onRefresh();
-        alert("已成功应用方案并生成打卡记录！");
+        alert("方案已保存到“我的饮食与运动方案”！");
     };
 
     const handleAddManual = async () => {
@@ -323,10 +326,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                             <div>午: {previewPlan.diet.lunch}</div>
                             <div>晚: {previewPlan.diet.dinner}</div>
                         </div>
-                        <p className="text-xs text-slate-500 mb-4">AI已为您精选 {recommendedItems.length} 项资源，点击确认将自动加入今日记录。</p>
+                        <p className="text-xs text-slate-500 mb-4">AI已为您精选 {recommendedItems.length} 项资源，确认后将保存至“我的方案”。</p>
                         <div className="flex gap-2">
                             <button onClick={() => setPreviewPlan(null)} className="flex-1 py-2 border rounded-lg text-sm">取消</button>
-                            <button onClick={handleConfirmPlan} className="flex-1 py-2 bg-teal-600 text-white rounded-lg text-sm font-bold">确认应用</button>
+                            <button onClick={handleConfirmPlan} className="flex-1 py-2 bg-teal-600 text-white rounded-lg text-sm font-bold">确认保存</button>
                         </div>
                     </div>
                 </div>

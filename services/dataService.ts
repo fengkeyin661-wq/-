@@ -35,6 +35,11 @@ export interface DailyHealthPlan {
     // [NEW] Structured Logs
     dietLogs?: DietLogItem[];
     exerciseLogs?: ExerciseLogItem[];
+    // [NEW] Recommended Items (Not yet logged, for display in My Plan)
+    recommendations?: {
+        meals: DietLogItem[];
+        exercises: ExerciseLogItem[];
+    };
 }
 
 export interface HealthArchive {
