@@ -14,7 +14,6 @@ interface Props {
     onRefresh?: () => void;
 }
 
-// ... (Smart Icon Helper & Score Helper remain same - omitted for brevity, assuming existing code structure) ...
 // --- Smart Icon Helper ---
 const getSmartIcon = (title: string, type: 'meal' | 'exercise'): string => {
     const t = title.toLowerCase();
@@ -692,57 +691,170 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                 <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-end sm:items-center justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedContent(null)}>
                     <div className="bg-white w-full sm:w-96 rounded-t-3xl sm:rounded-3xl p-6 animate-slideUp max-h-[90vh] overflow-y-auto flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="text-center mb-4">
-                            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-5xl mx-auto mb-3 shadow-inner">
+                            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-5xl mx-auto mb-3 shadow-inner border-2 border-white">
                                 {getSmartIcon(selectedContent.title, selectedContent.type as any)}
                             </div>
-                            <h3 className="text-xl font-black text-slate-800 leading-tight">{selectedContent.title}</h3>
-                            <div className="flex justify-center gap-2 mt-2">
-                                {selectedContent.tags.map(t => <span key={t} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{t}</span>)}
+                            <h3 className="text-xl font-black text-slate-800 leading-tight mb-2">{selectedContent.title}</h3>
+                            <div className="flex justify-center gap-2 flex-wrap">
+                                {selectedContent.tags.map(t => <span key={t} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">{t}</span>)}
                             </div>
                         </div>
 
-                        {/* ... (Rest of Detail Modal) ... */}
-                        <div className="space-y-4 flex-1 overflow-y-auto mb-4">
-                            <div className="bg-slate-50 p-4 rounded-xl">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-xs font-bold text-slate-400 uppercase">核心数据</span>
-                                    <span className="text-sm font-bold text-teal-600">{selectedContent.details?.cal || 0} kcal</span>
-                                </div>
-                                {selectedContent.type === 'meal' && selectedContent.details?.macros && (
-                                    <div className="grid grid-cols-4 gap-2 text-center">
-                                        <div className="bg-white p-1 rounded"><div className="text-[10px] text-slate-400">蛋</div><div className="text-xs font-bold">{selectedContent.details.macros.protein}</div></div>
-                                        <div className="bg-white p-1 rounded"><div className="text-[10px] text-slate-400">脂</div><div className="text-xs font-bold">{selectedContent.details.macros.fat}</div></div>
-                                        <div className="bg-white p-1 rounded"><div className="text-[10px] text-slate-400">碳</div><div className="text-xs font-bold">{selectedContent.details.macros.carbs}</div></div>
-                                        <div className="bg-white p-1 rounded"><div className="text-[10px] text-slate-400">纤</div><div className="text-xs font-bold">{selectedContent.details.macros.fiber}</div></div>
-                                    </div>
-                                )}
-                                {selectedContent.type === 'exercise' && (
-                                    <div className="text-sm text-slate-600">
-                                        时长: {selectedContent.details?.duration} 分钟 | 强度: {selectedContent.details?.intensity}
-                                    </div>
-                                )}
-                            </div>
+                        <div className="space-y-6 flex-1 overflow-y-auto mb-4">
+                            
+                            {/* MEAL DETAIL VIEW */}
+                            {selectedContent.type === 'meal' && (
+                                <>
+                                   {/* Key Metrics Row */}
+                                   <div className="flex justify-around items-center py-4 border-y border-slate-50 bg-slate-50/50 rounded-xl">
+                                       <div className="text-center">
+                                           <div className="text-lg font-black text-teal-600">{selectedContent.details?.cal || '-'}</div>
+                                           <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">kcal</div>
+                                       </div>
+                                       <div className="w-px h-8 bg-slate-200"></div>
+                                       <div className="text-center">
+                                           <div className="text-lg font-bold text-slate-800">{parseInt(selectedContent.details?.prepTime||0) + parseInt(selectedContent.details?.cookTime||0)}<span className="text-xs font-normal text-slate-400">min</span></div>
+                                           <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">总时长</div>
+                                       </div>
+                                       <div className="w-px h-8 bg-slate-200"></div>
+                                       <div className="text-center">
+                                           <div className="text-lg font-bold text-slate-800">{selectedContent.details?.difficulty || '初级'}</div>
+                                           <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">难度</div>
+                                       </div>
+                                   </div>
 
-                            <div className="text-sm text-slate-600 leading-relaxed">
-                                <h4 className="font-bold text-slate-800 mb-1">简介</h4>
-                                {selectedContent.description || '暂无描述'}
-                            </div>
+                                   {/* Macros Cards */}
+                                   {selectedContent.details?.macros && (
+                                       <div>
+                                           <h4 className="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">核心营养素</h4>
+                                           <div className="grid grid-cols-4 gap-2">
+                                               <MacroBox label="蛋白质" value={selectedContent.details.macros.protein} color="bg-blue-50 text-blue-700" unit="g" />
+                                               <MacroBox label="脂肪" value={selectedContent.details.macros.fat} color="bg-yellow-50 text-yellow-700" unit="g" />
+                                               <MacroBox label="碳水" value={selectedContent.details.macros.carbs} color="bg-green-50 text-green-700" unit="g" />
+                                               <MacroBox label="膳食纤维" value={selectedContent.details.macros.fiber} color="bg-purple-50 text-purple-700" unit="g" />
+                                           </div>
+                                       </div>
+                                   )}
 
-                            {selectedContent.details?.steps && (
-                                <div className="text-sm text-slate-600 leading-relaxed">
-                                    <h4 className="font-bold text-slate-800 mb-1">{selectedContent.type === 'meal' ? '制作步骤' : '动作要领'}</h4>
-                                    <p className="whitespace-pre-line bg-slate-50 p-3 rounded-lg border border-slate-100 text-xs">
-                                        {selectedContent.details.steps}
-                                    </p>
-                                </div>
+                                   {/* Intro */}
+                                   <div>
+                                       <h4 className="font-bold text-slate-800 mb-2 text-sm">简介</h4>
+                                       <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            {selectedContent.description}
+                                       </p>
+                                   </div>
+
+                                   {/* Ingredients */}
+                                   {selectedContent.details?.ingredients && (
+                                       <div>
+                                           <h4 className="font-bold text-slate-800 mb-2 text-sm">所需食材</h4>
+                                           <div className="bg-white border border-slate-100 rounded-xl p-3 shadow-sm">
+                                               <p className="text-sm text-slate-700 leading-loose">
+                                                   {selectedContent.details.ingredients}
+                                               </p>
+                                           </div>
+                                       </div>
+                                   )}
+
+                                   {/* Steps */}
+                                   {selectedContent.details?.steps && (
+                                       <div>
+                                           <h4 className="font-bold text-slate-800 mb-2 text-sm">制作步骤</h4>
+                                           <div className="space-y-3">
+                                               {selectedContent.details.steps.split(/[\n;]/).map((step: string, i: number) => step.trim() && (
+                                                   <div key={i} className="flex gap-3 text-sm text-slate-600">
+                                                       <span className="flex-shrink-0 w-5 h-5 bg-teal-100 text-teal-700 rounded-full flex items-center justify-center text-xs font-bold mt-0.5">{i+1}</span>
+                                                       <p className="leading-relaxed">{step.trim()}</p>
+                                                   </div>
+                                               ))}
+                                           </div>
+                                       </div>
+                                   )}
+                                   
+                                   {/* Nutrition Tip */}
+                                   {selectedContent.details?.nutrition && (
+                                       <div className="bg-orange-50 p-3 rounded-xl border border-orange-100 text-xs text-orange-800 leading-relaxed flex gap-2">
+                                           <span className="text-lg">💡</span>
+                                           <div>
+                                               <div className="font-bold mb-1">营养师点评</div>
+                                               {selectedContent.details.nutrition}
+                                           </div>
+                                       </div>
+                                   )}
+                                </>
+                            )}
+
+                            {/* EXERCISE DETAIL VIEW */}
+                            {selectedContent.type === 'exercise' && (
+                                <>
+                                   <div className="flex justify-around items-center py-4 border-y border-slate-50 bg-slate-50/50 rounded-xl">
+                                       <div className="text-center">
+                                           <div className="text-lg font-black text-orange-500">{selectedContent.details?.cal || '-'}</div>
+                                           <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">消耗(kcal)</div>
+                                       </div>
+                                       <div className="w-px h-8 bg-slate-200"></div>
+                                       <div className="text-center">
+                                           <div className="text-lg font-bold text-slate-800">{selectedContent.details?.duration}<span className="text-xs font-normal text-slate-400">min</span></div>
+                                           <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">时长</div>
+                                       </div>
+                                       <div className="w-px h-8 bg-slate-200"></div>
+                                       <div className="text-center">
+                                           <div className="text-lg font-bold text-slate-800">{selectedContent.details?.intensity || '中'}</div>
+                                           <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">强度</div>
+                                       </div>
+                                   </div>
+
+                                   {/* Targets & Equipment */}
+                                   <div className="grid grid-cols-2 gap-4">
+                                       <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                           <div className="text-[10px] text-slate-400 uppercase font-bold mb-1">适宜人群</div>
+                                           <div className="text-xs font-bold text-slate-700">{selectedContent.details?.audience || '全人群'}</div>
+                                       </div>
+                                       <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                           <div className="text-[10px] text-slate-400 uppercase font-bold mb-1">所需器材</div>
+                                           <div className="text-xs font-bold text-slate-700">{selectedContent.details?.equipment || '无'}</div>
+                                       </div>
+                                   </div>
+
+                                   <div>
+                                       <h4 className="font-bold text-slate-800 mb-2 text-sm">训练介绍</h4>
+                                       <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                            {selectedContent.description}
+                                       </p>
+                                   </div>
+
+                                   {selectedContent.details?.steps && (
+                                       <div>
+                                           <h4 className="font-bold text-slate-800 mb-2 text-sm">动作要领 / 流程</h4>
+                                           <div className="space-y-3">
+                                               {selectedContent.details.steps.split(/[\n;]/).map((step: string, i: number) => step.trim() && (
+                                                   <div key={i} className="flex gap-3 text-sm text-slate-600">
+                                                       <span className="flex-shrink-0 w-5 h-5 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-xs font-bold mt-0.5">{i+1}</span>
+                                                       <p className="leading-relaxed">{step.trim()}</p>
+                                                   </div>
+                                               ))}
+                                           </div>
+                                       </div>
+                                   )}
+
+                                   {selectedContent.details?.risks && (
+                                       <div className="bg-red-50 p-3 rounded-xl border border-red-100 text-xs text-red-800 leading-relaxed flex gap-2">
+                                           <span className="text-lg">⚠️</span>
+                                           <div>
+                                               <div className="font-bold mb-1">禁忌与风险</div>
+                                               {selectedContent.details.risks}
+                                           </div>
+                                       </div>
+                                   )}
+                                </>
                             )}
                         </div>
 
                         <div className="flex gap-3 pt-2">
-                            <button onClick={() => setSelectedContent(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm">关闭</button>
+                            <button onClick={() => setSelectedContent(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors">关闭</button>
                             <button 
                                 onClick={handleAddFromCard}
-                                className={`flex-1 py-3 rounded-xl font-bold text-sm text-white shadow-lg flex items-center justify-center gap-2 ${
+                                className={`flex-1 py-3 rounded-xl font-bold text-sm text-white shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all ${
                                     selectedContent.type === 'meal' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-orange-500 hover:bg-orange-600'
                                 }`}
                             >
@@ -821,3 +933,13 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         </div>
     );
 };
+
+// Helper Component for Macro Display
+const MacroBox = ({ label, value, color, unit }: any) => (
+    <div className={`p-2 rounded-lg text-center ${color.split(' ')[0]}`}>
+        <div className="text-[10px] opacity-70 mb-0.5 font-bold uppercase">{label}</div>
+        <div className={`text-sm font-black ${color.split(' ')[1]}`}>
+            {value || 0}<span className="text-[9px] ml-0.5 font-normal opacity-80">{unit}</span>
+        </div>
+    </div>
+);
