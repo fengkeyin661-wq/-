@@ -94,18 +94,11 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
 
     // Modals
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
-    const [isManualModalOpen, setIsManualModalOpen] = useState(false);
     
     // AI Gen State
     const [isGenerating, setIsGenerating] = useState(false);
     const [previewPlan, setPreviewPlan] = useState<any>(null);
     const [recommendedItems, setRecommendedItems] = useState<ContentItem[]>([]);
-
-    // Manual Form
-    const [manualForm, setManualForm] = useState<Partial<DietLogItem & ExerciseLogItem>>({ 
-        name: '', calories: undefined, protein: undefined, fat: undefined, carbs: undefined, type: 'lunch', duration: 30 
-    });
-    const [manualType, setManualType] = useState<'meal' | 'exercise'>('meal');
 
     // --- 1. Target Calculations (TDEE) ---
     const targets = useMemo(() => {
@@ -259,7 +252,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
         const success = await updateUserPlan(userCheckupId, newPlan);
         if (success) {
             setSelectedItem(null);
-            setIsManualModalOpen(false);
             if(onRefresh) onRefresh();
         } else {
             alert("保存失败");
@@ -409,9 +401,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                             <h2 className="text-xl font-bold">今日热量管理</h2>
                             <p className="text-xs text-teal-100 opacity-90">目标: {targets.tdee} kcal</p>
                         </div>
-                        <button onClick={() => setIsManualModalOpen(true)} className="bg-white/20 hover:bg-white/30 p-2 rounded-full backdrop-blur-sm transition-colors">
-                            <span className="text-xl">➕</span>
-                        </button>
                     </div>
                     
                     <div className="flex items-center justify-center gap-8">
@@ -532,7 +521,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                                     </div>
                                 ) : (
                                     <div className="text-center py-2">
-                                        <button onClick={() => { setManualType('meal'); setManualForm({...manualForm, type: slot.id as any}); setIsManualModalOpen(true); }} className="text-xs text-teal-600 font-bold bg-teal-50 px-3 py-1.5 rounded-full hover:bg-teal-100">
+                                        <button onClick={() => { setActiveTab('resources'); setResourceFilter('meal'); }} className="text-xs text-teal-600 font-bold bg-teal-50 px-3 py-1.5 rounded-full hover:bg-teal-100">
                                             + 添加{slot.label}
                                         </button>
                                     </div>
@@ -564,7 +553,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                             </div>
                         ) : (
                             <div className="text-center py-2">
-                                <button onClick={() => { setManualType('exercise'); setIsManualModalOpen(true); }} className="text-xs text-orange-600 font-bold bg-orange-50 px-3 py-1.5 rounded-full hover:bg-orange-100">
+                                <button onClick={() => { setActiveTab('resources'); setResourceFilter('exercise'); }} className="text-xs text-orange-600 font-bold bg-orange-50 px-3 py-1.5 rounded-full hover:bg-orange-100">
                                     + 添加运动
                                 </button>
                             </div>
@@ -672,58 +661,6 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                                 </button>
                             )}
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* 2. Manual Add Modal */}
-            {isManualModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setIsManualModalOpen(false)}>
-                    <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-scaleIn" onClick={e => e.stopPropagation()}>
-                        <h3 className="font-bold text-lg mb-4 text-slate-800">手动记录</h3>
-                        
-                        <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
-                            <button onClick={() => setManualType('meal')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${manualType==='meal'?'bg-white shadow text-teal-600':'text-slate-400'}`}>饮食</button>
-                            <button onClick={() => setManualType('exercise')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${manualType==='exercise'?'bg-white shadow text-orange-500':'text-slate-400'}`}>运动</button>
-                        </div>
-
-                        <div className="space-y-3 mb-6">
-                            <input className="w-full border p-3 rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none transition-all" placeholder="名称 (如: 红烧肉)" value={manualForm.name} onChange={e => setManualForm({...manualForm, name: e.target.value})} />
-                            
-                            <div className="flex gap-3">
-                                <input type="number" className="flex-1 border p-3 rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" placeholder="热量 (kcal)" value={manualForm.calories || ''} onChange={e => setManualForm({...manualForm, calories: Number(e.target.value)})} />
-                                {manualType === 'meal' && (
-                                    <select className="flex-1 border p-3 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none" value={manualForm.type} onChange={e => setManualForm({...manualForm, type: e.target.value as any})}>
-                                        {MEAL_SLOTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                                    </select>
-                                )}
-                                {manualType === 'exercise' && (
-                                    <input 
-                                        type="number" 
-                                        className="flex-1 border p-3 rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" 
-                                        placeholder="时长 (分钟)" 
-                                        value={(manualForm as ExerciseLogItem).duration || ''} 
-                                        onChange={e => setManualForm({...manualForm, duration: Number(e.target.value)})} 
-                                    />
-                                )}
-                            </div>
-                            
-                            {manualType === 'exercise' && (
-                                <div className="text-[10px] text-slate-400 pl-1">* 未填写热量将按时长自动估算</div>
-                            )}
-
-                            {manualType === 'meal' && (
-                                <div className="grid grid-cols-3 gap-3">
-                                    <input type="number" className="border p-2 rounded-xl text-xs bg-slate-50" placeholder="蛋白(g)" onChange={e => setManualForm({...manualForm, protein: Number(e.target.value)})} />
-                                    <input type="number" className="border p-2 rounded-xl text-xs bg-slate-50" placeholder="脂肪(g)" onChange={e => setManualForm({...manualForm, fat: Number(e.target.value)})} />
-                                    <input type="number" className="border p-2 rounded-xl text-xs bg-slate-50" placeholder="碳水(g)" onChange={e => setManualForm({...manualForm, carbs: Number(e.target.value)})} />
-                                </div>
-                            )}
-                        </div>
-
-                        <button onClick={() => handleAddLog(manualForm, manualType)} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 shadow-lg">
-                            确认添加
-                        </button>
                     </div>
                 </div>
             )}
