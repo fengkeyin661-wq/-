@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './user/UserLayout';
 import { UserDietMotion } from './user/UserDietMotion';
+import { UserHabits } from './user/UserHabits'; // Added Import
 import { UserMedicalServices } from './user/UserMedicalServices';
 import { UserInteraction } from './user/UserInteraction';
 import { UserProfile } from './user/UserProfile';
@@ -15,7 +16,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('diet_motion');
+  const [activeTab, setActiveTab] = useState('habits'); // Set default to habits
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -89,6 +90,14 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
+      {activeTab === 'habits' && (
+          <UserHabits 
+              assessment={userArchive.assessment_data}
+              userCheckupId={userArchive.checkup_id}
+              record={userArchive.health_record}
+              onRefresh={() => loadUser(true)}
+          />
+      )}
       {activeTab === 'diet_motion' && (
           <UserDietMotion 
               assessment={userArchive.assessment_data} 
