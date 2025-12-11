@@ -49,7 +49,7 @@ export const generateHospitalBusinessAnalysis = async (issues: any) => { return 
 export const generateAnnualReportSummary = async (b: any, c: any) => { return {summary:''} };
 export const generateDietAssessment = async (i: string) => { return {reply:''} };
 export const generateExercisePlan = async (i: string) => { return {plan:[]} };
-export const calculateNutritionFromIngredients = async (r: any) => { return {nutritionData:{}} };
+export const calculateNutritionFromIngredients = async (r: any): Promise<{nutritionData: any}> => { return {nutritionData:{}} };
 
 // [NEW] Structure Aware Plan Generator
 export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string): Promise<{
