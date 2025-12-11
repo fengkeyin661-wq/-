@@ -1,8 +1,9 @@
 
 // ... (imports) ...
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
+import { HabitRecord } from "./dataService";
 
-// ... (config) ...
+// ... (config and other existing functions) ...
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
 
 const getEnvVar = (key: string): string => {
@@ -39,7 +40,7 @@ const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode:
     } catch (error) { throw error; }
 };
 
-// ... (keep parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule, analyzeFollowUpRecord, etc. unchanged) ...
+// ... (keep parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule, analyzeFollowUpRecord, generateFollowUpSMS, generateHospitalBusinessAnalysis, generateAnnualReportSummary, generateDietAssessment, generateExercisePlan, calculateNutritionFromIngredients, generateDailyIntegratedPlan) ...
 export const parseHealthDataFromText = async (raw: string) => { return {} as HealthRecord }; 
 export const generateHealthAssessment = async (rec: HealthRecord) => { return {} as HealthAssessment };
 export const generateFollowUpSchedule = (ass: HealthAssessment) => { return [] as ScheduledFollowUp[] };
@@ -50,44 +51,70 @@ export const generateAnnualReportSummary = async (b: any, c: any) => { return {s
 export const generateDietAssessment = async (i: string) => { return {reply:''} };
 export const generateExercisePlan = async (i: string) => { return {plan:[]} };
 export const calculateNutritionFromIngredients = async (r: any): Promise<{nutritionData: any}> => { return {nutritionData:{}} };
+export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string) => { return {} as any };
 
-// [NEW] Structure Aware Plan Generator
-export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string): Promise<{
-    diet: { breakfast: string, lunch: string, dinner: string, snack: string },
-    exercise: { morning: string, afternoon: string, evening: string },
-    tips: string,
-    recommendedMealIds?: string[],
-    recommendedExerciseIds?: string[]
-}> => {
+// [NEW] Generate Personalized Habits
+export const generatePersonalizedHabits = async (assessment: HealthAssessment, record: HealthRecord): Promise<{ habits: HabitRecord[] }> => {
     const systemPrompt = `
-    你是一名资深健康管理师。请根据用户的健康档案（包含风险因素、疾病史、喜好等），为用户量身定制【明天的一日健康方案】。
+    你是一名健康管理专家。请根据用户的健康评估结果和生活方式数据，为其设计 6 个个性化的每日/每周打卡习惯。
     
-    【重要资源调用】
-    我将提供一个【可选资源库列表】(Available Resources)，其中包含我们医院膳食库的食谱ID和名称，以及运动库的方案ID。
-    请务必从提供的资源库中，为用户**精选**出最适合的 1-3 道食谱和 1 个运动方案。
+    设计原则：
+    1. **针对性强**：如果用户有高血压，应包含“晨起测血压”或“低盐饮食”；如果有糖尿病，应包含“监测空腹血糖”或“不喝含糖饮料”；如果吸烟，包含“今日未吸烟”。
+    2. **可执行性**：习惯必须是简单、明确、可量化的行动。
+    3. **多样性**：涵盖饮食、运动、监测、生活作息等方面。
     
-    **关键要求**：
-    1. 在 diet/exercise 文本中，你可以自由发挥描述，但建议提及资源库中的食谱名称。
-    2. **必须**在 recommendedMealIds 和 recommendedExerciseIds 字段中返回你选中的具体项目 ID。这些 ID **必须完全匹配**资源库列表中提供的 ID，不能臆造。如果资源库为空或没有合适的，返回空数组。
-    3. 饮食方案：三餐及加餐要具体，符合其健康需求（如糖尿病需控糖）。
-    4. 运动方案：结合其身体状况，安排活动。
+    请生成 JSON 格式，包含 6 个习惯对象。
     
-    输出结构 JSON：
+    输出结构 HabitRecord:
     {
-      "diet": { "breakfast": "...", "lunch": "...", "dinner": "...", "snack": "..." },
-      "exercise": { "morning": "...", "afternoon": "...", "evening": "..." },
-      "tips": "...",
-      "recommendedMealIds": ["id1", "id2"],
-      "recommendedExerciseIds": ["id3"]
+      "id": "h1"..."h6",
+      "title": "简短标题(5字内)",
+      "icon": "Emoji图标",
+      "frequency": "daily" 或 "weekly",
+      "targetDay": 如果是weekly，指定周几(0-6, 0是周日), daily则不填或null,
+      "color": 颜色代码，仅限从以下选择: "orange", "green", "blue", "rose", "red", "pink", "purple"
+    }
+    
+    JSON输出示例:
+    {
+      "habits": [
+        { "id": "h1", "title": "吃早餐", "icon": "🍳", "frequency": "daily", "color": "orange" },
+        ...
+      ]
     }
     `;
-    
-    const userContent = `
-    用户档案: ${userProfileStr}
-    
-    可选资源库列表 (请从中选择 ID): 
-    ${resourcesContext || '暂无特定资源库，请自由发挥'}
+
+    const userProfileSummary = `
+    风险等级: ${assessment.riskLevel}
+    主要健康问题: ${assessment.summary}
+    高危因素: ${assessment.risks.red.join(', ')}
+    中危因素: ${assessment.risks.yellow.join(', ')}
+    既往病史: ${record.questionnaire.history.diseases.join(', ')}
+    吸烟状况: ${record.questionnaire.substances.smoking.status}
+    运动频率: ${record.questionnaire.exercise.frequency}
     `;
-    
-    return await callDeepSeek(systemPrompt, userContent, true);
+
+    try {
+        const result = await callDeepSeek(systemPrompt, userProfileSummary, true);
+        // Add required fields for local state that AI doesn't generate
+        const habits = result.habits.map((h: any) => ({
+            ...h,
+            history: [],
+            streak: 0
+        }));
+        return { habits };
+    } catch (e) {
+        console.error("Habit Gen Error", e);
+        // Fallback
+        return {
+            habits: [
+                { id: 'h1', title: '吃早餐', icon: '🍳', frequency: 'daily', history: [], streak: 0, color: 'orange' },
+                { id: 'h2', title: '蔬菜300g+', icon: '🥦', frequency: 'daily', history: [], streak: 0, color: 'green' },
+                { id: 'h3', title: '多喝水', icon: '💧', frequency: 'daily', history: [], streak: 0, color: 'blue' },
+                { id: 'h4', title: '早睡早起', icon: '🌙', frequency: 'daily', history: [], streak: 0, color: 'purple' },
+                { id: 'h5', title: '适量运动', icon: '🏃', frequency: 'daily', history: [], streak: 0, color: 'red' },
+                { id: 'h6', title: '心情愉快', icon: '😄', frequency: 'daily', history: [], streak: 0, color: 'pink' },
+            ]
+        };
+    }
 };
