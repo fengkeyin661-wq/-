@@ -154,9 +154,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                     intensity: e.details?.intensity
                 }))
             });
-            const profileStr = `风险:${assessment.riskLevel}, ${assessment.summary}, TDEE目标:${targets.tdee}`;
+            const profileStr = `风险:${assessment.riskLevel}, ${assessment.summary}`;
             
-            const plan = await generateDailyIntegratedPlan(profileStr, context);
+            // [UPDATED] Pass targets.tdee explicitly
+            const plan = await generateDailyIntegratedPlan(profileStr, context, targets.tdee);
             
             // Map IDs back to full objects for calculation
             const recMealIds = plan.recommendedMealIds || [];

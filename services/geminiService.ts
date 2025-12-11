@@ -118,8 +118,8 @@ export const generatePersonalizedHabits = async (assessment: HealthAssessment, r
     }
 };
 
-// [UPDATED] Generate Daily Plan based on Resource Library
-export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string): Promise<{
+// [UPDATED] Generate Daily Plan based on Resource Library with Strict Calculation
+export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string, targetCalories?: number): Promise<{
     diet: { breakfast: string, lunch: string, dinner: string },
     recommendedMealIds: string[],
     exercise: { morning: string, afternoon: string, evening: string },
@@ -127,31 +127,40 @@ export const generateDailyIntegratedPlan = async (userProfileStr: string, resour
     tips: string
 }> => {
     const systemPrompt = `
-    你是一名精准营养师。请根据用户的健康画像，从提供的【资源库】中挑选最合适的餐品和运动。
+    你是一名精准营养师。请从提供的【资源库】中挑选最合适的餐品和运动，生成一份符合用户热量目标的方案。
     
-    任务：
-    1. 分析用户健康状况（如高血压需低钠，糖尿病需低GI）。
-    2. 从资源库JSON中选择：
-       - 1个早餐 (meal)
-       - 1个午餐 (meal)
-       - 1个晚餐 (meal)
-       - 1-2个运动项目 (exercise)
-    3. 返回选中项目的 ID。
+    【核心计算规则 - 必须严格遵守】
+    1. 目标推荐摄入量 (Target Intake) = ${targetCalories || 2000} kcal
+    2. **热量平衡公式**: (三餐摄入总热量 - 运动消耗热量) ≈ 目标推荐摄入量
+       - 允许误差范围: ±150 kcal
+    3. **三餐热量分配**:
+       - 早餐: 约占摄入总量的 30%
+       - 午餐: 约占摄入总量的 40%
+       - 晚餐: 约占摄入总量的 30%
+    
+    【选择步骤】
+    1. 先选择 1-2 项运动，估算总消耗热量 (Burned)。
+    2. 计算所需摄入总热量 (Total Intake) = 目标推荐摄入量 + Burned。
+    3. 按照 30%(早) / 40%(午) / 30%(晚) 的比例，从资源库中寻找热量最接近的餐品。
+    
+    【输出要求】
+    - 请返回选中项目的 ID (recommendedMealIds, recommendedExerciseIds)。
+    - diet 对象中请包含选定餐品的名称。
     
     输出格式 JSON:
     {
       "diet": { "breakfast": "餐品名", "lunch": "餐品名", "dinner": "餐品名" },
-      "recommendedMealIds": ["id1", "id2", "id3"],
+      "recommendedMealIds": ["早餐ID", "午餐ID", "晚餐ID"],
       "exercise": { "morning": "描述", "afternoon": "描述", "evening": "描述" },
-      "recommendedExerciseIds": ["exId1", "exId2"],
-      "tips": "针对性的一句话建议"
+      "recommendedExerciseIds": ["运动ID1", "运动ID2"],
+      "tips": "简述热量安排: 摄入约xx - 运动约xx ≈ 目标"
     }
     `;
 
     const userContent = `
     用户画像: ${userProfileStr}
     
-    可用资源库 (JSON):
+    可用资源库 (JSON, 包含热量 'cal' 字段):
     ${resourcesContext || '[]'}
     `;
 
