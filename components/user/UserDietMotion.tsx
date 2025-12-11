@@ -48,6 +48,27 @@ const parseCal = (val: any): number => {
     return 0;
 };
 
+// [NEW] Smart Calorie Estimator based on Exercise Type
+const estimateCalories = (name: string, duration: number): number => {
+    const n = name.toLowerCase();
+    let kcalPerMin = 6; // Default Moderate
+
+    if (n.includes('游泳')) kcalPerMin = 11;
+    else if (n.includes('快跑') || n.includes('冲刺')) kcalPerMin = 14;
+    else if (n.includes('跑')) kcalPerMin = 10;
+    else if (n.includes('跳绳')) kcalPerMin = 12;
+    else if (n.includes('球') || n.includes('对抗')) kcalPerMin = 9;
+    else if (n.includes('骑行') || n.includes('单车')) kcalPerMin = 8;
+    else if (n.includes('力量') || n.includes('举铁') || n.includes('哑铃')) kcalPerMin = 7;
+    else if (n.includes('快走')) kcalPerMin = 6;
+    else if (n.includes('走') || n.includes('散步')) kcalPerMin = 4;
+    else if (n.includes('瑜伽') || n.includes('普拉提') || n.includes('拉伸')) kcalPerMin = 3;
+    else if (n.includes('太极') || n.includes('八段锦')) kcalPerMin = 4;
+    else if (n.includes('操') || n.includes('舞')) kcalPerMin = 6; // 广场舞/健身操
+
+    return Math.round(kcalPerMin * duration);
+};
+
 // --- Main Component ---
 export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, record, dailyPlan, onRefresh }) => {
     const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
@@ -156,10 +177,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             newPlan.dietLogs = [...currentDiet, log];
         } else {
             const dur = Number((item as ExerciseLogItem).duration) || 30;
-            // Calorie Estimation: User Input -> Resource Detail -> Auto Estimate (7 kcal/min)
+            // [UPDATE] Use Smart Estimator
             let cal = parseCal(item.calories);
             if (cal <= 0) {
-                cal = dur * 7; // ~420 kcal/hour for moderate intensity
+                cal = estimateCalories(item.name || '运动', dur);
             }
 
             const log: ExerciseLogItem = {
@@ -230,12 +251,21 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
             type: 'lunch'
         }));
 
-        const recExercises: ExerciseLogItem[] = foundExercises.map(i => ({
-            id: Date.now() + Math.random().toString(),
-            name: i.title,
-            calories: parseCal(i.details?.cal) || 150,
-            duration: parseCal(i.details?.duration) || 30
-        }));
+        const recExercises: ExerciseLogItem[] = foundExercises.map(i => {
+            const dur = parseCal(i.details?.duration) || 30;
+            // [UPDATE] Use Smart Estimator if calorie data is missing from resource
+            let cal = parseCal(i.details?.cal);
+            if (cal <= 0) {
+                cal = estimateCalories(i.title, dur);
+            }
+            
+            return {
+                id: Date.now() + Math.random().toString(),
+                name: i.title,
+                calories: cal,
+                duration: dur
+            };
+        });
 
         // 2. Fetch Fresh & Merge
         let existingDietLogs = dailyPlan?.dietLogs || [];
@@ -471,7 +501,10 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                             </div>
                         ) : (
                             <div className="mb-6 bg-orange-50 p-4 rounded-xl border border-orange-100 text-center">
-                                <div className="text-2xl font-black text-orange-600">{parseCal(selectedItem.details?.cal) || (parseCal(selectedItem.details?.duration) * 7) || 150} <span className="text-sm font-normal text-orange-400">kcal</span></div>
+                                <div className="text-2xl font-black text-orange-600">
+                                    {parseCal(selectedItem.details?.cal) || estimateCalories(selectedItem.title, parseCal(selectedItem.details?.duration) || 30)} 
+                                    <span className="text-sm font-normal text-orange-400">kcal</span>
+                                </div>
                                 <div className="text-xs text-orange-400 mt-1">预计消耗 ({selectedItem.details?.duration || 30}分钟)</div>
                             </div>
                         )}
