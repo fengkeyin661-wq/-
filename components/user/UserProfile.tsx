@@ -547,11 +547,11 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
             </div>
 
             {/* Main Content Area */}
-            <div className="-mt-6 bg-slate-50 rounded-t-3xl min-h-[calc(100vh-180px)] flex flex-col">
+            <div className="-mt-6 bg-slate-50 rounded-t-3xl min-h-[calc(100vh-180px)] flex flex-col relative z-10">
                 
                 {/* Back Button for Sub Views */}
                 {subView !== 'menu' && (
-                    <div className="px-4 pt-4">
+                    <div className="px-4 pt-6">
                         <button onClick={() => setSubView('menu')} className="flex items-center gap-1 text-slate-500 font-bold text-sm hover:text-teal-600 transition-colors">
                             <span>←</span> 返回菜单
                         </button>
