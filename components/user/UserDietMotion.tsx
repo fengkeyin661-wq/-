@@ -15,7 +15,7 @@ interface Props {
 }
 
 // --- Icons & Helpers ---
-const getSmartIcon = (title: string, type: 'meal' | 'exercise'): string => {
+const getSmartIcon = (title: string, type: string): string => {
     const t = title.toLowerCase();
     if (type === 'meal') {
         if (t.includes('鸡') || t.includes('肉') || t.includes('牛')) return '🥩';
@@ -432,7 +432,7 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                         
                         <div className="text-center mb-6 mt-2">
                             <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-5xl shadow-lg mx-auto mb-4 border-4 border-white">
-                                {getSmartIcon(selectedItem.title, selectedItem.type as any)}
+                                {getSmartIcon(selectedItem.title, selectedItem.type)}
                             </div>
                             <h3 className="text-xl font-black text-slate-800 leading-tight">{selectedItem.title}</h3>
                             <div className="flex justify-center gap-2 mt-2">
