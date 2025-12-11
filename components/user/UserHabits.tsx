@@ -25,16 +25,20 @@ const BADGES = [
     { id: 'perfect_day', icon: '💯', name: '完美一天', desc: '单日完成所有打卡' },
 ];
 
+const INITIAL_GAME_DATA: UserGamification = {
+    totalXP: 0,
+    level: 1,
+    currentStreak: 0,
+    lastCheckInDate: '',
+    badges: []
+};
+
 export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record, onRefresh }) => {
     const [habits, setHabits] = useState<HabitRecord[]>([]);
-    const [gameData, setGameData] = useState<UserGamification>({
-        totalXP: 0,
-        level: 1,
-        currentStreak: 0,
-        lastCheckInDate: '',
-        badges: []
-    });
+    const [gameData, setGameData] = useState<UserGamification>(INITIAL_GAME_DATA);
+    
     const [isHabitsLoading, setIsHabitsLoading] = useState(false);
+    const [isSaving, setIsSaving] = useState(false); // New: Saving indicator
     const [showLevelUp, setShowLevelUp] = useState(false);
     const [justUnlockedBadges, setJustUnlockedBadges] = useState<string[]>([]);
 
@@ -54,9 +58,12 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
                 await initializeHabits(assessment, record);
             }
 
-            // Load Gamification
+            // Load Gamification with Data Merging (Robustness)
             if (archive.gamification) {
-                setGameData(archive.gamification);
+                setGameData({
+                    ...INITIAL_GAME_DATA, // Default structure
+                    ...archive.gamification // Overwrite with saved data
+                });
             }
         }
     };
@@ -67,7 +74,8 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
         try {
             const { habits: newHabits } = await generatePersonalizedHabits(ass, rec);
             setHabits(newHabits);
-            await updateHabits(userCheckupId, newHabits); // Initial save without gamification
+            // Initial save
+            await updateHabits(userCheckupId, newHabits, INITIAL_GAME_DATA); 
         } catch (e) {
             console.error(e);
         } finally {
@@ -76,7 +84,9 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
     };
 
     const handleCheckIn = async (habitId: string) => {
-        if (!userCheckupId) return;
+        if (!userCheckupId || isSaving) return;
+        setIsSaving(true); // Start saving lock
+
         const today = new Date().toISOString().split('T')[0];
         let earnedXP = 0;
         let newBadges: string[] = [];
@@ -85,7 +95,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
         const updatedHabits = habits.map(h => {
             if (h.id === habitId) {
                 const isAlreadyDone = h.history.includes(today);
-                if (isAlreadyDone) return h; // Prevent double check-in for XP logic for now (simplification)
+                if (isAlreadyDone) return h; 
                 
                 // Determine streak logic specific to habit
                 const yesterday = new Date();
@@ -93,10 +103,11 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
                 const yStr = yesterday.toISOString().split('T')[0];
                 
                 let newStreak = h.streak;
+                // If checked in yesterday, increment; else reset to 1 (unless it's the first time ever)
                 if (h.history.includes(yStr)) {
                     newStreak += 1;
-                } else {
-                    newStreak = 1;
+                } else if (!h.history.includes(today)) {
+                    newStreak = 1; 
                 }
 
                 earnedXP += XP_PER_HABIT;
@@ -108,8 +119,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
         // 2. Update Global Gamification State
         let newGameData = { ...gameData };
         
-        // Streak Logic: Check if ANY habit was done yesterday to maintain global streak
-        // Simplified: If lastCheckInDate was yesterday, increment. If today, do nothing. Else reset to 1.
+        // Global Streak Logic
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const yStr = yesterday.toISOString().split('T')[0];
@@ -117,7 +127,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
         if (newGameData.lastCheckInDate !== today) {
             if (newGameData.lastCheckInDate === yStr) {
                 newGameData.currentStreak += 1;
-                earnedXP += STREAK_BONUS; // Bonus for maintaining daily streak
+                earnedXP += STREAK_BONUS;
             } else {
                 newGameData.currentStreak = 1;
             }
@@ -160,10 +170,19 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
             setTimeout(() => setJustUnlockedBadges([]), 4000);
         }
 
-        // 3. Save Everything
+        // 3. Optimistic Update UI
         setHabits(updatedHabits);
         setGameData(newGameData);
-        await updateHabits(userCheckupId, updatedHabits, newGameData);
+
+        // 4. Persist to Backend (Background)
+        try {
+            await updateHabits(userCheckupId, updatedHabits, newGameData);
+        } catch (e) {
+            console.error("Failed to save habit progress", e);
+            alert("网络连接异常，打卡记录仅保存在本地");
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const progressToNextLevel = (gameData.totalXP % LEVEL_XP) / LEVEL_XP * 100;
@@ -209,7 +228,10 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
                 <div className="relative z-10">
                     <div className="flex justify-between text-xs mb-1 opacity-90 font-medium">
                         <span>XP {gameData.totalXP}</span>
-                        <span>Next Lv.{gameData.level + 1}</span>
+                        <div className="flex gap-2">
+                            {isSaving && <span className="animate-pulse">☁️ 同步中...</span>}
+                            <span>Next Lv.{gameData.level + 1}</span>
+                        </div>
                     </div>
                     <div className="h-3 bg-black/20 rounded-full overflow-hidden backdrop-blur-sm border border-white/10">
                         <div 
@@ -250,7 +272,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
                                     <div key={habit.id} className="flex flex-col items-center">
                                         <button 
                                             onClick={() => !isDone && !isWrongDay && handleCheckIn(habit.id)}
-                                            disabled={isDone || isWrongDay}
+                                            disabled={isDone || isWrongDay || isSaving}
                                             className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-sm transition-all duration-300 relative group ${
                                                 isDone 
                                                 ? `bg-gradient-to-br from-green-400 to-green-600 text-white scale-95 ring-4 ring-green-100`
