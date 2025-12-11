@@ -6,7 +6,7 @@ import { UserMedicalServices } from './user/UserMedicalServices';
 import { UserInteraction } from './user/UserInteraction';
 import { UserProfile } from './user/UserProfile';
 import { UserCommunity } from './user/UserCommunity';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly } from '../services/dataService';
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../services/dataService';
 import { getUnreadCount } from '../services/contentService';
 
 interface Props {
@@ -26,6 +26,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       const archive = await findArchiveByCheckupId(checkupId);
       if (archive) {
         setUserArchive(archive);
+        syncArchiveToLocal(archive); // Ensure local storage is in sync for updates
       } else {
         alert('未找到您的档案，请联系管理员核对体检编号');
         onLogout();

@@ -73,6 +73,25 @@ export interface HealthArchive {
 
 const ARCHIVE_STORAGE_KEY = 'HEALTH_ARCHIVES_V1_LOCAL';
 
+// [NEW] Helper to force sync an archive to local storage (e.g. after fetching from DB)
+export const syncArchiveToLocal = (archive: HealthArchive) => {
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        let all: HealthArchive[] = raw ? JSON.parse(raw) : [];
+        const idx = all.findIndex(a => a.checkup_id === archive.checkup_id);
+        if (idx >= 0) {
+            all[idx] = archive;
+        } else {
+            all.push(archive);
+        }
+        localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+        return true;
+    } catch (e) {
+        console.error("Sync to local failed", e);
+        return false;
+    }
+};
+
 export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthArchive | null> => {
     const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
     if (localRaw) {
@@ -223,7 +242,10 @@ export const saveArchive = async (
 
 // [NEW] Update User Daily Integrated Plan
 export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): Promise<boolean> => {
-    let success = false;
+    let localSuccess = false;
+    let dbSuccess = false;
+
+    // 1. Try Local Update
     try {
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
         if (raw) {
@@ -233,19 +255,27 @@ export const updateUserPlan = async (checkupId: string, plan: DailyHealthPlan): 
                 all[idx].custom_daily_plan = plan;
                 all[idx].updated_at = new Date().toISOString();
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
-                success = true;
+                localSuccess = true;
             }
         }
-    } catch(e) {}
+    } catch(e) {
+        console.error("Local plan update failed", e);
+    }
 
-    if (!isSupabaseConfigured()) return success;
-    
-    try {
-        const { error } = await supabase.from('health_archives').update({ custom_daily_plan: plan, updated_at: new Date().toISOString() }).eq('checkup_id', checkupId);
-        if (!error) success = true;
-    } catch (e) { console.error(e); }
+    // 2. Try DB Update
+    if (isSupabaseConfigured()) {
+        try {
+            const { error } = await supabase.from('health_archives').update({ custom_daily_plan: plan, updated_at: new Date().toISOString() }).eq('checkup_id', checkupId);
+            if (!error) dbSuccess = true;
+            else console.error("DB plan update failed", error);
+        } catch (e) { console.error("DB plan update exception", e); }
+    } else {
+        // If no DB configured, local success is enough
+        return localSuccess;
+    }
 
-    return success;
+    // Return true if at least one succeeded
+    return localSuccess || dbSuccess;
 };
 
 export const updateArchiveProfile = async (dbId: string, newProfile: HealthProfile): Promise<{ success: boolean; message?: string }> => {
