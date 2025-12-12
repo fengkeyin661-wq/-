@@ -40,8 +40,116 @@ const callDeepSeek = async (systemPrompt: string, userContent: string, jsonMode:
     } catch (error) { throw error; }
 };
 
-// ... (keep parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule, analyzeFollowUpRecord, generateFollowUpSMS, generateHospitalBusinessAnalysis, generateAnnualReportSummary, generateDietAssessment, generateExercisePlan, calculateNutritionFromIngredients) ...
-export const parseHealthDataFromText = async (raw: string) => { return {} as HealthRecord }; 
+// Safe Default Structure to prevent UI crashes
+const DEFAULT_HEALTH_RECORD: HealthRecord = {
+    profile: { checkupId: '', name: '', gender: '', department: '', age: 0 },
+    checkup: {
+        basics: {},
+        labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} },
+        imagingBasic: { ultrasound: {} },
+        optional: { tumorMarkers4: {}, tumorMarkers2: {}, rheumatoid: {} },
+        abnormalities: []
+    },
+    questionnaire: {
+        history: { diseases: [], details: {} },
+        femaleHealth: {},
+        familyHistory: {},
+        medication: { isRegular: '否', details: {} },
+        diet: { habits: [] },
+        hydration: {},
+        exercise: {},
+        sleep: {},
+        respiratory: {},
+        substances: { smoking: {}, alcohol: {} },
+        mentalScales: {},
+        mental: {},
+        needs: {}
+    }
+};
+
+// [UPDATED] Parse Health Data From Text (Real Implementation)
+export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord> => {
+    const systemPrompt = `
+    你是一个专业的医疗数据结构化专家。请分析用户提供的体检报告或健康问卷文本，提取关键信息并按照 JSON 格式返回。
+    
+    提取规则：
+    1. 即使数据缺失，也请尽量返回结构体，数值型字段如果未找到请留空或为 null，字符串留空字符串。
+    2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
+    3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
+    
+    目标 JSON 结构 (HealthRecord):
+    {
+      "profile": { "name": "姓名", "gender": "男/女", "age": 0, "checkupId": "编号", "department": "部门", "phone": "电话" },
+      "checkup": {
+        "basics": { "height": 0, "weight": 0, "bmi": 0, "sbp": 0, "dbp": 0, "waist": 0 },
+        "labBasic": {
+           "glucose": { "fasting": "数值" },
+           "lipids": { "tc": "总胆固醇", "tg": "甘油三酯", "ldl": "低密度", "hdl": "高密度" },
+           "liver": { "alt": "数值", "ast": "数值" },
+           "renal": { "creatinine": "肌酐", "ua": "尿酸" }
+        },
+        "imagingBasic": {
+           "ecg": "心电图结论",
+           "ultrasound": { "thyroid": "甲状腺超声结论", "abdomen": "腹部超声结论", "breast": "乳腺超声", "prostate": "前列腺超声" }
+        },
+        "abnormalities": [
+           { "item": "项目名", "result": "结果值/描述", "clinicalSig": "临床意义/建议" }
+        ]
+      },
+      "questionnaire": {
+         "history": { "diseases": ["高血压", "糖尿病"] },
+         "substances": { "smoking": { "status": "吸烟/从不/戒烟" }, "alcohol": { "status": "饮酒/从不" } }
+      }
+    }
+    `;
+
+    try {
+        const result = await callDeepSeek(systemPrompt, raw, true);
+        
+        // Deep Merge with Default to prevent undefined errors in UI
+        const merged: HealthRecord = {
+            ...DEFAULT_HEALTH_RECORD,
+            ...result,
+            profile: { ...DEFAULT_HEALTH_RECORD.profile, ...result?.profile },
+            checkup: {
+                ...DEFAULT_HEALTH_RECORD.checkup,
+                ...result?.checkup,
+                basics: { ...DEFAULT_HEALTH_RECORD.checkup.basics, ...result?.checkup?.basics },
+                labBasic: { 
+                    ...DEFAULT_HEALTH_RECORD.checkup.labBasic, 
+                    ...result?.checkup?.labBasic,
+                    lipids: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.lipids, ...result?.checkup?.labBasic?.lipids },
+                    glucose: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.glucose, ...result?.checkup?.labBasic?.glucose }
+                },
+                imagingBasic: {
+                    ...DEFAULT_HEALTH_RECORD.checkup.imagingBasic,
+                    ...result?.checkup?.imagingBasic,
+                    ultrasound: { ...DEFAULT_HEALTH_RECORD.checkup.imagingBasic.ultrasound, ...result?.checkup?.imagingBasic?.ultrasound }
+                },
+                abnormalities: result?.checkup?.abnormalities || []
+            },
+            questionnaire: {
+                ...DEFAULT_HEALTH_RECORD.questionnaire,
+                ...result?.questionnaire,
+                history: { ...DEFAULT_HEALTH_RECORD.questionnaire.history, ...result?.questionnaire?.history },
+                substances: {
+                    ...DEFAULT_HEALTH_RECORD.questionnaire.substances,
+                    ...result?.questionnaire?.substances,
+                    smoking: { ...DEFAULT_HEALTH_RECORD.questionnaire.substances.smoking, ...result?.questionnaire?.substances?.smoking },
+                    alcohol: { ...DEFAULT_HEALTH_RECORD.questionnaire.substances.alcohol, ...result?.questionnaire?.substances?.alcohol }
+                }
+            }
+        };
+        return merged;
+    } catch (e) {
+        console.error("AI Parse Failed", e);
+        // Return safe default object instead of throwing, so UI doesn't crash
+        const errorRecord = JSON.parse(JSON.stringify(DEFAULT_HEALTH_RECORD));
+        errorRecord.profile.name = "解析失败";
+        return errorRecord;
+    }
+};
+
 export const generateHealthAssessment = async (rec: HealthRecord) => { return {} as HealthAssessment };
 export const generateFollowUpSchedule = (ass: HealthAssessment) => { return [] as ScheduledFollowUp[] };
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
