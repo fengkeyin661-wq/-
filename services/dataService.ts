@@ -96,6 +96,18 @@ export interface HealthArchive {
 
 const ARCHIVE_STORAGE_KEY = 'HEALTH_ARCHIVES_V1_LOCAL';
 
+// Helper to generate UUID
+const generateUUID = () => {
+    // @ts-ignore
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+};
+
 // [NEW] Helper to force sync an archive to local storage (e.g. after fetching from DB)
 export const syncArchiveToLocal = (archive: HealthArchive) => {
     try {
@@ -172,7 +184,9 @@ export const saveArchive = async (
     existingFollowUps: FollowUpRecord[] = [],
     riskAnalysis?: RiskAnalysisData
 ): Promise<{ success: boolean; message?: string }> => {
+    // Ensure checkupId is a string, default to UNKNOWN if missing (Logic for Business Key)
     const checkupId = record.profile.checkupId || `UNKNOWN_${Date.now()}`;
+    
     let historyVersions: any[] = [];
     let existingCriticalTrack = null;
     let existingRiskAnalysis = riskAnalysis;
@@ -180,10 +194,57 @@ export const saveArchive = async (
     let existingDailyPlan = null;
     let existingHabits = null;
     let existingGamification = null;
+    
+    // Determine UUID (Primary Key)
+    // 1. Try to find existing ID from DB or Local to maintain consistency
+    let finalId = ''; 
+
+    // A. Check Local First (Sync)
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all = JSON.parse(raw);
+            const match = all.find((a: any) => a.checkup_id === checkupId);
+            if (match) {
+                finalId = match.id;
+                // Load existing local data to preserve state
+                historyVersions = match.history_versions || [];
+                existingCriticalTrack = match.critical_track;
+                existingExercisePlan = match.custom_exercise_plan;
+                existingDailyPlan = match.custom_daily_plan;
+                existingHabits = match.habit_tracker;
+                existingGamification = match.gamification;
+                if (!existingRiskAnalysis && match.risk_analysis) existingRiskAnalysis = match.risk_analysis;
+            }
+        }
+    } catch(e) {}
+
+    // B. Check DB (Async - overwrite local ID if DB has one)
+    if (isSupabaseConfigured()) {
+        try {
+            const { data: existing } = await supabase.from('health_archives').select('*').eq('checkup_id', checkupId).maybeSingle();
+            if (existing) {
+                finalId = existing.id; // Use DB ID as source of truth
+                historyVersions = existing.history_versions || [];
+                existingCriticalTrack = existing.critical_track;
+                existingExercisePlan = (existing as any).custom_exercise_plan;
+                existingDailyPlan = (existing as any).custom_daily_plan;
+                existingHabits = (existing as any).habit_tracker;
+                existingGamification = (existing as any).gamification;
+                if (!existingRiskAnalysis && existing.risk_analysis) existingRiskAnalysis = existing.risk_analysis;
+
+                if (historyVersions.length > 5) historyVersions = historyVersions.slice(historyVersions.length - 5);
+                historyVersions.push({ date: new Date().toISOString(), health_record: existing.health_record, assessment_data: existing.assessment_data });
+            }
+        } catch (e) { console.error("Error checking existing DB record", e); }
+    }
+
+    // C. If no ID found anywhere, generate new UUID
+    if (!finalId) finalId = generateUUID();
 
     const basePayload: any = {
-        id: checkupId,
-        checkup_id: checkupId,
+        id: finalId, // Use valid UUID
+        checkup_id: checkupId, // Business Key (can be UNKNOWN_...)
         name: record.profile.name || '未命名',
         phone: record.profile.phone || null,
         department: record.profile.department,
@@ -209,25 +270,15 @@ export const saveArchive = async (
         gamification: existingGamification
     };
 
-    // Local Storage
+    // Save to Local Storage
     try {
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
         let all: HealthArchive[] = raw ? JSON.parse(raw) : [];
         const idx = all.findIndex(a => a.checkup_id === checkupId);
         
         if (idx >= 0) {
-            const existing = all[idx];
-            fullPayload.history_versions = existing.history_versions || [];
-            fullPayload.critical_track = existing.critical_track;
-            fullPayload.custom_exercise_plan = existing.custom_exercise_plan;
-            fullPayload.custom_daily_plan = existing.custom_daily_plan;
-            fullPayload.habit_tracker = existing.habit_tracker;
-            fullPayload.gamification = existing.gamification;
-            fullPayload.created_at = existing.created_at;
-            if (!existingRiskAnalysis && existing.risk_analysis) {
-                fullPayload.risk_analysis = existing.risk_analysis;
-            }
-            all[idx] = fullPayload;
+            // Merge to keep local-only fields if any
+            all[idx] = { ...all[idx], ...fullPayload };
         } else {
             all.push(fullPayload);
         }
@@ -238,35 +289,29 @@ export const saveArchive = async (
         return { success: true, message: "已保存到本地" };
     }
 
+    // Save to DB
     try {
-        const { data: existing } = await supabase.from('health_archives').select('*').eq('checkup_id', checkupId).maybeSingle();
-
-        if (existing) {
-            historyVersions = existing.history_versions || [];
-            existingCriticalTrack = existing.critical_track;
-            existingExercisePlan = (existing as any).custom_exercise_plan;
-            existingDailyPlan = (existing as any).custom_daily_plan;
-            existingHabits = (existing as any).habit_tracker;
-            existingGamification = (existing as any).gamification;
-            if (!existingRiskAnalysis && existing.risk_analysis) existingRiskAnalysis = existing.risk_analysis;
-
-            if (historyVersions.length > 5) historyVersions = historyVersions.slice(historyVersions.length - 5);
-            historyVersions.push({ date: new Date().toISOString(), health_record: existing.health_record, assessment_data: existing.assessment_data });
-        } 
-
-        const dbPayload = {
-            ...fullPayload,
-            history_versions: historyVersions,
-            critical_track: existingCriticalTrack,
-            risk_analysis: existingRiskAnalysis,
-            custom_exercise_plan: existingExercisePlan,
-            custom_daily_plan: existingDailyPlan,
-            habit_tracker: existingHabits,
-            gamification: existingGamification
-        };
-
-        const { error } = await supabase.from('health_archives').upsert(dbPayload, { onConflict: 'checkup_id' });
-        if (error) throw error;
+        // Attempt insert/update
+        // Note: 'id' is sent as UUID. 'checkup_id' is conflict target.
+        const { error } = await supabase.from('health_archives').upsert(fullPayload, { onConflict: 'checkup_id' });
+        
+        if (error) {
+            // Fallback: If error is about missing columns (new features), try saving basic payload
+            if (error.message.includes('Could not find the') || error.code === '42703') {
+                console.warn("DB schema missing new columns, falling back to basic payload");
+                const basicPayload = { ...basePayload };
+                delete basicPayload.risk_analysis;
+                delete basicPayload.custom_exercise_plan;
+                delete basicPayload.custom_daily_plan;
+                delete basicPayload.habit_tracker;
+                delete basicPayload.gamification;
+                
+                const { error: retryError } = await supabase.from('health_archives').upsert(basicPayload, { onConflict: 'checkup_id' });
+                if (retryError) throw retryError;
+                return { success: true, message: "部分保存成功 (数据库缺少新字段)" };
+            }
+            throw error;
+        }
         return { success: true };
     } catch (e: any) {
         return { success: false, message: e.message };
