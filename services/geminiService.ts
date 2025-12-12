@@ -1,11 +1,74 @@
 
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 import { HabitRecord } from "./dataService";
-import { GoogleGenAI, SchemaType } from "@google/genai";
 
-// Initialize Gemini API Client
-// Note: API_KEY is injected by the environment.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper to safely access environment variables
+const getEnvVar = (key: string): string => {
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env[key] || '';
+    }
+  } catch (e) {}
+
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env[key] || '';
+    }
+  } catch (e) {}
+
+  return '';
+};
+
+// DeepSeek API Configuration
+const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
+const API_URL = "https://api.deepseek.com/chat/completions";
+
+// Helper for DeepSeek API Calls
+async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
+    if (!API_KEY) {
+        console.error("Missing VITE_DEEPSEEK_API_KEY");
+        throw new Error("未配置 DeepSeek API Key");
+    }
+
+    try {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${API_KEY}`
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userContent }
+                ],
+                // DeepSeek supports json_object, but sometimes text/markdown is better for complex reasoning.
+                // We will enforce JSON in the prompt and clean it up.
+                response_format: jsonMode ? { type: "json_object" } : { type: "text" },
+                temperature: 0.1 // Lower temperature for more deterministic data extraction
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`DeepSeek API Error: ${response.status} - ${err}`);
+        }
+
+        const data = await response.json();
+        let content = data.choices[0]?.message?.content || "";
+        
+        // Cleanup Markdown code blocks if present (DeepSeek sometimes adds them even in JSON mode)
+        content = content.replace(/```json\n?|\n?```/g, "").trim();
+        
+        return content;
+    } catch (e) {
+        console.error("DeepSeek Call Failed", e);
+        throw e;
+    }
+}
 
 // Safe Default Structure to prevent UI crashes
 const DEFAULT_HEALTH_RECORD: HealthRecord = {
@@ -34,7 +97,7 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
     }
 };
 
-// [UPDATED] Parse Health Data From Text using Gemini 2.5 Flash
+// [UPDATED] Parse Health Data From Text using DeepSeek
 export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord> => {
     if (!raw || raw.trim().length === 0) {
         throw new Error("输入文本为空，无法解析");
@@ -48,21 +111,31 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
     
-    目标 JSON 结构应符合 HealthRecord 接口定义。
+    目标 JSON 结构应严格符合以下定义，不要包含任何注释：
+    {
+      "profile": { "checkupId": "string", "name": "string", "gender": "string", "age": number, "department": "string", "phone": "string", "checkupDate": "string" },
+      "checkup": {
+         "basics": { "height": number, "weight": number, "bmi": number, "sbp": number, "dbp": number, "waist": number },
+         "labBasic": { 
+            "glucose": { "fasting": "string" },
+            "lipids": { "tc": "string", "tg": "string", "ldl": "string", "hdl": "string" },
+            "liver": { "alt": "string", "ast": "string", "ggt": "string" },
+            "renal": { "creatinine": "string", "ua": "string" },
+            "tumorMarkers": { "cea": "string", "afp": "string" } 
+         },
+         "imagingBasic": { "ultrasound": { "thyroid": "string", "abdomen": "string", "breast": "string" } },
+         "abnormalities": [ { "item": "string", "result": "string", "clinicalSig": "string" } ]
+      },
+      "questionnaire": {
+         "history": { "diseases": ["string"] },
+         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "cancer": boolean },
+         "substances": { "smoking": { "status": "string" }, "alcohol": { "status": "string" } }
+      }
+    }
     `;
 
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [
-                { role: 'user', parts: [{ text: systemPrompt + "\n\n" + raw }] }
-            ],
-            config: {
-                responseMimeType: 'application/json'
-            }
-        });
-
-        const jsonText = response.text;
+        const jsonText = await callDeepSeek(systemPrompt, raw);
         if (!jsonText) throw new Error("AI response empty");
         
         const result = JSON.parse(jsonText);
@@ -112,7 +185,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
         return merged;
     } catch (e) {
         console.error("AI Parse Failed", e);
-        // Return safe default object instead of throwing, so UI doesn't crash completely
+        // Return safe default object instead of throwing
         const errorRecord = JSON.parse(JSON.stringify(DEFAULT_HEALTH_RECORD));
         errorRecord.profile.name = "解析失败";
         return errorRecord;
@@ -122,10 +195,9 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
 export const generateHealthAssessment = async (rec: HealthRecord): Promise<HealthAssessment> => {
     const prompt = `
     作为资深全科医生，请根据以下健康档案生成一份风险评估报告。
-    
     数据：${JSON.stringify(rec)}
     
-    请返回 JSON:
+    请严格返回 JSON 格式:
     {
       "riskLevel": "GREEN" | "YELLOW" | "RED",
       "summary": "综合评估摘要(150字以内)",
@@ -146,12 +218,8 @@ export const generateHealthAssessment = async (rec: HealthRecord): Promise<Healt
     `;
 
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: { responseMimeType: 'application/json' }
-        });
-        return JSON.parse(response.text || '{}') as HealthAssessment;
+        const jsonText = await callDeepSeek("你是一个辅助医生进行健康评估的AI。", prompt);
+        return JSON.parse(jsonText || '{}') as HealthAssessment;
     } catch (e) {
         console.error("Assessment Gen Failed", e);
         return {
@@ -180,8 +248,7 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
 export const generateHospitalBusinessAnalysis = async (issues: any): Promise<DepartmentAnalytics[]> => {
-    // Mock implementation for heatmap to avoid heavy API usage in this context, or implement if needed.
-    // Given the request focus is on PDF parsing, we keep this lightweight.
+    // Mock for now or implement if needed
     return []; 
 };
 export const generateAnnualReportSummary = async (b: any, c: any) => { return {summary:''} };
@@ -204,12 +271,8 @@ export const calculateNutritionFromIngredients = async (items: {name: string, in
     }
     `;
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: { responseMimeType: 'application/json' }
-        });
-        return { nutritionData: JSON.parse(response.text || '{}') };
+        const jsonText = await callDeepSeek("你是营养师。", prompt);
+        return { nutritionData: JSON.parse(jsonText || '{}') };
     } catch (e) {
         return { nutritionData: {} };
     }
@@ -224,12 +287,8 @@ export const generatePersonalizedHabits = async (assessment: HealthAssessment, r
     `;
 
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: { responseMimeType: 'application/json' }
-        });
-        const result = JSON.parse(response.text || '{}');
+        const jsonText = await callDeepSeek("你是健康管理专家。", prompt);
+        const result = JSON.parse(jsonText || '{}');
         const habits = (result.habits || []).map((h: any) => ({
             ...h,
             history: [],
@@ -274,12 +333,8 @@ export const generateDailyIntegratedPlan = async (userProfileStr: string, resour
     `;
 
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: { responseMimeType: 'application/json' }
-        });
-        return JSON.parse(response.text || '{}');
+        const jsonText = await callDeepSeek("你是私人健康教练。", prompt);
+        return JSON.parse(jsonText || '{}');
     } catch (e) {
         return {
             diet: { breakfast: '燕麦牛奶', lunch: '清淡饮食', dinner: '蔬菜沙拉' },
