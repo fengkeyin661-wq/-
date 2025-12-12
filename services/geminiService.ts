@@ -26,10 +26,13 @@ const getEnvVar = (key: string): string => {
   return val || '';
 };
 
-const isDev = (() => {
+// Detect if we should use the local proxy (Running on localhost/dev)
+const useProxy = (() => {
     try {
-        // @ts-ignore
-        return import.meta.env.DEV;
+        if (typeof window !== 'undefined') {
+            return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        }
+        return false;
     } catch {
         return false;
     }
@@ -37,8 +40,9 @@ const isDev = (() => {
 
 // DeepSeek API Configuration
 const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
-// Use proxy in dev to avoid CORS, direct URL in prod
-const API_URL = isDev ? "/api/deepseek/chat/completions" : "https://api.deepseek.com/chat/completions";
+
+// If local, use the proxy path defined in vite.config.ts. If prod, try direct (requires backend or CORS support).
+const API_URL = useProxy ? "/api/deepseek/chat/completions" : "https://api.deepseek.com/chat/completions";
 
 // Helper for DeepSeek API Calls
 async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
@@ -48,7 +52,7 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
     }
 
     try {
-        console.log(`[AI] Calling DeepSeek (${isDev ? 'Proxy' : 'Direct'})...`);
+        console.log(`[AI] Calling DeepSeek via ${API_URL}...`);
         
         const response = await fetch(API_URL, {
             method: 'POST',
@@ -69,8 +73,16 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
 
         if (!response.ok) {
             const errText = await response.text();
-            console.error("[AI] Error Response:", errText);
-            throw new Error(`API Request Failed: ${response.status} ${response.statusText} - ${errText.slice(0, 50)}`);
+            console.error("[AI] Error Response:", response.status, errText);
+            
+            if (response.status === 404) {
+                throw new Error("API 路径未找到 (404)。如果您在本地运行，请确保 vite.config.ts 中的 proxy 配置已生效并重启了服务。");
+            }
+            if (response.status === 401) {
+                throw new Error("API Key 无效或过期 (401)。请检查 VITE_DEEPSEEK_API_KEY。");
+            }
+            
+            throw new Error(`API Request Failed: ${response.status} - ${errText.slice(0, 100)}`);
         }
 
         const data = await response.json();
@@ -83,8 +95,8 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
     } catch (e: any) {
         console.error("DeepSeek Call Exception:", e);
         // Better error message for common issues
-        if (e.message.includes('Failed to fetch')) {
-            throw new Error("网络请求失败 (CORS或断网)，请检查网络连接或API代理设置。");
+        if (e.message.includes('Failed to fetch') || e.message.includes('Network request failed')) {
+            throw new Error("网络请求失败 (CORS blocked)。请确保您正在通过 'npm run dev' 运行，并且 vite.config.ts 中的 proxy 已正确配置。");
         }
         throw e;
     }
