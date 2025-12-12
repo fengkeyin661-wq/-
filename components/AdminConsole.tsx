@@ -240,8 +240,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 setSmartBatchLogs(prev => [...prev, `🤖 AI 解析中...`]);
                 const parsedRecord = await parseHealthDataFromText(text);
                 
-                if (parsedRecord.profile.name === '解析失败') {
-                    throw new Error("AI解析服务未响应，请检查API Key或网络");
+                if (parsedRecord.profile.name && parsedRecord.profile.name.includes('解析失败')) {
+                    throw new Error(parsedRecord.profile.name);
                 }
 
                 const assessment = await generateHealthAssessment(parsedRecord);

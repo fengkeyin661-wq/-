@@ -4,21 +4,26 @@ import { HabitRecord } from "./dataService";
 
 // Helper to safely access environment variables
 const getEnvVar = (key: string): string => {
+  let val = '';
   try {
     // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
+    if (typeof import.meta !== 'undefined' && import.meta && import.meta.env) {
       // @ts-ignore
-      return import.meta.env[key] || '';
+      val = import.meta.env[key];
     }
   } catch (e) {}
+
+  if (val) return val;
 
   try {
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env[key] || '';
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process && process.env) {
+      // @ts-ignore
+      val = process.env[key];
     }
   } catch (e) {}
 
-  return '';
+  return val || '';
 };
 
 // DeepSeek API Configuration
@@ -29,7 +34,7 @@ const API_URL = "https://api.deepseek.com/chat/completions";
 async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
     if (!API_KEY) {
         console.error("Missing VITE_DEEPSEEK_API_KEY");
-        throw new Error("未配置 DeepSeek API Key");
+        throw new Error("未配置 DeepSeek API Key，请检查环境变量");
     }
 
     try {
@@ -45,26 +50,25 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userContent }
                 ],
-                // DeepSeek supports json_object, but sometimes text/markdown is better for complex reasoning.
-                // We will enforce JSON in the prompt and clean it up.
-                response_format: jsonMode ? { type: "json_object" } : { type: "text" },
-                temperature: 0.1 // Lower temperature for more deterministic data extraction
+                // Removed strict response_format to improve compatibility. 
+                // System prompt is strong enough to enforce JSON.
+                temperature: 0.1 
             })
         });
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(`DeepSeek API Error: ${response.status} - ${err}`);
+            throw new Error(`DeepSeek API Error (${response.status}): ${err.slice(0, 100)}`);
         }
 
         const data = await response.json();
         let content = data.choices[0]?.message?.content || "";
         
-        // Cleanup Markdown code blocks if present (DeepSeek sometimes adds them even in JSON mode)
+        // Cleanup Markdown code blocks if present
         content = content.replace(/```json\n?|\n?```/g, "").trim();
         
         return content;
-    } catch (e) {
+    } catch (e: any) {
         console.error("DeepSeek Call Failed", e);
         throw e;
     }
@@ -177,17 +181,16 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
         
         // Safety check for critical fields
         if (!merged.profile.name || merged.profile.name === '解析失败') {
-             // Try to find name in raw text if AI missed it
              const nameMatch = raw.match(/姓名[:：]\s*([\u4e00-\u9fa5]{2,4})/);
              if (nameMatch) merged.profile.name = nameMatch[1];
         }
 
         return merged;
-    } catch (e) {
+    } catch (e: any) {
         console.error("AI Parse Failed", e);
-        // Return safe default object instead of throwing
+        // Return safe default object with error message
         const errorRecord = JSON.parse(JSON.stringify(DEFAULT_HEALTH_RECORD));
-        errorRecord.profile.name = "解析失败";
+        errorRecord.profile.name = `解析失败: ${e.message || '未知错误'}`;
         return errorRecord;
     }
 };
@@ -248,7 +251,6 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
 export const generateHospitalBusinessAnalysis = async (issues: any): Promise<DepartmentAnalytics[]> => {
-    // Mock for now or implement if needed
     return []; 
 };
 export const generateAnnualReportSummary = async (b: any, c: any) => { return {summary:''} };

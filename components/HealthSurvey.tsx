@@ -83,11 +83,16 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
     setIsParsing(true);
     try {
         const result = await parseHealthDataFromText(rawText);
-        setData(result);
-        setMode('review');
-        setIsEditing(false); 
-    } catch (e) {
-        alert("AI 解析失败，请检查网络或 Key 配置");
+        
+        if (result.profile.name && result.profile.name.includes('解析失败')) {
+            alert(`错误: ${result.profile.name}`);
+        } else {
+            setData(result);
+            setMode('review');
+            setIsEditing(false); 
+        }
+    } catch (e: any) {
+        alert(`解析异常: ${e.message}`);
         console.error(e);
     } finally {
         setIsParsing(false);
