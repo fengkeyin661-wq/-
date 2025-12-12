@@ -216,7 +216,15 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             const loadingTask = lib.getDocument({ data: arrayBuffer });
             const pdf = await loadingTask.promise;
             let fullText = "";
-            for (let i = 1; i <= pdf.numPages; i++) { const page = await pdf.getPage(i); const textContent = await page.getTextContent(); const pageText = textContent.items.map((item: any) => item.str).join(' '); fullText += `--- Page ${i} ---\n${pageText}\n\n`; }
+            for (let i = 1; i <= pdf.numPages; i++) { 
+                const page = await pdf.getPage(i); 
+                const textContent = await page.getTextContent(); 
+                const pageText = textContent.items.map((item: any) => item.str).join(' '); 
+                fullText += `--- Page ${i} ---\n${pageText}\n\n`; 
+            }
+            if (!fullText.trim()) {
+                throw new Error("PDF内容为空或为纯图片，无法识别文字");
+            }
             return fullText;
         }
         throw new Error("Unsupported format");
@@ -229,13 +237,19 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             setSmartBatchLogs(prev => [...prev, `📄 读取: ${file.name}`]);
             try {
                 const text = await extractTextFromFile(file);
+                setSmartBatchLogs(prev => [...prev, `🤖 AI 解析中...`]);
                 const parsedRecord = await parseHealthDataFromText(text);
+                
+                if (parsedRecord.profile.name === '解析失败') {
+                    throw new Error("AI解析服务未响应，请检查API Key或网络");
+                }
+
                 const assessment = await generateHealthAssessment(parsedRecord);
                 const schedule = generateFollowUpSchedule(assessment);
                 const portraits = generateSystemPortraits(parsedRecord);
                 const models = evaluateRiskModels(parsedRecord);
                 const saveRes = await saveArchive(parsedRecord, assessment, schedule, [], { portraits, models });
-                if (saveRes.success) setSmartBatchLogs(prev => [...prev, `✅ 成功: ${parsedRecord.profile.checkupId}`]);
+                if (saveRes.success) setSmartBatchLogs(prev => [...prev, `✅ 成功: ${parsedRecord.profile.name}`]);
                 else setSmartBatchLogs(prev => [...prev, `❌ 失败: ${saveRes.message}`]);
             } catch (e: any) {
                 setSmartBatchLogs(prev => [...prev, `❌ 异常: ${e.message}`]);

@@ -142,6 +142,10 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                   fullText += `--- Page ${i} ---\n${pageText}\n\n`;
               }
               text = fullText;
+              
+              if (!text.trim()) {
+                  throw new Error("PDF内容为空或为纯图片扫描件，无法识别文字");
+              }
           }
           else {
               alert("不支持的文件格式。请上传 .txt, .docx, .xlsx, .pdf");

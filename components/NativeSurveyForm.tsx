@@ -164,6 +164,9 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                 const pageText = textContent.items.map((item: any) => item.str).join(' ');
                 fullText += `--- Page ${i} ---\n${pageText}\n\n`;
             }
+            if (!fullText.trim()) {
+                throw new Error("PDF内容为空或为纯图片扫描件，无法识别文字");
+            }
             return fullText;
         }
         throw new Error("不支持的文件格式，请上传 PDF, Word, Excel 或 TXT");
