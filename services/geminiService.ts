@@ -26,13 +26,11 @@ const getEnvVar = (key: string): string => {
   return val || '';
 };
 
-// Detect if we should use the local proxy (Running on localhost/dev)
-const useProxy = (() => {
+// Determine environment
+const isDev = (() => {
     try {
-        if (typeof window !== 'undefined') {
-            return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        }
-        return false;
+        // @ts-ignore
+        return !!import.meta.env.DEV;
     } catch {
         return false;
     }
@@ -41,8 +39,14 @@ const useProxy = (() => {
 // DeepSeek API Configuration
 const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
 
-// If local, use the proxy path defined in vite.config.ts. If prod, try direct (requires backend or CORS support).
-const API_URL = useProxy ? "/api/deepseek/chat/completions" : "https://api.deepseek.com/chat/completions";
+// PROXY STRATEGY:
+// In Dev (npm run dev), use the local proxy path '/api/deepseek' to bypass CORS.
+// In Prod, use the direct URL (Note: Client-side calls to DeepSeek in Prod will likely fail CORS unless the API allows it).
+// Fallback: If not in dev, try direct.
+const PROXY_URL = "/api/deepseek/chat/completions";
+const DIRECT_URL = "https://api.deepseek.com/chat/completions";
+
+const API_URL = isDev ? PROXY_URL : DIRECT_URL;
 
 // Helper for DeepSeek API Calls
 async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
@@ -51,10 +55,9 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
         throw new Error("未配置 DeepSeek API Key，请检查环境变量");
     }
 
-    try {
-        console.log(`[AI] Calling DeepSeek via ${API_URL}...`);
-        
-        const response = await fetch(API_URL, {
+    const makeRequest = async (url: string) => {
+        console.log(`[AI] Calling DeepSeek via ${url}...`);
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -73,30 +76,37 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
 
         if (!response.ok) {
             const errText = await response.text();
-            console.error("[AI] Error Response:", response.status, errText);
-            
-            if (response.status === 404) {
-                throw new Error("API 路径未找到 (404)。如果您在本地运行，请确保 vite.config.ts 中的 proxy 配置已生效并重启了服务。");
+            throw new Error(`Request to ${url} failed: ${response.status} - ${errText.slice(0, 100)}`);
+        }
+        return response.json();
+    };
+
+    try {
+        let data;
+        try {
+            // First try the determined URL
+            data = await makeRequest(API_URL);
+        } catch (initialError: any) {
+            // If Dev and Proxy failed (e.g. 404 or network error), try direct as fallback? 
+            // Usually network error in browser = CORS blocked on direct, so fallback to direct isn't helpful if proxy failed.
+            // But if we are in a non-standard env where proxy isn't set up but direct works?
+            console.warn(`Initial AI request failed via ${API_URL}, retrying direct...`, initialError);
+            if (API_URL !== DIRECT_URL) {
+                 data = await makeRequest(DIRECT_URL);
+            } else {
+                throw initialError;
             }
-            if (response.status === 401) {
-                throw new Error("API Key 无效或过期 (401)。请检查 VITE_DEEPSEEK_API_KEY。");
-            }
-            
-            throw new Error(`API Request Failed: ${response.status} - ${errText.slice(0, 100)}`);
         }
 
-        const data = await response.json();
         let content = data.choices[0]?.message?.content || "";
-        
         // Cleanup Markdown code blocks if present
         content = content.replace(/```json\n?|\n?```/g, "").trim();
-        
         return content;
+
     } catch (e: any) {
         console.error("DeepSeek Call Exception:", e);
-        // Better error message for common issues
         if (e.message.includes('Failed to fetch') || e.message.includes('Network request failed')) {
-            throw new Error("网络请求失败 (CORS blocked)。请确保您正在通过 'npm run dev' 运行，并且 vite.config.ts 中的 proxy 已正确配置。");
+            throw new Error("网络请求失败 (CORS blocked)。请确保正在运行 'npm run dev' 且 vite.config.ts 代理配置正确。");
         }
         throw e;
     }
@@ -207,6 +217,19 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
             }
         };
         
+        // --- 1. Automatic BMI Calculation ---
+        // If BMI is missing/zero but Height and Weight are present
+        const b = merged.checkup.basics;
+        if (b.height && b.weight && b.height > 0 && b.weight > 0) {
+            if (!b.bmi || b.bmi === 0) {
+                // Formula: kg / (m^2)
+                const heightM = b.height / 100;
+                const calculatedBMI = b.weight / (heightM * heightM);
+                b.bmi = parseFloat(calculatedBMI.toFixed(1));
+                console.log(`[Auto-Calc] BMI calculated: ${b.bmi} (H:${b.height}cm, W:${b.weight}kg)`);
+            }
+        }
+
         // Safety check for critical fields
         if (!merged.profile.name || merged.profile.name === '解析失败') {
              const nameMatch = raw.match(/姓名[:：]\s*([\u4e00-\u9fa5]{2,4})/);
