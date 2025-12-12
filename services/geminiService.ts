@@ -26,9 +26,19 @@ const getEnvVar = (key: string): string => {
   return val || '';
 };
 
+const isDev = (() => {
+    try {
+        // @ts-ignore
+        return import.meta.env.DEV;
+    } catch {
+        return false;
+    }
+})();
+
 // DeepSeek API Configuration
 const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
-const API_URL = "https://api.deepseek.com/chat/completions";
+// Use proxy in dev to avoid CORS, direct URL in prod
+const API_URL = isDev ? "/api/deepseek/chat/completions" : "https://api.deepseek.com/chat/completions";
 
 // Helper for DeepSeek API Calls
 async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
@@ -38,6 +48,8 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
     }
 
     try {
+        console.log(`[AI] Calling DeepSeek (${isDev ? 'Proxy' : 'Direct'})...`);
+        
         const response = await fetch(API_URL, {
             method: 'POST',
             headers: {
@@ -50,15 +62,15 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userContent }
                 ],
-                // Removed strict response_format to improve compatibility. 
-                // System prompt is strong enough to enforce JSON.
-                temperature: 0.1 
+                temperature: 0.1,
+                stream: false
             })
         });
 
         if (!response.ok) {
-            const err = await response.text();
-            throw new Error(`DeepSeek API Error (${response.status}): ${err.slice(0, 100)}`);
+            const errText = await response.text();
+            console.error("[AI] Error Response:", errText);
+            throw new Error(`API Request Failed: ${response.status} ${response.statusText} - ${errText.slice(0, 50)}`);
         }
 
         const data = await response.json();
@@ -69,7 +81,11 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
         
         return content;
     } catch (e: any) {
-        console.error("DeepSeek Call Failed", e);
+        console.error("DeepSeek Call Exception:", e);
+        // Better error message for common issues
+        if (e.message.includes('Failed to fetch')) {
+            throw new Error("网络请求失败 (CORS或断网)，请检查网络连接或API代理设置。");
+        }
         throw e;
     }
 }
