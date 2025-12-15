@@ -10,29 +10,17 @@ interface Props {
     onSelectPatient?: (archive: HealthArchive) => void;
 }
 
-// --- 1. 临床业务挖掘规则引擎 (用于反查患者) ---
-// Key: 服务名称关键词 (部分匹配)
-// Value: 潜在人群的搜索特征 (包含疾病名、指标名、症状、风险标签)
 const SERVICE_MAPPING_RULES: Record<string, string[]> = {
-    // [内分泌科]
     "甲状腺": ["甲状腺", "结节", "TI-RADS", "T3", "T4", "TSH"],
     "血糖": ["糖尿病", "血糖", "糖化", "胰岛素", "多饮"],
     "血脂": ["甘油三酯", "胆固醇", "脂", "肥胖", "脂肪肝"],
     "尿酸": ["尿酸", "痛风"],
-
-    // [消化内科]
     "胃肠": ["幽门", "Hp", "胃", "肠", "息肉", "CEA", "腹胀"],
     "肝": ["肝", "转氨酶", "ALT", "AST", "脂肪肝", "硬化"],
-
-    // [心血管]
     "血压": ["高血压", "收缩压", "舒张压", "头晕"],
     "心脏": ["心律", "早搏", "房颤", "胸闷", "ST段", "T波"],
     "血管": ["动脉", "斑块", "硬化", "狭窄"],
-
-    // [呼吸]
     "肺": ["肺", "结节", "磨玻璃", "咳嗽", "气短", "慢阻肺"],
-
-    // [其他]
     "前列腺": ["前列腺", "PSA", "尿频"],
     "乳腺": ["乳腺", "结节", "增生", "BI-RADS"],
     "颈椎": ["颈椎", "脊柱", "手麻"],
@@ -53,7 +41,6 @@ const downloadFile = (content: string, filename: string, mimeType: string) => {
     URL.revokeObjectURL(url);
 };
 
-// Updated Cache Key
 const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V5_SMART';
 
 export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelectPatient }) => {
@@ -68,7 +55,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
     const [patientList, setPatientList] = useState<HealthArchive[]>([]);
     const [targetService, setTargetService] = useState('');
 
-    // Initial Load: Check Cache First
     useEffect(() => {
         const cached = localStorage.getItem(CACHE_KEY);
         if (cached) {
@@ -78,14 +64,13 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                     setAnalytics(parsed.analytics);
                     setLastUpdated(parsed.lastUpdated);
                     setIsCachedData(true);
-                    return; // Stop here, do not auto-analyze
+                    return; 
                 }
             } catch (e) {
                 console.warn("Cache parse failed, falling back to live analysis");
             }
         }
         
-        // Only auto-analyze if no cache and we have data
         if (archives.length > 0) {
             analyze();
         }
@@ -95,50 +80,43 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
         if (archives.length === 0) return;
         setLoading(true);
 
-        // Defer execution to allow UI to update
         setTimeout(async () => {
             try {
                 // 1. SMART Aggregation: Collect ALL raw strings instead of filtering
-                // This ensures whatever the AI extracted in the assessment is counted
                 const issueCounts: { [key: string]: number } = {};
 
                 archives.forEach(arch => {
-                    const findings = new Set<string>(); // Use Set to avoid double counting per patient
+                    const findings = new Set<string>(); 
                     
-                    // A. Collect from Structured Risks (Red/Yellow)
                     if (arch.assessment_data?.risks) {
                         [...arch.assessment_data.risks.red, ...arch.assessment_data.risks.yellow].forEach(r => {
-                            // Clean up string: remove punctuation, keep it short
                             const clean = r.replace(/[.。;；]/g, '').trim();
                             if (clean && clean.length < 15) findings.add(clean);
                         });
                     }
 
-                    // B. Collect from Abnormalities (Items only)
                     if (arch.health_record?.checkup?.abnormalities) {
                         arch.health_record.checkup.abnormalities.forEach(ab => {
                             if (ab.item) findings.add(ab.item.trim());
                         });
                     }
                     
-                    // C. Aggregate
                     findings.forEach(f => {
                         issueCounts[f] = (issueCounts[f] || 0) + 1;
                     });
                 });
 
-                // 2. Filter top issues to prevent token overflow (Top 60 most frequent)
+                // 2. Filter top issues to prevent token overflow
                 const topIssues = Object.entries(issueCounts)
                     .sort(([,a], [,b]) => b - a)
                     .slice(0, 60)
                     .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
 
-                console.log("Sending to AI:", topIssues);
+                console.log("Sending to Analysis:", topIssues);
 
-                // 3. AI Analysis via DeepSeek
+                // 3. Analysis (Hybrid: AI -> Fallback to Local)
                 const result = await generateHospitalBusinessAnalysis(topIssues);
                 
-                // Sort by count descending
                 const sortedResults = result.sort((a, b) => b.patientCount - a.patientCount);
                 const timestamp = new Date().toLocaleString();
                 
@@ -146,7 +124,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                 setLastUpdated(timestamp);
                 setIsCachedData(false); 
 
-                // Save to Cache
                 localStorage.setItem(CACHE_KEY, JSON.stringify({
                     analytics: sortedResults,
                     lastUpdated: timestamp
@@ -179,29 +156,24 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
         setTimeout(() => analyze(), 100);
     }
 
-    // --- Reverse Search Logic (Enhanced V3) ---
     const handleServiceDoubleClick = (serviceName: string, serviceDesc: string) => {
         let searchTerms: string[] = [];
 
-        // 1. Match Rule Engine
         Object.entries(SERVICE_MAPPING_RULES).forEach(([key, terms]) => {
             if (serviceName.includes(key) || serviceDesc.includes(key)) {
                 searchTerms.push(...terms);
             }
         });
 
-        // 2. Add Department Context
         if (selectedDept && selectedDept.keyConditions) {
             searchTerms.push(...selectedDept.keyConditions);
         }
 
-        // 3. Fallback: Use service name itself
         if (searchTerms.length === 0) {
             const cleanName = serviceName.replace(/建议|开展|强化|检查|检测|筛查|评估|管理|干预|专科|门诊|项目|服务|全套|综合|分析|及|试验|术/g, '').trim();
             if (cleanName.length > 1) searchTerms.push(cleanName);
         }
 
-        // Dedupe
         searchTerms = Array.from(new Set(searchTerms));
         
         if (searchTerms.length === 0) {
@@ -209,9 +181,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
             return;
         }
 
-        // 4. Search
         const matched = archives.filter(arch => {
-            // Build searchable text corpus for this patient
             const corpus = [
                 ...(arch.assessment_data.risks.red || []),
                 ...(arch.assessment_data.risks.yellow || []),
@@ -220,7 +190,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                 ...(arch.health_record.questionnaire.history.diseases || [])
             ].join(' ').toLowerCase();
 
-            // Match ANY term
             return searchTerms.some(term => term && corpus.includes(term.toLowerCase()));
         });
 
@@ -229,7 +198,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
         setShowPatientModal(true);
     };
 
-    // --- Export Report ---
     const handleExportGlobalReport = () => {
         if (analytics.length === 0) {
             alert("暂无分析数据，请等待分析完成。");
@@ -253,7 +221,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
 
     return (
         <div className="bg-white w-full h-full rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden animate-fadeIn relative">
-            {/* Header */}
             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                 <div>
                     <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -288,7 +255,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                 </div>
             ) : (
                 <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
-                    {/* Heatmap Grid */}
                     <div className="flex-1 p-6 overflow-y-auto bg-slate-100">
                         {analytics.length === 0 ? (
                             <div className="text-center text-slate-400 mt-20">
@@ -324,7 +290,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                         )}
                     </div>
 
-                    {/* Detail Panel */}
                     <div className="w-full lg:w-96 bg-white border-l border-slate-200 flex flex-col transition-all duration-300 shadow-xl z-10">
                         {selectedDept ? (
                             <div className="h-full flex flex-col">
@@ -396,7 +361,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                 </div>
             )}
 
-            {/* Patient Modal */}
             {showPatientModal && (
                 <div className="absolute inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center animate-fadeIn">
                     <div className="bg-white w-full max-w-2xl h-[80%] rounded-xl shadow-2xl flex flex-col animate-scaleIn">

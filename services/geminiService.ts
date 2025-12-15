@@ -48,8 +48,8 @@ const API_URL = isDev ? PROXY_URL : DIRECT_URL;
 // Helper for DeepSeek API Calls
 async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
     if (!API_KEY) {
-        console.error("Missing VITE_DEEPSEEK_API_KEY");
-        throw new Error("未配置 DeepSeek API Key，请检查环境变量");
+        console.warn("Missing VITE_DEEPSEEK_API_KEY");
+        throw new Error("Missing API Key");
     }
 
     const makeRequest = async (url: string) => {
@@ -97,9 +97,6 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
 
     } catch (e: any) {
         console.error("DeepSeek Call Exception:", e);
-        if (e.message.includes('Failed to fetch') || e.message.includes('Network request failed')) {
-            throw new Error("网络请求失败 (CORS blocked)。请确保正在运行 'npm run dev' 且 vite.config.ts 代理配置正确。");
-        }
         throw e;
     }
 }
@@ -288,47 +285,107 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
 
-// [UPDATED] Hospital Heatmap Analysis (Intelligent Categorization)
+// --- ROBUST LOCAL FALLBACK FOR HEATMAP ---
+const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnalytics[] => {
+    console.log("Starting Local Heatmap Analysis...");
+    
+    // Define Categories
+    const depts: Record<string, { count: number, conditions: Set<string>, services: any[] }> = {
+        '心血管内科': { count: 0, conditions: new Set(), services: [{name:'动态血压监测', count:0, description:'监测血压波动'}, {name:'冠脉CTA', count:0, description:'排查冠心病'}] },
+        '内分泌科': { count: 0, conditions: new Set(), services: [{name:'甲状腺功能全套', count:0, description:'排查甲亢/甲减'}, {name:'糖尿病慢病管理', count:0, description:'血糖控制方案'}] },
+        '消化内科': { count: 0, conditions: new Set(), services: [{name:'C13呼气试验', count:0, description:'幽门螺杆菌检测'}, {name:'无痛胃肠镜', count:0, description:'胃肠肿瘤筛查'}] },
+        '呼吸内科': { count: 0, conditions: new Set(), services: [{name:'肺功能检查', count:0, description:'慢阻肺筛查'}, {name:'低剂量螺旋CT', count:0, description:'肺结节随访'}] },
+        '普外科/甲乳外科': { count: 0, conditions: new Set(), services: [{name:'甲状腺/乳腺彩超', count:0, description:'结节筛查'}, {name:'乳腺钼靶', count:0, description:'乳腺癌筛查'}] },
+        '泌尿外科': { count: 0, conditions: new Set(), services: [{name:'泌尿系彩超', count:0, description:'结石/前列腺筛查'}, {name:'PSA筛查', count:0, description:'前列腺癌筛查'}] },
+        '骨科/康复科': { count: 0, conditions: new Set(), services: [{name:'骨密度测定', count:0, description:'骨质疏松筛查'}, {name:'颈腰椎MRI', count:0, description:'脊柱健康评估'}] },
+    };
+
+    // Keyword Mapping
+    const keywords: Record<string, string> = {
+        '血压': '心血管内科', '心脏': '心血管内科', '心律': '心血管内科', '房颤': '心血管内科', '动脉': '心血管内科', '斑块': '心血管内科',
+        '血糖': '内分泌科', '糖尿病': '内分泌科', '尿酸': '内分泌科', '痛风': '内分泌科', '血脂': '内分泌科', '胆固醇': '内分泌科', '甘油三酯': '内分泌科', '甲状腺': '内分泌科', '肥胖': '内分泌科',
+        '胃': '消化内科', '肠': '消化内科', '幽门': '消化内科', '肝': '消化内科', '转氨酶': '消化内科', '脂肪肝': '消化内科', '胆囊': '消化内科',
+        '肺': '呼吸内科', '结节': '呼吸内科', '咳嗽': '呼吸内科', '慢阻肺': '呼吸内科',
+        '乳腺': '普外科/甲乳外科', '结节(甲状腺)': '内分泌科', // Ambiguous, prioritize Endo
+        '前列腺': '泌尿外科', '肾结石': '泌尿外科', '尿路': '泌尿外科',
+        '骨': '骨科/康复科', '颈椎': '骨科/康复科', '腰椎': '骨科/康复科', '关节': '骨科/康复科'
+    };
+
+    // Classify
+    Object.entries(issues).forEach(([issue, count]) => {
+        let matched = false;
+        // Try precise match first
+        for (const key in keywords) {
+            if (issue.includes(key)) {
+                const deptName = keywords[key];
+                // Special handle for thyroid nodule vs lung nodule
+                if (issue.includes('甲状腺') && deptName === '内分泌科') {
+                     // Could be surgery too, but stick to endo for now or simple logic
+                }
+                
+                if (depts[deptName]) {
+                    depts[deptName].count += count;
+                    depts[deptName].conditions.add(issue);
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        // If not matched, maybe put in '其他' or ignore
+    });
+
+    // Format Output
+    return Object.entries(depts)
+        .filter(([_, data]) => data.count > 0)
+        .map(([name, data]) => ({
+            departmentName: name,
+            patientCount: data.count,
+            riskLevel: data.count > 5 ? 'HIGH' : data.count > 2 ? 'MEDIUM' : 'LOW',
+            keyConditions: Array.from(data.conditions).slice(0, 5),
+            suggestedServices: data.services.map(s => ({ ...s, count: Math.ceil(data.count * 0.8) }))
+        }));
+};
+
+// [UPDATED] Hospital Heatmap Analysis (Hybrid: AI + Local Fallback)
 export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: number }): Promise<DepartmentAnalytics[]> => {
+    // 1. Try AI Analysis
     const prompt = `
     作为医院运营专家，请根据以下全院体检异常数据统计(异常项: 人次)，进行智能科室归类和业务分析。
     
-    输入数据(可能包含不规范描述): ${JSON.stringify(issues)}
+    输入数据: ${JSON.stringify(issues)}
     
     任务：
     1. 将这些异常项归类到对应的临床科室（如内分泌科、心血管内科、消化内科、外科、眼科等）。
-    2. 估算每个科室的潜在患者人次（简单相加归属于该科室的异常项计数，去重估算）。
+    2. 估算每个科室的潜在患者人次。
     3. 根据病种严重程度判断需求紧迫度(riskLevel)。
     
     请严格返回 JSON 数组，格式如下:
     [
       {
         "departmentName": "科室名称",
-        "patientCount": 0, // 估算人次
+        "patientCount": 0,
         "riskLevel": "HIGH" | "MEDIUM" | "LOW", 
-        "keyConditions": ["关联的异常1", "关联的异常2"], // 列出输入数据中归属于此科室的前3-5个高频异常项
+        "keyConditions": ["关联异常1", "关联异常2"], 
         "suggestedServices": [
-           { "name": "建议开展的项目名称", "count": 0, "description": "项目简述及推荐理由" }
+           { "name": "建议开展的项目名称", "count": 0, "description": "项目简述" }
         ]
       }
     ]
     `;
 
     try {
+        if (!API_KEY) throw new Error("No API Key"); // Force fallback if no key
         const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据清洗与业务规划。", prompt);
-        return JSON.parse(jsonText || '[]');
+        const result = JSON.parse(jsonText || '[]');
+        if (Array.isArray(result) && result.length > 0) {
+            return result;
+        }
+        throw new Error("AI returned empty result");
     } catch (e) {
-        console.error("Heatmap AI Gen Failed", e);
-        // Robust Fallback
-        return Object.keys(issues).length > 0 ? [
-            {
-                departmentName: "数据分析异常(Fallback)",
-                patientCount: 0,
-                riskLevel: "LOW",
-                keyConditions: Object.keys(issues).slice(0, 5),
-                suggestedServices: [{ name: "请检查网络或Key", count: 0, description: "AI服务暂时不可用" }]
-            }
-        ] : [];
+        console.warn("Heatmap AI Gen Failed, switching to Local Rule Engine...", e);
+        // 2. Local Rule-Based Fallback
+        const localResult = localHeatmapAnalysis(issues);
+        return localResult; // Should return valid data if issues exist
     }
 };
 
