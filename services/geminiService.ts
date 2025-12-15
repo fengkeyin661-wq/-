@@ -301,9 +301,45 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
 
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
-export const generateHospitalBusinessAnalysis = async (issues: any): Promise<DepartmentAnalytics[]> => {
-    return []; 
+
+// [IMPLEMENTED] Hospital Heatmap Analysis
+export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: number }): Promise<DepartmentAnalytics[]> => {
+    const prompt = `
+    作为医院运营专家，请根据以下全院体检异常数据统计(问题: 人次)，分析各科室的业务增长点。
+    统计数据：${JSON.stringify(issues)}
+    
+    请返回 JSON 数组，格式如下:
+    [
+      {
+        "departmentName": "科室名称",
+        "patientCount": 0, // 该科室相关问题的总人次估算
+        "riskLevel": "HIGH" | "MEDIUM" | "LOW", // 需求紧迫程度
+        "keyConditions": ["关联的异常1", "关联的异常2"],
+        "suggestedServices": [
+           { "name": "建议开展的项目名称", "count": 0, "description": "项目简述及推荐理由" }
+        ]
+      }
+    ]
+    `;
+
+    try {
+        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据分析与业务规划。", prompt);
+        return JSON.parse(jsonText || '[]');
+    } catch (e) {
+        console.error("Heatmap AI Gen Failed", e);
+        // Fallback with basic mapping so user sees something
+        return Object.keys(issues).length > 0 ? [
+            {
+                departmentName: "数据分析异常",
+                patientCount: 0,
+                riskLevel: "LOW",
+                keyConditions: Object.keys(issues).slice(0, 5),
+                suggestedServices: [{ name: "服务暂时繁忙", count: 0, description: "请稍后重试" }]
+            }
+        ] : [];
+    }
 };
+
 export const generateAnnualReportSummary = async (b: any, c: any) => { return {summary:''} };
 export const generateDietAssessment = async (i: string) => { return {reply: 'Diet AI Placeholder'} };
 export const generateExercisePlan = async (i: string) => { return {plan:[]} };

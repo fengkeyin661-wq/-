@@ -115,111 +115,114 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
         if (archives.length > 0) {
             analyze();
         }
-    }, []);
+    }, [archives]); // Add archives dependency
 
     const analyze = async () => {
         if (archives.length === 0) return;
         setLoading(true);
 
-        // 1. Local Aggregation: Count occurrences of keywords in risks and abnormalities
-        const issueCounts: { [key: string]: number } = {};
+        // Defer execution to next tick to allow UI to show loading spinner
+        setTimeout(async () => {
+            try {
+                // 1. Local Aggregation: Count occurrences of keywords in risks and abnormalities
+                const issueCounts: { [key: string]: number } = {};
 
-        archives.forEach(arch => {
-            const issues = new Set<string>(); // Use Set to avoid double counting per patient
-            
-            // Helper to check text against keywords
-            const checkAndAdd = (text: string) => {
-                const t = text.toLowerCase();
-                // Metabolic / CV
-                if (t.includes('高血压') || t.includes('血压')) issues.add('高血压');
-                if (t.includes('糖尿病') || t.includes('血糖') || t.includes('糖化')) issues.add('糖尿病/高血糖');
-                if (t.includes('血脂') || t.includes('胆固醇') || t.includes('甘油三酯')) issues.add('高血脂');
-                if (t.includes('肥胖') || t.includes('超重') || t.includes('bmi')) issues.add('肥胖/代谢综合征');
-                if (t.includes('尿酸') || t.includes('痛风')) issues.add('高尿酸');
-                if (t.includes('心律') || t.includes('早搏') || t.includes('房颤') || t.includes('st段')) issues.add('心律失常/心肌缺血');
-                if (t.includes('动脉硬化') || t.includes('斑块') || t.includes('内中膜')) issues.add('动脉硬化/斑块');
-                
-                // Gastroenterology (消化内科)
-                if (t.includes('幽门') || t.includes('hp') || t.includes('碳13')) issues.add('幽门螺杆菌感染');
-                if (t.includes('胃泌素') || t.includes('胃蛋白酶')) issues.add('胃功能异常');
-                if (t.includes('脂肪肝') || t.includes('肝功') || t.includes('转氨酶')) issues.add('肝病/脂肪肝');
-                if (t.includes('胆囊') || t.includes('胆结石') || t.includes('息肉')) issues.add('胆囊疾病');
-                if (t.includes('肠') || t.includes('ca199') || t.includes('cea')) issues.add('胃肠肿瘤风险');
+                archives.forEach(arch => {
+                    const issues = new Set<string>(); // Use Set to avoid double counting per patient
+                    
+                    // Helper to check text against keywords
+                    const checkAndAdd = (text: string) => {
+                        const t = text.toLowerCase();
+                        // Metabolic / CV
+                        if (t.includes('高血压') || t.includes('血压')) issues.add('高血压');
+                        if (t.includes('糖尿病') || t.includes('血糖') || t.includes('糖化')) issues.add('糖尿病/高血糖');
+                        if (t.includes('血脂') || t.includes('胆固醇') || t.includes('甘油三酯')) issues.add('高血脂');
+                        if (t.includes('肥胖') || t.includes('超重') || t.includes('bmi')) issues.add('肥胖/代谢综合征');
+                        if (t.includes('尿酸') || t.includes('痛风')) issues.add('高尿酸');
+                        if (t.includes('心律') || t.includes('早搏') || t.includes('房颤') || t.includes('st段')) issues.add('心律失常/心肌缺血');
+                        if (t.includes('动脉硬化') || t.includes('斑块') || t.includes('内中膜')) issues.add('动脉硬化/斑块');
+                        
+                        // Gastroenterology (消化内科)
+                        if (t.includes('幽门') || t.includes('hp') || t.includes('碳13')) issues.add('幽门螺杆菌感染');
+                        if (t.includes('胃泌素') || t.includes('胃蛋白酶')) issues.add('胃功能异常');
+                        if (t.includes('脂肪肝') || t.includes('肝功') || t.includes('转氨酶')) issues.add('肝病/脂肪肝');
+                        if (t.includes('胆囊') || t.includes('胆结石') || t.includes('息肉')) issues.add('胆囊疾病');
+                        if (t.includes('肠') || t.includes('ca199') || t.includes('cea')) issues.add('胃肠肿瘤风险');
 
-                // Endocrine / Thyroid (内分泌/甲状腺)
-                if (t.includes('甲状腺') && (t.includes('结节') || t.includes('回声'))) issues.add('甲状腺结节');
-                if (t.includes('t3') || t.includes('t4') || t.includes('tsh')) issues.add('甲功异常');
-                if (t.includes('骨质疏松') || t.includes('骨量')) issues.add('骨质疏松');
+                        // Endocrine / Thyroid (内分泌/甲状腺)
+                        if (t.includes('甲状腺') && (t.includes('结节') || t.includes('回声'))) issues.add('甲状腺结节');
+                        if (t.includes('t3') || t.includes('t4') || t.includes('tsh')) issues.add('甲功异常');
+                        if (t.includes('骨质疏松') || t.includes('骨量')) issues.add('骨质疏松');
 
-                // Respiratory (呼吸)
-                if (t.includes('肺') && (t.includes('结节') || t.includes('磨玻璃'))) issues.add('肺结节');
-                if (t.includes('肺纹理') || t.includes('慢支') || t.includes('肺气肿')) issues.add('慢性呼吸道疾病');
+                        // Respiratory (呼吸)
+                        if (t.includes('肺') && (t.includes('结节') || t.includes('磨玻璃'))) issues.add('肺结节');
+                        if (t.includes('肺纹理') || t.includes('慢支') || t.includes('肺气肿')) issues.add('慢性呼吸道疾病');
 
-                // Orthopedics (骨科/康复)
-                if (t.includes('颈椎') || t.includes('生理曲度')) issues.add('颈椎病');
-                if (t.includes('腰椎') || t.includes('椎间盘')) issues.add('腰椎病变');
-                if (t.includes('关节') || t.includes('退行性')) issues.add('骨关节炎');
+                        // Orthopedics (骨科/康复)
+                        if (t.includes('颈椎') || t.includes('生理曲度')) issues.add('颈椎病');
+                        if (t.includes('腰椎') || t.includes('椎间盘')) issues.add('腰椎病变');
+                        if (t.includes('关节') || t.includes('退行性')) issues.add('骨关节炎');
 
-                // Ophthalmology (眼科)
-                if (t.includes('白内障') || t.includes('晶体混浊')) issues.add('白内障');
-                if (t.includes('眼底') || t.includes('视网膜') || t.includes('动脉硬化')) issues.add('眼底病变');
-                if (t.includes('青光眼') || t.includes('眼压')) issues.add('青光眼风险');
+                        // Ophthalmology (眼科)
+                        if (t.includes('白内障') || t.includes('晶体混浊')) issues.add('白内障');
+                        if (t.includes('眼底') || t.includes('视网膜') || t.includes('动脉硬化')) issues.add('眼底病变');
+                        if (t.includes('青光眼') || t.includes('眼压')) issues.add('青光眼风险');
 
-                // Urology / Nephrology (泌尿/肾内)
-                if (t.includes('前列腺') || t.includes('psa')) issues.add('前列腺增生/异常');
-                if (t.includes('肾结石') || t.includes('积水')) issues.add('泌尿系结石');
-                if (t.includes('肌酐') || t.includes('尿素') || t.includes('蛋白尿')) issues.add('肾功能损伤');
+                        // Urology / Nephrology (泌尿/肾内)
+                        if (t.includes('前列腺') || t.includes('psa')) issues.add('前列腺增生/异常');
+                        if (t.includes('肾结石') || t.includes('积水')) issues.add('泌尿系结石');
+                        if (t.includes('肌酐') || t.includes('尿素') || t.includes('蛋白尿')) issues.add('肾功能损伤');
 
-                // Gynecology (妇科)
-                if (t.includes('乳腺') && (t.includes('结节') || t.includes('增生') || t.includes('bi-rads'))) issues.add('乳腺结节/增生');
-                if (t.includes('子宫') || t.includes('肌瘤') || t.includes('hpv') || t.includes('tct')) issues.add('妇科常见病');
-            };
+                        // Gynecology (妇科)
+                        if (t.includes('乳腺') && (t.includes('结节') || t.includes('增生') || t.includes('bi-rads'))) issues.add('乳腺结节/增生');
+                        if (t.includes('子宫') || t.includes('肌瘤') || t.includes('hpv') || t.includes('tct')) issues.add('妇科常见病');
+                    };
 
-            // Scan Risks
-            [...arch.assessment_data.risks.red, ...arch.assessment_data.risks.yellow].forEach(checkAndAdd);
+                    // Scan Risks
+                    [...arch.assessment_data.risks.red, ...arch.assessment_data.risks.yellow].forEach(checkAndAdd);
 
-            // Scan Abnormalities (Structured)
-            if (arch.health_record.checkup?.abnormalities) {
-                arch.health_record.checkup.abnormalities.forEach(ab => {
-                    checkAndAdd(ab.item + " " + ab.result + " " + ab.clinicalSig);
+                    // Scan Abnormalities (Structured)
+                    if (arch.health_record.checkup?.abnormalities) {
+                        arch.health_record.checkup.abnormalities.forEach(ab => {
+                            checkAndAdd(ab.item + " " + ab.result + " " + ab.clinicalSig);
+                        });
+                    }
+                    
+                    issues.forEach(issue => {
+                        issueCounts[issue] = (issueCounts[issue] || 0) + 1;
+                    });
                 });
+
+                // 2. Filter top issues to prevent token overflow
+                const topIssues = Object.entries(issueCounts)
+                    .sort(([,a], [,b]) => b - a)
+                    .slice(0, 40)
+                    .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
+
+                // 3. AI Analysis
+                const result = await generateHospitalBusinessAnalysis(topIssues);
+                
+                // Sort by count descending
+                const sortedResults = result.sort((a, b) => b.patientCount - a.patientCount);
+                const timestamp = new Date().toLocaleString();
+                
+                setAnalytics(sortedResults);
+                setLastUpdated(timestamp);
+                setIsCachedData(false); // This is fresh data
+
+                // Save to Cache
+                localStorage.setItem(CACHE_KEY, JSON.stringify({
+                    analytics: sortedResults,
+                    lastUpdated: timestamp
+                }));
+
+            } catch (e) {
+                console.error(e);
+                alert("生成热力图失败，请稍后重试");
+            } finally {
+                setLoading(false);
             }
-            
-            issues.forEach(issue => {
-                issueCounts[issue] = (issueCounts[issue] || 0) + 1;
-            });
-        });
-
-        // 2. Filter top issues to prevent token overflow
-        const topIssues = Object.entries(issueCounts)
-            .sort(([,a], [,b]) => b - a)
-            .slice(0, 40)
-            .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
-
-        try {
-            // 3. AI Analysis
-            const result = await generateHospitalBusinessAnalysis(topIssues);
-            
-            // Sort by count descending
-            const sortedResults = result.sort((a, b) => b.patientCount - a.patientCount);
-            const timestamp = new Date().toLocaleString();
-            
-            setAnalytics(sortedResults);
-            setLastUpdated(timestamp);
-            setIsCachedData(false); // This is fresh data
-
-            // Save to Cache
-            localStorage.setItem(CACHE_KEY, JSON.stringify({
-                analytics: sortedResults,
-                lastUpdated: timestamp
-            }));
-
-        } catch (e) {
-            console.error(e);
-            alert("生成热力图失败，请稍后重试");
-        } finally {
-            setLoading(false);
-        }
+        }, 50);
     };
 
     const getHeatColor = (count: number, max: number) => {
@@ -234,8 +237,14 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
     const maxCount = Math.max(...analytics.map(a => a.patientCount), 1);
 
     const handleManualRefresh = () => {
+        setIsCachedData(false);
+        // Clear cache so it forces a recalculation even if archives didn't change
+        localStorage.removeItem(CACHE_KEY); 
+        
         if(onRefresh) onRefresh();
-        analyze();
+        
+        // Wait slightly for any parent updates or just to show loading
+        setTimeout(() => analyze(), 100);
     }
 
     // --- Reverse Search Logic (Enhanced V2) ---
