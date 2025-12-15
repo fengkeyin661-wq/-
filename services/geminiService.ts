@@ -285,56 +285,51 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
 
-// --- ROBUST LOCAL FALLBACK FOR HEATMAP ---
+// --- ROBUST LOCAL FALLBACK FOR HEATMAP (Enhanced with New Depts) ---
 const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnalytics[] => {
-    console.log("Starting Local Heatmap Analysis...");
+    console.log("Starting Local Heatmap Analysis (Enhanced)...");
     
-    // Define Categories
     const depts: Record<string, { count: number, conditions: Set<string>, services: any[] }> = {
         '心血管内科': { count: 0, conditions: new Set(), services: [{name:'动态血压监测', count:0, description:'监测血压波动'}, {name:'冠脉CTA', count:0, description:'排查冠心病'}] },
         '内分泌科': { count: 0, conditions: new Set(), services: [{name:'甲状腺功能全套', count:0, description:'排查甲亢/甲减'}, {name:'糖尿病慢病管理', count:0, description:'血糖控制方案'}] },
         '消化内科': { count: 0, conditions: new Set(), services: [{name:'C13呼气试验', count:0, description:'幽门螺杆菌检测'}, {name:'无痛胃肠镜', count:0, description:'胃肠肿瘤筛查'}] },
         '呼吸内科': { count: 0, conditions: new Set(), services: [{name:'肺功能检查', count:0, description:'慢阻肺筛查'}, {name:'低剂量螺旋CT', count:0, description:'肺结节随访'}] },
-        '普外科/甲乳外科': { count: 0, conditions: new Set(), services: [{name:'甲状腺/乳腺彩超', count:0, description:'结节筛查'}, {name:'乳腺钼靶', count:0, description:'乳腺癌筛查'}] },
-        '泌尿外科': { count: 0, conditions: new Set(), services: [{name:'泌尿系彩超', count:0, description:'结石/前列腺筛查'}, {name:'PSA筛查', count:0, description:'前列腺癌筛查'}] },
-        '骨科/康复科': { count: 0, conditions: new Set(), services: [{name:'骨密度测定', count:0, description:'骨质疏松筛查'}, {name:'颈腰椎MRI', count:0, description:'脊柱健康评估'}] },
+        // New Departments
+        '妇科': { count: 0, conditions: new Set(), services: [{name:'HPV+TCT筛查', count:0, description:'宫颈癌筛查'}, {name:'盆底肌修复', count:0, description:'产后康复'}] },
+        '中医科': { count: 0, conditions: new Set(), services: [{name:'中医体质辨识', count:0, description:'未病先防'}, {name:'三伏贴/三九贴', count:0, description:'冬病夏治'}] },
+        '康复理疗科': { count: 0, conditions: new Set(), services: [{name:'颈肩腰腿痛理疗', count:0, description:'缓解疼痛'}, {name:'骨科术后康复', count:0, description:'功能恢复'}] },
+        '体重管理科': { count: 0, conditions: new Set(), services: [{name:'医学减重门诊', count:0, description:'科学减脂'}, {name:'人体成分分析', count:0, description:'体脂监测'}] },
+        '骨科': { count: 0, conditions: new Set(), services: [{name:'骨密度测定', count:0, description:'骨质疏松筛查'}, {name:'关节镜检查', count:0, description:'关节损伤'}] },
+        '神经内科': { count: 0, conditions: new Set(), services: [{name:'经颅多普勒(TCD)', count:0, description:'脑血管评估'}, {name:'睡眠监测', count:0, description:'失眠诊疗'}] },
     };
 
     // Keyword Mapping
     const keywords: Record<string, string> = {
-        '血压': '心血管内科', '心脏': '心血管内科', '心律': '心血管内科', '房颤': '心血管内科', '动脉': '心血管内科', '斑块': '心血管内科',
-        '血糖': '内分泌科', '糖尿病': '内分泌科', '尿酸': '内分泌科', '痛风': '内分泌科', '血脂': '内分泌科', '胆固醇': '内分泌科', '甘油三酯': '内分泌科', '甲状腺': '内分泌科', '肥胖': '内分泌科',
-        '胃': '消化内科', '肠': '消化内科', '幽门': '消化内科', '肝': '消化内科', '转氨酶': '消化内科', '脂肪肝': '消化内科', '胆囊': '消化内科',
-        '肺': '呼吸内科', '结节': '呼吸内科', '咳嗽': '呼吸内科', '慢阻肺': '呼吸内科',
-        '乳腺': '普外科/甲乳外科', '结节(甲状腺)': '内分泌科', // Ambiguous, prioritize Endo
-        '前列腺': '泌尿外科', '肾结石': '泌尿外科', '尿路': '泌尿外科',
-        '骨': '骨科/康复科', '颈椎': '骨科/康复科', '腰椎': '骨科/康复科', '关节': '骨科/康复科'
+        '血压': '心血管内科', '心脏': '心血管内科', '心律': '心血管内科',
+        '血糖': '内分泌科', '糖尿病': '内分泌科', '甲状腺': '内分泌科',
+        '胃': '消化内科', '肠': '消化内科', '幽门': '消化内科', '脂肪肝': '消化内科',
+        '肺': '呼吸内科', '咳': '呼吸内科',
+        '乳腺': '妇科', '宫颈': '妇科', '子宫': '妇科', '经期': '妇科',
+        '气虚': '中医科', '湿热': '中医科', '亚健康': '中医科', '调理': '中医科',
+        '颈椎': '康复理疗科', '腰椎': '康复理疗科', '疼痛': '康复理疗科', '麻木': '康复理疗科',
+        '肥胖': '体重管理科', '超重': '体重管理科', 'BMI': '体重管理科', '代谢': '体重管理科',
+        '骨折': '骨科', '关节': '骨科', '骨质疏松': '骨科',
+        '头晕': '神经内科', '头痛': '神经内科', '失眠': '神经内科', '脑': '神经内科'
     };
 
-    // Classify
     Object.entries(issues).forEach(([issue, count]) => {
-        let matched = false;
-        // Try precise match first
         for (const key in keywords) {
             if (issue.includes(key)) {
                 const deptName = keywords[key];
-                // Special handle for thyroid nodule vs lung nodule
-                if (issue.includes('甲状腺') && deptName === '内分泌科') {
-                     // Could be surgery too, but stick to endo for now or simple logic
-                }
-                
                 if (depts[deptName]) {
                     depts[deptName].count += count;
                     depts[deptName].conditions.add(issue);
-                    matched = true;
                     break;
                 }
             }
         }
-        // If not matched, maybe put in '其他' or ignore
     });
 
-    // Format Output
     return Object.entries(depts)
         .filter(([_, data]) => data.count > 0)
         .map(([name, data]) => ({
@@ -348,18 +343,24 @@ const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnal
 
 // [UPDATED] Hospital Heatmap Analysis (Hybrid: AI + Local Fallback)
 export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: number }): Promise<DepartmentAnalytics[]> => {
-    // 1. Try AI Analysis
+    // 1. Try AI Analysis with specific instruction for expanded departments
     const prompt = `
-    作为医院运营专家，请根据以下全院体检异常数据统计(异常项: 人次)，进行智能科室归类和业务分析。
+    作为医院运营专家，请根据全院体检异常数据统计(异常项: 人次)，进行智能科室归类和业务分析。
     
     输入数据: ${JSON.stringify(issues)}
     
-    任务：
-    1. 将这些异常项归类到对应的临床科室（如内分泌科、心血管内科、消化内科、外科、眼科等）。
+    【重要任务】
+    1. 将异常项精准归类到临床科室。**请重点关注并挖掘以下科室的潜在业务**：
+       - **妇科** (乳腺/宫颈/内分泌问题)
+       - **中医科** (亚健康/体质/调理需求)
+       - **康复理疗科** (颈肩腰腿痛/功能障碍)
+       - **体重管理科** (肥胖/脂肪肝/代谢综合征)
+       - **骨科** (骨质疏松/关节病)
+       - **神经内科** (头晕/失眠/脑血管)
     2. 估算每个科室的潜在患者人次。
-    3. 根据病种严重程度判断需求紧迫度(riskLevel)。
+    3. 针对每个科室，推荐2个具体的特色诊疗项目(suggestedServices)。
     
-    请严格返回 JSON 数组，格式如下:
+    请严格返回 JSON 数组:
     [
       {
         "departmentName": "科室名称",
@@ -367,25 +368,25 @@ export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: 
         "riskLevel": "HIGH" | "MEDIUM" | "LOW", 
         "keyConditions": ["关联异常1", "关联异常2"], 
         "suggestedServices": [
-           { "name": "建议开展的项目名称", "count": 0, "description": "项目简述" }
+           { "name": "项目名称", "count": 0, "description": "简述" }
         ]
       }
     ]
     `;
 
     try {
-        if (!API_KEY) throw new Error("No API Key"); // Force fallback if no key
-        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据清洗与业务规划。", prompt);
+        if (!API_KEY) throw new Error("No API Key");
+        const jsonText = await callDeepSeek("你是医院管理顾问，擅长挖掘妇科、中医、康复、体重管理等专科业务机会。", prompt);
         const result = JSON.parse(jsonText || '[]');
         if (Array.isArray(result) && result.length > 0) {
             return result;
         }
         throw new Error("AI returned empty result");
     } catch (e) {
-        console.warn("Heatmap AI Gen Failed, switching to Local Rule Engine...", e);
-        // 2. Local Rule-Based Fallback
+        console.warn("Heatmap AI Gen Failed, switching to Enhanced Local Rule Engine...", e);
+        // 2. Enhanced Local Rule-Based Fallback
         const localResult = localHeatmapAnalysis(issues);
-        return localResult; // Should return valid data if issues exist
+        return localResult; 
     }
 };
 

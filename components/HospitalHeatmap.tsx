@@ -10,22 +10,54 @@ interface Props {
     onSelectPatient?: (archive: HealthArchive) => void;
 }
 
+// --- 1. 临床业务挖掘规则引擎 (增强版: 覆盖全生命周期与特色专科) ---
+// Key: 服务名称关键词 (部分匹配)
+// Value: 潜在人群的搜索特征 (包含疾病名、指标名、症状、风险标签)
 const SERVICE_MAPPING_RULES: Record<string, string[]> = {
-    "甲状腺": ["甲状腺", "结节", "TI-RADS", "T3", "T4", "TSH"],
-    "血糖": ["糖尿病", "血糖", "糖化", "胰岛素", "多饮"],
-    "血脂": ["甘油三酯", "胆固醇", "脂", "肥胖", "脂肪肝"],
-    "尿酸": ["尿酸", "痛风"],
-    "胃肠": ["幽门", "Hp", "胃", "肠", "息肉", "CEA", "腹胀"],
-    "肝": ["肝", "转氨酶", "ALT", "AST", "脂肪肝", "硬化"],
-    "血压": ["高血压", "收缩压", "舒张压", "头晕"],
-    "心脏": ["心律", "早搏", "房颤", "胸闷", "ST段", "T波"],
-    "血管": ["动脉", "斑块", "硬化", "狭窄"],
-    "肺": ["肺", "结节", "磨玻璃", "咳嗽", "气短", "慢阻肺"],
-    "前列腺": ["前列腺", "PSA", "尿频"],
-    "乳腺": ["乳腺", "结节", "增生", "BI-RADS"],
-    "颈椎": ["颈椎", "脊柱", "手麻"],
-    "腰椎": ["腰椎", "腰痛"],
-    "眼": ["视网膜", "眼底", "白内障", "青光眼"]
+    // === [1. 慢病与基础专科] ===
+    "内分泌": ["糖尿病", "血糖", "糖化", "胰岛素", "甲状腺", "结节", "肥胖", "代谢综合征"],
+    "心血管": ["高血压", "血压", "心律", "早搏", "房颤", "胸闷", "ST段", "T波", "动脉硬化", "斑块"],
+    "消化": ["幽门", "Hp", "胃", "肠", "息肉", "CEA", "腹胀", "脂肪肝", "转氨酶", "胆囊"],
+    "呼吸": ["肺", "结节", "磨玻璃", "咳嗽", "气短", "慢阻肺", "吸烟"],
+    
+    // === [2. 妇科与女性健康] ===
+    "妇科": ["子宫", "肌瘤", "附件", "卵巢", "囊肿", "月经", "痛经", "白带", "宫颈"],
+    "HPV": ["HPV", "TCT", "宫颈", "接触性出血"],
+    "乳腺": ["乳腺", "结节", "增生", "BI-RADS", "钙化", "溢液"],
+    "盆底": ["漏尿", "产后", "松弛", "子宫脱垂"],
+    "更年期": ["潮热", "绝经", "骨质疏松", "情绪", "失眠"],
+
+    // === [3. 中医与治未病] ===
+    "中医": ["气虚", "湿热", "阴虚", "阳虚", "舌苔", "脉象", "亚健康", "调理"],
+    "体质": ["乏力", "畏寒", "出汗", "便秘", "失眠", "易感冒"],
+    "针灸": ["疼痛", "面瘫", "颈椎", "腰椎", "肩周炎", "关节痛"],
+    "推拿": ["僵硬", "酸痛", "落枕", "腰肌劳损"],
+    "三伏贴": ["哮喘", "鼻炎", "支气管炎", "虚寒", "易感冒"],
+
+    // === [4. 康复与理疗] ===
+    "康复": ["颈椎病", "腰椎间盘", "脊柱", "侧弯", "中风后遗症", "偏瘫", "功能障碍"],
+    "理疗": ["疼痛", "手麻", "腿麻", "关节炎", "骨质增生", "活动受限"],
+    "牵引": ["椎管狭窄", "压迫", "放射痛"],
+    "冲击波": ["足底筋膜炎", "网球肘", "肩周炎", "钙化性肌腱炎"],
+
+    // === [5. 体重管理与代谢] ===
+    "减重": ["BMI", "肥胖", "超重", "体重指数", "腹型肥胖", "腰围"],
+    "体重管理": ["脂肪肝", "高血脂", "甘油三酯", "胰岛素抵抗", "黑棘皮", "多囊"],
+    "营养": ["消瘦", "贫血", "低蛋白", "营养不良", "肌少症"],
+
+    // === [6. 骨科与运动医学] ===
+    "骨科": ["骨质疏松", "骨量减少", "骨折", "关节", "半月板", "韧带"],
+    "骨密度": ["骨质疏松", "绝经", "驼背", "身高变矮", "脆性骨折"],
+    "运动医学": ["运动损伤", "扭伤", "积液", "滑膜炎"],
+
+    // === [7. 神经内科与心理] ===
+    "神经": ["头晕", "头痛", "眩晕", "失眠", "记忆力", "脑供血不足", "脑梗塞"],
+    "睡眠": ["打鼾", "呼吸暂停", "早醒", "多梦", "入睡困难"],
+    "心理": ["焦虑", "抑郁", "压力", "情绪", "PHQ", "GAD"],
+
+    // === [8. 泌尿与男性] ===
+    "前列腺": ["前列腺", "PSA", "尿频", "尿急", "夜尿"],
+    "结石": ["肾结石", "输尿管结石", "积水", "血尿"]
 };
 
 // Helper for exporting data
@@ -41,7 +73,7 @@ const downloadFile = (content: string, filename: string, mimeType: string) => {
     URL.revokeObjectURL(url);
 };
 
-const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V5_SMART';
+const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V6_DEEP';
 
 export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelectPatient }) => {
     const [analytics, setAnalytics] = useState<DepartmentAnalytics[]>([]);
@@ -82,7 +114,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
 
         setTimeout(async () => {
             try {
-                // 1. SMART Aggregation: Collect ALL raw strings instead of filtering
+                // 1. SMART Aggregation: Collect ALL raw strings
                 const issueCounts: { [key: string]: number } = {};
 
                 archives.forEach(arch => {
@@ -91,7 +123,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                     if (arch.assessment_data?.risks) {
                         [...arch.assessment_data.risks.red, ...arch.assessment_data.risks.yellow].forEach(r => {
                             const clean = r.replace(/[.。;；]/g, '').trim();
-                            if (clean && clean.length < 15) findings.add(clean);
+                            if (clean && clean.length < 20) findings.add(clean);
                         });
                     }
 
@@ -101,6 +133,11 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                         });
                     }
                     
+                    // Add explicit BMI/Weight tags for Weight Management logic
+                    const bmi = arch.health_record.checkup.basics.bmi;
+                    if (bmi && bmi >= 24 && bmi < 28) findings.add("超重(BMI>=24)");
+                    if (bmi && bmi >= 28) findings.add("肥胖(BMI>=28)");
+
                     findings.forEach(f => {
                         issueCounts[f] = (issueCounts[f] || 0) + 1;
                     });
@@ -109,7 +146,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                 // 2. Filter top issues to prevent token overflow
                 const topIssues = Object.entries(issueCounts)
                     .sort(([,a], [,b]) => b - a)
-                    .slice(0, 60)
+                    .slice(0, 80) // Increased limit for broader coverage
                     .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
 
                 console.log("Sending to Analysis:", topIssues);
@@ -159,16 +196,23 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
     const handleServiceDoubleClick = (serviceName: string, serviceDesc: string) => {
         let searchTerms: string[] = [];
 
+        // 1. Rule Engine Match (Iterate to find matching keys in service name)
         Object.entries(SERVICE_MAPPING_RULES).forEach(([key, terms]) => {
             if (serviceName.includes(key) || serviceDesc.includes(key)) {
                 searchTerms.push(...terms);
             }
         });
 
+        // 2. Department Context
         if (selectedDept && selectedDept.keyConditions) {
-            searchTerms.push(...selectedDept.keyConditions);
+            // Only add conditions that are relevant to service name conceptually? 
+            // Or add all dept conditions? Let's add conditions that are partially matched or if list is empty
+            if (searchTerms.length === 0) {
+                 searchTerms.push(...selectedDept.keyConditions);
+            }
         }
 
+        // 3. Fallback: Use service name cleaned up
         if (searchTerms.length === 0) {
             const cleanName = serviceName.replace(/建议|开展|强化|检查|检测|筛查|评估|管理|干预|专科|门诊|项目|服务|全套|综合|分析|及|试验|术/g, '').trim();
             if (cleanName.length > 1) searchTerms.push(cleanName);
@@ -181,13 +225,22 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
             return;
         }
 
+        // 4. Client Side Search Logic
         const matched = archives.filter(arch => {
+            const bmi = arch.health_record.checkup.basics.bmi || 0;
+            
+            // Build searchable text corpus
             const corpus = [
                 ...(arch.assessment_data.risks.red || []),
                 ...(arch.assessment_data.risks.yellow || []),
                 arch.assessment_data.summary || '',
-                ...(arch.health_record.checkup.abnormalities?.map(a => `${a.item}`) || []),
-                ...(arch.health_record.questionnaire.history.diseases || [])
+                ...(arch.health_record.checkup.abnormalities?.map(a => `${a.item} ${a.result}`) || []),
+                ...(arch.health_record.questionnaire.history.diseases || []),
+                // Implicit Tags
+                bmi >= 24 ? '超重 BMI' : '',
+                bmi >= 28 ? '肥胖 BMI' : '',
+                arch.age && arch.age > 60 ? '老年' : '',
+                arch.gender === '女' && (arch.age || 0) > 45 ? '更年期' : ''
             ].join(' ').toLowerCase();
 
             return searchTerms.some(term => term && corpus.includes(term.toLowerCase()));
@@ -228,7 +281,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                     </h2>
                     <div className="flex items-center gap-2 mt-1">
                          <p className="text-sm text-slate-500">
-                            基于全院 {archives.length} 份档案的风险评估标签聚合分析
+                            基于全院 {archives.length} 份档案的深度挖掘 (VITE_DEEPSEEK_API)
                          </p>
                          {lastUpdated && (
                              <span className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${isCachedData ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
@@ -250,8 +303,8 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
             {loading ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-teal-600">
                     <div className="text-4xl animate-spin mb-4">⚙️</div>
-                    <p className="font-bold text-lg">AI 正在聚合全院异常数据...</p>
-                    <p className="text-sm text-slate-400 mt-2">正在智能归类科室与规划业务...</p>
+                    <p className="font-bold text-lg">AI 正在深度分析全院病理特征...</p>
+                    <p className="text-sm text-slate-400 mt-2">正在挖掘 中医/康复/体重管理/妇科 等潜在需求...</p>
                 </div>
             ) : (
                 <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
@@ -335,7 +388,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                                                         key={i} 
                                                         className="flex flex-col gap-1 bg-teal-50 p-3 rounded-lg border border-teal-100 cursor-pointer hover:bg-teal-100 hover:shadow-md transition-all select-none group"
                                                         onDoubleClick={() => handleServiceDoubleClick(sName, sDesc)}
-                                                        title="双击查看潜在患者"
+                                                        title="双击自动筛选匹配患者"
                                                     >
                                                         <div className="flex items-start gap-3">
                                                             <span className="text-teal-500 font-bold text-sm mt-[2px] group-hover:scale-125 transition-transform">●</span>
@@ -398,7 +451,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                                                                 setShowPatientModal(false);
                                                             }
                                                         }}
-                                                        className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold border border-indigo-200"
+                                                        className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold border border-indigo-200 hover:bg-indigo-100"
                                                     >
                                                         查看
                                                     </button>
