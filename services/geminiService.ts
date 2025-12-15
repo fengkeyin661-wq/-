@@ -40,9 +40,6 @@ const isDev = (() => {
 const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
 
 // PROXY STRATEGY:
-// In Dev (npm run dev), use the local proxy path '/api/deepseek' to bypass CORS.
-// In Prod, use the direct URL (Note: Client-side calls to DeepSeek in Prod will likely fail CORS unless the API allows it).
-// Fallback: If not in dev, try direct.
 const PROXY_URL = "/api/deepseek/chat/completions";
 const DIRECT_URL = "https://api.deepseek.com/chat/completions";
 
@@ -84,12 +81,8 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
     try {
         let data;
         try {
-            // First try the determined URL
             data = await makeRequest(API_URL);
         } catch (initialError: any) {
-            // If Dev and Proxy failed (e.g. 404 or network error), try direct as fallback? 
-            // Usually network error in browser = CORS blocked on direct, so fallback to direct isn't helpful if proxy failed.
-            // But if we are in a non-standard env where proxy isn't set up but direct works?
             console.warn(`Initial AI request failed via ${API_URL}, retrying direct...`, initialError);
             if (API_URL !== DIRECT_URL) {
                  data = await makeRequest(DIRECT_URL);
@@ -99,7 +92,6 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
         }
 
         let content = data.choices[0]?.message?.content || "";
-        // Cleanup Markdown code blocks if present
         content = content.replace(/```json\n?|\n?```/g, "").trim();
         return content;
 
@@ -112,7 +104,7 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
     }
 }
 
-// Safe Default Structure to prevent UI crashes
+// Safe Default Structure
 const DEFAULT_HEALTH_RECORD: HealthRecord = {
     profile: { checkupId: '', name: '', gender: '', department: '', age: 0 },
     checkup: {
@@ -139,7 +131,6 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
     }
 };
 
-// [UPDATED] Parse Health Data From Text using DeepSeek
 export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord> => {
     if (!raw || raw.trim().length === 0) {
         throw new Error("输入文本为空，无法解析");
@@ -218,19 +209,15 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
         };
         
         // --- 1. Automatic BMI Calculation ---
-        // If BMI is missing/zero but Height and Weight are present
         const b = merged.checkup.basics;
         if (b.height && b.weight && b.height > 0 && b.weight > 0) {
             if (!b.bmi || b.bmi === 0) {
-                // Formula: kg / (m^2)
                 const heightM = b.height / 100;
                 const calculatedBMI = b.weight / (heightM * heightM);
                 b.bmi = parseFloat(calculatedBMI.toFixed(1));
-                console.log(`[Auto-Calc] BMI calculated: ${b.bmi} (H:${b.height}cm, W:${b.weight}kg)`);
             }
         }
 
-        // Safety check for critical fields
         if (!merged.profile.name || merged.profile.name === '解析失败') {
              const nameMatch = raw.match(/姓名[:：]\s*([\u4e00-\u9fa5]{2,4})/);
              if (nameMatch) merged.profile.name = nameMatch[1];
@@ -239,7 +226,6 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
         return merged;
     } catch (e: any) {
         console.error("AI Parse Failed", e);
-        // Return safe default object with error message
         const errorRecord = JSON.parse(JSON.stringify(DEFAULT_HEALTH_RECORD));
         errorRecord.profile.name = `解析失败: ${e.message || '未知错误'}`;
         return errorRecord;
@@ -302,19 +288,25 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
 
-// [IMPLEMENTED] Hospital Heatmap Analysis
+// [UPDATED] Hospital Heatmap Analysis (Intelligent Categorization)
 export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: number }): Promise<DepartmentAnalytics[]> => {
     const prompt = `
-    作为医院运营专家，请根据以下全院体检异常数据统计(问题: 人次)，分析各科室的业务增长点。
-    统计数据：${JSON.stringify(issues)}
+    作为医院运营专家，请根据以下全院体检异常数据统计(异常项: 人次)，进行智能科室归类和业务分析。
     
-    请返回 JSON 数组，格式如下:
+    输入数据(可能包含不规范描述): ${JSON.stringify(issues)}
+    
+    任务：
+    1. 将这些异常项归类到对应的临床科室（如内分泌科、心血管内科、消化内科、外科、眼科等）。
+    2. 估算每个科室的潜在患者人次（简单相加归属于该科室的异常项计数，去重估算）。
+    3. 根据病种严重程度判断需求紧迫度(riskLevel)。
+    
+    请严格返回 JSON 数组，格式如下:
     [
       {
         "departmentName": "科室名称",
-        "patientCount": 0, // 该科室相关问题的总人次估算
-        "riskLevel": "HIGH" | "MEDIUM" | "LOW", // 需求紧迫程度
-        "keyConditions": ["关联的异常1", "关联的异常2"],
+        "patientCount": 0, // 估算人次
+        "riskLevel": "HIGH" | "MEDIUM" | "LOW", 
+        "keyConditions": ["关联的异常1", "关联的异常2"], // 列出输入数据中归属于此科室的前3-5个高频异常项
         "suggestedServices": [
            { "name": "建议开展的项目名称", "count": 0, "description": "项目简述及推荐理由" }
         ]
@@ -323,18 +315,18 @@ export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: 
     `;
 
     try {
-        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据分析与业务规划。", prompt);
+        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据清洗与业务规划。", prompt);
         return JSON.parse(jsonText || '[]');
     } catch (e) {
         console.error("Heatmap AI Gen Failed", e);
-        // Fallback with basic mapping so user sees something
+        // Robust Fallback
         return Object.keys(issues).length > 0 ? [
             {
-                departmentName: "数据分析异常",
+                departmentName: "数据分析异常(Fallback)",
                 patientCount: 0,
                 riskLevel: "LOW",
                 keyConditions: Object.keys(issues).slice(0, 5),
-                suggestedServices: [{ name: "服务暂时繁忙", count: 0, description: "请稍后重试" }]
+                suggestedServices: [{ name: "请检查网络或Key", count: 0, description: "AI服务暂时不可用" }]
             }
         ] : [];
     }
@@ -367,7 +359,6 @@ export const calculateNutritionFromIngredients = async (items: {name: string, in
     }
 };
 
-// [RESTORED] Generate Personalized Habits
 export const generatePersonalizedHabits = async (assessment: HealthAssessment, record: HealthRecord): Promise<{ habits: HabitRecord[] }> => {
     const prompt = `
     Create 6 personalized habits based on health assessment.
@@ -398,7 +389,6 @@ export const generatePersonalizedHabits = async (assessment: HealthAssessment, r
     }
 };
 
-// [UPDATED] Generate Daily Plan
 export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string, targetCalories?: number): Promise<{
     diet: { breakfast: string, lunch: string, dinner: string },
     recommendedMealIds: string[],
