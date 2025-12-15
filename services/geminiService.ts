@@ -1,4 +1,3 @@
-
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 import { HabitRecord } from "./dataService";
 
@@ -285,16 +284,19 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
 
-// --- ROBUST LOCAL FALLBACK FOR HEATMAP (Enhanced with New Depts) ---
+// --- ROBUST LOCAL FALLBACK FOR HEATMAP (Enhanced with Full Depts) ---
 const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnalytics[] => {
-    console.log("Starting Local Heatmap Analysis (Enhanced)...");
+    console.log("Starting Local Heatmap Analysis (Enhanced Full)...");
     
     const depts: Record<string, { count: number, conditions: Set<string>, services: any[] }> = {
+        // Foundation Departments
         '心血管内科': { count: 0, conditions: new Set(), services: [{name:'动态血压监测', count:0, description:'监测血压波动'}, {name:'冠脉CTA', count:0, description:'排查冠心病'}] },
         '内分泌科': { count: 0, conditions: new Set(), services: [{name:'甲状腺功能全套', count:0, description:'排查甲亢/甲减'}, {name:'糖尿病慢病管理', count:0, description:'血糖控制方案'}] },
         '消化内科': { count: 0, conditions: new Set(), services: [{name:'C13呼气试验', count:0, description:'幽门螺杆菌检测'}, {name:'无痛胃肠镜', count:0, description:'胃肠肿瘤筛查'}] },
         '呼吸内科': { count: 0, conditions: new Set(), services: [{name:'肺功能检查', count:0, description:'慢阻肺筛查'}, {name:'低剂量螺旋CT', count:0, description:'肺结节随访'}] },
-        // New Departments
+        '泌尿外科': { count: 0, conditions: new Set(), services: [{name:'泌尿系彩超', count:0, description:'结石/前列腺筛查'}, {name:'PSA筛查', count:0, description:'前列腺癌筛查'}] },
+        
+        // New / Specialized Departments
         '妇科': { count: 0, conditions: new Set(), services: [{name:'HPV+TCT筛查', count:0, description:'宫颈癌筛查'}, {name:'盆底肌修复', count:0, description:'产后康复'}] },
         '中医科': { count: 0, conditions: new Set(), services: [{name:'中医体质辨识', count:0, description:'未病先防'}, {name:'三伏贴/三九贴', count:0, description:'冬病夏治'}] },
         '康复理疗科': { count: 0, conditions: new Set(), services: [{name:'颈肩腰腿痛理疗', count:0, description:'缓解疼痛'}, {name:'骨科术后康复', count:0, description:'功能恢复'}] },
@@ -305,15 +307,19 @@ const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnal
 
     // Keyword Mapping
     const keywords: Record<string, string> = {
-        '血压': '心血管内科', '心脏': '心血管内科', '心律': '心血管内科',
-        '血糖': '内分泌科', '糖尿病': '内分泌科', '甲状腺': '内分泌科',
-        '胃': '消化内科', '肠': '消化内科', '幽门': '消化内科', '脂肪肝': '消化内科',
-        '肺': '呼吸内科', '咳': '呼吸内科',
+        // Foundation
+        '血压': '心血管内科', '心脏': '心血管内科', '心律': '心血管内科', '房颤': '心血管内科',
+        '血糖': '内分泌科', '糖尿病': '内分泌科', '甲状腺': '内分泌科', '尿酸': '内分泌科',
+        '胃': '消化内科', '肠': '消化内科', '幽门': '消化内科', '脂肪肝': '消化内科', '转氨酶': '消化内科',
+        '肺': '呼吸内科', '咳': '呼吸内科', '磨玻璃': '呼吸内科',
+        '前列腺': '泌尿外科', '肾结石': '泌尿外科', '尿路': '泌尿外科', 'PSA': '泌尿外科', '结石': '泌尿外科',
+        
+        // Specialized
         '乳腺': '妇科', '宫颈': '妇科', '子宫': '妇科', '经期': '妇科',
         '气虚': '中医科', '湿热': '中医科', '亚健康': '中医科', '调理': '中医科',
         '颈椎': '康复理疗科', '腰椎': '康复理疗科', '疼痛': '康复理疗科', '麻木': '康复理疗科',
         '肥胖': '体重管理科', '超重': '体重管理科', 'BMI': '体重管理科', '代谢': '体重管理科',
-        '骨折': '骨科', '关节': '骨科', '骨质疏松': '骨科',
+        '骨折': '骨科', '关节': '骨科', '骨质疏松': '骨科', '半月板': '骨科',
         '头晕': '神经内科', '头痛': '神经内科', '失眠': '神经内科', '脑': '神经内科'
     };
 
@@ -343,22 +349,19 @@ const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnal
 
 // [UPDATED] Hospital Heatmap Analysis (Hybrid: AI + Local Fallback)
 export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: number }): Promise<DepartmentAnalytics[]> => {
-    // 1. Try AI Analysis with specific instruction for expanded departments
+    // 1. Try AI Analysis with inclusive instruction
     const prompt = `
     作为医院运营专家，请根据全院体检异常数据统计(异常项: 人次)，进行智能科室归类和业务分析。
     
     输入数据: ${JSON.stringify(issues)}
     
     【重要任务】
-    1. 将异常项精准归类到临床科室。**请重点关注并挖掘以下科室的潜在业务**：
-       - **妇科** (乳腺/宫颈/内分泌问题)
-       - **中医科** (亚健康/体质/调理需求)
-       - **康复理疗科** (颈肩腰腿痛/功能障碍)
-       - **体重管理科** (肥胖/脂肪肝/代谢综合征)
-       - **骨科** (骨质疏松/关节病)
-       - **神经内科** (头晕/失眠/脑血管)
-    2. 估算每个科室的潜在患者人次。
-    3. 针对每个科室，推荐2个具体的特色诊疗项目(suggestedServices)。
+    1. **全面归类**：请将异常项归类到**所有相关的临床科室**，包括但不限于：
+       - 基础重点科室：心血管内科、内分泌科、消化内科、呼吸内科、泌尿外科
+       - 拓展特色科室：妇科、中医科、康复理疗科、体重管理科、骨科、神经内科
+    
+    2. **数据估算**：估算每个科室的潜在患者人次。
+    3. **业务建议**：针对每个科室，推荐2个具体的特色诊疗项目(suggestedServices)。
     
     请严格返回 JSON 数组:
     [
@@ -376,7 +379,7 @@ export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: 
 
     try {
         if (!API_KEY) throw new Error("No API Key");
-        const jsonText = await callDeepSeek("你是医院管理顾问，擅长挖掘妇科、中医、康复、体重管理等专科业务机会。", prompt);
+        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据分析与全科业务规划。", prompt);
         const result = JSON.parse(jsonText || '[]');
         if (Array.isArray(result) && result.length > 0) {
             return result;
