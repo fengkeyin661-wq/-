@@ -1,3 +1,4 @@
+
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 import { HabitRecord } from "./dataService";
 
@@ -284,20 +285,21 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
 export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
 
-// --- ROBUST LOCAL FALLBACK FOR HEATMAP (Enhanced with Full Depts) ---
+// --- ROBUST LOCAL FALLBACK FOR HEATMAP (Comprehensive 10+ Departments) ---
 const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnalytics[] => {
-    console.log("Starting Local Heatmap Analysis (Enhanced Full)...");
+    console.log("Starting Local Heatmap Analysis (Comprehensive Mode)...");
     
+    // Define Categories - Ensuring ALL core and specialized departments are represented
     const depts: Record<string, { count: number, conditions: Set<string>, services: any[] }> = {
-        // Foundation Departments
+        // --- 1. Foundation Departments (核心基础) ---
         '心血管内科': { count: 0, conditions: new Set(), services: [{name:'动态血压监测', count:0, description:'监测血压波动'}, {name:'冠脉CTA', count:0, description:'排查冠心病'}] },
         '内分泌科': { count: 0, conditions: new Set(), services: [{name:'甲状腺功能全套', count:0, description:'排查甲亢/甲减'}, {name:'糖尿病慢病管理', count:0, description:'血糖控制方案'}] },
         '消化内科': { count: 0, conditions: new Set(), services: [{name:'C13呼气试验', count:0, description:'幽门螺杆菌检测'}, {name:'无痛胃肠镜', count:0, description:'胃肠肿瘤筛查'}] },
         '呼吸内科': { count: 0, conditions: new Set(), services: [{name:'肺功能检查', count:0, description:'慢阻肺筛查'}, {name:'低剂量螺旋CT', count:0, description:'肺结节随访'}] },
         '泌尿外科': { count: 0, conditions: new Set(), services: [{name:'泌尿系彩超', count:0, description:'结石/前列腺筛查'}, {name:'PSA筛查', count:0, description:'前列腺癌筛查'}] },
-        
-        // New / Specialized Departments
         '妇科': { count: 0, conditions: new Set(), services: [{name:'HPV+TCT筛查', count:0, description:'宫颈癌筛查'}, {name:'盆底肌修复', count:0, description:'产后康复'}] },
+        
+        // --- 2. Specialized Departments (特色专科) ---
         '中医科': { count: 0, conditions: new Set(), services: [{name:'中医体质辨识', count:0, description:'未病先防'}, {name:'三伏贴/三九贴', count:0, description:'冬病夏治'}] },
         '康复理疗科': { count: 0, conditions: new Set(), services: [{name:'颈肩腰腿痛理疗', count:0, description:'缓解疼痛'}, {name:'骨科术后康复', count:0, description:'功能恢复'}] },
         '体重管理科': { count: 0, conditions: new Set(), services: [{name:'医学减重门诊', count:0, description:'科学减脂'}, {name:'人体成分分析', count:0, description:'体脂监测'}] },
@@ -305,37 +307,56 @@ const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnal
         '神经内科': { count: 0, conditions: new Set(), services: [{name:'经颅多普勒(TCD)', count:0, description:'脑血管评估'}, {name:'睡眠监测', count:0, description:'失眠诊疗'}] },
     };
 
-    // Keyword Mapping
+    // Keyword Mapping (Extensive)
     const keywords: Record<string, string> = {
-        // Foundation
-        '血压': '心血管内科', '心脏': '心血管内科', '心律': '心血管内科', '房颤': '心血管内科',
-        '血糖': '内分泌科', '糖尿病': '内分泌科', '甲状腺': '内分泌科', '尿酸': '内分泌科',
-        '胃': '消化内科', '肠': '消化内科', '幽门': '消化内科', '脂肪肝': '消化内科', '转氨酶': '消化内科',
-        '肺': '呼吸内科', '咳': '呼吸内科', '磨玻璃': '呼吸内科',
-        '前列腺': '泌尿外科', '肾结石': '泌尿外科', '尿路': '泌尿外科', 'PSA': '泌尿外科', '结石': '泌尿外科',
-        
-        // Specialized
-        '乳腺': '妇科', '宫颈': '妇科', '子宫': '妇科', '经期': '妇科',
-        '气虚': '中医科', '湿热': '中医科', '亚健康': '中医科', '调理': '中医科',
-        '颈椎': '康复理疗科', '腰椎': '康复理疗科', '疼痛': '康复理疗科', '麻木': '康复理疗科',
-        '肥胖': '体重管理科', '超重': '体重管理科', 'BMI': '体重管理科', '代谢': '体重管理科',
-        '骨折': '骨科', '关节': '骨科', '骨质疏松': '骨科', '半月板': '骨科',
-        '头晕': '神经内科', '头痛': '神经内科', '失眠': '神经内科', '脑': '神经内科'
+        // Cardio
+        '血压': '心血管内科', '心脏': '心血管内科', '心律': '心血管内科', '房颤': '心血管内科', '动脉': '心血管内科', '斑块': '心血管内科', '早搏': '心血管内科', 'ST段': '心血管内科', '胸闷': '心血管内科',
+        // Endo
+        '血糖': '内分泌科', '糖尿病': '内分泌科', '尿酸': '内分泌科', '痛风': '内分泌科', '血脂': '内分泌科', '胆固醇': '内分泌科', '甘油三酯': '内分泌科', '甲状腺': '内分泌科', '甲功': '内分泌科',
+        // Gastro
+        '胃': '消化内科', '肠': '消化内科', '幽门': '消化内科', '肝': '消化内科', '转氨酶': '消化内科', '脂肪肝': '消化内科', '胆囊': '消化内科', '息肉': '消化内科', '腹胀': '消化内科',
+        // Resp
+        '肺': '呼吸内科', '结节': '呼吸内科', '咳嗽': '呼吸内科', '慢阻肺': '呼吸内科', '气短': '呼吸内科', '磨玻璃': '呼吸内科',
+        // Urology
+        '前列腺': '泌尿外科', '肾结石': '泌尿外科', '尿路': '泌尿外科', 'PSA': '泌尿外科', '结石': '泌尿外科', '尿频': '泌尿外科', '输尿管': '泌尿外科', '隐血': '泌尿外科',
+        // Gyn
+        '乳腺': '妇科', '宫颈': '妇科', '子宫': '妇科', '附件': '妇科', '经期': '妇科', '白带': '妇科', '卵巢': '妇科',
+        // TCM
+        '气虚': '中医科', '湿热': '中医科', '亚健康': '中医科', '调理': '中医科', '舌苔': '中医科', '脉象': '中医科', '畏寒': '中医科', '乏力': '中医科',
+        // Rehab
+        '颈椎': '康复理疗科', '腰椎': '康复理疗科', '疼痛': '康复理疗科', '麻木': '康复理疗科', '肩周': '康复理疗科', '理疗': '康复理疗科',
+        // Weight
+        '肥胖': '体重管理科', '超重': '体重管理科', 'BMI': '体重管理科', '代谢': '体重管理科', '体重': '体重管理科',
+        // Ortho
+        '骨折': '骨科', '关节': '骨科', '骨质疏松': '骨科', '骨量': '骨科', '半月板': '骨科', '膝': '骨科',
+        // Neuro
+        '头晕': '神经内科', '头痛': '神经内科', '失眠': '神经内科', '脑': '神经内科', '记忆力': '神经内科', '睡眠': '神经内科'
     };
 
+    // Classify
     Object.entries(issues).forEach(([issue, count]) => {
+        let matched = false;
+        // Check keywords
         for (const key in keywords) {
             if (issue.includes(key)) {
                 const deptName = keywords[key];
+                
+                // Special Rule: Thyroid nodule -> Endo (mostly)
+                if (issue.includes('甲状腺') && deptName === '内分泌科') {
+                     // Keep as Endo
+                }
+                
                 if (depts[deptName]) {
                     depts[deptName].count += count;
                     depts[deptName].conditions.add(issue);
+                    matched = true;
                     break;
                 }
             }
         }
     });
 
+    // Format Output
     return Object.entries(depts)
         .filter(([_, data]) => data.count > 0)
         .map(([name, data]) => ({
@@ -349,21 +370,30 @@ const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnal
 
 // [UPDATED] Hospital Heatmap Analysis (Hybrid: AI + Local Fallback)
 export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: number }): Promise<DepartmentAnalytics[]> => {
-    // 1. Try AI Analysis with inclusive instruction
+    // 1. Try AI Analysis with Explicit Instruction for ALL Departments
     const prompt = `
-    作为医院运营专家，请根据全院体检异常数据统计(异常项: 人次)，进行智能科室归类和业务分析。
+    作为医院运营专家，请根据以下全院体检异常数据统计(异常项: 人次)，进行全面、精准的科室归类和业务规划。
     
     输入数据: ${JSON.stringify(issues)}
     
-    【重要任务】
-    1. **全面归类**：请将异常项归类到**所有相关的临床科室**，包括但不限于：
-       - 基础重点科室：心血管内科、内分泌科、消化内科、呼吸内科、泌尿外科
-       - 拓展特色科室：妇科、中医科、康复理疗科、体重管理科、骨科、神经内科
+    【核心任务】
+    1. **全面归类**：请务必将异常项分配到以下**所有相关的临床科室**，不要遗漏：
+       - 基础科室：心血管内科、内分泌科、消化内科、呼吸内科、泌尿外科
+       - 特色科室：妇科、中医科、康复理疗科、体重管理科、骨科、神经内科
     
-    2. **数据估算**：估算每个科室的潜在患者人次。
-    3. **业务建议**：针对每个科室，推荐2个具体的特色诊疗项目(suggestedServices)。
+    2. **规则建议**：
+       - 血压/心脏问题 -> 心血管内科
+       - 血糖/血脂/痛风/甲状腺 -> 内分泌科
+       - 胃/肠/肝胆/幽门 -> 消化内科
+       - 前列腺/结石 -> 泌尿外科
+       - 颈肩腰腿痛 -> 康复理疗科
+       - 肥胖/超重 -> 体重管理科
+       - 头晕/失眠 -> 神经内科
     
-    请严格返回 JSON 数组:
+    3. **数据估算**：估算每个科室的潜在患者人次 (patientCount)。
+    4. **业务建议**：针对每个科室，推荐2个具体的特色诊疗项目(suggestedServices)。
+    
+    请严格返回 JSON 数组，格式如下:
     [
       {
         "departmentName": "科室名称",
@@ -378,18 +408,18 @@ export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: 
     `;
 
     try {
-        if (!API_KEY) throw new Error("No API Key");
-        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据分析与全科业务规划。", prompt);
+        if (!API_KEY) throw new Error("No API Key"); // Force fallback if no key
+        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据挖掘与全科业务规划。", prompt);
         const result = JSON.parse(jsonText || '[]');
         if (Array.isArray(result) && result.length > 0) {
             return result;
         }
         throw new Error("AI returned empty result");
     } catch (e) {
-        console.warn("Heatmap AI Gen Failed, switching to Enhanced Local Rule Engine...", e);
-        // 2. Enhanced Local Rule-Based Fallback
+        console.warn("Heatmap AI Gen Failed, switching to Comprehensive Local Rule Engine...", e);
+        // 2. Comprehensive Local Rule-Based Fallback
         const localResult = localHeatmapAnalysis(issues);
-        return localResult; 
+        return localResult; // Should return valid data if issues exist
     }
 };
 

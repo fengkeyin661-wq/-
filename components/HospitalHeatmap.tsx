@@ -10,54 +10,36 @@ interface Props {
     onSelectPatient?: (archive: HealthArchive) => void;
 }
 
-// --- 1. 临床业务挖掘规则引擎 (增强版: 覆盖全生命周期与特色专科) ---
+// --- 1. 临床业务挖掘规则引擎 (全科室覆盖) ---
 // Key: 服务名称关键词 (部分匹配)
 // Value: 潜在人群的搜索特征 (包含疾病名、指标名、症状、风险标签)
 const SERVICE_MAPPING_RULES: Record<string, string[]> = {
-    // === [1. 慢病与基础专科] ===
-    "内分泌": ["糖尿病", "血糖", "糖化", "胰岛素", "甲状腺", "结节", "肥胖", "代谢综合征"],
+    // === [1. 基础内科] ===
+    "内分泌": ["糖尿病", "血糖", "糖化", "胰岛素", "甲状腺", "结节", "肥胖", "代谢综合征", "尿酸", "痛风"],
     "心血管": ["高血压", "血压", "心律", "早搏", "房颤", "胸闷", "ST段", "T波", "动脉硬化", "斑块"],
-    "消化": ["幽门", "Hp", "胃", "肠", "息肉", "CEA", "腹胀", "脂肪肝", "转氨酶", "胆囊"],
-    "呼吸": ["肺", "结节", "磨玻璃", "咳嗽", "气短", "慢阻肺", "吸烟"],
+    "消化": ["幽门", "Hp", "胃", "肠", "息肉", "CEA", "腹胀", "脂肪肝", "转氨酶", "胆囊", "肝"],
+    "呼吸": ["肺", "结节", "磨玻璃", "咳嗽", "气短", "慢阻肺", "吸烟", "支气管"],
     
-    // === [2. 妇科与女性健康] ===
+    // === [2. 外科与专科] ===
+    "泌尿": ["前列腺", "PSA", "尿频", "尿急", "夜尿", "肾结石", "输尿管", "隐血"],
+    "结石": ["肾结石", "输尿管结石", "积水", "血尿", "胆结石"],
     "妇科": ["子宫", "肌瘤", "附件", "卵巢", "囊肿", "月经", "痛经", "白带", "宫颈"],
     "HPV": ["HPV", "TCT", "宫颈", "接触性出血"],
     "乳腺": ["乳腺", "结节", "增生", "BI-RADS", "钙化", "溢液"],
     "盆底": ["漏尿", "产后", "松弛", "子宫脱垂"],
-    "更年期": ["潮热", "绝经", "骨质疏松", "情绪", "失眠"],
 
-    // === [3. 中医与治未病] ===
+    // === [3. 特色与康复] ===
     "中医": ["气虚", "湿热", "阴虚", "阳虚", "舌苔", "脉象", "亚健康", "调理"],
     "体质": ["乏力", "畏寒", "出汗", "便秘", "失眠", "易感冒"],
-    "针灸": ["疼痛", "面瘫", "颈椎", "腰椎", "肩周炎", "关节痛"],
-    "推拿": ["僵硬", "酸痛", "落枕", "腰肌劳损"],
-    "三伏贴": ["哮喘", "鼻炎", "支气管炎", "虚寒", "易感冒"],
-
-    // === [4. 康复与理疗] ===
-    "康复": ["颈椎病", "腰椎间盘", "脊柱", "侧弯", "中风后遗症", "偏瘫", "功能障碍"],
+    "康复": ["颈椎病", "腰椎间盘", "脊柱", "侧弯", "中风后遗症", "偏瘫", "功能障碍", "疼痛", "麻木"],
     "理疗": ["疼痛", "手麻", "腿麻", "关节炎", "骨质增生", "活动受限"],
-    "牵引": ["椎管狭窄", "压迫", "放射痛"],
-    "冲击波": ["足底筋膜炎", "网球肘", "肩周炎", "钙化性肌腱炎"],
-
-    // === [5. 体重管理与代谢] ===
+    
+    // === [4. 管理与神经] ===
     "减重": ["BMI", "肥胖", "超重", "体重指数", "腹型肥胖", "腰围"],
     "体重管理": ["脂肪肝", "高血脂", "甘油三酯", "胰岛素抵抗", "黑棘皮", "多囊"],
-    "营养": ["消瘦", "贫血", "低蛋白", "营养不良", "肌少症"],
-
-    // === [6. 骨科与运动医学] ===
-    "骨科": ["骨质疏松", "骨量减少", "骨折", "关节", "半月板", "韧带"],
-    "骨密度": ["骨质疏松", "绝经", "驼背", "身高变矮", "脆性骨折"],
-    "运动医学": ["运动损伤", "扭伤", "积液", "滑膜炎"],
-
-    // === [7. 神经内科与心理] ===
-    "神经": ["头晕", "头痛", "眩晕", "失眠", "记忆力", "脑供血不足", "脑梗塞"],
-    "睡眠": ["打鼾", "呼吸暂停", "早醒", "多梦", "入睡困难"],
-    "心理": ["焦虑", "抑郁", "压力", "情绪", "PHQ", "GAD"],
-
-    // === [8. 泌尿与男性] ===
-    "前列腺": ["前列腺", "PSA", "尿频", "尿急", "夜尿"],
-    "结石": ["肾结石", "输尿管结石", "积水", "血尿"]
+    "骨科": ["骨质疏松", "骨量减少", "骨折", "关节", "半月板", "韧带", "膝", "腰"],
+    "神经": ["头晕", "头痛", "眩晕", "失眠", "记忆力", "脑供血不足", "脑梗塞", "睡眠"],
+    "睡眠": ["打鼾", "呼吸暂停", "早醒", "多梦", "入睡困难"]
 };
 
 // Helper for exporting data
@@ -73,7 +55,7 @@ const downloadFile = (content: string, filename: string, mimeType: string) => {
     URL.revokeObjectURL(url);
 };
 
-const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V6_DEEP';
+const CACHE_KEY = 'HEALTH_GUARD_HEATMAP_CACHE_V7_FULL';
 
 export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelectPatient }) => {
     const [analytics, setAnalytics] = useState<DepartmentAnalytics[]>([]);
@@ -133,7 +115,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                         });
                     }
                     
-                    // Add explicit BMI/Weight tags for Weight Management logic
+                    // Explicit BMI/Weight tags
                     const bmi = arch.health_record.checkup.basics.bmi;
                     if (bmi && bmi >= 24 && bmi < 28) findings.add("超重(BMI>=24)");
                     if (bmi && bmi >= 28) findings.add("肥胖(BMI>=28)");
@@ -196,7 +178,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
     const handleServiceDoubleClick = (serviceName: string, serviceDesc: string) => {
         let searchTerms: string[] = [];
 
-        // 1. Rule Engine Match (Iterate to find matching keys in service name)
+        // 1. Rule Engine Match
         Object.entries(SERVICE_MAPPING_RULES).forEach(([key, terms]) => {
             if (serviceName.includes(key) || serviceDesc.includes(key)) {
                 searchTerms.push(...terms);
@@ -205,14 +187,12 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
 
         // 2. Department Context
         if (selectedDept && selectedDept.keyConditions) {
-            // Only add conditions that are relevant to service name conceptually? 
-            // Or add all dept conditions? Let's add conditions that are partially matched or if list is empty
             if (searchTerms.length === 0) {
                  searchTerms.push(...selectedDept.keyConditions);
             }
         }
 
-        // 3. Fallback: Use service name cleaned up
+        // 3. Fallback
         if (searchTerms.length === 0) {
             const cleanName = serviceName.replace(/建议|开展|强化|检查|检测|筛查|评估|管理|干预|专科|门诊|项目|服务|全套|综合|分析|及|试验|术/g, '').trim();
             if (cleanName.length > 1) searchTerms.push(cleanName);
@@ -256,7 +236,6 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
             alert("暂无分析数据，请等待分析完成。");
             return;
         }
-        const totalPotentialPatients = analytics.reduce((acc, curr) => acc + curr.patientCount, 0);
         let reportContent = `【全院医疗业务发展潜力分析报告】\n生成日期: ${new Date().toLocaleString()}\n覆盖档案: ${archives.length} 份\n\n`;
 
         analytics.forEach((dept, index) => {
@@ -304,7 +283,7 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                 <div className="flex-1 flex flex-col items-center justify-center text-teal-600">
                     <div className="text-4xl animate-spin mb-4">⚙️</div>
                     <p className="font-bold text-lg">AI 正在深度分析全院病理特征...</p>
-                    <p className="text-sm text-slate-400 mt-2">正在挖掘 中医/康复/体重管理/妇科 等潜在需求...</p>
+                    <p className="text-sm text-slate-400 mt-2">正在全面挖掘 基础科室 与 特色专科 的潜在需求...</p>
                 </div>
             ) : (
                 <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
