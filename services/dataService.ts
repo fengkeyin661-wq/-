@@ -1,10 +1,67 @@
 
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { 
-    HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, 
-    HealthProfile, CriticalTrackRecord, RiskAnalysisData,
-    DietLogItem, ExerciseLogItem, HabitRecord, UserGamification, DailyHealthPlan, ExercisePlanData
-} from '../types';
+import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
+
+export interface ExercisePlanData {
+    generatedAt: string;
+    items: { day: string, content: string }[];
+    logs: string[]; // Array of ISO date strings (YYYY-MM-DD) for completed check-ins
+}
+
+// [NEW] Structured Log Items
+export interface DietLogItem {
+    id: string;
+    name: string;
+    calories: number;
+    protein: number; // g
+    fat: number; // g
+    carbs: number; // g
+    fiber: number; // g
+    type: 'breakfast' | 'lunch' | 'dinner' | 'snack';
+}
+
+export interface ExerciseLogItem {
+    id: string;
+    name: string;
+    calories: number; // kcal burned
+    duration: number; // minutes
+}
+
+// [NEW] Habit Tracker Interface
+export interface HabitRecord {
+    id: string;
+    title: string;
+    icon: string; // Emoji
+    color: string; // Tailwind color class e.g., 'orange', 'blue'
+    frequency: 'daily' | 'weekly';
+    targetDay?: number; // 0=Sun, 1=Mon, etc. (For weekly)
+    history: string[]; // Array of ISO date strings (YYYY-MM-DD)
+    streak: number;
+}
+
+// [NEW] Gamification Data
+export interface UserGamification {
+    totalXP: number;
+    level: number;
+    currentStreak: number; // Global streak (days checked in at least once)
+    lastCheckInDate: string; // YYYY-MM-DD
+    badges: string[]; // IDs of unlocked badges
+}
+
+export interface DailyHealthPlan {
+    generatedAt: string;
+    diet: { breakfast: string, lunch: string, dinner: string, snack: string };
+    exercise: { morning: string, afternoon: string, evening: string };
+    tips: string;
+    // [NEW] Structured Logs
+    dietLogs?: DietLogItem[];
+    exerciseLogs?: ExerciseLogItem[];
+    // [NEW] Recommended Items (Not yet logged, for display in My Plan)
+    recommendations?: {
+        meals: DietLogItem[];
+        exercises: ExerciseLogItem[];
+    };
+}
 
 export interface HealthArchive {
     id: string;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { generateExercisePlan } from '../../services/geminiService';
-import { ExercisePlanData } from '../../types';
+import { ExercisePlanData } from '../../services/dataService';
 
 interface Props {
     savedPlan?: ExercisePlanData;
