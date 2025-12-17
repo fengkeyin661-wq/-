@@ -40,6 +40,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [filterRisk, setFilterRisk] = useState<string>('ALL');
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+    // Import Options
+    const [skipFilled, setSkipFilled] = useState(true); // Default to skip existing questionnaires
+
     // Edit Modal State
     const [editingArchive, setEditingArchive] = useState<HealthArchive | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -179,11 +182,27 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         return result;
     };
 
+    // Helper to check if questionnaire is already meaningfully filled
+    const hasValidQuestionnaireData = (q: QuestionnaireData): boolean => {
+        if (!q) return false;
+        // Check for specific fields that indicate a user has filled the form
+        const hasDiet = Array.isArray(q.diet?.habits) && q.diet.habits.length > 0;
+        const hasSmoke = !!q.substances?.smoking?.status;
+        const hasExercise = !!q.exercise?.frequency;
+        const hasHistory = Array.isArray(q.history?.diseases) && q.history.diseases.length > 0 && !q.history.diseases.includes('无');
+        
+        return hasDiet || hasSmoke || hasExercise || hasHistory;
+    };
+
     const handleBatchQuestionnaireImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!confirm("⚠️ [AI 智能处理模式]\n系统将逐行识别 Excel 数据，通过体检编号匹配档案，并自动提取问卷信息（包括病史、饮食、运动等）覆盖原有问卷，随后重新触发风险评估。\n\n• 若编号已建档：更新问卷并重评\n• 若编号未建档：自动跳过\n\n确定开始吗？")) {
+        const confirmMsg = skipFilled 
+            ? "⚠️ [智能模式: 跳过已完善档案]\n系统将识别 Excel 数据并更新问卷。\n\n• 若档案已存在且问卷已填：自动跳过 (保留原数据)\n• 若档案已存在但问卷为空：更新问卷并重评\n• 若未建档：自动跳过\n\n确定开始吗？"
+            : "⚠️ [覆盖模式]\n系统将识别 Excel 数据，强制覆盖所有匹配档案的问卷信息，并重新生成风险评估。\n\n确定开始吗？";
+
+        if (!confirm(confirmMsg)) {
             e.target.value = '';
             return;
         }
@@ -205,6 +224,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
             let successCount = 0;
             let skipCount = 0;
+            let alreadyFilledCount = 0;
 
             for (const row of jsonData as any[]) {
                 // 1. Identify ID (Enhanced logic for robustness)
@@ -234,21 +254,26 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     continue;
                 }
 
+                // 3. Skip if already filled check
+                if (skipFilled && hasValidQuestionnaireData(existingArchive.health_record.questionnaire)) {
+                    setSmartBatchLogs(prev => [...prev, `⏩ 跳过: [${checkupId}] 问卷已完善，无需更新`]);
+                    alreadyFilledCount++;
+                    continue;
+                }
+
                 try {
                     setSmartBatchLogs(prev => [...prev, `🔍 识别中: ${existingArchive.name} (${checkupId})...`]);
 
-                    // 3. Construct Text Context for AI from Excel Row
-                    // This converts the row object e.g. { "既往病史": "高血压", "蔬菜": "300g" } into a text block
+                    // 4. Construct Text Context for AI from Excel Row
                     const rowText = Object.entries(row)
                         .map(([k, v]) => `${k}: ${v}`)
                         .join('\n');
 
-                    // 4. AI Parse (Using the same engine as "Supplement Questionnaire")
+                    // 5. AI Parse (Using the same engine as "Supplement Questionnaire")
                     const parsedRecord = await parseHealthDataFromText(rowText);
                     const newQuestionnaire = parsedRecord.questionnaire;
 
-                    // 5. Smart Merge with Existing Record
-                    // We keep the existing Checkup Data (Objective), replace/merge Questionnaire (Subjective)
+                    // 6. Smart Merge with Existing Record
                     const updatedQuestionnaire = mergeQuestionnaire(
                         existingArchive.health_record.questionnaire, 
                         newQuestionnaire
@@ -261,15 +286,15 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         profile: existingArchive.health_record.profile
                     };
 
-                    // 6. Trigger AI Re-Assessment
+                    // 7. Trigger AI Re-Assessment
                     const newAssessment = await generateHealthAssessment(updatedRecord);
                     const newSchedule = generateFollowUpSchedule(newAssessment);
                     
-                    // 7. Update Models & Portraits
+                    // 8. Update Models & Portraits
                     const portraits = generateSystemPortraits(updatedRecord);
                     const models = evaluateRiskModels(updatedRecord);
 
-                    // 8. Save
+                    // 9. Save
                     await saveArchive(
                         updatedRecord, 
                         newAssessment, 
@@ -286,7 +311,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 }
             }
 
-            setSmartBatchLogs(prev => [...prev, `🎉 全部完成! 成功更新: ${successCount}, 跳过/未建档: ${skipCount}`]);
+            setSmartBatchLogs(prev => [...prev, `🎉 全部完成! 成功: ${successCount}, 已完善跳过: ${alreadyFilledCount}, 未建档/异常: ${skipCount}`]);
             loadData(); // Refresh list
 
         } catch (error: any) {
@@ -430,7 +455,18 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <option value="CRITICAL">🚨 待处理危急值</option>
                     </select>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                    {/* Checkbox for Skipping Filled Questionnaires */}
+                    <label className="flex items-center gap-2 cursor-pointer mr-2 select-none" title="若档案中问卷已有内容，则跳过不更新">
+                        <input 
+                            type="checkbox" 
+                            checked={skipFilled} 
+                            onChange={(e) => setSkipFilled(e.target.checked)} 
+                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                        />
+                        <span className="text-xs font-bold text-slate-600">跳过已完善问卷</span>
+                    </label>
+
                     {/* Questionnaire Update Input */}
                     <input 
                         type="file" 
