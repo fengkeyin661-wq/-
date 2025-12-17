@@ -140,6 +140,8 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     1. 即使数据缺失，也请尽量返回结构体，数值型字段如果未找到请留空或为 null，字符串留空字符串。
     2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
+    4. **关键字段识别**：
+       - **体检编号 (checkupId)**：请务必精确抓取**6位纯数字**的编号（如：801234）。报告中通常包含10位或更长的“登记流水号”、“条码号”或“样本号”，请**绝对不要**将其作为体检编号。只提取那个6位数的。
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
@@ -218,6 +220,16 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
         if (!merged.profile.name || merged.profile.name === '解析失败') {
              const nameMatch = raw.match(/姓名[:：]\s*([\u4e00-\u9fa5]{2,4})/);
              if (nameMatch) merged.profile.name = nameMatch[1];
+        }
+
+        // --- 2. Enforce 6-digit Checkup ID Rule ---
+        // If AI extracted a long ID (likely barcode/serial), try to find a 6-digit one in text
+        if (merged.profile.checkupId && merged.profile.checkupId.length > 6) {
+             // Try to find a 6-digit number in the first 800 chars of raw text
+             const shortIdMatch = raw.slice(0, 800).match(/\b(\d{6})\b/);
+             if (shortIdMatch) {
+                 merged.profile.checkupId = shortIdMatch[1];
+             }
         }
 
         return merged;
