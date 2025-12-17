@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
-import { HealthAssessment, HealthRecord } from '../../types';
-import { HabitRecord, UserGamification, findArchiveByCheckupId, updateHabits } from '../../services/dataService';
+import { HealthAssessment, HealthRecord, HabitRecord, UserGamification } from '../../types';
+import { findArchiveByCheckupId, updateHabits } from '../../services/dataService';
 import { generatePersonalizedHabits } from '../../services/geminiService';
 
 interface Props {

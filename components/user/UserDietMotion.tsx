@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, ContentItem } from '../../services/contentService';
-import { HealthAssessment, HealthRecord } from '../../types';
+import { HealthAssessment, HealthRecord, DailyHealthPlan, DietLogItem, ExerciseLogItem } from '../../types';
 import { generateDailyIntegratedPlan } from '../../services/geminiService';
-import { updateUserPlan, DailyHealthPlan, DietLogItem, ExerciseLogItem, findArchiveByCheckupId } from '../../services/dataService';
+import { updateUserPlan, findArchiveByCheckupId } from '../../services/dataService';
 
 interface Props {
     assessment?: HealthAssessment;

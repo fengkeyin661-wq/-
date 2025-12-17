@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
-import { HealthRecord, HealthAssessment, FollowUpRecord, RiskLevel } from '../../types';
-import { DailyHealthPlan, HealthArchive } from '../../services/dataService';
+import { HealthRecord, HealthAssessment, FollowUpRecord, RiskLevel, DailyHealthPlan } from '../../types';
+import { HealthArchive } from '../../services/dataService';
 import { fetchInteractions, InteractionItem, updateInteractionStatus } from '../../services/contentService';
 
 interface Props {
