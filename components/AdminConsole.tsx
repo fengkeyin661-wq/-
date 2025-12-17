@@ -241,7 +241,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!confirm("⚠️ 此操作将通过【体检编号】匹配现有档案，并覆盖用户的【健康问卷】部分，同时保留原有【体检数据】并重新触发AI评估。\n\n请确保Excel包含列：体检编号, 既往病史, 吸烟情况, 运动频率等。")) {
+        if (!confirm("⚠️ 此操作将通过【体检编号】匹配现有档案，并更新【健康问卷】。\n\n若档案不存在且提供了【姓名】，系统将尝试【新建档案】。\n\n请确保Excel包含列：体检编号, (可选: 姓名, 性别, 年龄, 部门), 既往病史, 吸烟情况, 运动频率等。")) {
             e.target.value = '';
             return;
         }
@@ -265,34 +265,71 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             let skipCount = 0;
 
             for (const row of jsonData as any[]) {
-                const checkupId = row['体检编号'];
+                // Robust ID extraction
+                const rawId = row['体检编号'] || row['编号'] || row['ID'];
+                const checkupId = rawId ? String(rawId).trim() : '';
+
                 if (!checkupId) {
-                    setSmartBatchLogs(prev => [...prev, `⚠️ 跳过: 缺少体检编号`]);
+                    setSmartBatchLogs(prev => [...prev, `⚠️ 跳过: 缺少体检编号 (行 ${jsonData.indexOf(row) + 2})`]);
                     skipCount++;
                     continue;
                 }
 
                 // 1. Find Existing
-                const existingArchive = await findArchiveByCheckupId(String(checkupId));
-                if (!existingArchive) {
-                    setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: 未找到档案 ${checkupId}`]);
-                    skipCount++;
-                    continue;
-                }
-
+                const existingArchive = await findArchiveByCheckupId(checkupId);
+                
                 try {
-                    // 2. Map Questionnaire
-                    const newQuestionnaire = mapExcelRowToQuestionnaire(row);
-                    
-                    // 3. Merge with Existing Record (Keep Checkup Data!)
-                    const updatedRecord: HealthRecord = {
-                        ...existingArchive.health_record,
-                        questionnaire: newQuestionnaire,
-                        // Ensure profile data isn't lost if partial
-                        profile: existingArchive.health_record.profile
-                    };
+                    let updatedRecord: HealthRecord;
+                    let existingFollowUps: any[] = [];
+                    let actionType = 'update';
 
-                    setSmartBatchLogs(prev => [...prev, `🤖 AI 重新评估: ${existingArchive.name}`]);
+                    if (!existingArchive) {
+                        // 2a. Try Create if Name exists
+                        const name = row['姓名'] ? String(row['姓名']).trim() : '';
+                        if (name) {
+                            setSmartBatchLogs(prev => [...prev, `✨ 未找到 ${checkupId}，尝试新建档案: ${name}`]);
+                            actionType = 'create';
+                            const gender = row['性别'] ? String(row['性别']).trim() : '未说明';
+                            const age = row['年龄'] ? Number(row['年龄']) : 0;
+                            const dept = row['部门'] ? String(row['部门']).trim() : '';
+
+                            updatedRecord = {
+                                profile: {
+                                    checkupId: checkupId,
+                                    name: name,
+                                    gender: gender,
+                                    age: age,
+                                    department: dept,
+                                    phone: row['电话'] ? String(row['电话']).trim() : ''
+                                },
+                                checkup: { basics: {}, labBasic: {}, imagingBasic: { ultrasound: {} }, optional: {}, abnormalities: [] } as any, // Empty checkup placeholder
+                                questionnaire: mapExcelRowToQuestionnaire(row)
+                            };
+                        } else {
+                            setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: 未找到档案 ${checkupId} 且Excel缺少'姓名'列`]);
+                            skipCount++;
+                            continue;
+                        }
+                    } else {
+                        // 2b. Update Existing
+                        actionType = 'update';
+                        existingFollowUps = existingArchive.follow_ups || [];
+                        updatedRecord = {
+                            ...existingArchive.health_record,
+                            questionnaire: mapExcelRowToQuestionnaire(row),
+                            // Ensure profile data matches excel if provided, or keep existing
+                            profile: {
+                                ...existingArchive.health_record.profile,
+                                // Optional: Update phone/dept if present in Excel
+                                department: row['部门'] ? String(row['部门']).trim() : existingArchive.health_record.profile.department,
+                                phone: row['电话'] ? String(row['电话']).trim() : existingArchive.health_record.profile.phone
+                            }
+                        };
+                    }
+
+                    if (actionType === 'update') {
+                        setSmartBatchLogs(prev => [...prev, `📝 更新档案: ${updatedRecord.profile.name}`]);
+                    }
 
                     // 4. Re-run AI Assessment
                     const newAssessment = await generateHealthAssessment(updatedRecord);
@@ -305,18 +342,17 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         updatedRecord, 
                         newAssessment, 
                         newSchedule, 
-                        existingArchive.follow_ups, // Keep history
+                        existingFollowUps, 
                         { portraits, models }
                     );
 
                     successCount++;
-                    // Optional: Scroll log
                 } catch (err: any) {
                     setSmartBatchLogs(prev => [...prev, `❌ 失败 ${checkupId}: ${err.message}`]);
                 }
             }
 
-            setSmartBatchLogs(prev => [...prev, `✅ 完成! 成功更新: ${successCount}, 跳过: ${skipCount}`]);
+            setSmartBatchLogs(prev => [...prev, `✅ 完成! 成功: ${successCount}, 跳过: ${skipCount}`]);
             loadData(); // Refresh list
 
         } catch (error: any) {
@@ -472,9 +508,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <button 
                         onClick={() => questionnaireImportRef.current?.click()}
                         className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1"
-                        title="基于Excel体检编号，批量导入问卷并更新风险评估"
+                        title="基于Excel体检编号，批量导入问卷并更新档案。若档案不存在且含姓名，将自动新建。"
                     >
-                        📝 导入问卷更新档案
+                        📝 导入问卷更新/建档
                     </button>
 
                     {selectedIds.size > 0 && <button onClick={handleBatchDelete} className="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-200">🗑️ 删除选中</button>}
