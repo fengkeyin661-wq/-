@@ -251,6 +251,34 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
         downloadFile(reportContent, `全院医疗业务分析_${new Date().toISOString().split('T')[0]}.txt`, 'text/plain;charset=utf-8');
     };
 
+    const handleExportPatientList = () => {
+        if (patientList.length === 0) {
+            alert("暂无数据可导出");
+            return;
+        }
+
+        const headers = ['体检编号', '姓名', '性别', '年龄', '部门', '联系电话', '风险等级', '健康特征摘要/主要问题'];
+        const rows = patientList.map(p => {
+            // Clean summary for CSV
+            const summary = (p.assessment_data.summary || '').replace(/[\n\r]+/g, ' ').replace(/"/g, '""');
+            const risk = p.risk_level === 'RED' ? '高风险' : p.risk_level === 'YELLOW' ? '中风险' : '低风险';
+            return [
+                p.checkup_id,
+                p.name,
+                p.gender,
+                p.age,
+                p.department,
+                p.phone || '',
+                risk,
+                `"${summary}"` // Quote summary to handle commas inside
+            ].join(',');
+        });
+
+        // Add BOM for Excel UTF-8 compatibility
+        const csvContent = "\uFEFF" + headers.join(',') + '\n' + rows.join('\n');
+        downloadFile(csvContent, `${targetService}_潜在客户名单_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv;charset=utf-8');
+    };
+
     return (
         <div className="bg-white w-full h-full rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden animate-fadeIn relative">
             <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
@@ -405,7 +433,15 @@ export const HospitalHeatmap: React.FC<Props> = ({ archives, onRefresh, onSelect
                                     {targetService}
                                 </div>
                             </div>
-                            <button onClick={() => setShowPatientModal(false)} className="text-slate-400 hover:text-slate-600 font-bold text-xl px-2">×</button>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={handleExportPatientList}
+                                    className="bg-green-600 text-white text-xs px-3 py-1.5 rounded hover:bg-green-700 flex items-center gap-1 shadow-sm"
+                                >
+                                    📥 导出名单
+                                </button>
+                                <button onClick={() => setShowPatientModal(false)} className="text-slate-400 hover:text-slate-600 font-bold text-xl px-2">×</button>
+                            </div>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4">
                             {patientList.length > 0 ? (
