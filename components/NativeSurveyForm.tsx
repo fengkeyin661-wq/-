@@ -39,6 +39,7 @@ const OPTIONS = {
     sleepQuality: ['很好，一觉到天亮', '一般，易醒或多梦', '较差，入睡困难或早醒'],
     snore: ['无', '偶尔', '经常'],
     smoke: ['从不吸烟', '已戒烟', '目前吸烟'],
+    smokeAmount: ['不到半包', '不到一包', '不到一包半', '不到两包', '两包以上'],
     drink: ['从不饮酒', '已戒酒', '目前饮酒'],
     drunk: ['0次', '1–2次', '3-5次', '≥6次'],
     quitDrink: ['无', '想戒', '已尝试'],
@@ -262,7 +263,17 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         // Substances
         if (q.substances.smoking.status) newForm.smokeStatus = q.substances.smoking.status;
         if (q.substances.smoking.quitYear) newForm.quitSmokeYear = q.substances.smoking.quitYear;
-        if (q.substances.smoking.dailyAmount) newForm.smokeDaily = q.substances.smoking.dailyAmount;
+        
+        // Map numeric daily amount to string option if present
+        if (q.substances.smoking.dailyAmount) {
+            const amt = q.substances.smoking.dailyAmount; // This is in cigarettes
+            if (amt <= 10) newForm.smokeDaily = '不到半包';      // <= 0.5 pack
+            else if (amt <= 20) newForm.smokeDaily = '不到一包'; // <= 1.0 pack
+            else if (amt <= 30) newForm.smokeDaily = '不到一包半'; // <= 1.5 packs
+            else if (amt <= 40) newForm.smokeDaily = '不到两包'; // <= 2.0 packs
+            else newForm.smokeDaily = '两包以上';
+        }
+        
         if (q.substances.smoking.years) newForm.smokeYears = q.substances.smoking.years;
 
         if (q.respiratory.chronicCough) newForm.chronicCough = '是';
@@ -303,11 +314,23 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
         // Calculate Pack Years
         let packYears = 0;
+        let numericDailyAmount = 0;
+
         if (form.smokeStatus === '目前吸烟' || form.smokeStatus === '已戒烟') {
-            const daily = Number(form.smokeDaily) || 0;
+            // Convert string option to estimated number of cigarettes (20 cigs per pack)
+            const smokeMap: {[key: string]: number} = {
+                '不到半包': 10,   // 0.5 * 20
+                '不到一包': 20,   // 1.0 * 20
+                '不到一包半': 30, // 1.5 * 20
+                '不到两包': 40,   // 2.0 * 20
+                '两包以上': 50    // 2.5 * 20
+            };
+            numericDailyAmount = smokeMap[form.smokeDaily] || 0;
+            
             const years = Number(form.smokeYears) || 0;
-            if (daily > 0 && years > 0) {
-                packYears = (daily / 20) * years;
+            if (numericDailyAmount > 0 && years > 0) {
+                // Formula: (cigarettes_per_day / 20) * years
+                packYears = (numericDailyAmount / 20) * years;
             }
         }
 
@@ -382,7 +405,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                 smoking: {
                     status: form.smokeStatus,
                     quitYear: form.quitSmokeYear,
-                    dailyAmount: Number(form.smokeDaily),
+                    dailyAmount: numericDailyAmount, // Store converted number for backend consistency
                     years: Number(form.smokeYears),
                     packYears: packYears
                 },
@@ -550,7 +573,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                                 {form.smokeStatus === '已戒烟' && <InputQ idx={37} label="戒烟年份" required desc="请输入4位年份" value={form.quitSmokeYear} onChange={(v: any) => handleChange('quitSmokeYear', v)} type="number" />}
                                 {form.smokeStatus === '目前吸烟' && (
                                     <>
-                                        <InputQ idx={38} label="目前吸烟支数" required desc="每天支数" value={form.smokeDaily} onChange={(v: any) => handleChange('smokeDaily', v)} type="number" />
+                                        <RadioQ idx={38} label="目前吸烟数量" required desc="请选择您目前每天吸烟大概数量" options={OPTIONS.smokeAmount} value={form.smokeDaily} onChange={(v: any) => handleChange('smokeDaily', v)} />
                                         <InputQ idx={39} label="已吸烟年数" required value={form.smokeYears} onChange={(v: any) => handleChange('smokeYears', v)} type="number" />
                                     </>
                                 )}
