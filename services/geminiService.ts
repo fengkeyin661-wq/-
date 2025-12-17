@@ -140,7 +140,6 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     1. 即使数据缺失，也请尽量返回结构体，数值型字段如果未找到请留空或为 null，字符串留空字符串。
     2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
-    4. **生活方式提取**：请仔细匹配问卷中的饮食、运动、睡眠、心理和需求信息。
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
@@ -158,38 +157,9 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          "abnormalities": [ { "item": "string", "result": "string", "clinicalSig": "string" } ]
       },
       "questionnaire": {
-         "history": { 
-            "diseases": ["string"],
-            "details": { "hypertensionYear": "string", "diabetesYear": "string", "surgeryHistory": "string" }
-         },
-         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "lungCancer": boolean, "colonCancer": boolean },
-         "medication": { "isRegular": "string", "list": "string" },
-         "diet": {
-            "habits": ["string"],
-            "stapleType": "string",
-            "dailyVeg": "string",
-            "dailyFruit": "string",
-            "dailyMeat": "string",
-            "dailyDairy": "string",
-            "dailyBeanNut": "string"
-         },
-         "hydration": { "dailyAmount": "string" },
-         "exercise": {
-            "frequency": "string",
-            "types": ["string"],
-            "duration": "string"
-         },
-         "sleep": {
-            "hours": "string",
-            "quality": "string",
-            "snore": "string"
-         },
-         "mental": { "stressLevel": "string" },
-         "needs": { "desiredSupport": ["string"] },
-         "substances": { 
-            "smoking": { "status": "string", "dailyAmount": number, "years": number, "quitYear": "string" }, 
-            "alcohol": { "status": "string", "freq": "string", "amount": "string" } 
-         }
+         "history": { "diseases": ["string"] },
+         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "cancer": boolean },
+         "substances": { "smoking": { "status": "string" }, "alcohol": { "status": "string" } }
       }
     }
     `;
@@ -226,12 +196,6 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
                 ...DEFAULT_HEALTH_RECORD.questionnaire,
                 ...result?.questionnaire,
                 history: { ...DEFAULT_HEALTH_RECORD.questionnaire.history, ...result?.questionnaire?.history },
-                diet: { ...DEFAULT_HEALTH_RECORD.questionnaire.diet, ...result?.questionnaire?.diet },
-                hydration: { ...DEFAULT_HEALTH_RECORD.questionnaire.hydration, ...result?.questionnaire?.hydration },
-                exercise: { ...DEFAULT_HEALTH_RECORD.questionnaire.exercise, ...result?.questionnaire?.exercise },
-                sleep: { ...DEFAULT_HEALTH_RECORD.questionnaire.sleep, ...result?.questionnaire?.sleep },
-                mental: { ...DEFAULT_HEALTH_RECORD.questionnaire.mental, ...result?.questionnaire?.mental },
-                needs: { ...DEFAULT_HEALTH_RECORD.questionnaire.needs, ...result?.questionnaire?.needs },
                 substances: {
                     ...DEFAULT_HEALTH_RECORD.questionnaire.substances,
                     ...result?.questionnaire?.substances,

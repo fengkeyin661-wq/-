@@ -51,7 +51,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     // Smart Batch Import (Full Parse & Questionnaire Excel)
     const [isSmartBatchModalOpen, setIsSmartBatchModalOpen] = useState(false);
     const [smartBatchFiles, setSmartBatchFiles] = useState<File[]>([]);
-    const [smartBatchQuestionnaireFile, setSmartBatchQuestionnaireFile] = useState<File | null>(null); // New: Questionnaire File
     const [smartBatchLogs, setSmartBatchLogs] = useState<string[]>([]);
     const [isSmartBatchProcessing, setIsSmartBatchProcessing] = useState(false);
 
@@ -370,8 +369,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const handleCriticalSave = async (record: CriticalTrackRecord) => { if (!criticalModalArchive) return; const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record); if (res.success) { setCriticalModalArchive(null); loadData(); if (onDataUpdate) onDataUpdate(); } };
     
     const handleSmartBatchFiles = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) { setSmartBatchFiles(Array.from(e.target.files)); setSmartBatchLogs([]); } };
-    const handleSmartBatchQuestionnaire = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files?.[0]) setSmartBatchQuestionnaireFile(e.target.files[0]); };
-
     const extractTextFromFile = async (file: File): Promise<string> => {
         const fileType = file.name.split('.').pop()?.toLowerCase();
         if (fileType === 'txt') return await file.text();
@@ -396,82 +393,28 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         }
         throw new Error("Unsupported format");
     };
-
-    // Helper: Read Questionnaire Excel into Map
-    const readQuestionnaireFile = async (file: File): Promise<Map<string, QuestionnaireData>> => {
-        const qMap = new Map<string, QuestionnaireData>();
-        try {
-            const arrayBuffer = await file.arrayBuffer();
-            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet) as Record<string, any>[];
-            
-            jsonData.forEach(row => {
-                const id = row['体检编号'] ? String(row['体检编号']).trim() : '';
-                if (id) {
-                    qMap.set(id, mapExcelRowToQuestionnaire(row));
-                }
-            });
-        } catch (e) {
-            console.error("Failed to parse questionnaire file", e);
-            throw new Error("问卷文件解析失败，请检查格式");
-        }
-        return qMap;
-    };
-
     const handleSmartBatchProcess = async () => {
         if (smartBatchFiles.length === 0) return;
         setIsSmartBatchProcessing(true);
         setSmartBatchLogs(["🚀 任务启动..."]);
-
-        // 1. Pre-process Questionnaire Excel if provided
-        let questionnaireMap = new Map<string, QuestionnaireData>();
-        if (smartBatchQuestionnaireFile) {
-            setSmartBatchLogs(prev => [...prev, `📂 正在预处理问卷文件: ${smartBatchQuestionnaireFile.name}...`]);
-            try {
-                questionnaireMap = await readQuestionnaireFile(smartBatchQuestionnaireFile);
-                setSmartBatchLogs(prev => [...prev, `✅ 问卷数据加载完成，共 ${questionnaireMap.size} 条记录待匹配`]);
-            } catch (e: any) {
-                setSmartBatchLogs(prev => [...prev, `❌ 问卷读取失败: ${e.message}`]);
-                setIsSmartBatchProcessing(false);
-                return;
-            }
-        }
-
-        // 2. Process PDFs
         for (const file of smartBatchFiles) {
-            setSmartBatchLogs(prev => [...prev, `📄 读取体检报告: ${file.name}`]);
+            setSmartBatchLogs(prev => [...prev, `📄 读取: ${file.name}`]);
             try {
                 const text = await extractTextFromFile(file);
-                setSmartBatchLogs(prev => [...prev, `🤖 AI 解析体检数据中...`]);
+                setSmartBatchLogs(prev => [...prev, `🤖 AI 解析中...`]);
                 const parsedRecord = await parseHealthDataFromText(text);
                 
                 if (parsedRecord.profile.name && parsedRecord.profile.name.includes('解析失败')) {
                     throw new Error(parsedRecord.profile.name);
                 }
 
-                const checkupId = parsedRecord.profile.checkupId;
-                
-                // 3. Match and Merge Questionnaire
-                if (checkupId && questionnaireMap.has(checkupId)) {
-                    setSmartBatchLogs(prev => [...prev, `🔗 成功匹配问卷数据 (编号: ${checkupId})`]);
-                    parsedRecord.questionnaire = questionnaireMap.get(checkupId)!;
-                } else if (smartBatchQuestionnaireFile) {
-                    setSmartBatchLogs(prev => [...prev, `⚠️ 未找到匹配的问卷数据 (编号: ${checkupId || '未知'})`]);
-                }
-
-                // 4. Generate Comprehensive Assessment
-                setSmartBatchLogs(prev => [...prev, `🧠 生成综合健康画像与评估...`]);
                 const assessment = await generateHealthAssessment(parsedRecord);
                 const schedule = generateFollowUpSchedule(assessment);
                 const portraits = generateSystemPortraits(parsedRecord);
                 const models = evaluateRiskModels(parsedRecord);
-                
-                // 5. Save
                 const saveRes = await saveArchive(parsedRecord, assessment, schedule, [], { portraits, models });
-                if (saveRes.success) setSmartBatchLogs(prev => [...prev, `✅ 建档完成: ${parsedRecord.profile.name}`]);
-                else setSmartBatchLogs(prev => [...prev, `❌ 保存失败: ${saveRes.message}`]);
+                if (saveRes.success) setSmartBatchLogs(prev => [...prev, `✅ 成功: ${parsedRecord.profile.name}`]);
+                else setSmartBatchLogs(prev => [...prev, `❌ 失败: ${saveRes.message}`]);
             } catch (e: any) {
                 setSmartBatchLogs(prev => [...prev, `❌ 异常: ${e.message}`]);
             }
@@ -636,52 +579,33 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             {/* Critical Modal */}
             {criticalModalArchive && <CriticalHandleModal archive={criticalModalArchive} onClose={() => setCriticalModalArchive(null)} onSave={handleCriticalSave} />}
             
-            {/* Smart Batch Modal (Updated) */}
+            {/* Smart Batch Modal / Questionnaire Import Progress */}
             {isSmartBatchModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm">
                     <div className="bg-white w-full max-w-3xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-scaleIn">
                         <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-                            <div><h3 className="text-xl font-bold text-slate-800">📂 智能批量建档</h3><p className="text-xs text-slate-500 mt-1">支持：体检报告(PDF/Docx) + 问卷数据(Excel) 自动合并建档</p></div>
-                            <button onClick={() => { setIsSmartBatchModalOpen(false); setSmartBatchLogs([]); setSmartBatchFiles([]); setSmartBatchQuestionnaireFile(null); }} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+                            <div><h3 className="text-xl font-bold text-slate-800">📂 批量处理任务</h3><p className="text-xs text-slate-500 mt-1">支持 智能建档 / 问卷更新</p></div>
+                            <button onClick={() => { setIsSmartBatchModalOpen(false); setSmartBatchLogs([]); setSmartBatchFiles([]); }} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
                         </div>
-                        <div className="flex-1 p-6 overflow-hidden flex flex-col bg-white">
+                        <div className="flex-1 p-6 overflow-hidden flex flex-col">
                             {!isSmartBatchProcessing && smartBatchLogs.length === 0 ? (
-                                <div className="flex flex-col gap-6 h-full">
-                                    {/* Upload Area for PDF Reports */}
-                                    <div className="flex-1 border-2 border-dashed border-teal-200 rounded-xl bg-teal-50/30 flex flex-col items-center justify-center p-6 relative group hover:bg-teal-50 transition-colors">
-                                        <input type="file" multiple accept=".pdf,.docx,.doc,.txt" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={handleSmartBatchFiles} />
-                                        <div className="text-4xl mb-2 opacity-50 group-hover:scale-110 transition-transform">📄</div>
-                                        <p className="text-lg font-bold text-teal-800">步骤 1: 上传体检报告 (PDF/Word)</p>
-                                        <p className="text-xs text-teal-600 mt-1">支持批量选择多个文件</p>
-                                        {smartBatchFiles.length > 0 && <div className="mt-2 bg-white px-3 py-1 rounded text-sm text-teal-700 shadow-sm">已选择 {smartBatchFiles.length} 个文件</div>}
-                                    </div>
-
-                                    {/* Upload Area for Questionnaire Excel */}
-                                    <div className="flex-1 border-2 border-dashed border-indigo-200 rounded-xl bg-indigo-50/30 flex flex-col items-center justify-center p-6 relative group hover:bg-indigo-50 transition-colors">
-                                        <input type="file" accept=".xlsx, .xls" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={handleSmartBatchQuestionnaire} />
-                                        <div className="text-4xl mb-2 opacity-50 group-hover:scale-110 transition-transform">📊</div>
-                                        <p className="text-lg font-bold text-indigo-800">步骤 2: 上传问卷数据表 (Excel) [可选]</p>
-                                        <p className="text-xs text-indigo-600 mt-1">若上传，系统将根据【体检编号】自动匹配合并</p>
-                                        {smartBatchQuestionnaireFile && <div className="mt-2 bg-white px-3 py-1 rounded text-sm text-indigo-700 shadow-sm">已选择: {smartBatchQuestionnaireFile.name}</div>}
-                                    </div>
+                                <div className="flex-1 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 flex flex-col items-center justify-center p-10 relative">
+                                    <input type="file" multiple accept=".pdf,.docx,.doc,.txt" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleSmartBatchFiles} />
+                                    <div className="text-5xl mb-4 opacity-50">📤</div><p className="text-lg font-bold text-slate-600">拖拽上传文件 (仅限智能建档)</p>
+                                    <p className="text-xs text-slate-400 mt-2">注意：问卷更新请使用上方工具栏的"导入问卷更新档案"按钮</p>
                                 </div>
                             ) : (
-                                <div className="flex-1 bg-black rounded-xl p-4 font-mono text-xs text-green-400 overflow-y-auto shadow-inner">
-                                    {smartBatchLogs.map((log, i) => <div key={i} className="mb-1 border-b border-white/5 pb-0.5">{log}</div>)}
+                                <div className="flex-1 bg-black rounded-xl p-4 font-mono text-xs text-green-400 overflow-y-auto">
+                                    {smartBatchLogs.map((log, i) => <div key={i} className="mb-1">{log}</div>)}
                                     {isSmartBatchProcessing && <div className="animate-pulse">_</div>}
                                 </div>
                             )}
                         </div>
                         <div className="p-6 border-t border-slate-200 bg-white flex justify-between items-center">
-                            <div className="text-sm text-slate-500">
-                                {smartBatchFiles.length > 0 ? `就绪: ${smartBatchFiles.length} 份报告` : '请先上传文件'}
-                                {smartBatchQuestionnaireFile ? ` + 问卷数据` : ''}
-                            </div>
+                            <div className="text-sm text-slate-500">{smartBatchFiles.length > 0 ? `已选择 ${smartBatchFiles.length} 个文件` : ''}</div>
                             <div className="flex gap-3">
-                                <button onClick={() => { setSmartBatchFiles([]); setSmartBatchLogs([]); setSmartBatchQuestionnaireFile(null); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded font-bold" disabled={isSmartBatchProcessing}>重置</button>
-                                <button onClick={handleSmartBatchProcess} disabled={isSmartBatchProcessing || smartBatchFiles.length === 0} className="bg-teal-600 text-white px-8 py-2 rounded-lg font-bold hover:bg-teal-700 shadow-lg disabled:opacity-50 disabled:shadow-none transition-all active:scale-95 flex items-center gap-2">
-                                    {isSmartBatchProcessing ? '🚀 全速处理中...' : '✨ 开始智能建档'}
-                                </button>
+                                <button onClick={() => { setSmartBatchFiles([]); setSmartBatchLogs([]); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded font-bold" disabled={isSmartBatchProcessing}>重置</button>
+                                {smartBatchFiles.length > 0 && <button onClick={handleSmartBatchProcess} disabled={isSmartBatchProcessing} className="bg-teal-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-teal-700 shadow-lg disabled:opacity-50">{isSmartBatchProcessing ? '🚀 处理中...' : '开始导入'}</button>}
                             </div>
                         </div>
                     </div>
