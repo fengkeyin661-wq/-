@@ -160,88 +160,30 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         loadData();
     };
 
-    // --- NEW: Batch Update Questionnaire Logic ---
-    const mapExcelRowToQuestionnaire = (row: any): QuestionnaireData => {
-        // Helper to get string safely
-        const get = (key: string) => row[key] ? String(row[key]).trim() : '';
-        const has = (key: string, val: string) => get(key).includes(val);
-        const split = (key: string) => get(key).split(/[,，、;；]/).map(s => s.trim()).filter(s => s);
-
-        return {
-            history: {
-                diseases: split('既往病史'),
-                details: {
-                    hypertensionYear: get('高血压确诊年份'),
-                    diabetesYear: get('糖尿病确诊年份'),
-                    // Add more mappings as needed from Excel columns
-                },
-                surgeries: get('手术史')
-            },
-            femaleHealth: {
-                menopauseStatus: get('绝经状态') // 已绝经/未绝经
-            },
-            familyHistory: {
-                diabetes: has('家族史', '糖尿病'),
-                hypertension: has('家族史', '高血压'),
-                stroke: has('家族史', '脑卒中') || has('家族史', '中风'),
-                lungCancer: has('家族史', '肺癌'),
-                colonCancer: has('家族史', '肠癌'),
-                parentHipFracture: has('家族史', '骨折'),
-                breastCancer: has('家族史', '乳腺癌')
-            },
-            medication: {
-                isRegular: has('是否服药', '是') || has('服药情况', '规律') ? '是' : '否',
-                list: get('服药详情'),
-                details: {
-                    antihypertensive: has('服药详情', '降压'),
-                    hypoglycemic: has('服药详情', '降糖') || has('服药详情', '胰岛素'),
-                    lipidLowering: has('服药详情', '降脂') || has('服药详情', '他汀')
+    // --- NEW: Batch Update Questionnaire Logic (AI Powered) ---
+    // Helper to deeply merge questionnaire data (simple version)
+    // Only merges non-empty values from source to target
+    const mergeQuestionnaire = (target: any, source: any): any => {
+        const result = { ...target };
+        for (const key in source) {
+            if (source[key] !== null && source[key] !== undefined && source[key] !== '') {
+                if (typeof source[key] === 'object' && !Array.isArray(source[key])) {
+                    result[key] = mergeQuestionnaire(result[key] || {}, source[key]);
+                } else if (Array.isArray(source[key])) {
+                    if (source[key].length > 0) result[key] = source[key];
+                } else {
+                    result[key] = source[key];
                 }
-            },
-            diet: {
-                habits: split('饮食习惯') // e.g. 偏咸, 偏油
-            },
-            hydration: {},
-            exercise: {
-                frequency: get('运动频率') // e.g. 每周3-5次
-            },
-            sleep: {
-                hours: get('睡眠时长'),
-                snore: get('打鼾情况')
-            },
-            respiratory: {
-                chronicCough: has('呼吸症状', '咳'),
-                shortBreath: has('呼吸症状', '气短')
-            },
-            substances: {
-                smoking: {
-                    status: get('吸烟情况'), // 从不/已戒烟/目前吸烟
-                    dailyAmount: parseFloat(get('日吸烟量')) || undefined,
-                    years: parseFloat(get('吸烟年限')) || undefined
-                },
-                alcohol: {
-                    status: get('饮酒情况')
-                }
-            },
-            mentalScales: {
-                // Allows direct import of scores if calculated outside
-                phq9Score: parseInt(get('PHQ9评分')) || undefined,
-                gad7Score: parseInt(get('GAD7评分')) || undefined
-            },
-            mental: {
-                stressLevel: get('压力状况')
-            },
-            needs: {
-                desiredSupport: split('健康需求')
             }
-        };
+        }
+        return result;
     };
 
     const handleBatchQuestionnaireImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!confirm("⚠️ 此操作将通过【体检编号】匹配现有档案，并覆盖用户的【健康问卷】部分，同时保留原有【体检数据】并重新触发AI评估。\n\n请确保Excel包含列：体检编号, 既往病史, 吸烟情况, 运动频率等。")) {
+        if (!confirm("⚠️ [AI 智能处理模式]\n系统将逐行识别 Excel 数据，通过体检编号匹配档案，并自动提取问卷信息（包括病史、饮食、运动等）覆盖原有问卷，随后重新触发风险评估。\n\n• 若编号已建档：更新问卷并重评\n• 若编号未建档：自动跳过\n\n确定开始吗？")) {
             e.target.value = '';
             return;
         }
@@ -259,64 +201,82 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
             if (jsonData.length === 0) throw new Error("Excel文件内容为空");
 
-            setSmartBatchLogs(prev => [...prev, `📊 发现 ${jsonData.length} 条记录，开始处理...`]);
+            setSmartBatchLogs(prev => [...prev, `📊 发现 ${jsonData.length} 条记录，开始 AI 智能识别处理...`]);
 
             let successCount = 0;
             let skipCount = 0;
 
             for (const row of jsonData as any[]) {
-                const checkupId = row['体检编号'];
+                // 1. Identify ID
+                const checkupId = row['体检编号'] || row['checkupId'] || row['ID'];
+                
                 if (!checkupId) {
-                    setSmartBatchLogs(prev => [...prev, `⚠️ 跳过: 缺少体检编号`]);
+                    setSmartBatchLogs(prev => [...prev, `⚠️ 跳过: 数据行缺少体检编号`]);
                     skipCount++;
                     continue;
                 }
 
-                // 1. Find Existing
+                // 2. Match Existing Archive
                 const existingArchive = await findArchiveByCheckupId(String(checkupId));
                 if (!existingArchive) {
-                    setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: 未找到档案 ${checkupId}`]);
+                    setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: 未找到编号 ${checkupId} 的建档记录`]);
                     skipCount++;
                     continue;
                 }
 
                 try {
-                    // 2. Map Questionnaire
-                    const newQuestionnaire = mapExcelRowToQuestionnaire(row);
-                    
-                    // 3. Merge with Existing Record (Keep Checkup Data!)
+                    setSmartBatchLogs(prev => [...prev, `🔍 识别中: ${existingArchive.name} (${checkupId})...`]);
+
+                    // 3. Construct Text Context for AI from Excel Row
+                    // This converts the row object e.g. { "既往病史": "高血压", "蔬菜": "300g" } into a text block
+                    const rowText = Object.entries(row)
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join('\n');
+
+                    // 4. AI Parse (Using the same engine as "Supplement Questionnaire")
+                    const parsedRecord = await parseHealthDataFromText(rowText);
+                    const newQuestionnaire = parsedRecord.questionnaire;
+
+                    // 5. Smart Merge with Existing Record
+                    // We keep the existing Checkup Data (Objective), replace/merge Questionnaire (Subjective)
+                    const updatedQuestionnaire = mergeQuestionnaire(
+                        existingArchive.health_record.questionnaire, 
+                        newQuestionnaire
+                    );
+
                     const updatedRecord: HealthRecord = {
                         ...existingArchive.health_record,
-                        questionnaire: newQuestionnaire,
-                        // Ensure profile data isn't lost if partial
+                        questionnaire: updatedQuestionnaire,
+                        // Ensure profile consistency
                         profile: existingArchive.health_record.profile
                     };
 
-                    setSmartBatchLogs(prev => [...prev, `🤖 AI 重新评估: ${existingArchive.name}`]);
-
-                    // 4. Re-run AI Assessment
+                    // 6. Trigger AI Re-Assessment
                     const newAssessment = await generateHealthAssessment(updatedRecord);
                     const newSchedule = generateFollowUpSchedule(newAssessment);
+                    
+                    // 7. Update Models & Portraits
                     const portraits = generateSystemPortraits(updatedRecord);
                     const models = evaluateRiskModels(updatedRecord);
 
-                    // 5. Save
+                    // 8. Save
                     await saveArchive(
                         updatedRecord, 
                         newAssessment, 
                         newSchedule, 
-                        existingArchive.follow_ups, // Keep history
+                        existingArchive.follow_ups, // Keep existing follow-up history
                         { portraits, models }
                     );
 
+                    setSmartBatchLogs(prev => [...prev, `✅ 更新成功: ${existingArchive.name} (风险:${newAssessment.riskLevel})`]);
                     successCount++;
-                    // Optional: Scroll log
+
                 } catch (err: any) {
-                    setSmartBatchLogs(prev => [...prev, `❌ 失败 ${checkupId}: ${err.message}`]);
+                    setSmartBatchLogs(prev => [...prev, `❌ 处理失败 ${checkupId}: ${err.message}`]);
                 }
             }
 
-            setSmartBatchLogs(prev => [...prev, `✅ 完成! 成功更新: ${successCount}, 跳过: ${skipCount}`]);
+            setSmartBatchLogs(prev => [...prev, `🎉 全部完成! 成功更新: ${successCount}, 跳过/未建档: ${skipCount}`]);
             loadData(); // Refresh list
 
         } catch (error: any) {
@@ -472,7 +432,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <button 
                         onClick={() => questionnaireImportRef.current?.click()}
                         className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1"
-                        title="基于Excel体检编号，批量导入问卷并更新风险评估"
+                        title="基于Excel体检编号，批量AI识别问卷并更新风险评估"
                     >
                         📝 导入问卷更新档案
                     </button>
