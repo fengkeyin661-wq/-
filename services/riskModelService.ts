@@ -125,6 +125,10 @@ export const evaluateRiskModels = (record: HealthRecord): PredictionModelResult[
 
             // COPD & Lung Cancer specific
             case 'packYears': 
+                // Explicitly check for "Never Smoked" to default to 0
+                if (q.substances.smoking.status === '从不吸烟' || q.substances.smoking.status === '从不') {
+                    return 0;
+                }
                 const py = q.substances.smoking.packYears;
                 if (py !== undefined && py !== null && py > 0) return py;
                 // Fallback calc: (Daily / 20) * Years

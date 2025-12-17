@@ -143,7 +143,19 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
     4. **关键字段识别**：
        - **体检编号 (checkupId)**：请务必精确抓取**6位纯数字**的编号（如：801234）。报告中通常包含10位或更长的“登记流水号”、“条码号”或“样本号”，请**绝对不要**将其作为体检编号。只提取那个6位数的。
-       - **问卷选项提取**：请根据文本中如“膳食习惯”、“运动频率”、“睡眠质量”等关键词提取对应的选项值。
+       - **问卷选项提取**：请根据文本内容提取对应选项。
+       - **Q17 家族史提取**：请识别以下特定家族史，并映射到 familyHistory 字段：
+         - "父亲 - 冠心病/心肌梗死" -> fatherCvdEarly (若提及)
+         - "母亲 - 冠心病/心肌梗死" -> motherCvdEarly (若提及)
+         - "父亲/母亲 - 脑卒中" -> stroke: true
+         - "兄弟姐妹 - 糖尿病" 或 "父母 - 糖尿病" -> diabetes: true
+         - "高血压" -> hypertension: true
+         - "肺癌" -> lungCancer: true
+         - "结直肠癌" -> colonCancer: true
+       - **Q21 主食类型 (diet.stapleType)**：请精确匹配选项："以精米白面为主" 或 "常吃粗粮杂豆根块类（≥1次/周）"。
+       - **Q23 蔬菜摄入 (diet.dailyVeg)**：请精确匹配选项："每天≥300克"、"每天约150－300克" 或 "摄入较少（＜150克）"。
+       - **Q24 水果摄入 (diet.dailyFruit)**：请精确匹配选项："每天≥200克"、"每天约100－200克" 或 "摄入较少（＜100克）"。
+       
        - **心理量表提取 (PHQ-9/GAD-7)**：请识别量表中的每一项选择。评分标准：完全不会=0, 好几天=1, 一半以上=2, 几乎每天=3。
          - **phq9Detail**: 长度为9的数字数组，对应PHQ-9第1-9题得分。
          - **gad7Detail**: 长度为7的数字数组，对应GAD-7第1-7题得分。
@@ -169,7 +181,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
       },
       "questionnaire": {
          "history": { "diseases": ["string"], "details": { "hypertensionYear": "string", "diabetesYear": "string" } },
-         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "cancer": boolean, "fatherCvdEarly": boolean, "motherCvdEarly": boolean },
+         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "lungCancer": boolean, "colonCancer": boolean, "fatherCvdEarly": boolean, "motherCvdEarly": boolean },
          "medication": { "isRegular": "string", "list": "string", "details": { "antihypertensive": boolean, "hypoglycemic": boolean, "lipidLowering": boolean } },
          "diet": { 
              "habits": ["string"], "stapleType": "string", "coarseGrainFreq": "string", 
