@@ -160,88 +160,111 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         loadData();
     };
 
-    // --- NEW: Batch Update Questionnaire Logic ---
-    const mapExcelRowToQuestionnaire = (row: any): QuestionnaireData => {
-        // Helper to get string safely
-        const get = (key: string) => row[key] ? String(row[key]).trim() : '';
-        const has = (key: string, val: string) => get(key).includes(val);
-        const split = (key: string) => get(key).split(/[,，、;；]/).map(s => s.trim()).filter(s => s);
-
-        return {
-            history: {
-                diseases: split('既往病史'),
-                details: {
-                    hypertensionYear: get('高血压确诊年份'),
-                    diabetesYear: get('糖尿病确诊年份'),
-                    // Add more mappings as needed from Excel columns
-                },
-                surgeries: get('手术史')
-            },
-            femaleHealth: {
-                menopauseStatus: get('绝经状态') // 已绝经/未绝经
-            },
-            familyHistory: {
-                diabetes: has('家族史', '糖尿病'),
-                hypertension: has('家族史', '高血压'),
-                stroke: has('家族史', '脑卒中') || has('家族史', '中风'),
-                lungCancer: has('家族史', '肺癌'),
-                colonCancer: has('家族史', '肠癌'),
-                parentHipFracture: has('家族史', '骨折'),
-                breastCancer: has('家族史', '乳腺癌')
-            },
-            medication: {
-                isRegular: has('是否服药', '是') || has('服药情况', '规律') ? '是' : '否',
-                list: get('服药详情'),
-                details: {
-                    antihypertensive: has('服药详情', '降压'),
-                    hypoglycemic: has('服药详情', '降糖') || has('服药详情', '胰岛素'),
-                    lipidLowering: has('服药详情', '降脂') || has('服药详情', '他汀')
-                }
-            },
-            diet: {
-                habits: split('饮食习惯') // e.g. 偏咸, 偏油
-            },
-            hydration: {},
-            exercise: {
-                frequency: get('运动频率') // e.g. 每周3-5次
-            },
-            sleep: {
-                hours: get('睡眠时长'),
-                snore: get('打鼾情况')
-            },
-            respiratory: {
-                chronicCough: has('呼吸症状', '咳'),
-                shortBreath: has('呼吸症状', '气短')
-            },
-            substances: {
-                smoking: {
-                    status: get('吸烟情况'), // 从不/已戒烟/目前吸烟
-                    dailyAmount: parseFloat(get('日吸烟量')) || undefined,
-                    years: parseFloat(get('吸烟年限')) || undefined
-                },
-                alcohol: {
-                    status: get('饮酒情况')
-                }
-            },
-            mentalScales: {
-                // Allows direct import of scores if calculated outside
-                phq9Score: parseInt(get('PHQ9评分')) || undefined,
-                gad7Score: parseInt(get('GAD7评分')) || undefined
-            },
-            mental: {
-                stressLevel: get('压力状况')
-            },
-            needs: {
-                desiredSupport: split('健康需求')
+    // --- Enhanced Batch Import Logic ---
+    
+    // 1. Helper to find value from row using multiple possible aliases
+    const getVal = (row: any, aliases: string[]): string | undefined => {
+        for (const alias of aliases) {
+            if (row[alias] !== undefined && row[alias] !== null && String(row[alias]).trim() !== '') {
+                return String(row[alias]).trim();
             }
-        };
+        }
+        return undefined;
+    };
+
+    // 2. Safe Deep Merge: Only update fields present in Excel, preserving existing data
+    const mergeQuestionnaire = (existing: QuestionnaireData, row: any): QuestionnaireData => {
+        // Deep clone to avoid mutating state directly
+        const q = JSON.parse(JSON.stringify(existing));
+
+        // --- History ---
+        const hist = getVal(row, ['既往病史', '病史', '既往史', '疾病史']);
+        if (hist) q.history.diseases = hist.split(/[,，、;；]/).map((s: string) => s.trim()).filter(Boolean);
+
+        const htnYear = getVal(row, ['高血压确诊年份', '高血压年份']);
+        if (htnYear) q.history.details.hypertensionYear = htnYear;
+
+        const dmYear = getVal(row, ['糖尿病确诊年份', '糖尿病年份']);
+        if (dmYear) q.history.details.diabetesYear = dmYear;
+
+        const surgery = getVal(row, ['手术史', '手术及外伤']);
+        if (surgery) q.history.surgeries = surgery;
+
+        // --- Family ---
+        const fam = getVal(row, ['家族史', '家族病史', '父母病史']);
+        if (fam) {
+            q.familyHistory = {
+                diabetes: fam.includes('糖尿病'),
+                hypertension: fam.includes('高血压'),
+                stroke: fam.includes('脑卒中') || fam.includes('中风'),
+                lungCancer: fam.includes('肺癌'),
+                colonCancer: fam.includes('肠癌'),
+                parentHipFracture: fam.includes('骨折'),
+                breastCancer: fam.includes('乳腺癌'),
+                fatherCvdEarly: fam.includes('父亲早发'),
+                motherCvdEarly: fam.includes('母亲早发')
+            };
+        }
+
+        // --- Meds ---
+        const medStatus = getVal(row, ['是否服药', '服药情况', '用药情况']);
+        if (medStatus) q.medication.isRegular = (medStatus.includes('是') || medStatus.includes('规律')) ? '是' : '否';
+
+        const medList = getVal(row, ['服药详情', '具体药物', '药物名称']);
+        if (medList) {
+            q.medication.list = medList;
+            q.medication.details = {
+                antihypertensive: medList.includes('降压'),
+                hypoglycemic: medList.includes('降糖') || medList.includes('胰岛素'),
+                lipidLowering: medList.includes('降脂') || medList.includes('他汀'),
+                antiplatelet: medList.includes('阿司匹林')
+            };
+        }
+
+        // --- Lifestyle ---
+        const smoke = getVal(row, ['吸烟情况', '吸烟状态', '是否吸烟']);
+        if (smoke) q.substances.smoking.status = smoke;
+
+        const smokeAmt = getVal(row, ['日吸烟量', '每日吸烟', '吸烟量']);
+        if (smokeAmt) q.substances.smoking.dailyAmount = parseFloat(smokeAmt);
+
+        const smokeYear = getVal(row, ['吸烟年限', '烟龄']);
+        if (smokeYear) q.substances.smoking.years = parseFloat(smokeYear);
+
+        const drink = getVal(row, ['饮酒情况', '饮酒状态', '是否饮酒']);
+        if (drink) q.substances.alcohol.status = drink;
+
+        const exercise = getVal(row, ['运动频率', '锻炼频率', '每周运动']);
+        if (exercise) q.exercise.frequency = exercise;
+
+        const sleep = getVal(row, ['睡眠时长', '睡眠时间', '每天睡眠']);
+        if (sleep) q.sleep.hours = sleep;
+
+        // --- Symptoms ---
+        const cough = getVal(row, ['咳嗽', '经常咳嗽']);
+        if (cough) q.respiratory.chronicCough = cough.includes('是') || cough.includes('经常');
+
+        const breath = getVal(row, ['气短', '活动后气短']);
+        if (breath) q.respiratory.shortBreath = breath.includes('是') || breath.includes('有');
+
+        // --- Mental ---
+        const stress = getVal(row, ['压力状况', '压力']);
+        if (stress) q.mental.stressLevel = stress;
+
+        const phq = getVal(row, ['PHQ9', 'PHQ9评分', '抑郁评分']);
+        if (phq) q.mentalScales.phq9Score = parseInt(phq);
+
+        const gad = getVal(row, ['GAD7', 'GAD7评分', '焦虑评分']);
+        if (gad) q.mentalScales.gad7Score = parseInt(gad);
+
+        return q;
     };
 
     const handleBatchQuestionnaireImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!confirm("⚠️ 此操作将通过【体检编号】匹配现有档案，并更新【健康问卷】。\n\n若档案不存在且提供了【姓名】，系统将尝试【新建档案】。\n\n请确保Excel包含列：体检编号, (可选: 姓名, 性别, 年龄, 部门), 既往病史, 吸烟情况, 运动频率等。")) {
+        if (!confirm("⚠️ 确认导入？\n\n系统将智能合并Excel数据到现有档案中，并保留原有体检数据，随后自动触发AI重新进行风险评估。")) {
             e.target.value = '';
             return;
         }
@@ -266,7 +289,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
             for (const row of jsonData as any[]) {
                 // Robust ID extraction
-                const rawId = row['体检编号'] || row['编号'] || row['ID'];
+                const rawId = row['体检编号'] || row['编号'] || row['ID'] || row['档案号'];
                 const checkupId = rawId ? String(rawId).trim() : '';
 
                 if (!checkupId) {
@@ -287,42 +310,46 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         // 2a. Try Create if Name exists
                         const name = row['姓名'] ? String(row['姓名']).trim() : '';
                         if (name) {
-                            setSmartBatchLogs(prev => [...prev, `✨ 未找到 ${checkupId}，尝试新建档案: ${name}`]);
+                            setSmartBatchLogs(prev => [...prev, `✨ 新建档案: ${name} (${checkupId})`]);
                             actionType = 'create';
-                            const gender = row['性别'] ? String(row['性别']).trim() : '未说明';
-                            const age = row['年龄'] ? Number(row['年龄']) : 0;
-                            const dept = row['部门'] ? String(row['部门']).trim() : '';
-
+                            const defaultQ = {
+                                history: { diseases: [], details: {} },
+                                femaleHealth: {}, familyHistory: {}, medication: { isRegular: '否', details: {} },
+                                diet: { habits: [] }, hydration: {}, exercise: {}, sleep: {}, respiratory: {},
+                                substances: { smoking: {}, alcohol: {} }, mentalScales: {}, mental: {}, needs: {}
+                            };
+                            
                             updatedRecord = {
                                 profile: {
                                     checkupId: checkupId,
                                     name: name,
-                                    gender: gender,
-                                    age: age,
-                                    department: dept,
+                                    gender: row['性别'] ? String(row['性别']).trim() : '未说明',
+                                    age: row['年龄'] ? Number(row['年龄']) : 0,
+                                    department: row['部门'] ? String(row['部门']).trim() : '',
                                     phone: row['电话'] ? String(row['电话']).trim() : ''
                                 },
-                                checkup: { basics: {}, labBasic: {}, imagingBasic: { ultrasound: {} }, optional: {}, abnormalities: [] } as any, // Empty checkup placeholder
-                                questionnaire: mapExcelRowToQuestionnaire(row)
+                                checkup: { basics: {}, labBasic: {}, imagingBasic: { ultrasound: {} }, optional: {}, abnormalities: [] } as any, 
+                                questionnaire: mergeQuestionnaire(defaultQ, row) // Merge into default
                             };
                         } else {
-                            setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: 未找到档案 ${checkupId} 且Excel缺少'姓名'列`]);
+                            setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: ${checkupId} 不存在且无姓名`]);
                             skipCount++;
                             continue;
                         }
                     } else {
-                        // 2b. Update Existing
+                        // 2b. Update Existing (CRITICAL FIX: PRESERVE CHECKUP DATA)
                         actionType = 'update';
                         existingFollowUps = existingArchive.follow_ups || [];
+                        
+                        // Merge logic: Existing Record + New Questionnaire Data
                         updatedRecord = {
-                            ...existingArchive.health_record,
-                            questionnaire: mapExcelRowToQuestionnaire(row),
-                            // Ensure profile data matches excel if provided, or keep existing
+                            ...existingArchive.health_record, // Keep Checkup Data
+                            questionnaire: mergeQuestionnaire(existingArchive.health_record.questionnaire, row), // Deep Merge
+                            // Optional: Update profile fields if present
                             profile: {
                                 ...existingArchive.health_record.profile,
-                                // Optional: Update phone/dept if present in Excel
-                                department: row['部门'] ? String(row['部门']).trim() : existingArchive.health_record.profile.department,
-                                phone: row['电话'] ? String(row['电话']).trim() : existingArchive.health_record.profile.phone
+                                phone: getVal(row, ['电话', '手机']) || existingArchive.health_record.profile.phone,
+                                department: getVal(row, ['部门', '单位']) || existingArchive.health_record.profile.department
                             }
                         };
                     }
@@ -331,14 +358,15 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         setSmartBatchLogs(prev => [...prev, `📝 更新档案: ${updatedRecord.profile.name}`]);
                     }
 
-                    // 4. Re-run AI Assessment
+                    // 4. Re-run AI Assessment (With combined data)
+                    // The updatedRecord now contains OLD checkup data + NEW questionnaire data
                     const newAssessment = await generateHealthAssessment(updatedRecord);
                     const newSchedule = generateFollowUpSchedule(newAssessment);
                     const portraits = generateSystemPortraits(updatedRecord);
                     const models = evaluateRiskModels(updatedRecord);
 
                     // 5. Save
-                    await saveArchive(
+                    const saveRes = await saveArchive(
                         updatedRecord, 
                         newAssessment, 
                         newSchedule, 
@@ -346,13 +374,19 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         { portraits, models }
                     );
 
+                    if (saveRes.success) {
+                        // successCount++; // Counted below
+                    } else {
+                        throw new Error(saveRes.message);
+                    }
+
                     successCount++;
                 } catch (err: any) {
                     setSmartBatchLogs(prev => [...prev, `❌ 失败 ${checkupId}: ${err.message}`]);
                 }
             }
 
-            setSmartBatchLogs(prev => [...prev, `✅ 完成! 成功: ${successCount}, 跳过: ${skipCount}`]);
+            setSmartBatchLogs(prev => [...prev, `✅ 全部完成! 成功: ${successCount}, 跳过: ${skipCount}`]);
             loadData(); // Refresh list
 
         } catch (error: any) {
@@ -508,7 +542,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <button 
                         onClick={() => questionnaireImportRef.current?.click()}
                         className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1"
-                        title="基于Excel体检编号，批量导入问卷并更新档案。若档案不存在且含姓名，将自动新建。"
+                        title="基于Excel体检编号，智能合并问卷并触发AI重新评估。若档案不存在且含姓名，将自动新建。"
                     >
                         📝 导入问卷更新/建档
                     </button>
