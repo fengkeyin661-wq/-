@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { HealthArchive } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
@@ -81,15 +80,21 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
         }
     };
 
+    const stageTitle = isSecondary ? "阶段二：疗效追踪与归档" : "阶段一：初次通知与处置";
+    const headerColor = isSecondary ? "border-orange-500" : "border-red-600";
+    const titleColor = isSecondary ? "text-orange-700" : "text-red-700";
+
     return (
         <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-center justify-center backdrop-blur-sm animate-fadeIn">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl p-8 animate-scaleIn border-t-8 border-red-600 max-h-[90vh] overflow-y-auto">
+            <div className={`bg-white rounded-xl shadow-2xl w-full max-w-3xl p-8 animate-scaleIn border-t-8 ${headerColor} max-h-[90vh] overflow-y-auto`}>
                 <div className="flex justify-between items-start mb-6 border-b pb-4">
                     <div>
-                        <h2 className="text-2xl font-bold text-red-700 flex items-center gap-2">
-                            <span>🚨</span> 重要异常结果记录表
+                        <h2 className={`text-2xl font-bold ${titleColor} flex items-center gap-2`}>
+                            <span>{isSecondary ? '📝' : '🚨'}</span> 危急值管理 - {stageTitle}
                         </h2>
-                        <p className="text-slate-500 text-sm mt-1">独立危急值管理闭环</p>
+                        <p className="text-slate-500 text-sm mt-1">
+                            {isSecondary ? '请确认复查结果并完成闭环管理' : '请立即通知受检者并记录反馈'}
+                        </p>
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
                 </div>
@@ -114,7 +119,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                     <div className="grid grid-cols-2 gap-6">
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-2">危急等级 (可多选)</label>
-                            <div className="flex gap-4 p-3 bg-slate-50 rounded border border-slate-200">
+                            <div className={`flex gap-4 p-3 rounded border border-slate-200 ${isSecondary ? 'bg-slate-100 opacity-80' : 'bg-slate-50'}`}>
                                 <label className="flex items-center gap-2 cursor-pointer">
                                     <input 
                                         type="checkbox" 
@@ -141,7 +146,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                             <label className="block text-sm font-bold text-slate-700 mb-2">危急项目名称</label>
                             <input 
                                 type="text" 
-                                className="w-full border border-slate-300 rounded p-2.5 text-sm"
+                                className={`w-full border border-slate-300 rounded p-2.5 text-sm ${isSecondary ? 'bg-slate-100' : ''}`}
                                 value={form.critical_item}
                                 onChange={e => !isSecondary && setForm({...form, critical_item: e.target.value})}
                                 disabled={isSecondary}
@@ -152,20 +157,23 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">异常描述</label>
                         <textarea 
-                            className="w-full border border-slate-300 rounded p-2 text-sm h-20 bg-slate-50"
+                            className={`w-full border border-slate-300 rounded p-2 text-sm h-20 ${isSecondary ? 'bg-slate-100 text-slate-600' : 'bg-slate-50'}`}
                             value={form.critical_desc}
                             onChange={e => !isSecondary && setForm({...form, critical_desc: e.target.value})}
                             disabled={isSecondary}
                         />
                     </div>
 
-                    <div className={`p-4 rounded-lg border-l-4 ${isSecondary ? 'bg-slate-50 border-slate-300 opacity-60' : 'bg-red-50 border-red-500'}`}>
-                        <h4 className="font-bold text-slate-800 mb-3 flex justify-between">
-                            <span>1. 初次通知与处理</span>
-                            <span className="text-xs font-normal text-slate-500">通知时间: {form.initial_notify_time}</span>
+                    <div className={`p-4 rounded-lg border-l-4 transition-all ${isSecondary ? 'bg-slate-50 border-slate-300 opacity-70' : 'bg-red-50 border-red-500'}`}>
+                        <h4 className="font-bold text-slate-800 mb-3 flex justify-between items-center">
+                            <span className="flex items-center gap-2">
+                                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs text-white ${isSecondary ? 'bg-slate-400' : 'bg-red-500'}`}>1</span>
+                                初次通知与处理记录
+                            </span>
+                            <span className="text-xs font-normal text-slate-500 bg-white px-2 py-1 rounded border">通知时间: {form.initial_notify_time}</span>
                         </h4>
                         <textarea 
-                            className="w-full border border-slate-300 rounded p-2 text-sm h-24 focus:ring-2 focus:ring-red-500"
+                            className={`w-full border rounded p-2 text-sm h-24 ${isSecondary ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-white border-red-200 focus:ring-2 focus:ring-red-500'}`}
                             placeholder="请记录通知对象（本人/家属/单位）、通话情况及处置建议..."
                             value={form.initial_feedback}
                             onChange={e => !isSecondary && setForm({...form, initial_feedback: e.target.value})}
@@ -174,16 +182,20 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                     </div>
 
                     {isSecondary && (
-                        <div className="p-4 rounded-lg border-l-4 bg-orange-50 border-orange-500 animate-slideInRight">
-                            <h4 className="font-bold text-slate-800 mb-3 flex justify-between">
-                                <span>2. 二次回访追踪</span>
-                                <span className="text-xs font-normal text-slate-500">计划日期: {form.secondary_due_date}</span>
+                        <div className="p-4 rounded-lg border-l-4 bg-orange-50 border-orange-500 animate-slideUp">
+                            <h4 className="font-bold text-slate-800 mb-3 flex justify-between items-center">
+                                <span className="flex items-center gap-2">
+                                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs text-white bg-orange-500">2</span>
+                                    二次回访追踪记录
+                                </span>
+                                <span className="text-xs font-normal text-orange-700 bg-orange-100 px-2 py-1 rounded">计划日期: {form.secondary_due_date}</span>
                             </h4>
                             <textarea 
-                                className="w-full border border-slate-300 rounded p-2 text-sm h-24 focus:ring-2 focus:ring-orange-500"
+                                className="w-full border border-orange-300 rounded p-2 text-sm h-24 focus:ring-2 focus:ring-orange-500 bg-white"
                                 placeholder="请记录复查结果、治疗进展及干预效果..."
                                 value={form.secondary_feedback}
                                 onChange={e => setForm({...form, secondary_feedback: e.target.value})}
+                                autoFocus
                             />
                         </div>
                     )}
@@ -193,11 +205,11 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                     <button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold">取消</button>
                     <button 
                         onClick={handleSubmit}
-                        className={`px-6 py-2 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 ${
+                        className={`px-6 py-2 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 transition-transform active:scale-95 ${
                             isSecondary ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-600 hover:bg-red-700'
                         }`}
                     >
-                        {isSecondary ? '✅ 完成归档' : '💾 确认通知并列入回访'}
+                        {isSecondary ? '✅ 完成归档 (Archive)' : '💾 确认通知并列入回访'}
                     </button>
                 </div>
             </div>
