@@ -402,6 +402,7 @@ export const updateArchiveProfile = async (dbId: string, newProfile: HealthProfi
             const idx = all.findIndex(a => a.id === dbId);
             if (idx >= 0) {
                 all[idx].health_record.profile = newProfile;
+                all[idx].checkup_id = newProfile.checkupId; // Update business key
                 all[idx].name = newProfile.name;
                 all[idx].phone = newProfile.phone;
                 all[idx].department = newProfile.department;
@@ -415,6 +416,7 @@ export const updateArchiveProfile = async (dbId: string, newProfile: HealthProfi
         if (isSupabaseConfigured()) {
             // Update root fields
             const { error } = await supabase.from('health_archives').update({
+                checkup_id: newProfile.checkupId, // Update business key
                 name: newProfile.name,
                 phone: newProfile.phone,
                 department: newProfile.department,

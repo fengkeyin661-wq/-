@@ -544,7 +544,23 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl animate-scaleIn">
                         <h3 className="text-lg font-bold text-slate-800 mb-4">编辑档案信息</h3>
                         <div className="space-y-4">
-                            <div><label className="block text-xs font-bold text-slate-500 mb-1">姓名</label><input className="w-full border p-2 rounded" value={editForm.name} onChange={e => setEditForm({...editForm!, name: e.target.value})} /></div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">体检编号</label>
+                                <input 
+                                    className="w-full border p-2 rounded bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none transition-colors" 
+                                    value={editForm.checkupId || ''} 
+                                    onChange={e => setEditForm({...editForm!, checkupId: e.target.value})} 
+                                    placeholder="请输入唯一体检编号"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">姓名</label>
+                                <input 
+                                    className="w-full border p-2 rounded focus:ring-2 focus:ring-teal-500 outline-none" 
+                                    value={editForm.name} 
+                                    onChange={e => setEditForm({...editForm!, name: e.target.value})} 
+                                />
+                            </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-xs font-bold text-slate-500 mb-1">性别</label><select className="w-full border p-2 rounded bg-white" value={editForm.gender} onChange={e => setEditForm({...editForm!, gender: e.target.value})}><option value="男">男</option><option value="女">女</option></select></div>
                                 <div><label className="block text-xs font-bold text-slate-500 mb-1">年龄</label><input type="number" className="w-full border p-2 rounded" value={editForm.age} onChange={e => setEditForm({...editForm!, age: Number(e.target.value)})} /></div>
