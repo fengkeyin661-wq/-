@@ -142,6 +142,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
     4. **关键字段识别**：
        - **体检编号 (checkupId)**：请务必精确抓取**6位纯数字**的编号（如：801234）。报告中通常包含10位或更长的“登记流水号”、“条码号”或“样本号”，请**绝对不要**将其作为体检编号。只提取那个6位数的。
+       - **问卷选项提取**：请根据文本中如“膳食习惯”、“运动频率”、“睡眠质量”等关键词提取对应的选项值。
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
@@ -159,9 +160,25 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          "abnormalities": [ { "item": "string", "result": "string", "clinicalSig": "string" } ]
       },
       "questionnaire": {
-         "history": { "diseases": ["string"] },
-         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "cancer": boolean },
-         "substances": { "smoking": { "status": "string" }, "alcohol": { "status": "string" } }
+         "history": { "diseases": ["string"], "details": { "hypertensionYear": "string", "diabetesYear": "string" } },
+         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "cancer": boolean, "fatherCvdEarly": boolean, "motherCvdEarly": boolean },
+         "medication": { "isRegular": "string", "list": "string", "details": { "antihypertensive": boolean, "hypoglycemic": boolean, "lipidLowering": boolean } },
+         "diet": { 
+             "habits": ["string"], "stapleType": "string", "coarseGrainFreq": "string", 
+             "dailyVeg": "string", "dailyFruit": "string", "dailyMeat": "string", 
+             "dailyDairy": "string", "dailyBeanNut": "string" 
+         },
+         "hydration": { "dailyAmount": "string" },
+         "exercise": { "frequency": "string", "types": ["string"], "duration": "string" },
+         "sleep": { "hours": "string", "quality": "string", "snore": "string" },
+         "respiratory": { "chronicCough": boolean, "shortBreath": boolean },
+         "substances": { 
+             "smoking": { "status": "string", "dailyAmount": number, "years": number, "packYears": number }, 
+             "alcohol": { "status": "string", "freq": "string", "amount": "string" } 
+         },
+         "mental": { "stressLevel": "string" },
+         "mentalScales": { "phq9Score": number, "gad7Score": number },
+         "needs": { "desiredSupport": ["string"] }
       }
     }
     `;
@@ -198,6 +215,14 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
                 ...DEFAULT_HEALTH_RECORD.questionnaire,
                 ...result?.questionnaire,
                 history: { ...DEFAULT_HEALTH_RECORD.questionnaire.history, ...result?.questionnaire?.history },
+                medication: { ...DEFAULT_HEALTH_RECORD.questionnaire.medication, ...result?.questionnaire?.medication },
+                diet: { ...DEFAULT_HEALTH_RECORD.questionnaire.diet, ...result?.questionnaire?.diet },
+                hydration: { ...DEFAULT_HEALTH_RECORD.questionnaire.hydration, ...result?.questionnaire?.hydration },
+                exercise: { ...DEFAULT_HEALTH_RECORD.questionnaire.exercise, ...result?.questionnaire?.exercise },
+                sleep: { ...DEFAULT_HEALTH_RECORD.questionnaire.sleep, ...result?.questionnaire?.sleep },
+                respiratory: { ...DEFAULT_HEALTH_RECORD.questionnaire.respiratory, ...result?.questionnaire?.respiratory },
+                mental: { ...DEFAULT_HEALTH_RECORD.questionnaire.mental, ...result?.questionnaire?.mental },
+                needs: { ...DEFAULT_HEALTH_RECORD.questionnaire.needs, ...result?.questionnaire?.needs },
                 substances: {
                     ...DEFAULT_HEALTH_RECORD.questionnaire.substances,
                     ...result?.questionnaire?.substances,
