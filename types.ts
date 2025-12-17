@@ -219,9 +219,11 @@ export interface QuestionnaireData {
 
   // [NEW] 心理量表 (PHQ-9 & GAD-7)
   mentalScales: {
-      phq9Score?: number; // 0-27
-      gad7Score?: number; // 0-21
+      phq9Score?: number; // 0-27 Total
+      gad7Score?: number; // 0-21 Total
       selfHarmIdea?: number; // PHQ-9 Q9 (0-3)
+      phq9Detail?: number[]; // [NEW] Array of 9 scores (0-3)
+      gad7Detail?: number[]; // [NEW] Array of 7 scores (0-3)
   };
 
   // Q50-Q54 心理压力 (Legacy text fields)

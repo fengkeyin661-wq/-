@@ -143,6 +143,11 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     4. **关键字段识别**：
        - **体检编号 (checkupId)**：请务必精确抓取**6位纯数字**的编号（如：801234）。报告中通常包含10位或更长的“登记流水号”、“条码号”或“样本号”，请**绝对不要**将其作为体检编号。只提取那个6位数的。
        - **问卷选项提取**：请根据文本中如“膳食习惯”、“运动频率”、“睡眠质量”等关键词提取对应的选项值。
+       - **心理量表提取 (PHQ-9/GAD-7)**：请识别量表中的每一项选择。评分标准：完全不会=0, 好几天=1, 一半以上=2, 几乎每天=3。
+         - **phq9Detail**: 长度为9的数字数组，对应PHQ-9第1-9题得分。
+         - **gad7Detail**: 长度为7的数字数组，对应GAD-7第1-7题得分。
+         - **phq9Score/gad7Score**: 计算总分。
+         - **selfHarmIdea**: PHQ-9 第9题（自伤念头）的得分。
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
@@ -177,7 +182,10 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
              "alcohol": { "status": "string", "freq": "string", "amount": "string" } 
          },
          "mental": { "stressLevel": "string" },
-         "mentalScales": { "phq9Score": number, "gad7Score": number },
+         "mentalScales": { 
+             "phq9Score": number, "gad7Score": number, "selfHarmIdea": number,
+             "phq9Detail": [number], "gad7Detail": [number]
+         },
          "needs": { "desiredSupport": ["string"] }
       }
     }
@@ -222,6 +230,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
                 sleep: { ...DEFAULT_HEALTH_RECORD.questionnaire.sleep, ...result?.questionnaire?.sleep },
                 respiratory: { ...DEFAULT_HEALTH_RECORD.questionnaire.respiratory, ...result?.questionnaire?.respiratory },
                 mental: { ...DEFAULT_HEALTH_RECORD.questionnaire.mental, ...result?.questionnaire?.mental },
+                mentalScales: { ...DEFAULT_HEALTH_RECORD.questionnaire.mentalScales, ...result?.questionnaire?.mentalScales },
                 needs: { ...DEFAULT_HEALTH_RECORD.questionnaire.needs, ...result?.questionnaire?.needs },
                 substances: {
                     ...DEFAULT_HEALTH_RECORD.questionnaire.substances,

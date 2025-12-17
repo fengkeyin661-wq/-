@@ -287,9 +287,13 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
         // Mental
         if (q.mental.stressLevel) newForm.stressLevel = q.mental.stressLevel;
-        // Note: Individual matrix scores are hard to reverse map perfectly if only total score is available, 
-        // but if parsed data has them (which parseHealthDataFromText implies for structured output), we could map them. 
-        // For now we trust the user to refine the mental scales if they are critical.
+        // [UPDATED] Auto-fill mental scale details if AI successfully parsed them
+        if (q.mentalScales.phq9Detail && Array.isArray(q.mentalScales.phq9Detail) && q.mentalScales.phq9Detail.length === 9) {
+             newForm.phq9 = q.mentalScales.phq9Detail;
+        }
+        if (q.mentalScales.gad7Detail && Array.isArray(q.mentalScales.gad7Detail) && q.mentalScales.gad7Detail.length === 7) {
+             newForm.gad7 = q.mentalScales.gad7Detail;
+        }
 
         if (q.needs.desiredSupport) newForm.desiredServices = q.needs.desiredSupport;
         if (q.needs.otherSupport) newForm.otherSupport = q.needs.otherSupport;
@@ -422,7 +426,9 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
             mentalScales: {
                 phq9Score: phq9Score,
                 gad7Score: gad7Score,
-                selfHarmIdea: selfHarm
+                selfHarmIdea: selfHarm,
+                phq9Detail: form.phq9, // Save detail
+                gad7Detail: form.gad7  // Save detail
             },
             mental: {
                 stressLevel: form.stressLevel
