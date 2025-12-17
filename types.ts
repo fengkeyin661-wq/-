@@ -243,6 +243,17 @@ export interface QuestionnaireData {
     desiredSupport?: string[]; // Q58
     otherSupport?: string; // Q59
   };
+
+  // [NEW] 满意度调查
+  satisfaction?: {
+      reception?: string; // 前台接待
+      medicalStaff?: string; // 医护人员耐心
+      bloodDraw?: string; // 采血技术
+      process?: string; // 体检流程/排队
+      environment?: string; // 环境/隐私
+      dissatisfactionDetail?: string; // 具体不满
+      suggestion?: string; // 建议
+  };
 }
 
 // --- 4. 聚合数据对象 ---

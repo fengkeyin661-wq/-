@@ -124,7 +124,8 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
         substances: { smoking: {}, alcohol: {} },
         mentalScales: {},
         mental: {},
-        needs: {}
+        needs: {},
+        satisfaction: {}
     }
 };
 
@@ -148,6 +149,8 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          - **gad7Detail**: 长度为7的数字数组，对应GAD-7第1-7题得分。
          - **phq9Score/gad7Score**: 计算总分。
          - **selfHarmIdea**: PHQ-9 第9题（自伤念头）的得分。
+       - **吸烟数量**：若出现“不到半包”等描述，请映射为大致支数(半包=10, 一包=20等)填入 dailyAmount，同时保留原始描述在 status 或其他字段中。
+       - **满意度调查**：提取问卷末尾关于前台、医护、采血、流程、环境的满意度评价（如：非常满意、满意、一般、不满意），以及意见建议。
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
@@ -186,7 +189,11 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
              "phq9Score": number, "gad7Score": number, "selfHarmIdea": number,
              "phq9Detail": [number], "gad7Detail": [number]
          },
-         "needs": { "desiredSupport": ["string"] }
+         "needs": { "desiredSupport": ["string"] },
+         "satisfaction": {
+             "reception": "string", "medicalStaff": "string", "bloodDraw": "string", 
+             "process": "string", "environment": "string", "dissatisfactionDetail": "string", "suggestion": "string"
+         }
       }
     }
     `;
@@ -232,6 +239,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
                 mental: { ...DEFAULT_HEALTH_RECORD.questionnaire.mental, ...result?.questionnaire?.mental },
                 mentalScales: { ...DEFAULT_HEALTH_RECORD.questionnaire.mentalScales, ...result?.questionnaire?.mentalScales },
                 needs: { ...DEFAULT_HEALTH_RECORD.questionnaire.needs, ...result?.questionnaire?.needs },
+                satisfaction: { ...DEFAULT_HEALTH_RECORD.questionnaire.satisfaction, ...result?.questionnaire?.satisfaction },
                 substances: {
                     ...DEFAULT_HEALTH_RECORD.questionnaire.substances,
                     ...result?.questionnaire?.substances,

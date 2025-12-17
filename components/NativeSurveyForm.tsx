@@ -45,7 +45,8 @@ const OPTIONS = {
     quitDrink: ['无', '想戒', '已尝试'],
     stress: ['很小', '一般', '较大', '很大'],
     willing: ['是', '否'],
-    services: ['常见病专家门诊', '慢性病筛查与管理', '家庭医生签约服务', '急救知识培训', '就医转诊绿色通道', '中医药保健', '其他']
+    services: ['常见病专家门诊', '慢性病筛查与管理', '家庭医生签约服务', '急救知识培训', '就医转诊绿色通道', '中医药保健', '其他'],
+    satisfaction: ['非常满意', '满意', '一般', '不满意']
 };
 
 export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initialCheckupId }) => {
@@ -79,7 +80,9 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         // 46-48 Mental (Renumbered)
         stressLevel: '', phq9: Array(9).fill(null), gad7: Array(7).fill(null),
         // 49-50 Needs (Renumbered)
-        followUpWilling: '', desiredServices: [], otherSupport: ''
+        followUpWilling: '', desiredServices: [], otherSupport: '',
+        // Satisfaction
+        receptionSat: '', medicalSat: '', bloodSat: '', processSat: '', envSat: '', dissatisfyReason: '', suggestion: ''
     });
 
     useEffect(() => {
@@ -298,6 +301,17 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         if (q.needs.desiredSupport) newForm.desiredServices = q.needs.desiredSupport;
         if (q.needs.otherSupport) newForm.otherSupport = q.needs.otherSupport;
 
+        // Satisfaction
+        if (q.satisfaction) {
+            newForm.receptionSat = q.satisfaction.reception;
+            newForm.medicalSat = q.satisfaction.medicalStaff;
+            newForm.bloodSat = q.satisfaction.bloodDraw;
+            newForm.processSat = q.satisfaction.process;
+            newForm.envSat = q.satisfaction.environment;
+            newForm.dissatisfyReason = q.satisfaction.dissatisfactionDetail;
+            newForm.suggestion = q.satisfaction.suggestion;
+        }
+
         setForm(newForm);
     };
 
@@ -437,6 +451,15 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                 followUpWillingness: form.followUpWilling,
                 desiredSupport: form.desiredServices,
                 otherSupport: form.otherSupport
+            },
+            satisfaction: {
+                reception: form.receptionSat,
+                medicalStaff: form.medicalSat,
+                bloodDraw: form.bloodSat,
+                process: form.processSat,
+                environment: form.envSat,
+                dissatisfactionDetail: form.dissatisfyReason,
+                suggestion: form.suggestion
             }
         };
 
@@ -643,6 +666,22 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                         {/* Old Q50 -> Q49 */}
                         <CheckQ idx={49} label="希望校医院提供的健康服务" required options={OPTIONS.services} value={form.desiredServices} onChange={(v: any) => toggleArray('desiredServices', v)} />
                         {form.desiredServices.includes('其他') && <TextQ idx={50} label="希望获得的其他健康支持" value={form.otherSupport} onChange={(v: any) => handleChange('otherSupport', v)} />}
+                    </div>
+
+                    <div className="border-t pt-6"></div>
+
+                    {/* Section 6: Satisfaction (Added based on feedback) */}
+                    <div className="space-y-6">
+                        <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                            <h3 className="font-bold text-indigo-800 mb-4">满意度调查 (必填)</h3>
+                            <RadioQ idx={51} label="您对前台接待人员的服务态度和效率是否满意？" required options={OPTIONS.satisfaction} value={form.receptionSat} onChange={(v: any) => handleChange('receptionSat', v)} />
+                            <RadioQ idx={52} label="医护人员在检查过程中是否耐心、细致？" required options={OPTIONS.satisfaction} value={form.medicalSat} onChange={(v: any) => handleChange('medicalSat', v)} />
+                            <RadioQ idx={53} label="您对采血的技术（疼痛感、止血指导）评价如何？" required options={OPTIONS.satisfaction} value={form.bloodSat} onChange={(v: any) => handleChange('bloodSat', v)} />
+                            <RadioQ idx={54} label="您对体检流程的顺畅程度（排队时间）是否满意？" required options={OPTIONS.satisfaction} value={form.processSat} onChange={(v: any) => handleChange('processSat', v)} />
+                            <RadioQ idx={55} label="您对体检环境（卫生、标识、隐私保护）是否满意？" required options={OPTIONS.satisfaction} value={form.envSat} onChange={(v: any) => handleChange('envSat', v)} />
+                            <InputQ idx={56} label="如有不满，请指出具体环节、项目或诊室" required value={form.dissatisfyReason} onChange={(v: any) => handleChange('dissatisfyReason', v)} />
+                            <TextQ idx={57} label="您对我们还有什么建议？（选填）" value={form.suggestion} onChange={(v: any) => handleChange('suggestion', v)} />
+                        </div>
                     </div>
 
                     {/* Submit */}
