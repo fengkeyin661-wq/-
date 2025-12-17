@@ -207,19 +207,29 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             let skipCount = 0;
 
             for (const row of jsonData as any[]) {
-                // 1. Identify ID
-                const checkupId = row['体检编号'] || row['checkupId'] || row['ID'];
+                // 1. Identify ID (Enhanced logic for robustness)
+                const rawId = row['体检编号'] || row['checkupId'] || row['ID'] || row['编号'] || row['id'];
                 
-                if (!checkupId) {
+                if (!rawId) {
                     setSmartBatchLogs(prev => [...prev, `⚠️ 跳过: 数据行缺少体检编号`]);
                     skipCount++;
                     continue;
                 }
 
+                // Robust Cleaning: Convert to string, trim whitespace, remove hidden chars
+                const checkupId = String(rawId).trim().replace(/\s+/g, '');
+
                 // 2. Match Existing Archive
-                const existingArchive = await findArchiveByCheckupId(String(checkupId));
+                // Priority 1: Check In-Memory Archives (Fastest & Guaranteed sync with what user sees)
+                let existingArchive = archives.find(a => String(a.checkup_id).trim() === checkupId);
+
+                // Priority 2: Check Backend (If not in current filtered list)
                 if (!existingArchive) {
-                    setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: 未找到编号 ${checkupId} 的建档记录`]);
+                    existingArchive = (await findArchiveByCheckupId(checkupId)) || undefined;
+                }
+
+                if (!existingArchive) {
+                    setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: 未找到编号 [${checkupId}] 的建档记录`]);
                     skipCount++;
                     continue;
                 }
