@@ -134,12 +134,13 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     }
 
     const systemPrompt = `
-    你是一个专业的医疗数据结构化专家。请分析用户提供的体检报告或健康问卷文本，提取关键信息并按照 JSON 格式返回。
+    你是一个专业的医疗数据结构化专家。请分析用户提供的体检报告或健康问卷文本（可能是OCR识别的文本或Excel导出数据），提取关键信息并按照 JSON 格式返回。
     
     提取规则：
     1. 即使数据缺失，也请尽量返回结构体，数值型字段如果未找到请留空或为 null，字符串留空字符串。
     2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
+    4. **问卷数据映射**：请尽可能详细地提取问卷中的生活方式、病史、家族史等信息。
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
@@ -157,9 +158,30 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          "abnormalities": [ { "item": "string", "result": "string", "clinicalSig": "string" } ]
       },
       "questionnaire": {
-         "history": { "diseases": ["string"] },
-         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "cancer": boolean },
-         "substances": { "smoking": { "status": "string" }, "alcohol": { "status": "string" } }
+         "history": { 
+             "diseases": ["string"], 
+             "details": { "hypertensionYear": "string", "diabetesYear": "string", "tumorSite": "string", "otherHistory": "string" },
+             "surgeries": "string"
+         },
+         "familyHistory": { 
+             "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "lungCancer": boolean, "colonCancer": boolean, "fatherCvdEarly": boolean, "motherCvdEarly": boolean
+         },
+         "medication": { 
+             "isRegular": "string", 
+             "list": "string", 
+             "details": { "antihypertensive": boolean, "hypoglycemic": boolean, "lipidLowering": boolean, "antiplatelet": boolean } 
+         },
+         "diet": { "habits": ["string"], "stapleType": "string", "dailyVeg": "string", "dailyMeat": "string" },
+         "exercise": { "frequency": "string", "types": ["string"], "duration": "string" },
+         "sleep": { "hours": "string", "quality": "string", "snore": "string" },
+         "substances": { 
+             "smoking": { "status": "string", "dailyAmount": number, "years": number }, 
+             "alcohol": { "status": "string", "freq": "string", "amount": "string" } 
+         },
+         "mental": { "stressLevel": "string" },
+         "mentalScales": { "phq9Score": number, "gad7Score": number },
+         "respiratory": { "chronicCough": boolean, "shortBreath": boolean },
+         "needs": { "desiredSupport": ["string"] }
       }
     }
     `;
@@ -195,13 +217,30 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
             questionnaire: {
                 ...DEFAULT_HEALTH_RECORD.questionnaire,
                 ...result?.questionnaire,
-                history: { ...DEFAULT_HEALTH_RECORD.questionnaire.history, ...result?.questionnaire?.history },
+                history: { 
+                    ...DEFAULT_HEALTH_RECORD.questionnaire.history, 
+                    ...result?.questionnaire?.history,
+                    details: { ...DEFAULT_HEALTH_RECORD.questionnaire.history.details, ...result?.questionnaire?.history?.details }
+                },
+                familyHistory: { ...DEFAULT_HEALTH_RECORD.questionnaire.familyHistory, ...result?.questionnaire?.familyHistory },
+                medication: { 
+                    ...DEFAULT_HEALTH_RECORD.questionnaire.medication, 
+                    ...result?.questionnaire?.medication,
+                    details: { ...DEFAULT_HEALTH_RECORD.questionnaire.medication.details, ...result?.questionnaire?.medication?.details }
+                },
+                diet: { ...DEFAULT_HEALTH_RECORD.questionnaire.diet, ...result?.questionnaire?.diet },
+                exercise: { ...DEFAULT_HEALTH_RECORD.questionnaire.exercise, ...result?.questionnaire?.exercise },
+                sleep: { ...DEFAULT_HEALTH_RECORD.questionnaire.sleep, ...result?.questionnaire?.sleep },
+                respiratory: { ...DEFAULT_HEALTH_RECORD.questionnaire.respiratory, ...result?.questionnaire?.respiratory },
                 substances: {
                     ...DEFAULT_HEALTH_RECORD.questionnaire.substances,
                     ...result?.questionnaire?.substances,
                     smoking: { ...DEFAULT_HEALTH_RECORD.questionnaire.substances.smoking, ...result?.questionnaire?.substances?.smoking },
                     alcohol: { ...DEFAULT_HEALTH_RECORD.questionnaire.substances.alcohol, ...result?.questionnaire?.substances?.alcohol }
-                }
+                },
+                mental: { ...DEFAULT_HEALTH_RECORD.questionnaire.mental, ...result?.questionnaire?.mental },
+                mentalScales: { ...DEFAULT_HEALTH_RECORD.questionnaire.mentalScales, ...result?.questionnaire?.mentalScales },
+                needs: { ...DEFAULT_HEALTH_RECORD.questionnaire.needs, ...result?.questionnaire?.needs }
             }
         };
         
@@ -215,9 +254,16 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
             }
         }
 
+        // --- 2. Fix Profile Name Logic ---
         if (!merged.profile.name || merged.profile.name === '解析失败') {
              const nameMatch = raw.match(/姓名[:：]\s*([\u4e00-\u9fa5]{2,4})/);
              if (nameMatch) merged.profile.name = nameMatch[1];
+        }
+        
+        // --- 3. Fix Checkup ID Logic ---
+        if (!merged.profile.checkupId) {
+             const idMatch = raw.match(/体检编号[:：]\s*(\d+)/) || raw.match(/编号[:：]\s*(\d+)/);
+             if (idMatch) merged.profile.checkupId = idMatch[1];
         }
 
         return merged;
@@ -368,58 +414,35 @@ const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnal
         }));
 };
 
-// [UPDATED] Hospital Heatmap Analysis (Hybrid: AI + Local Fallback)
 export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: number }): Promise<DepartmentAnalytics[]> => {
-    // 1. Try AI Analysis with Explicit Instruction for ALL Departments
     const prompt = `
-    作为医院运营专家，请根据以下全院体检异常数据统计(异常项: 人次)，进行全面、精准的科室归类和业务规划。
-    
-    输入数据: ${JSON.stringify(issues)}
-    
-    【核心任务】
-    1. **全面归类**：请务必将异常项分配到以下**所有相关的临床科室**，不要遗漏：
-       - 基础科室：心血管内科、内分泌科、消化内科、呼吸内科、泌尿外科
-       - 特色科室：妇科、中医科、康复理疗科、体重管理科、骨科、神经内科
-    
-    2. **规则建议**：
-       - 血压/心脏问题 -> 心血管内科
-       - 血糖/血脂/痛风/甲状腺 -> 内分泌科
-       - 胃/肠/肝胆/幽门 -> 消化内科
-       - 前列腺/结石 -> 泌尿外科
-       - 颈肩腰腿痛 -> 康复理疗科
-       - 肥胖/超重 -> 体重管理科
-       - 头晕/失眠 -> 神经内科
-    
-    3. **数据估算**：估算每个科室的潜在患者人次 (patientCount)。
-    4. **业务建议**：针对每个科室，推荐2个具体的特色诊疗项目(suggestedServices)。
-    
-    请严格返回 JSON 数组，格式如下:
+    你是一个医院运营数据分析师。请根据以下全院患者的健康异常项统计数据，分析各临床科室的潜在业务需求。
+    数据 (异常项: 人数): ${JSON.stringify(issues)}
+
+    请分析并返回以下 JSON 结构 (Array):
     [
       {
-        "departmentName": "科室名称",
-        "patientCount": 0,
-        "riskLevel": "HIGH" | "MEDIUM" | "LOW", 
-        "keyConditions": ["关联异常1", "关联异常2"], 
+        "departmentName": "科室名称 (如心血管内科, 中医科)",
+        "patientCount": number (估算潜在患者数),
+        "riskLevel": "HIGH" | "MEDIUM" | "LOW",
+        "keyConditions": ["主要关联的异常项1", "异常项2"],
         "suggestedServices": [
-           { "name": "项目名称", "count": 0, "description": "简述" }
+           { "name": "建议开展的服务/检查项目", "count": number (预估需求量), "description": "服务价值简述" }
         ]
       }
     ]
+    只返回JSON，不要markdown格式。
     `;
 
     try {
-        if (!API_KEY) throw new Error("No API Key"); // Force fallback if no key
-        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据挖掘与全科业务规划。", prompt);
-        const result = JSON.parse(jsonText || '[]');
-        if (Array.isArray(result) && result.length > 0) {
-            return result;
-        }
-        throw new Error("AI returned empty result");
+        const jsonText = await callDeepSeek("医院数据分析专家", prompt);
+        const result = JSON.parse(jsonText);
+        if (Array.isArray(result)) return result;
+        if (result.analytics) return result.analytics;
+        throw new Error("Invalid format");
     } catch (e) {
-        console.warn("Heatmap AI Gen Failed, switching to Comprehensive Local Rule Engine...", e);
-        // 2. Comprehensive Local Rule-Based Fallback
-        const localResult = localHeatmapAnalysis(issues);
-        return localResult; // Should return valid data if issues exist
+        console.warn("AI Analysis failed, using local fallback", e);
+        return localHeatmapAnalysis(issues);
     }
 };
 
