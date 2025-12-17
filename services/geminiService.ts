@@ -170,7 +170,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          },
          "hydration": { "dailyAmount": "string" },
          "exercise": { "frequency": "string", "types": ["string"], "duration": "string" },
-         "sleep": { "hours": "string", "quality": "string", "snore": "string" },
+         "sleep": { "hours": "string", "quality": "string", "snore": "string", "snoreMonitor": "string" },
          "respiratory": { "chronicCough": boolean, "shortBreath": boolean },
          "substances": { 
              "smoking": { "status": "string", "dailyAmount": number, "years": number, "packYears": number }, 

@@ -258,6 +258,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
         if (q.sleep.hours) newForm.sleepHours = q.sleep.hours;
         if (q.sleep.quality) newForm.sleepQuality = q.sleep.quality;
         if (q.sleep.snore) newForm.snore = q.sleep.snore;
+        if (q.sleep.snoreMonitor) newForm.snoreMonitor = q.sleep.snoreMonitor; // Updated
         if (q.sleep.monitorResult) newForm.monitorResult = q.sleep.monitorResult;
 
         // Substances
@@ -394,6 +395,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                 hours: form.sleepHours,
                 quality: form.sleepQuality,
                 snore: form.snore,
+                snoreMonitor: form.snoreMonitor,
                 monitorResult: form.monitorResult
             },
             respiratory: {

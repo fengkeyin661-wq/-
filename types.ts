@@ -155,14 +155,14 @@ export interface QuestionnaireData {
   // Q18-Q27 膳食
   diet: {
     habits: string[]; // Q18
-    stapleType?: string; // Q19
+    stapleType?: string; // Q19 (e.g. 精米白面, 粗粮)
     coarseGrainFreq?: string; // Q20
     dailyStaple?: string; // Q21
-    dailyVeg?: string; // Q22
-    dailyFruit?: string; // Q23
+    dailyVeg?: string; // Q22 (e.g. 每天>=300克)
+    dailyFruit?: string; // Q23 (e.g. 每天>=200克)
     dailyMeat?: string; // Q24
     meatTypes?: string[]; // Q25
-    dailyDairy?: string; // Q26
+    dailyDairy?: string; // Q26 (e.g. 每天摄入)
     dailyBeanNut?: string; // Q27
   };
 
@@ -186,7 +186,8 @@ export interface QuestionnaireData {
       quality?: string; // Q35
       nap?: string; // Q36
       snore?: string; // Q37
-      monitorResult?: string; // Q38
+      snoreMonitor?: string; // Q38 (Updated: 是/否)
+      monitorResult?: string; // Q38 Result
   };
 
   // [NEW] 呼吸系统症状 (COPD-SQ 模型)
