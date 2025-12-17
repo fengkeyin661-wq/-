@@ -259,59 +259,76 @@ export const App: React.FC = () => {
   const handleSurveySubmit = async (qData: QuestionnaireData, checkupId: string, profile: {gender: string, dept: string}) => {
       setIsLoading(true);
       try {
-          // 1. Check if archive exists
-          let archive = await findArchiveByCheckupId(checkupId);
-          let recordToSave: HealthRecord;
-          let assessmentToSave: HealthAssessment;
-          let scheduleToSave: ScheduledFollowUp[] = [];
-          let followUpsToSave: FollowUpRecord[] = [];
-          let analysisToSave: RiskAnalysisData | undefined = undefined;
-
-          if (archive) {
-              // Update existing
-              recordToSave = {
-                  ...archive.health_record,
-                  questionnaire: qData,
-                  profile: { ...archive.health_record.profile, gender: profile.gender || archive.gender || '', department: profile.dept || archive.department }
-              };
-              assessmentToSave = archive.assessment_data;
-              scheduleToSave = archive.follow_up_schedule;
-              followUpsToSave = archive.follow_ups;
-              analysisToSave = archive.risk_analysis;
+          // 1. Determine the Base Record (Priority: In-Memory Current Record > Database Archive > New Empty)
+          let baseRecord: HealthRecord;
+          let previousFollowUps: FollowUpRecord[] = [];
+          
+          // CRITICAL: Use the currently active record if ID matches. 
+          // This allows "Supplement Questionnaire" to merge with just-parsed checkup data.
+          if (healthRecord && healthRecord.profile.checkupId === checkupId) {
+              baseRecord = healthRecord;
+              previousFollowUps = followUps;
           } else {
-              // New partial record
-              recordToSave = {
-                  profile: { checkupId, name: '待完善', gender: profile.gender, department: profile.dept, age: 0 },
-                  checkup: { basics: {}, labBasic: {}, imagingBasic: { ultrasound: {} }, optional: {}, abnormalities: [] } as any,
-                  questionnaire: qData
-              };
-              // Preliminary assessment
-              assessmentToSave = {
-                  riskLevel: 'GREEN', summary: '仅包含问卷数据，请补充体检数据以获得完整评估。', 
-                  risks: { red: [], yellow: [], green: [] }, 
-                  managementPlan: { dietary: [], exercise: [], medication: [], monitoring: [] }, 
-                  followUpPlan: { frequency: '待定', nextCheckItems: [] }
-              } as any;
+              // Check DB
+              const archive = await findArchiveByCheckupId(checkupId);
+              if (archive) {
+                  baseRecord = archive.health_record;
+                  previousFollowUps = archive.follow_ups;
+              } else {
+                  // Create New Partial Record
+                  baseRecord = {
+                      profile: { checkupId, name: '待完善', gender: profile.gender, department: profile.dept, age: 0 },
+                      checkup: { basics: {}, labBasic: {}, imagingBasic: { ultrasound: {} }, optional: {}, abnormalities: [] } as any,
+                      questionnaire: {} as any
+                  };
+              }
           }
 
+          // 2. Merge Data: Keep existing Checkup, Overwrite Questionnaire
+          const recordToSave: HealthRecord = {
+              ...baseRecord,
+              questionnaire: qData,
+              profile: {
+                  ...baseRecord.profile,
+                  // Keep name if it exists, update gender/dept if provided and missing
+                  gender: profile.gender || baseRecord.profile.gender || '',
+                  department: profile.dept || baseRecord.profile.department || ''
+              }
+          };
+
+          // 3. Trigger AI Re-Analysis
+          // This combines the existing checkup data with the new questionnaire to produce a comprehensive assessment
           const newAssessment = await generateHealthAssessment(recordToSave);
           const portraits = generateSystemPortraits(recordToSave);
           const models = evaluateRiskModels(recordToSave);
+          const newAnalysis = { portraits, models };
           
-          assessmentToSave = newAssessment;
-          analysisToSave = { portraits, models };
-          
-          if (scheduleToSave.length === 0) {
-              scheduleToSave = generateFollowUpSchedule(newAssessment);
-          }
+          // 4. Generate Schedule (if new or high risk changed)
+          const newSchedule = generateFollowUpSchedule(newAssessment);
 
-          const res = await saveArchive(recordToSave, assessmentToSave, scheduleToSave, followUpsToSave, analysisToSave);
+          // 5. Save Complete Archive
+          const res = await saveArchive(
+              recordToSave, 
+              newAssessment, 
+              newSchedule, 
+              previousFollowUps, 
+              newAnalysis
+          );
+
           if (res.success) {
-              alert("问卷已提交并存档！");
+              // 6. Update UI State immediately
+              setHealthRecord(recordToSave);
+              setAssessment(newAssessment);
+              setSchedule(newSchedule);
+              setRiskAnalysis(newAnalysis);
+              setFollowUps(previousFollowUps);
+              
+              alert("问卷已提交！系统已结合您的体检数据重新生成风险评估与健康方案。");
               refreshArchives();
+              
+              // 7. Auto-navigate to Assessment to show results
               if (isAuthenticated) {
-                  const newArch = await findArchiveByCheckupId(checkupId);
-                  if (newArch) handleSelectPatient(newArch);
+                  setActiveTab('assessment');
               }
           } else {
               alert("保存失败: " + res.message);
@@ -319,7 +336,7 @@ export const App: React.FC = () => {
 
       } catch (e) {
           console.error(e);
-          alert("提交失败");
+          alert("提交失败，请重试");
       } finally {
           setIsLoading(false);
       }
