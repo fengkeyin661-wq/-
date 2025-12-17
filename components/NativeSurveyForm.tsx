@@ -467,20 +467,20 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                     <div className="space-y-6">
                         <CheckQ idx={3} label="既往病史" required options={OPTIONS.history} value={form.historyDiseases} onChange={(v: any) => toggleArray('historyDiseases', v)} />
                         
-                        {hasHistory('高血压') && <InputQ idx={4} label="高血压诊断年份" required value={form.htnYear} onChange={(v: any) => handleChange('htnYear', v)} type="date" />}
+                        {hasHistory('高血压') && <InputQ idx={4} label="高血压诊断年份" required desc="请输入4位年份，如：2020" value={form.htnYear} onChange={(v: any) => handleChange('htnYear', v)} type="number" />}
                         {hasHistory('冠心病') && <CheckQ idx={5} label="冠心病类型" required options={OPTIONS.cadType} value={form.cadTypes} onChange={(v: any) => toggleArray('cadTypes', v)} />}
                         {hasHistory('心律失常') && <InputQ idx={6} label="心律失常类型" required value={form.arrhythmiaType} onChange={(v: any) => handleChange('arrhythmiaType', v)} />}
                         {hasHistory('脑卒中／短暂性脑缺血发作') && (
                             <>
                                 <CheckQ idx={7} label="脑卒中类型" required options={OPTIONS.strokeType} value={form.strokeTypes} onChange={(v: any) => toggleArray('strokeTypes', v)} />
-                                <InputQ idx={8} label="脑卒中发生年份" required value={form.strokeYear} onChange={(v: any) => handleChange('strokeYear', v)} type="date" />
+                                <InputQ idx={8} label="脑卒中发生年份" required desc="请输入4位年份，如：2022" value={form.strokeYear} onChange={(v: any) => handleChange('strokeYear', v)} type="number" />
                             </>
                         )}
-                        {hasHistory('糖尿病／糖尿病前期') && <InputQ idx={9} label="糖尿病诊断年份" required value={form.dmYear} onChange={(v: any) => handleChange('dmYear', v)} type="date" />}
+                        {hasHistory('糖尿病／糖尿病前期') && <InputQ idx={9} label="糖尿病诊断年份" required desc="请输入4位年份" value={form.dmYear} onChange={(v: any) => handleChange('dmYear', v)} type="number" />}
                         {hasHistory('肿瘤') && (
                             <>
                                 <InputQ idx={10} label="肿瘤部位" required value={form.tumorSite} onChange={(v: any) => handleChange('tumorSite', v)} />
-                                <InputQ idx={11} label="肿瘤诊断年份" required value={form.tumorYear} onChange={(v: any) => handleChange('tumorYear', v)} type="date" />
+                                <InputQ idx={11} label="肿瘤诊断年份" required desc="请输入4位年份" value={form.tumorYear} onChange={(v: any) => handleChange('tumorYear', v)} type="number" />
                             </>
                         )}
                         {hasHistory('手术及外伤史') && <TextQ idx={12} label="手术史及外伤史" required desc="如：2010年，胆囊切除术；2015年，膝关节镜手术" value={form.surgeryHistory} onChange={(v: any) => handleChange('surgeryHistory', v)} />}
@@ -547,7 +547,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                         <RadioQ idx={36} label="吸烟情况" required options={OPTIONS.smoke} value={form.smokeStatus} onChange={(v: any) => handleChange('smokeStatus', v)} />
                         {form.smokeStatus !== '从不吸烟' && (
                             <>
-                                {form.smokeStatus === '已戒烟' && <InputQ idx={37} label="戒烟年份" required value={form.quitSmokeYear} onChange={(v: any) => handleChange('quitSmokeYear', v)} type="date" />}
+                                {form.smokeStatus === '已戒烟' && <InputQ idx={37} label="戒烟年份" required desc="请输入4位年份" value={form.quitSmokeYear} onChange={(v: any) => handleChange('quitSmokeYear', v)} type="number" />}
                                 {form.smokeStatus === '目前吸烟' && (
                                     <>
                                         <InputQ idx={38} label="目前吸烟支数" required desc="每天支数" value={form.smokeDaily} onChange={(v: any) => handleChange('smokeDaily', v)} type="number" />
