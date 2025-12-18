@@ -36,9 +36,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const [isEntryExpanded, setIsEntryExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
-  // State for viewing history details
+  // View states
   const [viewingRecord, setViewingRecord] = useState<FollowUpRecord | null>(null);
-  
+  const [showUrgentOnly, setShowUrgentOnly] = useState(true); // Toggle for Critical Tasks
+
   // State for editing the bottom Guide
   const [isEditingGuide, setIsEditingGuide] = useState(false);
   const [guideEditData, setGuideEditData] = useState<{
@@ -135,7 +136,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
   
   const upcomingGlobalTasks = getGlobalUpcomingTasks();
 
-  // Pending Critical Tasks Logic
+  // Pending Critical Tasks Logic (Refined with 7-day hiding logic)
   const pendingCriticalTasks = allArchives.filter(arch => {
       const track = arch.critical_track;
       if (!track || track.status === 'archived') return false;
@@ -143,7 +144,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       // 1. Pending Initial Notification (待初次通知): ALWAYS SHOW
       if (track.status === 'pending_initial') return true;
 
-      // 2. Pending Secondary Follow-up (待二次回访): Show only if within 7 days or overdue
+      // 2. Pending Secondary Follow-up (待二次回访): Hide based on toggle
       if (track.status === 'pending_secondary' && track.secondary_due_date) {
           const today = new Date();
           today.setHours(0,0,0,0);
@@ -151,8 +152,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
           const diffTime = due.getTime() - today.getTime();
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
           
-          // Show if overdue (diffDays < 0) or upcoming within 7 days
-          return diffDays <= 7;
+          if (showUrgentOnly) {
+              // Only show if overdue or due in next 7 days
+              return diffDays <= 7;
+          }
+          return true; // Show all if toggle is off
       }
 
       return false;
@@ -456,10 +460,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
   return (
     <div className="animate-fadeIn pb-10">
 
-      {/* Critical Value Alert Section (Updated) */}
-      {pendingCriticalTasks.length > 0 && (
-          <div className="mb-8 animate-fadeIn">
-              <div className="flex items-center gap-2 mb-4">
+      {/* Critical Value Alert Section (Updated with filter toggle) */}
+      <div className="mb-8 animate-fadeIn">
+          <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
+              <div className="flex items-center gap-2">
                   <span className="text-2xl animate-pulse">🚨</span>
                   <h2 className="text-xl font-bold text-red-700">
                       危急值待处理 
@@ -469,6 +473,18 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </h2>
               </div>
               
+              <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors select-none">
+                  <input 
+                      type="checkbox" 
+                      className="w-4 h-4 text-red-600 rounded focus:ring-red-500" 
+                      checked={showUrgentOnly} 
+                      onChange={() => setShowUrgentOnly(!showUrgentOnly)} 
+                  />
+                  <span className="text-xs font-bold text-slate-600">仅显示 7 天内需回访人员</span>
+              </label>
+          </div>
+          
+          {pendingCriticalTasks.length > 0 ? (
               <div className="flex overflow-x-auto pb-4 gap-4 scrollbar-thin scrollbar-thumb-red-200 scrollbar-track-red-50">
                   {pendingCriticalTasks.map((arch) => {
                       const track = arch.critical_track!;
@@ -548,8 +564,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       )
                   })}
               </div>
-          </div>
-      )}
+          ) : (
+              <div className="bg-white rounded-xl p-8 text-center border border-dashed border-slate-200">
+                  <div className="text-4xl mb-2 grayscale opacity-30">🛡️</div>
+                  <p className="text-slate-400 text-sm font-medium">近期无待处理的紧急回访任务</p>
+                  {showUrgentOnly && <button onClick={() => setShowUrgentOnly(false)} className="text-xs text-blue-600 mt-2 hover:underline">查看所有追踪中的危急值档案</button>}
+              </div>
+          )}
+      </div>
 
       {/* Global Reminder Section */}
       {upcomingGlobalTasks.length > 0 && (
@@ -614,13 +636,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       )}
 
-      {/* ... Rest of existing charts/timeline components ... */}
-      
       {/* Charts and Timeline Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Charts */}
           <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
-             {/* ... Chart code same as before ... */}
              <div className="flex justify-between items-center mb-4">
                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <span>📈</span> 核心指标监测
@@ -751,10 +770,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       </div>
 
-      {/* Entry Form, Guide, etc (same as previous) */}
       {isEntryExpanded && assessment && (
           <div className="bg-white rounded-xl shadow-lg border-2 border-teal-500 mb-8 overflow-hidden animate-slideUp">
-              {/* ... Entry Form Content ... */}
               <div className="bg-teal-50 px-6 py-4 border-b border-teal-100 flex justify-between items-center">
                   <h3 className="text-lg font-bold text-teal-800 flex items-center gap-2">
                       <span>📝</span> 本次随访记录录入
@@ -765,7 +782,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
               </div>
               
               <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  {/* ... same logic ... */}
                   <div className="lg:col-span-1 space-y-6">
                       <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 h-full">
                            <h4 className="font-bold text-yellow-800 mb-3 flex justify-between items-center">
@@ -814,7 +830,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                2. 核心指标录入
                                <span className="text-[10px] text-slate-400 font-normal bg-white px-2 py-0.5 rounded border">参考范围仅供参考</span>
                            </h4>
-                           {/* ... indicator inputs ... */}
                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-4">
                                <div>
                                    <label className="text-xs text-slate-500 block mb-1 font-medium">
@@ -912,10 +927,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       )}
 
-      {/* Guide Section (Same as previous) */}
+      {/* Guide Section */}
       {(latestRecord || assessment) && (
           <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600">
-              {/* ... Guide content ... */}
               <div className="flex justify-between items-start mb-6">
                   <div>
                       <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -1085,7 +1099,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* History Detail Modal (New Feature) */}
+      {/* History Detail Modal */}
       {viewingRecord && (
         <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-center justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setViewingRecord(null)}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 animate-scaleIn m-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>

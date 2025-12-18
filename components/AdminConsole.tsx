@@ -328,7 +328,24 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             const matchSearch = ((archive.name || '').toLowerCase().includes(term) || (archive.checkup_id || '').toLowerCase().includes(term) || (archive.phone || '').toLowerCase().includes(term));
             let matchRisk = false;
             if (filterRisk === 'ALL') matchRisk = true;
-            else if (filterRisk === 'CRITICAL') matchRisk = !!((archive.assessment_data?.isCritical === true || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived');
+            else if (filterRisk === 'CRITICAL') {
+                // Refined Logic for Admin Console Filter: Only show "Urgent" tasks by default
+                const track = archive.critical_track;
+                if (!track || track.status === 'archived') return false;
+                
+                // Case 1: Initial Notification (Urgent)
+                if (track.status === 'pending_initial') return true;
+                
+                // Case 2: Secondary Follow-up (Only if within 7 days window)
+                if (track.status === 'pending_secondary' && track.secondary_due_date) {
+                    const today = new Date(); today.setHours(0,0,0,0);
+                    const due = new Date(track.secondary_due_date);
+                    const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                    return diffDays <= 7;
+                }
+                
+                return false;
+            }
             else matchRisk = archive.risk_level === filterRisk;
             return matchSearch && matchRisk;
         });
@@ -452,7 +469,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <option value="RED">🔴 高风险</option>
                         <option value="YELLOW">🟡 中风险</option>
                         <option value="GREEN">🟢 低风险</option>
-                        <option value="CRITICAL">🚨 待处理危急值</option>
+                        <option value="CRITICAL">🚨 紧急危急值(7天内)</option>
                     </select>
                 </div>
                 <div className="flex gap-2 items-center">
@@ -467,7 +484,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <span className="text-xs font-bold text-slate-600">跳过已完善问卷</span>
                     </label>
 
-                    {/* Questionnaire Update Input */}
+                    {/* Questionnaire Update Import (Excel Only) */}
                     <input 
                         type="file" 
                         ref={questionnaireImportRef} 
