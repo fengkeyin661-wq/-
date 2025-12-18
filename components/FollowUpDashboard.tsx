@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
@@ -614,77 +613,135 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </div>
       )}
 
-      {/* ... Rest of existing charts/timeline components ... */}
-      
       {/* Charts and Timeline Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* Charts */}
-          <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
-             {/* ... Chart code same as before ... */}
-             <div className="flex justify-between items-center mb-4">
-                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                    <span>📈</span> 核心指标监测
-                 </h2>
-                 <div className="flex bg-slate-100 rounded-lg p-1">
-                     {[{id: 'bp', label: '血压/心率'}, {id: 'metabolic', label: '血糖/体重'}, {id: 'lipids', label: '血脂趋势'}].map(tab => (
-                         <button 
-                             key={tab.id}
-                             onClick={() => setActiveChart(tab.id as any)}
-                             className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeChart === tab.id ? 'bg-white shadow text-teal-700' : 'text-slate-500 hover:text-slate-700'}`}
-                         >
-                             {tab.label}
-                         </button>
-                     ))}
-                 </div>
-             </div>
-             
-             <div className="flex-1 w-full min-h-0">
-                 {chartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                            <XAxis dataKey="date" fontSize={12} stroke="#9ca3af" tickMargin={10} />
-                            <YAxis fontSize={12} stroke="#9ca3af" domain={['auto', 'auto']} />
-                            <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                            <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                            
-                            {activeChart === 'bp' && (
-                                <>
-                                    <ReferenceLine y={140} stroke="red" strokeDasharray="3 3" label={{ value: 'SBP上限 140', fill: 'red', fontSize: 10, position: 'right' }} />
-                                    <ReferenceLine y={90} stroke="orange" strokeDasharray="3 3" label={{ value: 'DBP上限 90', fill: 'orange', fontSize: 10, position: 'right' }} />
-                                    <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                    <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                    <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
-                                </>
-                            )}
-                            {activeChart === 'metabolic' && (
-                                <>
-                                    <ReferenceLine y={6.1} stroke="#0ea5e9" strokeDasharray="3 3" label={{ value: '空腹血糖上限 6.1', fill: '#0ea5e9', fontSize: 10, position: 'insideTopRight' }} />
-                                    <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                    <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                </>
-                            )}
-                            {activeChart === 'lipids' && (
-                                <>
-                                    <ReferenceLine y={5.2} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: 'TC上限 5.2', fill: '#f59e0b', fontSize: 10 }} />
-                                    <ReferenceLine y={1.7} stroke="#84cc16" strokeDasharray="3 3" label={{ value: 'TG上限 1.7', fill: '#84cc16', fontSize: 10 }} />
-                                    <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} connectNulls />
-                                    <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} connectNulls />
-                                    <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} connectNulls />
-                                </>
-                            )}
-                        </LineChart>
-                    </ResponsiveContainer>
-                 ) : (
-                     <div className="h-full flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg">
-                         暂无监测数据
+          {/* Left Column: Charts + Profile Summary */}
+          <div className="lg:col-span-2 space-y-6">
+              {/* Charts Card */}
+              <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
+                 <div className="flex justify-between items-center mb-4">
+                     <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <span>📈</span> 核心指标监测
+                     </h2>
+                     <div className="flex bg-slate-100 rounded-lg p-1">
+                         {[{id: 'bp', label: '血压/心率'}, {id: 'metabolic', label: '血糖/体重'}, {id: 'lipids', label: '血脂趋势'}].map(tab => (
+                             <button 
+                                 key={tab.id}
+                                 onClick={() => setActiveChart(tab.id as any)}
+                                 className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeChart === tab.id ? 'bg-white shadow text-teal-700' : 'text-slate-500 hover:text-slate-700'}`}
+                             >
+                                 {tab.label}
+                             </button>
+                         ))}
                      </div>
-                 )}
-             </div>
+                 </div>
+                 
+                 <div className="flex-1 w-full min-h-0">
+                     {chartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                                <XAxis dataKey="date" fontSize={12} stroke="#9ca3af" tickMargin={10} />
+                                <YAxis fontSize={12} stroke="#9ca3af" domain={['auto', 'auto']} />
+                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                                
+                                {activeChart === 'bp' && (
+                                    <>
+                                        <ReferenceLine y={140} stroke="red" strokeDasharray="3 3" label={{ value: 'SBP上限 140', fill: 'red', fontSize: 10, position: 'right' }} />
+                                        <ReferenceLine y={90} stroke="orange" strokeDasharray="3 3" label={{ value: 'DBP上限 90', fill: 'orange', fontSize: 10, position: 'right' }} />
+                                        <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                        <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                        <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
+                                    </>
+                                )}
+                                {activeChart === 'metabolic' && (
+                                    <>
+                                        <ReferenceLine y={6.1} stroke="#0ea5e9" strokeDasharray="3 3" label={{ value: '空腹血糖上限 6.1', fill: '#0ea5e9', fontSize: 10, position: 'insideTopRight' }} />
+                                        <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                        <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} connectNulls />
+                                    </>
+                                )}
+                                {activeChart === 'lipids' && (
+                                    <>
+                                        <ReferenceLine y={5.2} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: 'TC上限 5.2', fill: '#f59e0b', fontSize: 10 }} />
+                                        <ReferenceLine y={1.7} stroke="#84cc16" strokeDasharray="3 3" label={{ value: 'TG上限 1.7', fill: '#84cc16', fontSize: 10 }} />
+                                        <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} connectNulls />
+                                        <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} connectNulls />
+                                        <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} connectNulls />
+                                    </>
+                                )}
+                            </LineChart>
+                        </ResponsiveContainer>
+                     ) : (
+                         <div className="h-full flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg">
+                             暂无监测数据
+                         </div>
+                     )}
+                 </div>
+              </div>
+
+              {/* Patient Basic Info & Assessment Card (New) */}
+              {healthRecord && (
+                  <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden animate-fadeIn">
+                      <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex justify-between items-center">
+                          <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm">
+                              <span>📋</span> 档案基本信息与评估结果
+                          </h3>
+                          {assessment && (
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
+                                  assessment.riskLevel === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
+                                  assessment.riskLevel === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
+                                  'bg-green-50 text-green-600 border-green-200'
+                              }`}>
+                                  {assessment.riskLevel === 'RED' ? '高风险' : assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                              </span>
+                          )}
+                      </div>
+                      <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Profile Table-like list */}
+                          <div className="grid grid-cols-2 gap-y-3 text-sm">
+                              <div className="flex flex-col">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">姓名</span>
+                                  <span className="font-black text-slate-800">{healthRecord.profile.name}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">体检编号</span>
+                                  <span className="font-mono text-slate-600">{healthRecord.profile.checkupId}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">性别 / 年龄</span>
+                                  <span className="text-slate-700">{healthRecord.profile.gender} / {healthRecord.profile.age}岁</span>
+                              </div>
+                              <div className="flex flex-col">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">部门 / 单位</span>
+                                  <span className="text-slate-700 truncate" title={healthRecord.profile.department}>{healthRecord.profile.department}</span>
+                              </div>
+                              <div className="flex flex-col col-span-2">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">联系电话</span>
+                                  <span className="font-mono text-slate-700">{healthRecord.profile.phone || '未记录'}</span>
+                              </div>
+                          </div>
+
+                          {/* Assessment Summary Box */}
+                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col h-full">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase mb-2">综合评估综述</span>
+                              <div className="text-xs text-slate-600 leading-relaxed overflow-y-auto max-h-[80px] scrollbar-thin">
+                                  {assessment?.summary || '暂无历史评估综述'}
+                              </div>
+                              {assessment?.isCritical && (
+                                  <div className="mt-2 text-[10px] bg-red-100 text-red-700 px-2 py-1 rounded font-bold flex items-center gap-1">
+                                      <span>🚨</span> 危急值警示：{assessment.criticalWarning}
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                  </div>
+              )}
           </div>
 
-          {/* Timeline */}
-          <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
+          {/* Right Column: Timeline */}
+          <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-full min-h-[400px]">
             <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 justify-between">
                 <div className="flex items-center gap-2">
                     <span>📅</span> 随访路径
