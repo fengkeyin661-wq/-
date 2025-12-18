@@ -1,104 +1,22 @@
 
+import { GoogleGenAI } from "@google/genai";
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 import { HabitRecord } from "./dataService";
 
-// Helper to safely access environment variables
-const getEnvVar = (key: string): string => {
-  let val = '';
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta && import.meta.env) {
-      // @ts-ignore
-      val = import.meta.env[key];
-    }
-  } catch (e) {}
+// Helper for Gemini API Calls - using process.env.API_KEY as per hard requirement
+async function callGemini(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: userContent,
+        config: {
+            systemInstruction: systemPrompt,
+            temperature: 0.1,
+            responseMimeType: jsonMode ? "application/json" : undefined,
+        },
+    });
 
-  if (val) return val;
-
-  try {
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process && process.env) {
-      // @ts-ignore
-      val = process.env[key];
-    }
-  } catch (e) {}
-
-  return val || '';
-};
-
-// Determine environment
-const isDev = (() => {
-    try {
-        // @ts-ignore
-        return !!import.meta.env.DEV;
-    } catch {
-        return false;
-    }
-})();
-
-// DeepSeek API Configuration
-const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
-
-// PROXY STRATEGY:
-const PROXY_URL = "/api/deepseek/chat/completions";
-const DIRECT_URL = "https://api.deepseek.com/chat/completions";
-
-const API_URL = isDev ? PROXY_URL : DIRECT_URL;
-
-// Helper for DeepSeek API Calls
-async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
-    if (!API_KEY) {
-        console.warn("Missing VITE_DEEPSEEK_API_KEY");
-        throw new Error("Missing API Key");
-    }
-
-    const makeRequest = async (url: string) => {
-        console.log(`[AI] Calling DeepSeek via ${url}...`);
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${API_KEY}`
-            },
-            body: JSON.stringify({
-                model: "deepseek-chat",
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userContent }
-                ],
-                temperature: 0.1,
-                stream: false
-            })
-        });
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Request to ${url} failed: ${response.status} - ${errText.slice(0, 100)}`);
-        }
-        return response.json();
-    };
-
-    try {
-        let data;
-        try {
-            data = await makeRequest(API_URL);
-        } catch (initialError: any) {
-            console.warn(`Initial AI request failed via ${API_URL}, retrying direct...`, initialError);
-            if (API_URL !== DIRECT_URL) {
-                 data = await makeRequest(DIRECT_URL);
-            } else {
-                throw initialError;
-            }
-        }
-
-        let content = data.choices[0]?.message?.content || "";
-        content = content.replace(/```json\n?|\n?```/g, "").trim();
-        return content;
-
-    } catch (e: any) {
-        console.error("DeepSeek Call Exception:", e);
-        throw e;
-    }
+    return response.text || "";
 }
 
 // Safe Default Structure
@@ -129,6 +47,9 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
     }
 };
 
+/**
+ * Parses health data from raw text using Gemini AI
+ */
 export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord> => {
     if (!raw || raw.trim().length === 0) {
         throw new Error("输入文本为空，无法解析");
@@ -139,32 +60,10 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     
     提取规则：
     1. 即使数据缺失，也请尽量返回结构体，数值型字段如果未找到请留空或为 null，字符串留空字符串。
-    2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
-    3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
-    4. **关键字段识别**：
-       - **体检编号 (checkupId)**：请务必精确抓取**6位纯数字**的编号（如：801234）。报告中通常包含10位或更长的“登记流水号”、“条码号”或“样本号”，请**绝对不要**将其作为体检编号。只提取那个6位数的。
-       - **问卷选项提取**：请根据文本内容提取对应选项。
-       - **Q17 家族史提取**：请识别以下特定家族史，并映射到 familyHistory 字段：
-         - "父亲 - 冠心病/心肌梗死" -> fatherCvdEarly (若提及)
-         - "母亲 - 冠心病/心肌梗死" -> motherCvdEarly (若提及)
-         - "父亲/母亲 - 脑卒中" -> stroke: true
-         - "兄弟姐妹 - 糖尿病" 或 "父母 - 糖尿病" -> diabetes: true
-         - "高血压" -> hypertension: true
-         - "肺癌" -> lungCancer: true
-         - "结直肠癌" -> colonCancer: true
-       - **Q21 主食类型 (diet.stapleType)**：请精确匹配选项："以精米白面为主" 或 "常吃粗粮杂豆根块类（≥1次/周）"。
-       - **Q23 蔬菜摄入 (diet.dailyVeg)**：请精确匹配选项："每天≥300克"、"每天约150－300克" 或 "摄入较少（＜150克）"。
-       - **Q24 水果摄入 (diet.dailyFruit)**：请精确匹配选项："每天≥200克"、"每天约100－200克" 或 "摄入较少（＜100克）"。
-       
-       - **心理量表提取 (PHQ-9/GAD-7)**：请识别量表中的每一项选择。评分标准：完全不会=0, 好几天=1, 一半以上=2, 几乎每天=3。
-         - **phq9Detail**: 长度为9的数字数组，对应PHQ-9第1-9题得分。
-         - **gad7Detail**: 长度为7的数字数组，对应GAD-7第1-7题得分。
-         - **phq9Score/gad7Score**: 计算总分。
-         - **selfHarmIdea**: PHQ-9 第9题（自伤念头）的得分。
-       - **吸烟数量**：若出现“不到半包”等描述，请映射为大致支数(半包=10, 一包=20等)填入 dailyAmount，同时保留原始描述在 status 或其他字段中。
-       - **满意度调查**：提取问卷末尾关于前台、医护、采血、流程、环境的满意度评价（如：非常满意、满意、一般、不满意），以及意见建议。
+    2. **异常项提取**：将所有异常发现提取到 checkup.abnormalities 数组中。
+    3. **体检编号 (checkupId)**：提取6位纯数字编号。
     
-    目标 JSON 结构应严格符合以下定义，不要包含任何注释：
+    目标 JSON 结构：
     {
       "profile": { "checkupId": "string", "name": "string", "gender": "string", "age": number, "department": "string", "phone": "string", "checkupDate": "string" },
       "checkup": {
@@ -172,51 +71,29 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          "labBasic": { 
             "glucose": { "fasting": "string" },
             "lipids": { "tc": "string", "tg": "string", "ldl": "string", "hdl": "string" },
-            "liver": { "alt": "string", "ast": "string", "ggt": "string" },
-            "renal": { "creatinine": "string", "ua": "string" },
-            "tumorMarkers": { "cea": "string", "afp": "string" } 
+            "liver": { "alt": "string", "ast": "string" },
+            "renal": { "creatinine": "string", "ua": "string" }
          },
-         "imagingBasic": { "ultrasound": { "thyroid": "string", "abdomen": "string", "breast": "string" } },
+         "imagingBasic": { "ultrasound": { "thyroid": "string", "abdomen": "string" } },
          "abnormalities": [ { "item": "string", "result": "string", "clinicalSig": "string" } ]
       },
       "questionnaire": {
-         "history": { "diseases": ["string"], "details": { "hypertensionYear": "string", "diabetesYear": "string" } },
-         "familyHistory": { "diabetes": boolean, "hypertension": boolean, "stroke": boolean, "lungCancer": boolean, "colonCancer": boolean, "fatherCvdEarly": boolean, "motherCvdEarly": boolean },
-         "medication": { "isRegular": "string", "list": "string", "details": { "antihypertensive": boolean, "hypoglycemic": boolean, "lipidLowering": boolean } },
-         "diet": { 
-             "habits": ["string"], "stapleType": "string", "coarseGrainFreq": "string", 
-             "dailyVeg": "string", "dailyFruit": "string", "dailyMeat": "string", 
-             "dailyDairy": "string", "dailyBeanNut": "string" 
-         },
-         "hydration": { "dailyAmount": "string" },
-         "exercise": { "frequency": "string", "types": ["string"], "duration": "string" },
-         "sleep": { "hours": "string", "quality": "string", "snore": "string", "snoreMonitor": "string" },
-         "respiratory": { "chronicCough": boolean, "shortBreath": boolean },
-         "substances": { 
-             "smoking": { "status": "string", "dailyAmount": number, "years": number, "packYears": number }, 
-             "alcohol": { "status": "string", "freq": "string", "amount": "string" } 
-         },
-         "mental": { "stressLevel": "string" },
-         "mentalScales": { 
-             "phq9Score": number, "gad7Score": number, "selfHarmIdea": number,
-             "phq9Detail": [number], "gad7Detail": [number]
-         },
-         "needs": { "desiredSupport": ["string"] },
-         "satisfaction": {
-             "reception": "string", "medicalStaff": "string", "bloodDraw": "string", 
-             "process": "string", "environment": "string", "dissatisfactionDetail": "string", "suggestion": "string"
-         }
+         "history": { "diseases": ["string"], "details": {} },
+         "familyHistory": { "diabetes": boolean, "hypertension": boolean },
+         "medication": { "isRegular": "string", "details": {} },
+         "diet": { "habits": ["string"], "stapleType": "string" },
+         "substances": { "smoking": { "status": "string", "dailyAmount": number } }
       }
     }
     `;
 
     try {
-        const jsonText = await callDeepSeek(systemPrompt, raw);
+        const jsonText = await callGemini(systemPrompt, raw);
         if (!jsonText) throw new Error("AI response empty");
         
         const result = JSON.parse(jsonText);
         
-        // Deep Merge with Default to prevent undefined errors in UI
+        // Merge with Default to prevent undefined errors in UI
         const merged: HealthRecord = {
             ...DEFAULT_HEALTH_RECORD,
             ...result,
@@ -225,65 +102,15 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
                 ...DEFAULT_HEALTH_RECORD.checkup,
                 ...result?.checkup,
                 basics: { ...DEFAULT_HEALTH_RECORD.checkup.basics, ...result?.checkup?.basics },
-                labBasic: { 
-                    ...DEFAULT_HEALTH_RECORD.checkup.labBasic, 
-                    ...result?.checkup?.labBasic,
-                    lipids: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.lipids, ...result?.checkup?.labBasic?.lipids },
-                    glucose: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.glucose, ...result?.checkup?.labBasic?.glucose }
-                },
-                imagingBasic: {
-                    ...DEFAULT_HEALTH_RECORD.checkup.imagingBasic,
-                    ...result?.checkup?.imagingBasic,
-                    ultrasound: { ...DEFAULT_HEALTH_RECORD.checkup.imagingBasic.ultrasound, ...result?.checkup?.imagingBasic?.ultrasound }
-                },
                 abnormalities: result?.checkup?.abnormalities || []
-            },
-            questionnaire: {
-                ...DEFAULT_HEALTH_RECORD.questionnaire,
-                ...result?.questionnaire,
-                history: { ...DEFAULT_HEALTH_RECORD.questionnaire.history, ...result?.questionnaire?.history },
-                medication: { ...DEFAULT_HEALTH_RECORD.questionnaire.medication, ...result?.questionnaire?.medication },
-                diet: { ...DEFAULT_HEALTH_RECORD.questionnaire.diet, ...result?.questionnaire?.diet },
-                hydration: { ...DEFAULT_HEALTH_RECORD.questionnaire.hydration, ...result?.questionnaire?.hydration },
-                exercise: { ...DEFAULT_HEALTH_RECORD.questionnaire.exercise, ...result?.questionnaire?.exercise },
-                sleep: { ...DEFAULT_HEALTH_RECORD.questionnaire.sleep, ...result?.questionnaire?.sleep },
-                respiratory: { ...DEFAULT_HEALTH_RECORD.questionnaire.respiratory, ...result?.questionnaire?.respiratory },
-                mental: { ...DEFAULT_HEALTH_RECORD.questionnaire.mental, ...result?.questionnaire?.mental },
-                mentalScales: { ...DEFAULT_HEALTH_RECORD.questionnaire.mentalScales, ...result?.questionnaire?.mentalScales },
-                needs: { ...DEFAULT_HEALTH_RECORD.questionnaire.needs, ...result?.questionnaire?.needs },
-                satisfaction: { ...DEFAULT_HEALTH_RECORD.questionnaire.satisfaction, ...result?.questionnaire?.satisfaction },
-                substances: {
-                    ...DEFAULT_HEALTH_RECORD.questionnaire.substances,
-                    ...result?.questionnaire?.substances,
-                    smoking: { ...DEFAULT_HEALTH_RECORD.questionnaire.substances.smoking, ...result?.questionnaire?.substances?.smoking },
-                    alcohol: { ...DEFAULT_HEALTH_RECORD.questionnaire.substances.alcohol, ...result?.questionnaire?.substances?.alcohol }
-                }
             }
         };
-        
-        // --- 1. Automatic BMI Calculation ---
+
+        // Automatic BMI Calculation
         const b = merged.checkup.basics;
-        if (b.height && b.weight && b.height > 0 && b.weight > 0) {
-            if (!b.bmi || b.bmi === 0) {
-                const heightM = b.height / 100;
-                const calculatedBMI = b.weight / (heightM * heightM);
-                b.bmi = parseFloat(calculatedBMI.toFixed(1));
-            }
-        }
-
-        if (!merged.profile.name || merged.profile.name === '解析失败') {
-             const nameMatch = raw.match(/姓名[:：]\s*([\u4e00-\u9fa5]{2,4})/);
-             if (nameMatch) merged.profile.name = nameMatch[1];
-        }
-
-        // --- 2. Enforce 6-digit Checkup ID Rule ---
-        // If AI extracted a long ID (likely barcode/serial), try to find a 6-digit one in text
-        if (merged.profile.checkupId && merged.profile.checkupId.length > 6) {
-             // Try to find a 6-digit number in the first 800 chars of raw text
-             const shortIdMatch = raw.slice(0, 800).match(/\b(\d{6})\b/);
-             if (shortIdMatch) {
-                 merged.profile.checkupId = shortIdMatch[1];
-             }
+        if (b.height && b.weight && b.height > 0 && b.weight > 0 && (!b.bmi || b.bmi === 0)) {
+            const heightM = b.height / 100;
+            b.bmi = parseFloat((b.weight / (heightM * heightM)).toFixed(1));
         }
 
         return merged;
@@ -295,6 +122,9 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     }
 };
 
+/**
+ * Generates a comprehensive health assessment using Gemini
+ */
 export const generateHealthAssessment = async (rec: HealthRecord): Promise<HealthAssessment> => {
     const prompt = `
     作为资深全科医生，请根据以下健康档案生成一份风险评估报告。
@@ -308,20 +138,20 @@ export const generateHealthAssessment = async (rec: HealthRecord): Promise<Healt
       "criticalWarning": "如有危急值请说明，否则为空",
       "risks": { "red": ["高危因素1"], "yellow": ["中危因素1"], "green": ["良好指标"] },
       "managementPlan": {
-         "dietary": ["饮食建议1", "饮食建议2"],
+         "dietary": ["饮食建议1"],
          "exercise": ["运动建议"],
          "medication": ["用药建议"],
          "monitoring": ["监测建议"]
       },
       "followUpPlan": {
          "frequency": "建议随访频率",
-         "nextCheckItems": ["复查项目1", "复查项目2"]
+         "nextCheckItems": ["复查项目1"]
       }
     }
     `;
 
     try {
-        const jsonText = await callDeepSeek("你是一个辅助医生进行健康评估的AI。", prompt);
+        const jsonText = await callGemini("你是一个辅助医生进行健康评估的AI。", prompt);
         return JSON.parse(jsonText || '{}') as HealthAssessment;
     } catch (e) {
         console.error("Assessment Gen Failed", e);
@@ -335,6 +165,9 @@ export const generateHealthAssessment = async (rec: HealthRecord): Promise<Healt
     }
 };
 
+/**
+ * Generates initial follow-up schedule based on assessment
+ */
 export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollowUp[] => {
     const nextDate = new Date();
     nextDate.setMonth(nextDate.getMonth() + (ass.riskLevel === 'RED' ? 1 : ass.riskLevel === 'YELLOW' ? 3 : 6));
@@ -348,183 +181,114 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
     }];
 };
 
-export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
-export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
-
-// --- ROBUST LOCAL FALLBACK FOR HEATMAP (Comprehensive 10+ Departments) ---
-const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnalytics[] => {
-    console.log("Starting Local Heatmap Analysis (Comprehensive Mode)...");
+/**
+ * Analyzes a follow-up record to update risk status
+ */
+export const analyzeFollowUpRecord = async (form: any, ass: any, last: any): Promise<any> => {
+    const prompt = `
+    分析随访记录。
+    本次记录: ${JSON.stringify(form)}
+    历史状态: ${JSON.stringify(ass)}
+    上次随访: ${JSON.stringify(last)}
     
-    // Define Categories - Ensuring ALL core and specialized departments are represented
-    const depts: Record<string, { count: number, conditions: Set<string>, services: any[] }> = {
-        // --- 1. Foundation Departments (核心基础) ---
-        '心血管内科': { count: 0, conditions: new Set(), services: [{name:'动态血压监测', count:0, description:'监测血压波动'}, {name:'冠脉CTA', count:0, description:'排查冠心病'}] },
-        '内分泌科': { count: 0, conditions: new Set(), services: [{name:'甲状腺功能全套', count:0, description:'排查甲亢/甲减'}, {name:'糖尿病慢病管理', count:0, description:'血糖控制方案'}] },
-        '消化内科': { count: 0, conditions: new Set(), services: [{name:'C13呼气试验', count:0, description:'幽门螺杆菌检测'}, {name:'无痛胃肠镜', count:0, description:'胃肠肿瘤筛查'}] },
-        '呼吸内科': { count: 0, conditions: new Set(), services: [{name:'肺功能检查', count:0, description:'慢阻肺筛查'}, {name:'低剂量螺旋CT', count:0, description:'肺结节随访'}] },
-        '泌尿外科': { count: 0, conditions: new Set(), services: [{name:'泌尿系彩超', count:0, description:'结石/前列腺筛查'}, {name:'PSA筛查', count:0, description:'前列腺癌筛查'}] },
-        '妇科': { count: 0, conditions: new Set(), services: [{name:'HPV+TCT筛查', count:0, description:'宫颈癌筛查'}, {name:'盆底肌修复', count:0, description:'产后康复'}] },
-        
-        // --- 2. Specialized Departments (特色专科) ---
-        '中医科': { count: 0, conditions: new Set(), services: [{name:'中医体质辨识', count:0, description:'未病先防'}, {name:'三伏贴/三九贴', count:0, description:'冬病夏治'}] },
-        '康复理疗科': { count: 0, conditions: new Set(), services: [{name:'颈肩腰腿痛理疗', count:0, description:'缓解疼痛'}, {name:'骨科术后康复', count:0, description:'功能恢复'}] },
-        '体重管理科': { count: 0, conditions: new Set(), services: [{name:'医学减重门诊', count:0, description:'科学减脂'}, {name:'人体成分分析', count:0, description:'体脂监测'}] },
-        '骨科': { count: 0, conditions: new Set(), services: [{name:'骨密度测定', count:0, description:'骨质疏松筛查'}, {name:'关节镜检查', count:0, description:'关节损伤'}] },
-        '神经内科': { count: 0, conditions: new Set(), services: [{name:'经颅多普勒(TCD)', count:0, description:'脑血管评估'}, {name:'睡眠监测', count:0, description:'失眠诊疗'}] },
-    };
-
-    // Keyword Mapping (Extensive)
-    const keywords: Record<string, string> = {
-        // Cardio
-        '血压': '心血管内科', '心脏': '心血管内科', '心律': '心血管内科', '房颤': '心血管内科', '动脉': '心血管内科', '斑块': '心血管内科', '早搏': '心血管内科', 'ST段': '心血管内科', '胸闷': '心血管内科',
-        // Endo
-        '血糖': '内分泌科', '糖尿病': '内分泌科', '尿酸': '内分泌科', '痛风': '内分泌科', '血脂': '内分泌科', '胆固醇': '内分泌科', '甘油三酯': '内分泌科', '甲状腺': '内分泌科', '甲功': '内分泌科',
-        // Gastro
-        '胃': '消化内科', '肠': '消化内科', '幽门': '消化内科', '肝': '消化内科', '转氨酶': '消化内科', '脂肪肝': '消化内科', '胆囊': '消化内科', '息肉': '消化内科', '腹胀': '消化内科',
-        // Resp
-        '肺': '呼吸内科', '结节': '呼吸内科', '咳嗽': '呼吸内科', '慢阻肺': '呼吸内科', '气短': '呼吸内科', '磨玻璃': '呼吸内科',
-        // Urology
-        '前列腺': '泌尿外科', '肾结石': '泌尿外科', '尿路': '泌尿外科', 'PSA': '泌尿外科', '结石': '泌尿外科', '尿频': '泌尿外科', '输尿管': '泌尿外科', '隐血': '泌尿外科',
-        // Gyn
-        '乳腺': '妇科', '宫颈': '妇科', '子宫': '妇科', '附件': '妇科', '经期': '妇科', '白带': '妇科', '卵巢': '妇科',
-        // TCM
-        '气虚': '中医科', '湿热': '中医科', '亚健康': '中医科', '调理': '中医科', '舌苔': '中医科', '脉象': '中医科', '畏寒': '中医科', '乏力': '中医科',
-        // Rehab
-        '颈椎': '康复理疗科', '腰椎': '康复理疗科', '疼痛': '康复理疗科', '麻木': '康复理疗科', '肩周': '康复理疗科', '理疗': '康复理疗科',
-        // Weight
-        '肥胖': '体重管理科', '超重': '体重管理科', 'BMI': '体重管理科', '代谢': '体重管理科', '体重': '体重管理科',
-        // Ortho
-        '骨折': '骨科', '关节': '骨科', '骨质疏松': '骨科', '骨量': '骨科', '半月板': '骨科', '膝': '骨科',
-        // Neuro
-        '头晕': '神经内科', '头痛': '神经内科', '失眠': '神经内科', '脑': '神经内科', '记忆力': '神经内科', '睡眠': '神经内科'
-    };
-
-    // Classify
-    Object.entries(issues).forEach(([issue, count]) => {
-        let matched = false;
-        // Check keywords
-        for (const key in keywords) {
-            if (issue.includes(key)) {
-                const deptName = keywords[key];
-                
-                // Special Rule: Thyroid nodule -> Endo (mostly)
-                if (issue.includes('甲状腺') && deptName === '内分泌科') {
-                     // Keep as Endo
-                }
-                
-                if (depts[deptName]) {
-                    depts[deptName].count += count;
-                    depts[deptName].conditions.add(issue);
-                    matched = true;
-                    break;
-                }
-            }
-        }
-    });
-
-    // Format Output
-    return Object.entries(depts)
-        .filter(([_, data]) => data.count > 0)
-        .map(([name, data]) => ({
-            departmentName: name,
-            patientCount: data.count,
-            riskLevel: data.count > 5 ? 'HIGH' : data.count > 2 ? 'MEDIUM' : 'LOW',
-            keyConditions: Array.from(data.conditions).slice(0, 5),
-            suggestedServices: data.services.map(s => ({ ...s, count: Math.ceil(data.count * 0.8) }))
-        }));
+    请严格返回 JSON 格式:
+    {
+      "riskLevel": "GREEN" | "YELLOW" | "RED",
+      "riskJustification": "判定理由",
+      "majorIssues": "主要发现",
+      "nextCheckPlan": "下一步计划",
+      "lifestyleGoals": ["目标1"]
+    }
+    `;
+    try {
+        const jsonText = await callGemini("你是一个随访分析AI助手。", prompt);
+        return JSON.parse(jsonText || '{}');
+    } catch (e) {
+        return {};
+    }
 };
 
-// [UPDATED] Hospital Heatmap Analysis (Hybrid: AI + Local Fallback)
+export const generateFollowUpSMS = async (name: string) => { 
+    return { smsContent: `温馨提示：${name}老师，您的健康随访已完成，请登录查看最新评估。` };
+};
+
+/**
+ * AI-driven Hospital Business Heatmap Analysis
+ */
 export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: number }): Promise<DepartmentAnalytics[]> => {
-    // 1. Try AI Analysis with Explicit Instruction for ALL Departments
     const prompt = `
-    作为医院运营专家，请根据以下全院体检异常数据统计(异常项: 人次)，进行全面、精准的科室归类和业务规划。
+    作为医院运营专家，请根据异常数据进行科室归类。
+    数据: ${JSON.stringify(issues)}
     
-    输入数据: ${JSON.stringify(issues)}
-    
-    【核心任务】
-    1. **全面归类**：请务必将异常项分配到以下**所有相关的临床科室**，不要遗漏：
-       - 基础科室：心血管内科、内分泌科、消化内科、呼吸内科、泌尿外科
-       - 特色科室：妇科、中医科、康复理疗科、体重管理科、骨科、神经内科
-    
-    2. **规则建议**：
-       - 血压/心脏问题 -> 心血管内科
-       - 血糖/血脂/痛风/甲状腺 -> 内分泌科
-       - 胃/肠/肝胆/幽门 -> 消化内科
-       - 前列腺/结石 -> 泌尿外科
-       - 颈肩腰腿痛 -> 康复理疗科
-       - 肥胖/超重 -> 体重管理科
-       - 头晕/失眠 -> 神经内科
-    
-    3. **数据估算**：估算每个科室的潜在患者人次 (patientCount)。
-    4. **业务建议**：针对每个科室，推荐2个具体的特色诊疗项目(suggestedServices)。
-    
-    请严格返回 JSON 数组，格式如下:
+    请严格返回 JSON 数组:
     [
       {
         "departmentName": "科室名称",
-        "patientCount": 0,
+        "patientCount": number,
         "riskLevel": "HIGH" | "MEDIUM" | "LOW", 
-        "keyConditions": ["关联异常1", "关联异常2"], 
-        "suggestedServices": [
-           { "name": "项目名称", "count": 0, "description": "简述" }
-        ]
+        "keyConditions": ["异常1"], 
+        "suggestedServices": [ { "name": "项目", "count": number, "description": "简述" } ]
       }
     ]
     `;
 
     try {
-        if (!API_KEY) throw new Error("No API Key"); // Force fallback if no key
-        const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据挖掘与全科业务规划。", prompt);
+        const jsonText = await callGemini("你是医院运营顾问。", prompt);
         const result = JSON.parse(jsonText || '[]');
-        if (Array.isArray(result) && result.length > 0) {
-            return result;
-        }
-        throw new Error("AI returned empty result");
+        return Array.isArray(result) ? result : [];
     } catch (e) {
-        console.warn("Heatmap AI Gen Failed, switching to Comprehensive Local Rule Engine...", e);
-        // 2. Comprehensive Local Rule-Based Fallback
-        const localResult = localHeatmapAnalysis(issues);
-        return localResult; // Should return valid data if issues exist
+        console.warn("Heatmap AI failed", e);
+        return [];
     }
 };
 
-export const generateAnnualReportSummary = async (b: any, c: any) => { return {summary:''} };
-export const generateDietAssessment = async (i: string) => { return {reply: 'Diet AI Placeholder'} };
-export const generateExercisePlan = async (i: string) => { return {plan:[]} };
+export const generateAnnualReportSummary = async (basics: any, checkup: any) => { 
+    return { summary: '年度健康摘要生成中...' };
+};
 
+export const generateDietAssessment = async (input: string) => { 
+    const res = await callGemini("你是营养师。", `分析此饮食输入: ${input}`, false);
+    return { reply: res };
+};
+
+export const generateExercisePlan = async (input: string) => { 
+    const res = await callGemini("你是运动教练。", `根据需求生成运动计划: ${input}\n返回JSON格式: { "plan": [{ "day": "天数", "content": "内容" }] }`);
+    return JSON.parse(res || '{ "plan": [] }');
+};
+
+/**
+ * Calculates nutrition facts from ingredients using Gemini
+ */
 export const calculateNutritionFromIngredients = async (items: {name: string, ingredients: string}[]): Promise<{nutritionData: any}> => {
     const prompt = `
-    Analyze nutrition for the following items. Return JSON with key as item name.
+    分析以下食谱的营养成分。
     Items: ${JSON.stringify(items)}
     
-    Output JSON format per item:
+    返回 JSON (Key 为菜名):
     {
-       "cal": number (kcal),
-       "protein": number (g),
-       "fat": number (g),
-       "carbs": number (g),
-       "fiber": number (g),
-       "nutrition": "Short summary string"
+       "菜名": { "cal": number, "protein": number, "fat": number, "carbs": number, "fiber": number, "nutrition": "简述" }
     }
     `;
     try {
-        const jsonText = await callDeepSeek("你是营养师。", prompt);
+        const jsonText = await callGemini("你是专业的营养分析专家。", prompt);
         return { nutritionData: JSON.parse(jsonText || '{}') };
     } catch (e) {
         return { nutritionData: {} };
     }
 };
 
+/**
+ * Generates personalized daily habits based on risk assessment
+ */
 export const generatePersonalizedHabits = async (assessment: HealthAssessment, record: HealthRecord): Promise<{ habits: HabitRecord[] }> => {
     const prompt = `
-    Create 6 personalized habits based on health assessment.
-    Risk: ${assessment.riskLevel}, Summary: ${assessment.summary}
-    Return JSON: { "habits": [ { "id": "h1", "title": "...", "icon": "emoji", "frequency": "daily"|"weekly", "color": "orange"|"blue"|"green" } ] }
+    根据评估结果创建6个健康习惯。
+    风险: ${assessment.riskLevel}, 摘要: ${assessment.summary}
+    返回 JSON: { "habits": [ { "id": "h1", "title": "...", "icon": "emoji", "frequency": "daily", "color": "orange" } ] }
     `;
 
     try {
-        const jsonText = await callDeepSeek("你是健康管理专家。", prompt);
+        const jsonText = await callGemini("你是健康习惯规划师。", prompt);
         const result = JSON.parse(jsonText || '{}');
         const habits = (result.habits || []).map((h: any) => ({
             ...h,
@@ -533,51 +297,39 @@ export const generatePersonalizedHabits = async (assessment: HealthAssessment, r
         }));
         return { habits };
     } catch (e) {
-        return {
-            habits: [
-                { id: 'h1', title: '吃早餐', icon: '🍳', frequency: 'daily', history: [], streak: 0, color: 'orange' },
-                { id: 'h2', title: '蔬菜300g+', icon: '🥦', frequency: 'daily', history: [], streak: 0, color: 'green' },
-                { id: 'h3', title: '多喝水', icon: '💧', frequency: 'daily', history: [], streak: 0, color: 'blue' },
-                { id: 'h4', title: '早睡早起', icon: '🌙', frequency: 'daily', history: [], streak: 0, color: 'purple' },
-                { id: 'h5', title: '适量运动', icon: '🏃', frequency: 'daily', history: [], streak: 0, color: 'red' },
-                { id: 'h6', title: '心情愉快', icon: '😄', frequency: 'daily', history: [], streak: 0, color: 'pink' },
-            ]
-        };
+        return { habits: [] };
     }
 };
 
-export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string, targetCalories?: number): Promise<{
-    diet: { breakfast: string, lunch: string, dinner: string },
-    recommendedMealIds: string[],
-    exercise: { morning: string, afternoon: string, evening: string },
-    recommendedExerciseIds: string[],
-    tips: string
-}> => {
+/**
+ * Generates an integrated daily diet and exercise plan
+ */
+export const generateDailyIntegratedPlan = async (userProfileStr: string, resourcesContext?: string, targetCalories?: number): Promise<any> => {
     const prompt = `
-    Generate a daily plan (Target: ${targetCalories || 2000} kcal).
-    User: ${userProfileStr}
-    Resources: ${resourcesContext || '[]'}
+    生成每日健康方案 (目标: ${targetCalories || 2000} kcal)。
+    用户背景: ${userProfileStr}
+    可选资源: ${resourcesContext || '[]'}
     
-    Return JSON:
+    返回 JSON:
     {
-      "diet": { "breakfast": "name", "lunch": "name", "dinner": "name" },
-      "recommendedMealIds": ["id1", "id2", "id3"],
-      "exercise": { "morning": "desc", "afternoon": "desc", "evening": "desc" },
+      "diet": { "breakfast": "建议", "lunch": "建议", "dinner": "建议" },
+      "recommendedMealIds": ["id1"],
+      "exercise": { "morning": "建议", "afternoon": "建议", "evening": "建议" },
       "recommendedExerciseIds": ["id1"],
-      "tips": "summary"
+      "tips": "贴士"
     }
     `;
 
     try {
-        const jsonText = await callDeepSeek("你是私人健康教练。", prompt);
+        const jsonText = await callGemini("你是全能健康教练。", prompt);
         return JSON.parse(jsonText || '{}');
     } catch (e) {
         return {
-            diet: { breakfast: '燕麦牛奶', lunch: '清淡饮食', dinner: '蔬菜沙拉' },
+            diet: { breakfast: '清淡早餐', lunch: '均衡午餐', dinner: '轻食晚餐' },
             recommendedMealIds: [],
-            exercise: { morning: '拉伸', afternoon: '步行', evening: '休息' },
+            exercise: { morning: '晨间拉伸', afternoon: '适度走动', evening: '静心冥想' },
             recommendedExerciseIds: [],
-            tips: '生成服务繁忙，请参考通用建议。'
+            tips: '保持规律生活。'
         };
     }
 };

@@ -23,102 +23,50 @@ interface Props {
 
 export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, isAuthenticated, onTabChange }) => {
     const [archives, setArchives] = useState<HealthArchive[]>([]);
-    
-    // Operations Stats
-    const [opsStats, setOpsStats] = useState({
-        totalResources: 0,
-        activeDoctors: 0,
-        pendingSignings: 0,
-        eventSignups: 0
-    });
-    
+    const [opsStats, setOpsStats] = useState({ totalResources: 0, activeDoctors: 0, pendingSignings: 0, eventSignups: 0 });
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'updated_at', direction: 'desc' });
     const [filterRisk, setFilterRisk] = useState<string>('ALL');
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [skipFilled, setSkipFilled] = useState(true); 
 
-    // Import Options
-    const [skipFilled, setSkipFilled] = useState(true); // Default to skip existing questionnaires
-
-    // Edit Modal State
     const [editingArchive, setEditingArchive] = useState<HealthArchive | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editForm, setEditForm] = useState<HealthProfile | null>(null);
-
-    // Critical Modal State
     const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
-
-    // Smart Batch Import (Full Parse & Questionnaire Excel)
     const [isSmartBatchModalOpen, setIsSmartBatchModalOpen] = useState(false);
     const [smartBatchFiles, setSmartBatchFiles] = useState<File[]>([]);
     const [smartBatchLogs, setSmartBatchLogs] = useState<string[]>([]);
     const [isSmartBatchProcessing, setIsSmartBatchProcessing] = useState(false);
-
-    // Questionnaire Update Import (Excel Only)
     const questionnaireImportRef = useRef<HTMLInputElement>(null);
 
     const configured = isSupabaseConfigured();
 
     useEffect(() => {
-        if (isAuthenticated) {
-            loadData();
-            loadOperationsData(); // Load Cross-Platform Data
-        }
+        if (isAuthenticated) { loadData(); loadOperationsData(); }
     }, [isAuthenticated]);
-
-    // Setup PDF Worker
-    useEffect(() => {
-        const setupPdfWorker = async () => {
-            const workerUrl = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-            // @ts-ignore
-            const lib = pdfjsLib.default || pdfjsLib;
-            if (!lib.GlobalWorkerOptions) return;
-            try {
-                const response = await fetch(workerUrl);
-                if (!response.ok) throw new Error("Failed to fetch worker script");
-                const workerScript = await response.text();
-                const blob = new Blob([workerScript], { type: "text/javascript" });
-                const blobUrl = URL.createObjectURL(blob);
-                lib.GlobalWorkerOptions.workerSrc = blobUrl;
-            } catch (error) {
-                lib.GlobalWorkerOptions.workerSrc = workerUrl;
-            }
-        };
-        setupPdfWorker();
-    }, []);
 
     const loadData = async () => {
         if (!configured) { setLoading(false); return; }
-        setLoading(true);
-        setFetchError(null);
-        setSelectedIds(new Set());
-        try {
-            const data = await fetchArchives();
-            setArchives(data);
-        } catch (error: unknown) {
-            setFetchError(String(error));
-        } finally {
-            setLoading(false);
-        }
+        setLoading(true); setFetchError(null); setSelectedIds(new Set());
+        try { const data = await fetchArchives(); setArchives(data); }
+        catch (error: unknown) { setFetchError(String(error)); }
+        finally { setLoading(false); }
     };
 
     const loadOperationsData = async () => {
         try {
             const contents = await fetchContent();
             const interactions = await fetchInteractions();
-            
             setOpsStats({
                 totalResources: contents.length,
                 activeDoctors: contents.filter(c => c.type === 'doctor' && c.status === 'active').length,
                 pendingSignings: interactions.filter(i => i.type === 'doctor_signing' && i.status === 'pending').length,
                 eventSignups: interactions.filter(i => i.type === 'event_signup').length
             });
-        } catch (e) {
-            console.error("Ops Stats Load Failed", e);
-        }
+        } catch (e) { console.error("Ops Stats Failed", e); }
     };
 
     const handleDelete = async (id: string, name: string) => {
@@ -130,7 +78,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     const handleBatchDelete = async () => {
         if (selectedIds.size === 0) return;
-        if (confirm(`⚠️ 危险操作：确定要批量删除选中的 ${selectedIds.size} 份健康档案吗？`)) {
+        if (confirm(`确定要批量删除选中的 ${selectedIds.size} 份健康档案吗？`)) {
             setLoading(true);
             for (const id of Array.from(selectedIds)) await deleteArchive(id as string);
             loadData(); if (onDataUpdate) onDataUpdate();
@@ -163,204 +111,40 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         loadData();
     };
 
-    // --- NEW: Batch Update Questionnaire Logic (AI Powered) ---
-    // Helper to deeply merge questionnaire data (simple version)
-    // Only merges non-empty values from source to target
-    const mergeQuestionnaire = (target: any, source: any): any => {
-        const result = { ...target };
-        for (const key in source) {
-            if (source[key] !== null && source[key] !== undefined && source[key] !== '') {
-                if (typeof source[key] === 'object' && !Array.isArray(source[key])) {
-                    result[key] = mergeQuestionnaire(result[key] || {}, source[key]);
-                } else if (Array.isArray(source[key])) {
-                    if (source[key].length > 0) result[key] = source[key];
-                } else {
-                    result[key] = source[key];
-                }
-            }
-        }
-        return result;
-    };
-
-    // Helper to check if questionnaire is already meaningfully filled
-    const hasValidQuestionnaireData = (q: QuestionnaireData): boolean => {
-        if (!q) return false;
-        // Check for specific fields that indicate a user has filled the form
-        const hasDiet = Array.isArray(q.diet?.habits) && q.diet.habits.length > 0;
-        const hasSmoke = !!q.substances?.smoking?.status;
-        const hasExercise = !!q.exercise?.frequency;
-        const hasHistory = Array.isArray(q.history?.diseases) && q.history.diseases.length > 0 && !q.history.diseases.includes('无');
-        
-        return hasDiet || hasSmoke || hasExercise || hasHistory;
-    };
-
-    const handleBatchQuestionnaireImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const confirmMsg = skipFilled 
-            ? "⚠️ [智能模式: 跳过已完善档案]\n系统将识别 Excel 数据并更新问卷。\n\n• 若档案已存在且问卷已填：自动跳过 (保留原数据)\n• 若档案已存在但问卷为空：更新问卷并重评\n• 若未建档：自动跳过\n\n确定开始吗？"
-            : "⚠️ [覆盖模式]\n系统将识别 Excel 数据，强制覆盖所有匹配档案的问卷信息，并重新生成风险评估。\n\n确定开始吗？";
-
-        if (!confirm(confirmMsg)) {
-            e.target.value = '';
-            return;
-        }
-
-        setIsSmartBatchModalOpen(true);
-        setIsSmartBatchProcessing(true);
-        setSmartBatchLogs(["🔄 正在读取Excel文件..."]);
-
-        try {
-            const arrayBuffer = await file.arrayBuffer();
-            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-            if (jsonData.length === 0) throw new Error("Excel文件内容为空");
-
-            setSmartBatchLogs(prev => [...prev, `📊 发现 ${jsonData.length} 条记录，开始 AI 智能识别处理...`]);
-
-            let successCount = 0;
-            let skipCount = 0;
-            let alreadyFilledCount = 0;
-
-            for (const row of jsonData as any[]) {
-                // 1. Identify ID (Enhanced logic for robustness)
-                const rawId = row['体检编号'] || row['checkupId'] || row['ID'] || row['编号'] || row['id'];
-                
-                if (!rawId) {
-                    setSmartBatchLogs(prev => [...prev, `⚠️ 跳过: 数据行缺少体检编号`]);
-                    skipCount++;
-                    continue;
-                }
-
-                // Robust Cleaning: Convert to string, trim whitespace, remove hidden chars
-                const checkupId = String(rawId).trim().replace(/\s+/g, '');
-
-                // 2. Match Existing Archive
-                // Priority 1: Check In-Memory Archives (Fastest & Guaranteed sync with what user sees)
-                let existingArchive = archives.find(a => String(a.checkup_id).trim() === checkupId);
-
-                // Priority 2: Check Backend (If not in current filtered list)
-                if (!existingArchive) {
-                    existingArchive = (await findArchiveByCheckupId(checkupId)) || undefined;
-                }
-
-                if (!existingArchive) {
-                    setSmartBatchLogs(prev => [...prev, `⏭️ 跳过: 未找到编号 [${checkupId}] 的建档记录`]);
-                    skipCount++;
-                    continue;
-                }
-
-                // 3. Skip if already filled check
-                if (skipFilled && hasValidQuestionnaireData(existingArchive.health_record.questionnaire)) {
-                    setSmartBatchLogs(prev => [...prev, `⏩ 跳过: [${checkupId}] 问卷已完善，无需更新`]);
-                    alreadyFilledCount++;
-                    continue;
-                }
-
-                try {
-                    setSmartBatchLogs(prev => [...prev, `🔍 识别中: ${existingArchive.name} (${checkupId})...`]);
-
-                    // 4. Construct Text Context for AI from Excel Row
-                    const rowText = Object.entries(row)
-                        .map(([k, v]) => `${k}: ${v}`)
-                        .join('\n');
-
-                    // 5. AI Parse (Using the same engine as "Supplement Questionnaire")
-                    const parsedRecord = await parseHealthDataFromText(rowText);
-                    const newQuestionnaire = parsedRecord.questionnaire;
-
-                    // 6. Smart Merge with Existing Record
-                    const updatedQuestionnaire = mergeQuestionnaire(
-                        existingArchive.health_record.questionnaire, 
-                        newQuestionnaire
-                    );
-
-                    const updatedRecord: HealthRecord = {
-                        ...existingArchive.health_record,
-                        questionnaire: updatedQuestionnaire,
-                        // Ensure profile consistency
-                        profile: existingArchive.health_record.profile
-                    };
-
-                    // 7. Trigger AI Re-Assessment
-                    const newAssessment = await generateHealthAssessment(updatedRecord);
-                    const newSchedule = generateFollowUpSchedule(newAssessment);
-                    
-                    // 8. Update Models & Portraits
-                    const portraits = generateSystemPortraits(updatedRecord);
-                    const models = evaluateRiskModels(updatedRecord);
-
-                    // 9. Save
-                    await saveArchive(
-                        updatedRecord, 
-                        newAssessment, 
-                        newSchedule, 
-                        existingArchive.follow_ups, // Keep existing follow-up history
-                        { portraits, models }
-                    );
-
-                    setSmartBatchLogs(prev => [...prev, `✅ 更新成功: ${existingArchive.name} (风险:${newAssessment.riskLevel})`]);
-                    successCount++;
-
-                } catch (err: any) {
-                    setSmartBatchLogs(prev => [...prev, `❌ 处理失败 ${checkupId}: ${err.message}`]);
-                }
-            }
-
-            setSmartBatchLogs(prev => [...prev, `🎉 全部完成! 成功: ${successCount}, 已完善跳过: ${alreadyFilledCount}, 未建档/异常: ${skipCount}`]);
-            loadData(); // Refresh list
-
-        } catch (error: any) {
-            setSmartBatchLogs(prev => [...prev, `❌ 文件处理错误: ${error.message}`]);
-        } finally {
-            setIsSmartBatchProcessing(false);
-            if (questionnaireImportRef.current) questionnaireImportRef.current.value = '';
-        }
-    };
-
     const filteredArchives = useMemo(() => {
         let result = archives.filter(archive => {
             const term = searchTerm.toLowerCase();
             const matchSearch = ((archive.name || '').toLowerCase().includes(term) || (archive.checkup_id || '').toLowerCase().includes(term) || (archive.phone || '').toLowerCase().includes(term));
+            
             let matchRisk = false;
             if (filterRisk === 'ALL') matchRisk = true;
             else if (filterRisk === 'CRITICAL') {
-                // Refined Logic for Admin Console Filter: Only show "Urgent" tasks by default
                 const track = archive.critical_track;
                 if (!track || track.status === 'archived') return false;
                 
-                // Case 1: Initial Notification (Urgent)
+                // BUSINESS RULE: Center head view prioritizes:
+                // 1. Initial follow-up (within 24h deadline)
+                // 2. Secondary follow-up (within 7-day proximity or overdue)
                 if (track.status === 'pending_initial') return true;
-                
-                // Case 2: Secondary Follow-up (Only if within 7 days window)
                 if (track.status === 'pending_secondary' && track.secondary_due_date) {
                     const today = new Date(); today.setHours(0,0,0,0);
                     const due = new Date(track.secondary_due_date);
                     const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                     return diffDays <= 7;
                 }
-                
                 return false;
             }
             else matchRisk = archive.risk_level === filterRisk;
+            
             return matchSearch && matchRisk;
         });
+        
         if (sortConfig) {
             result.sort((a, b) => {
                 let aVal: any = '', bVal: any = '';
                 switch (sortConfig.key) {
-                    case 'name': aVal = a.name; bVal = b.name; break;
-                    case 'department': aVal = a.department; bVal = b.department; break;
-                    case 'risk_level': 
-                         const riskOrder = { 'RED': 3, 'YELLOW': 2, 'GREEN': 1, 'UNKNOWN': 0 };
-                         aVal = riskOrder[a.risk_level as keyof typeof riskOrder] || 0;
-                         bVal = riskOrder[b.risk_level as keyof typeof riskOrder] || 0;
-                         break;
                     case 'updated_at': aVal = new Date(a.updated_at || a.created_at).getTime(); bVal = new Date(b.updated_at || b.created_at).getTime(); break;
+                    case 'name': aVal = a.name; bVal = b.name; break;
                     default: aVal = (a as any)[sortConfig.key]; bVal = (b as any)[sortConfig.key];
                 }
                 if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -379,65 +163,10 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const handleEditClick = (archive: HealthArchive) => { setEditingArchive(archive); setEditForm(archive.health_record.profile); setIsEditModalOpen(true); };
     const handleSaveProfile = async () => { if (!editingArchive || !editForm) return; const result = await updateArchiveProfile(editingArchive.id, editForm); if (result.success) { setIsEditModalOpen(false); setEditingArchive(null); loadData(); if (onDataUpdate) onDataUpdate(); } else alert(result.message); };
     const handleCriticalSave = async (record: CriticalTrackRecord) => { if (!criticalModalArchive) return; const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record); if (res.success) { setCriticalModalArchive(null); loadData(); if (onDataUpdate) onDataUpdate(); } };
-    
-    const handleSmartBatchFiles = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) { setSmartBatchFiles(Array.from(e.target.files)); setSmartBatchLogs([]); } };
-    const extractTextFromFile = async (file: File): Promise<string> => {
-        const fileType = file.name.split('.').pop()?.toLowerCase();
-        if (fileType === 'txt') return await file.text();
-        if (fileType === 'docx' || fileType === 'doc') { const arrayBuffer = await file.arrayBuffer(); const result = await mammoth.extractRawText({ arrayBuffer }); return result.value; }
-        if (fileType === 'pdf') {
-            const arrayBuffer = await file.arrayBuffer();
-            // @ts-ignore
-            const lib = pdfjsLib.default || pdfjsLib;
-            const loadingTask = lib.getDocument({ data: arrayBuffer });
-            const pdf = await loadingTask.promise;
-            let fullText = "";
-            for (let i = 1; i <= pdf.numPages; i++) { 
-                const page = await pdf.getPage(i); 
-                const textContent = await page.getTextContent(); 
-                const pageText = textContent.items.map((item: any) => item.str).join(' '); 
-                fullText += `--- Page ${i} ---\n${pageText}\n\n`; 
-            }
-            if (!fullText.trim()) {
-                throw new Error("PDF内容为空或为纯图片，无法识别文字");
-            }
-            return fullText;
-        }
-        throw new Error("Unsupported format");
-    };
-    const handleSmartBatchProcess = async () => {
-        if (smartBatchFiles.length === 0) return;
-        setIsSmartBatchProcessing(true);
-        setSmartBatchLogs(["🚀 任务启动..."]);
-        for (const file of smartBatchFiles) {
-            setSmartBatchLogs(prev => [...prev, `📄 读取: ${file.name}`]);
-            try {
-                const text = await extractTextFromFile(file);
-                setSmartBatchLogs(prev => [...prev, `🤖 AI 解析中...`]);
-                const parsedRecord = await parseHealthDataFromText(text);
-                
-                if (parsedRecord.profile.name && parsedRecord.profile.name.includes('解析失败')) {
-                    throw new Error(parsedRecord.profile.name);
-                }
-
-                const assessment = await generateHealthAssessment(parsedRecord);
-                const schedule = generateFollowUpSchedule(assessment);
-                const portraits = generateSystemPortraits(parsedRecord);
-                const models = evaluateRiskModels(parsedRecord);
-                const saveRes = await saveArchive(parsedRecord, assessment, schedule, [], { portraits, models });
-                if (saveRes.success) setSmartBatchLogs(prev => [...prev, `✅ 成功: ${parsedRecord.profile.name}`]);
-                else setSmartBatchLogs(prev => [...prev, `❌ 失败: ${saveRes.message}`]);
-            } catch (e: any) {
-                setSmartBatchLogs(prev => [...prev, `❌ 异常: ${e.message}`]);
-            }
-        }
-        setIsSmartBatchProcessing(false);
-        loadData();
-    };
 
     return (
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 h-full flex flex-col overflow-hidden animate-fadeIn">
-            {/* Operations Dashboard */}
+            {/* Dashboard Stats */}
             <div className="bg-slate-800 text-white p-4 grid grid-cols-4 gap-4 shrink-0">
                 <div className="flex flex-col items-center border-r border-slate-700">
                     <span className="text-2xl font-bold">{archives.length}</span>
@@ -464,45 +193,21 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <input type="text" placeholder="搜索姓名、编号、电话..." className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-teal-500 outline-none text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                         <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
                     </div>
-                    <select className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none bg-white" value={filterRisk} onChange={e => setFilterRisk(e.target.value)}>
-                        <option value="ALL">全部风险等级</option>
+                    <select className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none bg-white font-bold" value={filterRisk} onChange={e => setFilterRisk(e.target.value)}>
+                        <option value="ALL">全部档案</option>
+                        <option value="CRITICAL">🚨 紧急危急值(24h/7d)</option>
                         <option value="RED">🔴 高风险</option>
                         <option value="YELLOW">🟡 中风险</option>
                         <option value="GREEN">🟢 低风险</option>
-                        <option value="CRITICAL">🚨 紧急危急值(7天内)</option>
                     </select>
                 </div>
                 <div className="flex gap-2 items-center">
-                    {/* Checkbox for Skipping Filled Questionnaires */}
                     <label className="flex items-center gap-2 cursor-pointer mr-2 select-none" title="若档案中问卷已有内容，则跳过不更新">
-                        <input 
-                            type="checkbox" 
-                            checked={skipFilled} 
-                            onChange={(e) => setSkipFilled(e.target.checked)} 
-                            className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                        />
+                        <input type="checkbox" checked={skipFilled} onChange={(e) => setSkipFilled(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded" />
                         <span className="text-xs font-bold text-slate-600">跳过已完善问卷</span>
                     </label>
-
-                    {/* Questionnaire Update Import (Excel Only) */}
-                    <input 
-                        type="file" 
-                        ref={questionnaireImportRef} 
-                        className="hidden" 
-                        accept=".xlsx, .xls"
-                        onChange={handleBatchQuestionnaireImport} 
-                    />
-                    <button 
-                        onClick={() => questionnaireImportRef.current?.click()}
-                        className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1"
-                        title="基于Excel体检编号，批量AI识别问卷并更新风险评估"
-                    >
-                        📝 导入问卷更新档案
-                    </button>
-
-                    {selectedIds.size > 0 && <button onClick={handleBatchDelete} className="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-200">🗑️ 删除选中</button>}
-                    <button onClick={handleBatchFixBMI} className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-200">⚖️ 修正BMI</button>
-                    <button onClick={() => setIsSmartBatchModalOpen(true)} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 shadow-sm">📂 智能建档导入</button>
+                    <button onClick={() => questionnaireImportRef.current?.click()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1">📝 导入问卷更新</button>
+                    <button onClick={() => setIsSmartBatchModalOpen(true)} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 shadow-sm flex items-center gap-1">📂 智能建档导入</button>
                     <button onClick={loadData} className="bg-white border border-slate-300 px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-600">🔄</button>
                 </div>
             </div>
@@ -516,18 +221,21 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <thead className="bg-slate-50 text-slate-500 font-bold sticky top-0 z-10 shadow-sm">
                         <tr>
                             <th className="p-4 w-10"><input type="checkbox" onChange={handleSelectAll} checked={filteredArchives.length > 0 && selectedIds.size === filteredArchives.length} /></th>
-                            <th className="p-4 cursor-pointer" onClick={() => handleSort('checkup_id')}>编号 {sortConfig?.key === 'checkup_id' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                            <th className="p-4 cursor-pointer" onClick={() => handleSort('checkup_id')}>编号</th>
                             <th className="p-4 cursor-pointer" onClick={() => handleSort('name')}>姓名</th>
                             <th className="p-4">性别 / 年龄</th>
-                            <th className="p-4 cursor-pointer" onClick={() => handleSort('department')}>部门</th>
+                            <th className="p-4">部门</th>
                             <th className="p-4 cursor-pointer" onClick={() => handleSort('risk_level')}>风险</th>
                             <th className="p-4 cursor-pointer" onClick={() => handleSort('updated_at')}>更新时间</th>
                             <th className="p-4 text-center">操作</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                        {loading ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">加载中...</td></tr> : filteredArchives.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">暂无数据</td></tr> : filteredArchives.map((archive) => {
+                        {loading ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">加载中...</td></tr> : filteredArchives.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">暂无符合条件的记录</td></tr> : filteredArchives.map((archive) => {
                             const isCritical = archive.assessment_data?.isCritical || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'));
+                            const track = archive.critical_track;
+                            const isInitialPending = track?.status === 'pending_initial';
+                            
                             return (
                                 <tr 
                                     key={archive.id} 
@@ -538,19 +246,33 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                     <td className="p-4 font-mono text-slate-600">{archive.checkup_id}</td>
                                     <td className="p-4">
                                         <div className="font-bold text-slate-800">{archive.name}</div>
-                                        {isCritical && <div className={`text-[10px] px-1.5 py-0.5 rounded inline-block mt-1 cursor-pointer ${archive.critical_track?.status === 'archived' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600 animate-pulse'}`} onClick={(e) => { e.stopPropagation(); setCriticalModalArchive(archive); }}>{archive.critical_track?.status === 'archived' ? '危急值已归档' : '🚨 危急值待处理'}</div>}
+                                        {isCritical && (
+                                            <div 
+                                                className={`text-[10px] px-1.5 py-0.5 rounded inline-block mt-1 cursor-pointer font-bold ${
+                                                    track?.status === 'archived' ? 'bg-green-100 text-green-700' : 
+                                                    isInitialPending ? 'bg-red-600 text-white animate-pulse' : 
+                                                    'bg-orange-100 text-orange-700'
+                                                }`} 
+                                                onClick={(e) => { e.stopPropagation(); setCriticalModalArchive(archive); }}
+                                            >
+                                                {track?.status === 'archived' ? '已闭环' : isInitialPending ? '🚨 24h待初诊' : '📅 待二次回访'}
+                                            </div>
+                                        )}
                                     </td>
                                     <td className="p-4 text-slate-600">{archive.gender} / {archive.age}</td>
                                     <td className="p-4 text-slate-600">{archive.department}</td>
-                                    <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold border ${archive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' : archive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' : 'bg-green-50 text-green-600 border-green-200'}`}>{archive.risk_level === 'RED' ? '高风险' : archive.risk_level === 'YELLOW' ? '中风险' : '低风险'}</span></td>
+                                    <td className="p-4">
+                                        <span className={`px-2 py-1 rounded text-xs font-bold border ${
+                                            archive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' : 
+                                            archive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' : 
+                                            'bg-green-50 text-green-600 border-green-200'
+                                        }`}>
+                                            {archive.risk_level === 'RED' ? '高风险' : archive.risk_level === 'YELLOW' ? '中风险' : '低风险'}
+                                        </span>
+                                    </td>
                                     <td className="p-4 text-xs text-slate-400 font-mono">{new Date(archive.updated_at || archive.created_at).toLocaleDateString()}</td>
                                     <td className="p-4 flex justify-center gap-2 opacity-80 group-hover:opacity-100">
-                                        <button 
-                                            onClick={(e) => { e.stopPropagation(); onSelectPatient(archive, 'assessment'); }} 
-                                            className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded hover:bg-indigo-100 font-bold"
-                                        >
-                                            查看
-                                        </button>
+                                        <button onClick={(e) => { e.stopPropagation(); onSelectPatient(archive, 'assessment'); }} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded hover:bg-indigo-100 font-bold">查看</button>
                                         <button onClick={(e) => { e.stopPropagation(); handleEditClick(archive); }} className="text-xs bg-slate-50 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-100">编辑</button>
                                         <button onClick={(e) => { e.stopPropagation(); handleDelete(archive.id, archive.name); }} className="text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded hover:bg-red-100">删除</button>
                                     </td>
@@ -561,79 +283,46 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 </table>
             </div>
             
-            {/* Edit Modal */}
+            {/* Modals */}
             {isEditModalOpen && editForm && (
                 <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 backdrop-blur-sm">
                     <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl animate-scaleIn">
                         <h3 className="text-lg font-bold text-slate-800 mb-4">编辑档案信息</h3>
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">体检编号</label>
-                                <input 
-                                    className="w-full border p-2 rounded bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none transition-colors" 
-                                    value={editForm.checkupId || ''} 
-                                    onChange={e => setEditForm({...editForm!, checkupId: e.target.value})} 
-                                    placeholder="请输入唯一体检编号"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">姓名</label>
-                                <input 
-                                    className="w-full border p-2 rounded focus:ring-2 focus:ring-teal-500 outline-none" 
-                                    value={editForm.name} 
-                                    onChange={e => setEditForm({...editForm!, name: e.target.value})} 
-                                />
-                            </div>
+                            <InputField label="体检编号" value={editForm.checkupId} onChange={(v:any) => setEditForm({...editForm!, checkupId: v})} />
+                            <InputField label="姓名" value={editForm.name} onChange={(v:any) => setEditForm({...editForm!, name: v})} />
                             <div className="grid grid-cols-2 gap-4">
-                                <div><label className="block text-xs font-bold text-slate-500 mb-1">性别</label><select className="w-full border p-2 rounded bg-white" value={editForm.gender} onChange={e => setEditForm({...editForm!, gender: e.target.value})}><option value="男">男</option><option value="女">女</option></select></div>
-                                <div><label className="block text-xs font-bold text-slate-500 mb-1">年龄</label><input type="number" className="w-full border p-2 rounded" value={editForm.age} onChange={e => setEditForm({...editForm!, age: Number(e.target.value)})} /></div>
+                                <SelectField label="性别" options={['男', '女']} value={editForm.gender} onChange={(v:any) => setEditForm({...editForm!, gender: v})} />
+                                <InputField label="年龄" type="number" value={editForm.age} onChange={(v:any) => setEditForm({...editForm!, age: Number(v)})} />
                             </div>
-                            <div><label className="block text-xs font-bold text-slate-500 mb-1">部门</label><input className="w-full border p-2 rounded" value={editForm.department} onChange={e => setEditForm({...editForm!, department: e.target.value})} /></div>
-                            <div><label className="block text-xs font-bold text-slate-500 mb-1">电话</label><input className="w-full border p-2 rounded" value={editForm.phone || ''} onChange={e => setEditForm({...editForm!, phone: e.target.value})} /></div>
+                            <InputField label="部门" value={editForm.department} onChange={(v:any) => setEditForm({...editForm!, department: v})} />
+                            <InputField label="电话" value={editForm.phone} onChange={(v:any) => setEditForm({...editForm!, phone: v})} />
                         </div>
                         <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">取消</button>
-                            <button onClick={handleSaveProfile} className="px-4 py-2 bg-teal-600 text-white font-bold rounded hover:bg-teal-700">保存</button>
+                            <button onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded text-sm">取消</button>
+                            <button onClick={handleSaveProfile} className="px-6 py-2 bg-teal-600 text-white font-bold rounded hover:bg-teal-700 text-sm shadow">保存修改</button>
                         </div>
                     </div>
                 </div>
             )}
             
-            {/* Critical Modal */}
             {criticalModalArchive && <CriticalHandleModal archive={criticalModalArchive} onClose={() => setCriticalModalArchive(null)} onSave={handleCriticalSave} />}
-            
-            {/* Smart Batch Modal / Questionnaire Import Progress */}
-            {isSmartBatchModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-3xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-scaleIn">
-                        <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-                            <div><h3 className="text-xl font-bold text-slate-800">📂 批量处理任务</h3><p className="text-xs text-slate-500 mt-1">支持 智能建档 / 问卷更新</p></div>
-                            <button onClick={() => { setIsSmartBatchModalOpen(false); setSmartBatchLogs([]); setSmartBatchFiles([]); }} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
-                        </div>
-                        <div className="flex-1 p-6 overflow-hidden flex flex-col">
-                            {!isSmartBatchProcessing && smartBatchLogs.length === 0 ? (
-                                <div className="flex-1 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 flex flex-col items-center justify-center p-10 relative">
-                                    <input type="file" multiple accept=".pdf,.docx,.doc,.txt" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleSmartBatchFiles} />
-                                    <div className="text-5xl mb-4 opacity-50">📤</div><p className="text-lg font-bold text-slate-600">拖拽上传文件 (仅限智能建档)</p>
-                                    <p className="text-xs text-slate-400 mt-2">注意：问卷更新请使用上方工具栏的"导入问卷更新档案"按钮</p>
-                                </div>
-                            ) : (
-                                <div className="flex-1 bg-black rounded-xl p-4 font-mono text-xs text-green-400 overflow-y-auto">
-                                    {smartBatchLogs.map((log, i) => <div key={i} className="mb-1">{log}</div>)}
-                                    {isSmartBatchProcessing && <div className="animate-pulse">_</div>}
-                                </div>
-                            )}
-                        </div>
-                        <div className="p-6 border-t border-slate-200 bg-white flex justify-between items-center">
-                            <div className="text-sm text-slate-500">{smartBatchFiles.length > 0 ? `已选择 ${smartBatchFiles.length} 个文件` : ''}</div>
-                            <div className="flex gap-3">
-                                <button onClick={() => { setSmartBatchFiles([]); setSmartBatchLogs([]); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded font-bold" disabled={isSmartBatchProcessing}>重置</button>
-                                {smartBatchFiles.length > 0 && <button onClick={handleSmartBatchProcess} disabled={isSmartBatchProcessing} className="bg-teal-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-teal-700 shadow-lg disabled:opacity-50">{isSmartBatchProcessing ? '🚀 处理中...' : '开始导入'}</button>}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
+
+const InputField = ({ label, value, onChange, type = "text" }: any) => (
+    <div>
+        <label className="block text-xs font-bold text-slate-500 mb-1">{label}</label>
+        <input className="w-full border p-2 rounded bg-slate-50 focus:bg-white transition-colors outline-none text-sm" type={type} value={value || ''} onChange={e => onChange(e.target.value)} />
+    </div>
+);
+
+const SelectField = ({ label, value, onChange, options }: any) => (
+    <div>
+        <label className="block text-xs font-bold text-slate-500 mb-1">{label}</label>
+        <select className="w-full border p-2 rounded bg-slate-50 text-sm" value={value || ''} onChange={e => onChange(e.target.value)}>
+            {options.map((o:string) => <option key={o} value={o}>{o}</option>)}
+        </select>
+    </div>
+);
