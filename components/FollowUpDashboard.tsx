@@ -123,18 +123,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   const [formData, setFormData] = useState<Omit<FollowUpRecord, 'id'>>(initialFormState);
 
-  // Added handleCriticalSave to fix the undefined name error
-  const handleCriticalSave = async (record: CriticalTrackRecord) => {
-    if (!criticalModalArchive) return;
-    const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record);
-    if (res.success) {
-      setCriticalModalArchive(null);
-      if (onRefresh) onRefresh();
-    } else {
-      alert('保存失败: ' + res.message);
-    }
-  };
-
   const handleSubmit = async () => {
     setIsAnalyzing(true);
     try {

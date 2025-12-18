@@ -35,9 +35,18 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
         secondary_feedback: existingTrack?.secondary_feedback || '',
     });
 
+    // Determine target date for secondary follow-up (Current + 1 Month) if not set
+    useEffect(() => {
+        if (!form.secondary_due_date) {
+            const d = new Date();
+            d.setMonth(d.getMonth() + 1);
+            setForm(prev => ({ ...prev, secondary_due_date: d.toISOString().split('T')[0] }));
+        }
+    }, []);
+
     // Toggle Multi-Level Selection
     const toggleLevel = (lvl: string) => {
-        if (isSecondary) return; 
+        if (isSecondary) return; // Cannot change level during secondary phase
         const currentLevels = (form.critical_level || '').split(/[,，、/ ]+/).filter(Boolean);
         let newLevels = [];
         if (currentLevels.includes(lvl)) {
@@ -45,6 +54,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
         } else {
             newLevels = [...currentLevels, lvl];
         }
+        // Sort to keep "A类,B类" consistent
         setForm({ ...form, critical_level: newLevels.sort().join(',') });
     };
 
@@ -54,30 +64,23 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
 
     const handleSubmit = () => {
         if (isSecondary) {
+            // Completing Secondary -> Archive
             if (!form.secondary_feedback?.trim()) {
                 alert("请填写二次反馈结果");
                 return;
             }
             onSave({ ...form, status: 'archived' });
         } else {
+            // Completing Initial -> Pending Secondary
             if (!form.initial_feedback.trim()) {
                 alert("请填写反馈结果");
                 return;
             }
-            
-            // BUSINESS RULE: Secondary follow-up is exactly 1 month (30 days) after initial notification
-            const secondaryDate = new Date();
-            secondaryDate.setDate(secondaryDate.getDate() + 30);
-            
-            onSave({ 
-                ...form, 
-                status: 'pending_secondary',
-                secondary_due_date: secondaryDate.toISOString().split('T')[0]
-            });
+            onSave({ ...form, status: 'pending_secondary' });
         }
     };
 
-    const stageTitle = isSecondary ? "阶段二：1个月后疗效回访" : "阶段一：24小时内初次处置";
+    const stageTitle = isSecondary ? "阶段二：疗效追踪与归档" : "阶段一：初次通知与处置";
     const headerColor = isSecondary ? "border-orange-500" : "border-red-600";
     const titleColor = isSecondary ? "text-orange-700" : "text-red-700";
 
@@ -90,13 +93,14 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                             <span>{isSecondary ? '📝' : '🚨'}</span> 危急值管理 - {stageTitle}
                         </h2>
                         <p className="text-slate-500 text-sm mt-1">
-                            {isSecondary ? '请确认复查结果并完成闭环管理' : '发现后24小时内必须完成初次通知并记录'}
+                            {isSecondary ? '请确认复查结果并完成闭环管理' : '请立即通知受检者并记录反馈'}
                         </p>
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
                 </div>
 
                 <div className="border border-slate-300 rounded-lg overflow-hidden mb-6">
+                    {/* Header Info */}
                     <div className="grid grid-cols-4 border-b border-slate-300 bg-slate-50 text-sm">
                         <div className="p-3 border-r border-slate-300 font-bold text-slate-700">受检者姓名</div>
                         <div className="p-3 border-r border-slate-300">{archive.name}</div>
@@ -106,8 +110,8 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                     <div className="grid grid-cols-4 border-b border-slate-300 bg-slate-50 text-sm">
                         <div className="p-3 border-r border-slate-300 font-bold text-slate-700">体检编号</div>
                         <div className="p-3 border-r border-slate-300">{archive.checkup_id}</div>
-                        <div className="p-3 border-r border-slate-300 font-bold text-slate-700">建档时间</div>
-                        <div className="p-3 font-mono text-xs">{new Date(archive.created_at).toLocaleString()}</div>
+                        <div className="p-3 border-r border-slate-300 font-bold text-slate-700">联系电话</div>
+                        <div className="p-3 font-mono">{archive.phone || '-'}</div>
                     </div>
                 </div>
 
@@ -124,7 +128,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                                         onChange={() => toggleLevel('A类')}
                                         disabled={isSecondary}
                                     />
-                                    <span className={`font-bold ${isChecked('A类') ? 'text-red-700' : 'text-slate-500'}`}>A类 (特急)</span>
+                                    <span className={`font-bold ${isChecked('A类') ? 'text-red-700' : 'text-slate-500'}`}>A类 (危急值)</span>
                                 </label>
                                 <label className="flex items-center gap-2 cursor-pointer">
                                     <input 
@@ -134,7 +138,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                                         onChange={() => toggleLevel('B类')}
                                         disabled={isSecondary}
                                     />
-                                    <span className={`font-bold ${isChecked('B类') ? 'text-orange-700' : 'text-slate-500'}`}>B类 (重大)</span>
+                                    <span className={`font-bold ${isChecked('B类') ? 'text-orange-700' : 'text-slate-500'}`}>B类 (重大异常)</span>
                                 </label>
                             </div>
                         </div>
@@ -166,11 +170,11 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs text-white ${isSecondary ? 'bg-slate-400' : 'bg-red-500'}`}>1</span>
                                 初次通知与处理记录
                             </span>
-                            <span className="text-xs font-normal text-slate-500 bg-white px-2 py-1 rounded border">处置时间: {form.initial_notify_time}</span>
+                            <span className="text-xs font-normal text-slate-500 bg-white px-2 py-1 rounded border">通知时间: {form.initial_notify_time}</span>
                         </h4>
                         <textarea 
                             className={`w-full border rounded p-2 text-sm h-24 ${isSecondary ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-white border-red-200 focus:ring-2 focus:ring-red-500'}`}
-                            placeholder="请记录通知对象及处置建议。点击保存后系统将自动计算1个月后的回访日期。"
+                            placeholder="请记录通知对象（本人/家属/单位）、通话情况及处置建议..."
                             value={form.initial_feedback}
                             onChange={e => !isSecondary && setForm({...form, initial_feedback: e.target.value})}
                             disabled={isSecondary}
@@ -182,13 +186,13 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                             <h4 className="font-bold text-slate-800 mb-3 flex justify-between items-center">
                                 <span className="flex items-center gap-2">
                                     <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs text-white bg-orange-500">2</span>
-                                    1个月后二次回访记录
+                                    二次回访追踪记录
                                 </span>
-                                <span className="text-xs font-normal text-orange-700 bg-orange-100 px-2 py-1 rounded">到期日期: {form.secondary_due_date}</span>
+                                <span className="text-xs font-normal text-orange-700 bg-orange-100 px-2 py-1 rounded">计划日期: {form.secondary_due_date}</span>
                             </h4>
                             <textarea 
                                 className="w-full border border-orange-300 rounded p-2 text-sm h-24 focus:ring-2 focus:ring-orange-500 bg-white"
-                                placeholder="请记录复查情况..."
+                                placeholder="请记录复查结果、治疗进展及干预效果..."
                                 value={form.secondary_feedback}
                                 onChange={e => setForm({...form, secondary_feedback: e.target.value})}
                                 autoFocus
@@ -198,14 +202,14 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                 </div>
 
                 <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
-                    <button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold text-sm">取消</button>
+                    <button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold">取消</button>
                     <button 
                         onClick={handleSubmit}
-                        className={`px-6 py-2 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 transition-transform active:scale-95 text-sm ${
+                        className={`px-6 py-2 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 transition-transform active:scale-95 ${
                             isSecondary ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-600 hover:bg-red-700'
                         }`}
                     >
-                        {isSecondary ? '✅ 完成闭环归档' : '💾 确认通知 (自动计划30天后回访)'}
+                        {isSecondary ? '✅ 完成归档 (Archive)' : '💾 确认通知并列入回访'}
                     </button>
                 </div>
             </div>
