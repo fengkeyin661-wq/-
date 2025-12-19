@@ -16,7 +16,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  // 强制设置初始标签为首页 'home'
+  // 核心修复：初始值必须设为 'home' 以对应新首页组件
   const [activeTab, setActiveTab] = useState('home'); 
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
@@ -34,7 +34,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
         onLogout();
       }
     } catch (e) {
-      console.error(e);
+      console.error("Load user failed:", e);
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -73,15 +73,15 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       try {
           await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
       } catch (e) {
-          console.error("Sync failed", e);
+          console.error("Sync record failed", e);
       }
   };
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold text-sm">正在加载健康管理系统...</p>
+      <div className="flex flex-col items-center justify-center h-screen bg-[#F8FAFC]">
+        <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-400 font-bold text-xs tracking-widest uppercase">健康数据同步中...</p>
       </div>
     );
   }
