@@ -1,11 +1,17 @@
 
 import React from 'react';
 import { HealthRecord, HealthAssessment } from '../../types';
+import { DailyHealthPlan, HealthArchive } from '../../services/dataService';
 
 interface Props {
   record: HealthRecord;
   assessment?: HealthAssessment;
+  dailyPlan?: DailyHealthPlan;
+  userId: string;
+  archive: HealthArchive;
+  onUpdateRecord: (updatedData: any) => Promise<void>;
   onLogout: () => void;
+  onNavigate: (tab: string) => void;
 }
 
 export const UserProfile: React.FC<Props> = ({ record, assessment, onLogout }) => {

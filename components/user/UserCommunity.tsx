@@ -1,8 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { fetchContent, ContentItem } from '../../services/contentService';
+import { HealthAssessment } from '../../types';
 
-export const UserCommunity: React.FC = () => {
+interface Props {
+    userId: string;
+    userName: string;
+    assessment?: HealthAssessment;
+}
+
+export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment }) => {
     const [events, setEvents] = useState<ContentItem[]>([]);
 
     useEffect(() => {
