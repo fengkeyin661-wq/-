@@ -1,9 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
-// Fix: Removed unused and non-existent import member 'generateAnnualReportSummary' which caused a compilation error.
-import { analyzeFollowUpRecord, generateFollowUpSMS } from '../services/geminiService';
+import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
 import { CriticalHandleModal } from './CriticalHandleModal';
 
@@ -207,7 +205,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       sleepHours: 7, sleepQuality: '好',
       psychology: '平稳', stress: '低'
     },
-    maskCompliance: [], // Added missing field mapping from types if necessary, though using taskCompliance
     taskCompliance: [],
     otherInfo: '',
     assessment: {
@@ -448,6 +445,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
           });
       }
   }
+
+  const summaryChartData = assessment ? [
+    { name: 'High', value: Math.max(assessment.risks.red.length, 0.5), color: '#ef4444' },
+    { name: 'Medium', value: Math.max(assessment.risks.yellow.length, 0.5), color: '#eab308' },
+    { name: 'Low', value: Math.max(5 - assessment.risks.red.length - assessment.risks.yellow.length, 1), color: '#22c55e' },
+  ] : [];
 
   return (
     <div className="animate-fadeIn pb-10">
@@ -819,6 +822,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
               </div>
               
               <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* ... same logic ... */}
                   <div className="lg:col-span-1 space-y-6">
                       <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 h-full">
                            <h4 className="font-bold text-yellow-800 mb-3 flex justify-between items-center">
@@ -867,6 +871,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                2. 核心指标录入
                                <span className="text-[10px] text-slate-400 font-normal bg-white px-2 py-0.5 rounded border">参考范围仅供参考</span>
                            </h4>
+                           {/* ... indicator inputs ... */}
                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-4">
                                <div>
                                    <label className="text-xs text-slate-500 block mb-1 font-medium">
@@ -967,6 +972,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       {/* Guide Section (Same as previous) */}
       {(latestRecord || assessment) && (
           <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600">
+              {/* ... Guide content ... */}
               <div className="flex justify-between items-start mb-6">
                   <div>
                       <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
