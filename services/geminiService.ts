@@ -1,6 +1,6 @@
-
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 import { HabitRecord } from "./dataService";
+import { ContentItem } from "./contentService";
 
 // Helper to safely access environment variables
 const getEnvVar = (key: string): string => {
@@ -332,6 +332,50 @@ export const generateHealthAssessment = async (rec: HealthRecord): Promise<Healt
             managementPlan: { dietary: [], exercise: [], medication: [], monitoring: [] },
             followUpPlan: { frequency: "待定", nextCheckItems: [] }
         };
+    }
+};
+
+// --- [NEW] AI 健康管家聊天接口 ---
+export const getButlerChatResponse = async (
+    userMessage: string,
+    history: {role: 'user'|'ai', content: string}[],
+    record: HealthRecord,
+    resources: ContentItem[]
+): Promise<{ reply: string, recommendedItemIds?: string[] }> => {
+    const systemPrompt = `
+    你是一名来自“郑州大学医院健康管理中心”的AI健康管家。你的职责是基于受检者的健康档案提供专业、温情的咨询。
+
+    【受检者档案概要】
+    - 姓名：${record.profile.name}
+    - 风险等级：${record.profile.checkupId ? '已评估' : '未评估'}
+    - 核心指标：血压 ${record.checkup.basics.sbp}/${record.checkup.basics.dbp}, BMI ${record.checkup.basics.bmi}
+    - 既往史：${record.questionnaire.history.diseases.join(', ')}
+
+    【可用中心资源】
+    你可以根据用户需求，从以下中心现有资源中推荐最合适的（请直接在回复中提及名称，并在JSON字段中返回ID）：
+    ${resources.map(r => `[${r.type}] ID:${r.id}, 名称:${r.title}, 标签:${r.tags.join(',')}`).join('\n')}
+
+    【回复规范】
+    1. 语气专业、亲切，像私人医生一样称呼对方。
+    2. 如果用户咨询健康问题，必须结合其档案。例如：用户问怎么吃，若他有高血压，你要提醒减盐。
+    3. 严禁提供具体处方药量，建议咨询中心医生。
+    4. 如果推荐了资源，请务必返回 ID 列表。
+
+    【输出格式】请严格返回 JSON:
+    {
+       "reply": "你的文字回复内容（支持Markdown）",
+       "recommendedItemIds": ["资源ID1", "资源ID2"]
+    }
+    `;
+
+    const chatHistoryStr = history.map(h => `${h.role === 'user' ? '用户' : '管家'}: ${h.content}`).join('\n');
+    const userContent = `上下文历史：\n${chatHistoryStr}\n\n当前用户消息：${userMessage}`;
+
+    try {
+        const jsonText = await callDeepSeek(systemPrompt, userContent);
+        return JSON.parse(jsonText || '{"reply": "抱歉，管家现在有点忙。"}');
+    } catch (e) {
+        return { reply: "系统繁忙，请稍后再试。" };
     }
 };
 
