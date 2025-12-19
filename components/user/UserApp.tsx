@@ -2,11 +2,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
 import { UserDietMotion } from './UserDietMotion';
-import { UserHabits } from './UserHabits'; // New import
+import { UserHabits } from './UserHabits';
 import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserCommunity } from './UserCommunity';
+import { UserAI } from './UserAI'; // New Import
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
 
@@ -16,7 +17,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits'); // Default to habits
+  const [activeTab, setActiveTab] = useState('habits');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -43,7 +44,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     loadUser();
   }, [loadUser]);
 
-  // Poll for unread messages
   useEffect(() => {
       const checkUnread = async () => {
           if (!userArchive) return;
@@ -105,6 +105,13 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               record={userArchive.health_record}
               dailyPlan={userArchive.custom_daily_plan}
               onRefresh={() => loadUser(true)}
+          />
+      )}
+      {activeTab === 'ai_assistant' && (
+          <UserAI 
+              record={userArchive.health_record}
+              followUps={userArchive.follow_ups || []}
+              onNavigate={(tab) => setActiveTab(tab)}
           />
       )}
       {activeTab === 'medical' && (
