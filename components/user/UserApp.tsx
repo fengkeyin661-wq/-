@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
 import { UserDietMotion } from './UserDietMotion';
-import { UserHabits } from './UserHabits'; 
 import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
@@ -16,7 +15,8 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits'); 
+  // 默认进入“我的报告”页面
+  const [activeTab, setActiveTab] = useState('profile'); 
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -33,7 +33,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
         onLogout();
       }
     } catch (e) {
-      console.error(e);
+      console.error("Load user failed", e);
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -43,7 +43,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     loadUser();
   }, [loadUser]);
 
-  // Poll for unread messages
   useEffect(() => {
       const checkUnread = async () => {
           if (!userArchive) return;
@@ -62,9 +61,9 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       if (!userArchive) return;
       
       const newCheckup = {
-          ...userArchive.health_record.checkup,
-          basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
-          labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic }
+          ...(userArchive.health_record?.checkup || {}),
+          basics: { ...(userArchive.health_record?.checkup?.basics || {}), ...updatedData.basics },
+          labBasic: { ...(userArchive.health_record?.checkup?.labBasic || {}), ...updatedData.labBasic }
       };
 
       const newRecord = { ...userArchive.health_record, checkup: newCheckup };
@@ -80,8 +79,8 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold text-sm">正在加载您的健康数据...</p>
+        <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">健康档案加载中...</p>
       </div>
     );
   }
@@ -90,13 +89,16 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
-      {activeTab === 'habits' && (
-          <UserHabits 
+      {activeTab === 'profile' && (
+          <UserProfile 
+              record={userArchive.health_record} 
               assessment={userArchive.assessment_data}
-              userCheckupId={userArchive.checkup_id}
-              userName={userArchive.name}
-              record={userArchive.health_record}
-              onRefresh={() => loadUser(true)}
+              dailyPlan={userArchive.custom_daily_plan}
+              userId={userArchive.checkup_id}
+              archive={userArchive}
+              onUpdateRecord={handleUpdateRecord}
+              onLogout={onLogout}
+              onNavigate={setActiveTab}
           />
       )}
       {activeTab === 'diet_motion' && (
@@ -127,18 +129,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               userId={userArchive.checkup_id} 
               archive={userArchive} 
               onMessageRead={() => setUnreadCount(0)}
-          />
-      )}
-      {activeTab === 'profile' && (
-          <UserProfile 
-              record={userArchive.health_record} 
-              assessment={userArchive.assessment_data}
-              dailyPlan={userArchive.custom_daily_plan}
-              userId={userArchive.checkup_id}
-              archive={userArchive}
-              onUpdateRecord={handleUpdateRecord}
-              onLogout={onLogout}
-              onNavigate={setActiveTab}
           />
       )}
     </UserLayout>
