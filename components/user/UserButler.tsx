@@ -13,52 +13,60 @@ export const UserButler: React.FC<Props> = ({ record, assessment, onNavigate }) 
     const [messages, setMessages] = useState<{role: 'user'|'ai', content: string, items?: ContentItem[]}[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isThinking, setIsThinking] = useState(false);
     const [allContent, setAllContent] = useState<ContentItem[]>([]);
-    const [isInit, setIsInit] = useState(false); // 确保初始化只执行一次
+    const [isInit, setIsInit] = useState(false);
     
     const scrollRef = useRef<HTMLDivElement>(null);
 
     // 1. 加载资源库
     useEffect(() => {
         const load = async () => {
-            const data = await fetchContent();
-            setAllContent(data);
+            setIsLoading(true);
+            try {
+                const data = await fetchContent();
+                setAllContent(data);
+            } finally {
+                setIsLoading(false);
+            }
         };
         load();
     }, []);
 
     // 2. 自动发起针对性咨询 (诊后主动干预)
     useEffect(() => {
-        if (!isInit && record && record.profile.name) {
+        if (!isInit && !isLoading && record && record.profile.name) {
             const abnormalities = record.checkup.abnormalities || [];
-            const abnormalSummary = abnormalities.map(a => a.item).join('、');
+            const abnormalSummary = abnormalities.length > 0 
+                ? abnormalities.map(a => a.item).join('、')
+                : "";
             
             let initialMsg = `您好，${record.profile.name}老师。我是您的专属 AI 健康管家。`;
             
             if (abnormalities.length > 0) {
-                initialMsg += `我已仔细查阅了您的体检报告，发现您的 **${abnormalSummary}** 等指标存在异常。为了帮您改善这些问题，您想先从哪方面的管理方案（饮食/运动/复查）开始了解？`;
+                initialMsg += `我已仔细查阅了您的最新体检报告，发现您的 **${abnormalSummary}** 等指标存在异常。为了帮您科学管理这些问题，您可以咨询我如何调整饮食、运动或了解复查建议。`;
             } else {
-                initialMsg += `您的体检指标非常优秀，请继续保持健康的生活方式！今天有什么我可以为您服务的吗？`;
+                initialMsg += `您的体检指标目前都在理想范围内，请继续保持！今天有什么我可以为您服务的吗？`;
             }
 
             setMessages([{ role: 'ai', content: initialMsg }]);
             setIsInit(true);
         }
-    }, [record, isInit]);
+    }, [record, isInit, isLoading]);
 
     useEffect(() => {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages, isLoading]);
+    }, [messages, isThinking]);
 
     const handleSend = async () => {
-        if (!input.trim() || isLoading) return;
+        if (!input.trim() || isThinking) return;
         
         const userMsg = input;
         setInput('');
         setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-        setIsLoading(true);
+        setIsThinking(true);
 
         try {
             const result = await getButlerChatResponse(
@@ -68,7 +76,6 @@ export const UserButler: React.FC<Props> = ({ record, assessment, onNavigate }) 
                 allContent
             );
 
-            // 匹配推荐资源
             const recommendedItems = result.recommendedItemIds 
                 ? allContent.filter(c => result.recommendedItemIds?.includes(c.id))
                 : undefined;
@@ -81,9 +88,18 @@ export const UserButler: React.FC<Props> = ({ record, assessment, onNavigate }) 
         } catch (e) {
             setMessages(prev => [...prev, { role: 'ai', content: "管家稍微走神了，请再问我一次吧。" }]);
         } finally {
-            setIsLoading(false);
+            setIsThinking(false);
         }
     };
+
+    if (isLoading) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full bg-[#F5F7FA]">
+                <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                <p className="text-slate-400 text-xs font-bold">管家正在为您翻阅健康档案...</p>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-full bg-[#F5F7FA] relative overflow-hidden">
@@ -109,13 +125,6 @@ export const UserButler: React.FC<Props> = ({ record, assessment, onNavigate }) 
 
             {/* 对话列表 */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 pb-32">
-                {messages.length === 0 && !isLoading && (
-                    <div className="flex flex-col items-center justify-center h-full opacity-40">
-                        <div className="text-4xl mb-2 animate-bounce">📚</div>
-                        <p className="text-xs font-bold">正在翻阅您的健康档案...</p>
-                    </div>
-                )}
-
                 {messages.map((msg, i) => (
                     <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} animate-slideUp`}>
                         <div className={`max-w-[85%] px-4 py-3 rounded-[1.5rem] shadow-sm text-sm leading-relaxed ${
@@ -145,7 +154,7 @@ export const UserButler: React.FC<Props> = ({ record, assessment, onNavigate }) 
                     </div>
                 ))}
                 
-                {isLoading && (
+                {isThinking && (
                     <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold ml-2 animate-pulse">
                         <div className="flex gap-1">
                             <span className="w-1.5 h-1.5 bg-teal-500 rounded-full animate-bounce [animation-delay:0s]"></span>
@@ -169,7 +178,7 @@ export const UserButler: React.FC<Props> = ({ record, assessment, onNavigate }) 
                     />
                     <button 
                         onClick={handleSend}
-                        disabled={!input.trim() || isLoading}
+                        disabled={!input.trim() || isThinking}
                         className="w-12 h-12 bg-teal-600 text-white rounded-2xl flex items-center justify-center hover:bg-teal-700 disabled:opacity-30 transition-all active:scale-90 shadow-lg shadow-teal-100 shrink-0"
                     >
                         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>

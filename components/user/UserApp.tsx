@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserLayout } from './user/UserLayout';
-import { UserHome } from './user/UserHome'; 
-import { UserDietMotion } from './user/UserDietMotion';
-import { UserButler } from './user/UserButler'; 
-import { UserMedicalServices } from './user/UserMedicalServices';
-import { UserInteraction } from './user/UserInteraction';
-import { UserProfile } from './user/UserProfile';
-import { UserCommunity } from './user/UserCommunity';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../services/dataService';
-import { getUnreadCount } from '../services/contentService';
+import { UserLayout } from './UserLayout';
+import { UserHome } from './UserHome'; 
+import { UserDietMotion } from './UserDietMotion';
+import { UserButler } from './UserButler'; 
+import { UserMedicalServices } from './UserMedicalServices';
+import { UserInteraction } from './UserInteraction';
+import { UserProfile } from './UserProfile';
+import { UserCommunity } from './UserCommunity';
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
+import { getUnreadCount } from '../../services/contentService';
 
 interface Props {
   checkupId: string;
@@ -16,7 +16,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  // 默认进入“home”首页，提供体检后的行动概览
+  // 默认进入“home”首页
   const [activeTab, setActiveTab] = useState('home'); 
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
@@ -25,13 +25,12 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   const loadUser = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
-      // 重新加载时确保清除旧数据引用
       const archive = await findArchiveByCheckupId(checkupId);
       if (archive) {
         setUserArchive(archive);
         syncArchiveToLocal(archive); 
       } else {
-        alert('未找到您的档案，请联系管理员核对体检编号');
+        alert('未找到您的档案，请重新登录');
         onLogout();
       }
     } catch (e) {
@@ -82,15 +81,16 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
           <div className="w-16 h-16 border-4 border-teal-100 rounded-full"></div>
           <div className="w-16 h-16 border-4 border-teal-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
         </div>
-        <p className="mt-6 text-slate-500 font-bold text-sm tracking-widest animate-pulse">郑大医院健康管家加载中...</p>
+        <p className="mt-6 text-slate-500 font-bold text-sm tracking-widest animate-pulse">正在进入健康中心...</p>
       </div>
     );
   }
 
   if (!userArchive) return null;
 
+  // 使用 checkupId 作为 key，确保用户切换时整个布局强制重置，彻底解决打卡数据残留
   return (
-    <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
+    <UserLayout key={userArchive.checkup_id} activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
       {activeTab === 'home' && (
           <UserHome 
               profile={userArchive.health_record.profile} 
