@@ -30,7 +30,6 @@ const BADGES = [
     { id: 'streak_7', icon: '🚀', name: '七日习惯', desc: '连续打卡7天' },
     { id: 'streak_30', icon: '👑', name: '月度王者', desc: '连续打卡30天' },
     { id: 'level_5', icon: '⭐', name: '健康达人', desc: '达到等级5' },
-    { id: 'perfect_day', icon: '💯', name: '完美一天', desc: '单日完成所有打卡' },
 ];
 
 const INITIAL_GAME_DATA: UserGamification = {
@@ -42,10 +41,11 @@ const INITIAL_GAME_DATA: UserGamification = {
 };
 
 const getSmartIcon = (item: ContentItem): string => {
-    if (item.image) return item.image;
+    if (item.image && item.image.length < 5) return item.image; // Emoji
     if (item.type === 'doctor') return '👨‍⚕️';
     if (item.type === 'meal') return '🥗';
     if (item.type === 'drug') return '💊';
+    if (item.type === 'event') return '🎉';
     return '✨';
 };
 
@@ -92,8 +92,10 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
 
     const loadRecommendations = async () => {
         if (!assessment) return;
+        // 提取风险关键词
         const risks = [...assessment.risks.red, ...assessment.risks.yellow];
-        const keywords = ['高血压', '糖尿病', '血脂', '尿酸', '痛风', '结节', '肥胖', '心', '肝', '胃', '睡眠'];
+        const keywords = ['高血压', '糖尿病', '血脂', '尿酸', '痛风', '结节', '肥胖', '心', '肝', '胃', '睡眠', '颈椎'];
+        
         const matchedKeys = keywords.filter(key => 
             risks.some(r => r.includes(key)) || assessment.summary.includes(key)
         );
@@ -103,22 +105,28 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
         const allResources = await fetchContent();
         const matches: {item: ContentItem, reason: string}[] = [];
 
+        // 匹配逻辑：优先匹配医疗资源，其次是膳食和活动
         allResources.forEach(res => {
             const resText = (res.title + (res.description || '') + (res.tags?.join('') || '')).toLowerCase();
             const foundKey = matchedKeys.find(key => resText.includes(key.toLowerCase()));
             
             if (foundKey) {
+                // 每种类型最多推荐1个，避免重复
                 if (matches.filter(m => m.item.type === res.type).length < 2) {
-                    matches.push({ item: res, reason: `针对您的[${foundKey}]风险推荐` });
+                    matches.push({ 
+                        item: res, 
+                        reason: `针对您的[${foundKey}]风险推荐` 
+                    });
                 }
             }
         });
 
+        // 随机取3个展示
         setRecommendedResources(matches.sort(() => 0.5 - Math.random()).slice(0, 3));
     };
 
     const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
-        if (!userCheckupId || !userName) return alert("用户信息缺失");
+        if (!userCheckupId || !userName) return alert("用户信息缺失，请重新登录");
         
         let interactionType: InteractionItem['type'] = 'doctor_booking'; 
         let confirmMsg = '';
@@ -126,7 +134,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
 
         if (type === 'signing') {
             interactionType = 'doctor_signing';
-            confirmMsg = `确定申请签约【${target.title}】为家庭医生吗？`;
+            confirmMsg = `确定申请签约【${target.title}】为您的家庭医生吗？`;
             details = '申请家庭医生签约';
         } else if (type === 'booking' && target.type === 'doctor') {
             interactionType = 'doctor_booking';
@@ -137,7 +145,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
                 return;
             }
             confirmMsg = `确定预约【${target.title}】在【${timeSlot}】的门诊吗？`;
-            details = `预约挂号：${timeSlot}，费用: ${target.details?.fee || 0}元`;
+            details = `预约挂号：${timeSlot}，费率: ${target.details?.fee || 0}元`;
         } else if (type === 'drug_order') {
             interactionType = 'drug_order';
             confirmMsg = `确定申请预约药品【${target.title}】吗？`;
@@ -145,7 +153,11 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
         } else if (target.type === 'event') {
             interactionType = 'event_signup';
             confirmMsg = `确定报名参加【${target.title}】吗？`;
-            details = `活动报名`;
+            details = `首页推荐报名`;
+        } else if (target.type === 'service') {
+            interactionType = 'service_booking';
+            confirmMsg = `确定预约服务【${target.title}】吗？`;
+            details = `服务预约：${target.details?.price || '免费'}`;
         }
 
         if(confirm(confirmMsg)) {
@@ -160,7 +172,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
                 date: new Date().toISOString().split('T')[0],
                 details: details
             });
-            alert("申请已提交，请等待审核。");
+            alert("申请已提交，请在“我的-申请记录”中查看进度。");
             setSelectedResource(null);
             setShowBookingModal(false);
             setBookingDoctor(null);
@@ -256,33 +268,42 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
             {/* Smart Recommendations Section */}
             {recommendedResources.length > 0 && (
                 <div className="px-6 pt-6">
-                    <div className="flex justify-between items-center mb-3">
+                    <div className="flex justify-between items-center mb-3 px-1">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">智能干预建议</h3>
-                        <span className="text-[10px] bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded font-bold">AI 动态匹配</span>
+                        <span className="text-[10px] bg-teal-50 text-teal-600 px-2 py-0.5 rounded-md font-bold border border-teal-100">AI 精准匹配</span>
                     </div>
-                    <div className="flex overflow-x-auto gap-3 pb-2 scrollbar-hide -mx-2 px-2">
+                    <div className="flex overflow-x-auto gap-3 pb-3 scrollbar-hide -mx-2 px-2">
                         {recommendedResources.map((rec, idx) => (
-                            <div key={idx} className="flex-shrink-0 w-[240px] bg-white rounded-3xl p-4 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-50 flex flex-col gap-3 relative overflow-hidden group active:scale-95 transition-transform cursor-pointer" onClick={() => setSelectedResource(rec.item)}>
-                                <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full opacity-10 group-hover:scale-110 transition-transform ${
+                            <div key={idx} 
+                                onClick={() => setSelectedResource(rec.item)}
+                                className="flex-shrink-0 w-[260px] bg-white rounded-[2rem] p-5 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-50 flex flex-col gap-3 relative overflow-hidden group active:scale-95 transition-all cursor-pointer"
+                            >
+                                <div className={`absolute top-0 right-0 w-20 h-20 rounded-bl-full opacity-[0.08] group-hover:scale-110 transition-transform ${
                                     rec.item.type === 'doctor' ? 'bg-blue-600' : 
                                     rec.item.type === 'meal' ? 'bg-orange-500' : 'bg-teal-500'
                                 }`}></div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-2xl">{getSmartIcon(rec.item)}</span>
-                                    <div>
-                                        <div className="text-[10px] font-bold text-teal-600 uppercase mb-0.5">{rec.reason}</div>
-                                        <div className="font-bold text-slate-800 text-sm line-clamp-1">{rec.item.title}</div>
+                                
+                                <div className="flex items-center gap-3 relative z-10">
+                                    <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-3xl shadow-inner group-hover:rotate-12 transition-transform">
+                                        {getSmartIcon(rec.item)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-[10px] font-bold text-teal-600 uppercase mb-0.5 line-clamp-1">{rec.reason}</div>
+                                        <div className="font-bold text-slate-800 text-sm truncate">{rec.item.title}</div>
                                     </div>
                                 </div>
-                                <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed h-[32px]">
-                                    {rec.item.description || rec.item.details?.dept || '为您匹配的专项健康资源'}
+                                
+                                <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed h-[32px] px-1">
+                                    {rec.item.description || rec.item.details?.dept || '针对您的风险评估，建议关注此类健康资源。'}
                                 </p>
-                                <button className={`mt-1 w-full py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors ${
-                                    rec.item.type === 'doctor' ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 
-                                    rec.item.type === 'meal' ? 'bg-orange-50 text-orange-600 hover:bg-orange-100' : 'bg-teal-50 text-teal-600 hover:bg-teal-100'
+                                
+                                <div className={`mt-1 w-full py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-wider text-center transition-colors shadow-sm ${
+                                    rec.item.type === 'doctor' ? 'bg-blue-600 text-white shadow-blue-100' : 
+                                    rec.item.type === 'meal' ? 'bg-orange-500 text-white shadow-orange-100' : 
+                                    'bg-teal-600 text-white shadow-teal-100'
                                 }`}>
                                     立即查看
-                                </button>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -375,100 +396,118 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
                 )}
             </div>
 
-            {/* Content Detail Modal (Standardized) */}
+            {/* Standardized Detail Modal (Synced with Medical Services) */}
             {selectedResource && (
                 <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedResource(null)}>
-                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
-                            <button onClick={() => setSelectedResource(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm z-10">×</button>
-                            <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">{getSmartIcon(selectedResource)}</div>
-                            <h3 className="text-xl font-black text-slate-800 mb-1">{selectedResource.title}</h3>
+                    <div className="bg-white w-full max-w-md rounded-t-[3rem] p-0 animate-slideUp overflow-hidden max-h-[88vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                        {/* Header Section */}
+                        <div className="bg-slate-50 p-7 pb-10 text-center relative border-b border-slate-100">
+                            <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6 opacity-50"></div>
+                            <button onClick={() => setSelectedResource(null)} className="absolute top-6 right-6 w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-md active:scale-90 transition-transform">×</button>
+                            
+                            <div className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center text-6xl shadow-sm mx-auto mb-5 border-4 border-white">
+                                {getSmartIcon(selectedResource)}
+                            </div>
+                            
+                            <h3 className="text-2xl font-black text-slate-800 mb-2">{selectedResource.title}</h3>
                             <div className="flex items-center justify-center gap-2">
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
                                     selectedResource.type === 'doctor' ? 'bg-blue-100 text-blue-700' : 
-                                    selectedResource.type === 'meal' ? 'bg-orange-100 text-orange-700' : 'bg-teal-100 text-teal-700'
+                                    selectedResource.type === 'meal' ? 'bg-orange-100 text-orange-700' : 
+                                    'bg-teal-100 text-teal-700'
                                 }`}>
                                     {selectedResource.type === 'doctor' ? `${selectedResource.details?.dept} · ${selectedResource.details?.title}` : 
-                                     selectedResource.type === 'meal' ? '健康膳食' : '健康干预'}
+                                     selectedResource.type === 'meal' ? '平衡膳食' : 
+                                     selectedResource.type === 'drug' ? '对症药品' : '健康服务'}
                                 </span>
                             </div>
                         </div>
-                        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+
+                        {/* Content Area */}
+                        <div className="p-8 overflow-y-auto space-y-8 flex-1">
                             <div>
-                                <h4 className="font-bold text-slate-800 mb-2">{selectedResource.type === 'doctor' ? '专家简介' : '内容详情'}</h4>
-                                <p className="text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl">
-                                    {selectedResource.description || selectedResource.details?.ingredients || '暂无详细描述'}
-                                </p>
+                                <h4 className="font-black text-slate-900 text-sm mb-3 flex items-center gap-2">
+                                    <span className="w-1 h-4 bg-teal-500 rounded-full"></span>
+                                    {selectedResource.type === 'doctor' ? '专家履历与特长' : '核心建议详情'}
+                                </h4>
+                                <div className="text-slate-600 text-[14px] leading-relaxed bg-slate-50/50 p-4 rounded-2xl border border-slate-50 whitespace-pre-line">
+                                    {selectedResource.description || selectedResource.details?.ingredients || '暂无详细介绍，建议前往对应板块查看。'}
+                                </div>
                             </div>
                             
                             {selectedResource.type === 'doctor' && (
-                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                    <div className="bg-blue-50 p-3 rounded-xl">
-                                        <div className="text-xs text-blue-400 mb-1">挂号费</div>
-                                        <div className="font-bold text-blue-900">¥{selectedResource.details?.fee || '0'}</div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-50 text-center">
+                                        <div className="text-[10px] font-black text-blue-400 uppercase mb-1">出诊诊金</div>
+                                        <div className="text-xl font-black text-blue-800">¥{selectedResource.details?.fee || '0'}</div>
                                     </div>
-                                    <div className="bg-blue-50 p-3 rounded-xl">
-                                        <div className="text-xs text-blue-400 mb-1">科室</div>
-                                        <div className="font-bold text-blue-900">{selectedResource.details?.dept || '全科'}</div>
+                                    <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-50 text-center">
+                                        <div className="text-[10px] font-black text-blue-400 uppercase mb-1">所属科室</div>
+                                        <div className="text-lg font-black text-blue-800 truncate">{selectedResource.details?.dept || '全科'}</div>
                                     </div>
                                 </div>
                             )}
 
                             {selectedResource.type === 'meal' && selectedResource.details?.macros && (
-                                <div className="grid grid-cols-3 gap-2 text-center">
-                                    <div className="bg-orange-50 p-2 rounded-xl">
-                                        <div className="text-[10px] text-orange-400">热量</div>
-                                        <div className="font-bold text-orange-700">{selectedResource.details.cal}</div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="bg-orange-50/50 p-3 rounded-2xl text-center border border-orange-50">
+                                        <div className="text-[9px] font-black text-orange-400 uppercase">能量</div>
+                                        <div className="text-base font-black text-orange-700">{selectedResource.details.cal}</div>
+                                        <div className="text-[9px] text-orange-300">kcal</div>
                                     </div>
-                                    <div className="bg-blue-50 p-2 rounded-xl">
-                                        <div className="text-[10px] text-blue-400">蛋白质</div>
-                                        <div className="font-bold text-blue-700">{selectedResource.details.macros.protein}g</div>
+                                    <div className="bg-blue-50/50 p-3 rounded-2xl text-center border border-blue-50">
+                                        <div className="text-[9px] font-black text-blue-400 uppercase">蛋白</div>
+                                        <div className="text-base font-black text-blue-700">{selectedResource.details.macros.protein}g</div>
                                     </div>
-                                    <div className="bg-green-50 p-2 rounded-xl">
-                                        <div className="text-[10px] text-green-400">脂肪</div>
-                                        <div className="font-bold text-green-700">{selectedResource.details.macros.fat}g</div>
+                                    <div className="bg-emerald-50/50 p-3 rounded-2xl text-center border border-emerald-50">
+                                        <div className="text-[9px] font-black text-emerald-400 uppercase">膳食纤维</div>
+                                        <div className="text-base font-black text-emerald-700">{selectedResource.details.macros.fiber || 0}g</div>
                                     </div>
                                 </div>
                             )}
                         </div>
                         
-                        <div className="p-4 border-t border-slate-100 bg-white">
+                        {/* Footer Actions (Standardized) */}
+                        <div className="p-6 pb-10 border-t border-slate-50 bg-white shadow-[0_-10px_40px_rgba(0,0,0,0.02)]">
                             {selectedResource.type === 'doctor' && (
-                                <div className="flex gap-3">
-                                    <button onClick={() => handleInteract('booking', selectedResource)} className="flex-1 bg-white border border-blue-200 text-blue-600 py-3.5 rounded-xl font-bold text-sm hover:bg-blue-50 transition-all flex items-center justify-center gap-2"><span>📅</span> 预约挂号</button>
-                                    <button onClick={() => handleInteract('signing', selectedResource)} className="flex-1 bg-blue-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2"><span>✍️</span> 签约家庭医生</button>
+                                <div className="flex gap-4">
+                                    <button onClick={() => handleInteract('booking', selectedResource)} className="flex-1 bg-slate-100 text-slate-700 py-4 rounded-2xl font-black text-sm active:scale-95 transition-transform flex items-center justify-center gap-2"><span>📅</span> 预约门诊</button>
+                                    <button onClick={() => handleInteract('signing', selectedResource)} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-blue-100 active:scale-95 transition-transform flex items-center justify-center gap-2"><span>✍️</span> 申请签约</button>
                                 </div>
                             )}
                             {selectedResource.type === 'meal' && (
-                                <button onClick={() => setSelectedResource(null)} className="w-full bg-orange-500 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2"><span>🥗</span> 好的，我知道了</button>
+                                <button onClick={() => setSelectedResource(null)} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-orange-100 active:scale-95 transition-transform flex items-center justify-center gap-2"><span>🥗</span> 查看食谱详情</button>
                             )}
                             {selectedResource.type === 'event' && (
-                                <button onClick={() => handleInteract('signup', selectedResource)} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2"><span>✍️</span> 立即报名活动</button>
+                                <button onClick={() => handleInteract('signup', selectedResource)} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-indigo-100 active:scale-95 transition-transform flex items-center justify-center gap-2"><span>✨</span> 立即报名参加</button>
                             )}
                             {selectedResource.type === 'drug' && (
-                                <button onClick={() => handleInteract('drug_order', selectedResource)} className="w-full bg-teal-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2"><span>💊</span> 预约领药</button>
+                                <button onClick={() => handleInteract('drug_order', selectedResource)} className="w-full bg-teal-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-teal-100 active:scale-95 transition-transform flex items-center justify-center gap-2"><span>💊</span> 预定此药品</button>
+                            )}
+                            {selectedResource.type === 'service' && (
+                                <button onClick={() => handleInteract('booking', selectedResource)} className="w-full bg-purple-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-purple-100 active:scale-95 transition-transform flex items-center justify-center gap-2"><span>🏥</span> 立即预约服务</button>
                             )}
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Time Selection Modal for Recommendations */}
+            {/* Time Selection Modal for Recommendations (Synced) */}
             {showBookingModal && bookingDoctor && (
                 <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setShowBookingModal(false)}>
-                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                    <div className="bg-white w-full max-w-md rounded-t-[3rem] p-8 animate-slideUp max-h-[85vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-8 opacity-50"></div>
                         <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择就诊时间</h3>
-                        <p className="text-xs text-slate-400 text-center mb-6">预约专家：{bookingDoctor.title}</p>
+                        <p className="text-xs text-slate-400 text-center mb-8 uppercase tracking-widest font-bold">预约专家：{bookingDoctor.title}</p>
                         
-                        <div className="flex-1 overflow-y-auto space-y-6 pb-6">
+                        <div className="flex-1 overflow-y-auto space-y-8 pb-10">
                             {Object.keys(DAY_MAP).map(dayKey => {
                                 const activeSlots = bookingDoctor.details?.weeklySchedule?.[dayKey] || [];
                                 if (activeSlots.length === 0) return null;
                                 return (
-                                    <div key={dayKey}>
-                                        <h4 className="font-black text-xs text-slate-400 uppercase tracking-widest mb-3 px-1">{DAY_MAP[dayKey]}</h4>
-                                        <div className="grid grid-cols-2 gap-3">
+                                    <div key={dayKey} className="animate-slideInRight">
+                                        <h4 className="font-black text-[10px] text-slate-400 uppercase tracking-[0.2em] mb-4 px-1">{DAY_MAP[dayKey]}</h4>
+                                        <div className="grid grid-cols-2 gap-4">
                                             {activeSlots.map((slotId: string) => {
                                                 const { count, quota, full } = getSlotUsage(bookingDoctor.id, dayKey, slotId);
                                                 return (
@@ -476,13 +515,13 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
                                                         key={slotId}
                                                         disabled={full}
                                                         onClick={() => handleInteract('booking', bookingDoctor, `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`)}
-                                                        className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center transition-all group relative ${
+                                                        className={`p-5 rounded-3xl border transition-all relative flex flex-col items-center justify-center group ${
                                                             full 
-                                                            ? 'opacity-50 cursor-not-allowed border-slate-100 grayscale' 
-                                                            : 'border-slate-100 hover:bg-blue-50 hover:border-blue-200'
+                                                            ? 'opacity-40 cursor-not-allowed border-slate-100 bg-slate-50' 
+                                                            : 'border-slate-100 bg-slate-50 hover:bg-white hover:border-blue-300 hover:shadow-xl hover:shadow-blue-50'
                                                         }`}
                                                     >
-                                                        <span className="font-bold text-slate-700">{SLOT_MAP[slotId]}</span>
+                                                        <span className="font-black text-slate-700 text-base">{SLOT_MAP[slotId]}</span>
                                                         <span className={`text-[10px] mt-1 font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
                                                             {full ? '约满' : `余 ${quota - count} 位`}
                                                         </span>
@@ -494,7 +533,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
                                 );
                             })}
                         </div>
-                        <button onClick={() => setShowBookingModal(false)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm active:scale-95 transition-transform">取消</button>
+                        <button onClick={() => setShowBookingModal(false)} className="w-full py-5 bg-slate-100 text-slate-500 rounded-3xl font-black text-sm active:scale-95 transition-transform mb-4">取消预约</button>
                     </div>
                 </div>
             )}
