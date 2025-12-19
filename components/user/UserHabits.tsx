@@ -11,10 +11,9 @@ interface Props {
     onRefresh?: () => void;
 }
 
-// Gamification Config
 const LEVEL_XP = 100;
-const XP_PER_HABIT = 10;
-const STREAK_BONUS = 20;
+const XP_PER_HABIT = 15;
+const STREAK_BONUS = 25;
 
 const BADGES = [
     { id: 'first_step', icon: '🌱', name: '起步', desc: '完成第1次打卡' },
@@ -33,14 +32,13 @@ const INITIAL_GAME_DATA: UserGamification = {
     badges: []
 };
 
-export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record, onRefresh }) => {
+export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record }) => {
     const [habits, setHabits] = useState<HabitRecord[]>([]);
     const [gameData, setGameData] = useState<UserGamification>(INITIAL_GAME_DATA);
-    
     const [isHabitsLoading, setIsHabitsLoading] = useState(false);
-    const [isSaving, setIsSaving] = useState(false); // New: Saving indicator
+    const [isSaving, setIsSaving] = useState(false);
     const [showLevelUp, setShowLevelUp] = useState(false);
-    const [justUnlockedBadges, setJustUnlockedBadges] = useState<string[]>([]);
+    const [showBadgeModal, setShowBadgeModal] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -49,21 +47,14 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
     const loadData = async () => {
         if (!userCheckupId) return;
         const archive = await findArchiveByCheckupId(userCheckupId);
-        
         if (archive) {
-            // Load Habits
             if (archive.habit_tracker && archive.habit_tracker.length > 0) {
                 setHabits(archive.habit_tracker);
             } else if (assessment && record) {
                 await initializeHabits(assessment, record);
             }
-
-            // Load Gamification with Data Merging (Robustness)
             if (archive.gamification) {
-                setGameData({
-                    ...INITIAL_GAME_DATA, // Default structure
-                    ...archive.gamification // Overwrite with saved data
-                });
+                setGameData({ ...INITIAL_GAME_DATA, ...archive.gamification });
             }
         }
     };
@@ -74,7 +65,6 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
         try {
             const { habits: newHabits } = await generatePersonalizedHabits(ass, rec);
             setHabits(newHabits);
-            // Initial save
             await updateHabits(userCheckupId, newHabits, INITIAL_GAME_DATA); 
         } catch (e) {
             console.error(e);
@@ -85,56 +75,26 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
 
     const handleCheckIn = async (habitId: string) => {
         if (!userCheckupId || isSaving) return;
-        setIsSaving(true); // Start saving lock
-
+        setIsSaving(true);
         const today = new Date().toISOString().split('T')[0];
         let earnedXP = 0;
-        let newBadges: string[] = [];
         
-        // 1. Update Habit State
         const updatedHabits = habits.map(h => {
             if (h.id === habitId) {
-                const isAlreadyDone = h.history.includes(today);
-                if (isAlreadyDone) return h; 
-                
-                // Determine streak logic specific to habit
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1);
-                const yStr = yesterday.toISOString().split('T')[0];
-                
-                let newStreak = h.streak;
-                // If checked in yesterday, increment; else reset to 1 (unless it's the first time ever)
-                if (h.history.includes(yStr)) {
-                    newStreak += 1;
-                } else if (!h.history.includes(today)) {
-                    newStreak = 1; 
-                }
-
+                if (h.history.includes(today)) return h;
                 earnedXP += XP_PER_HABIT;
-                return { ...h, history: [...h.history, today], streak: newStreak };
+                return { ...h, history: [...h.history, today], streak: h.streak + 1 };
             }
             return h;
         });
 
-        // 2. Update Global Gamification State
         let newGameData = { ...gameData };
-        
-        // Global Streak Logic
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yStr = yesterday.toISOString().split('T')[0];
-
         if (newGameData.lastCheckInDate !== today) {
-            if (newGameData.lastCheckInDate === yStr) {
-                newGameData.currentStreak += 1;
-                earnedXP += STREAK_BONUS;
-            } else {
-                newGameData.currentStreak = 1;
-            }
+            newGameData.currentStreak += 1;
+            earnedXP += STREAK_BONUS;
             newGameData.lastCheckInDate = today;
         }
 
-        // XP & Level Logic
         const oldLevel = newGameData.level;
         newGameData.totalXP += earnedXP;
         newGameData.level = Math.floor(newGameData.totalXP / LEVEL_XP) + 1;
@@ -144,42 +104,15 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
             setTimeout(() => setShowLevelUp(false), 3000);
         }
 
-        // Badge Logic
-        const unlockBadge = (id: string) => {
-            if (!newGameData.badges.includes(id)) {
-                newGameData.badges.push(id);
-                newBadges.push(id);
-            }
-        };
+        // Auto unlock badges
+        if (newGameData.currentStreak >= 3 && !newGameData.badges.includes('streak_3')) newGameData.badges.push('streak_3');
+        if (newGameData.totalXP > 0 && !newGameData.badges.includes('first_step')) newGameData.badges.push('first_step');
 
-        if (newGameData.totalXP > 0) unlockBadge('first_step');
-        if (newGameData.currentStreak >= 3) unlockBadge('streak_3');
-        if (newGameData.currentStreak >= 7) unlockBadge('streak_7');
-        if (newGameData.currentStreak >= 30) unlockBadge('streak_30');
-        if (newGameData.level >= 5) unlockBadge('level_5');
-        
-        // Perfect Day Check
-        const allDoneToday = updatedHabits.every(h => 
-            (h.frequency === 'daily' && h.history.includes(today)) || 
-            (h.frequency === 'weekly' && (h.targetDay !== new Date().getDay() || h.history.includes(today)))
-        );
-        if (allDoneToday) unlockBadge('perfect_day');
-
-        if (newBadges.length > 0) {
-            setJustUnlockedBadges(newBadges);
-            setTimeout(() => setJustUnlockedBadges([]), 4000);
-        }
-
-        // 3. Optimistic Update UI
         setHabits(updatedHabits);
         setGameData(newGameData);
 
-        // 4. Persist to Backend (Background)
         try {
             await updateHabits(userCheckupId, updatedHabits, newGameData);
-        } catch (e) {
-            console.error("Failed to save habit progress", e);
-            alert("网络连接异常，打卡记录仅保存在本地");
         } finally {
             setIsSaving(false);
         }
@@ -188,156 +121,169 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record,
     const progressToNextLevel = (gameData.totalXP % LEVEL_XP) / LEVEL_XP * 100;
 
     return (
-        <div className="bg-slate-50 min-h-full pb-28 relative overflow-hidden">
-            
-            {/* Level Up Overlay */}
+        <div className="bg-slate-50 min-h-full pb-32 animate-fadeIn">
+            {/* iOS Style Floating Level Up */}
             {showLevelUp && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-                    <div className="bg-white/90 backdrop-blur-xl p-8 rounded-3xl shadow-2xl animate-bounce text-center border-4 border-yellow-400">
-                        <div className="text-6xl mb-4">🆙</div>
-                        <h2 className="text-3xl font-black text-yellow-600 mb-2">升级啦!</h2>
-                        <p className="text-xl font-bold text-slate-700">Lv.{gameData.level}</p>
+                <div className="fixed inset-x-0 top-10 z-[100] flex justify-center px-6 pointer-events-none">
+                    <div className="bg-white/90 backdrop-blur-2xl px-6 py-4 rounded-3xl shadow-2xl border border-yellow-200 flex items-center gap-4 animate-bounce">
+                        <span className="text-3xl">🎉</span>
+                        <div>
+                            <p className="text-xs font-black text-yellow-600 uppercase">Level Up!</p>
+                            <p className="text-lg font-bold text-slate-800">您已升至第 {gameData.level} 级</p>
+                        </div>
                     </div>
                 </div>
             )}
 
-            {/* Header Dashboard */}
-            <div className="bg-gradient-to-br from-indigo-600 to-purple-700 text-white p-6 pb-12 rounded-b-[2.5rem] shadow-lg relative">
-                <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
-                
-                <div className="flex justify-between items-center mb-6 relative z-10">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-2xl border-2 border-white/30 backdrop-blur-sm">
-                            🏅
-                        </div>
-                        <div>
-                            <div className="text-xs opacity-80 font-bold uppercase tracking-wider">当前等级</div>
-                            <div className="text-2xl font-black italic">Lv.{gameData.level}</div>
+            {/* Dashboard: iPhone 17 Premium Look */}
+            <div className="px-6 pt-8 pb-12 bg-white rounded-b-[3rem] shadow-[0_10px_40px_rgba(0,0,0,0.03)]">
+                <div className="flex justify-between items-end mb-8">
+                    <div>
+                        <h2 className="text-3xl font-black text-slate-900 tracking-tight">打卡记录</h2>
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs font-bold text-slate-400">目前等级: Lv.{gameData.level}</span>
+                            <div className="h-1 w-1 rounded-full bg-slate-300"></div>
+                            <span className="text-xs font-bold text-orange-500">连续 {gameData.currentStreak} 天</span>
                         </div>
                     </div>
-                    <div className="text-right">
-                        <div className="flex items-center justify-end gap-1 text-orange-300">
-                            <span className="text-2xl">🔥</span>
-                            <span className="text-2xl font-black">{gameData.currentStreak}</span>
-                        </div>
-                        <div className="text-[10px] opacity-70">连续打卡天数</div>
-                    </div>
+                    {/* Badge Entry Button */}
+                    <button 
+                        onClick={() => setShowBadgeModal(true)}
+                        className="bg-slate-900 text-white w-14 h-14 rounded-[22px] flex items-center justify-center text-2xl shadow-xl shadow-slate-200 active:scale-90 transition-transform relative"
+                    >
+                        🏆
+                        {gameData.badges.length > 0 && (
+                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white font-bold">
+                                {gameData.badges.length}
+                            </span>
+                        )}
+                    </button>
                 </div>
 
-                {/* XP Bar */}
-                <div className="relative z-10">
-                    <div className="flex justify-between text-xs mb-1 opacity-90 font-medium">
-                        <span>XP {gameData.totalXP}</span>
-                        <div className="flex gap-2">
-                            {isSaving && <span className="animate-pulse">☁️ 同步中...</span>}
-                            <span>Next Lv.{gameData.level + 1}</span>
-                        </div>
+                {/* Modern Progress Bar */}
+                <div className="space-y-2">
+                    <div className="flex justify-between items-center px-1">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">XP 经验值</span>
+                        <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{gameData.totalXP % LEVEL_XP} / {LEVEL_XP}</span>
                     </div>
-                    <div className="h-3 bg-black/20 rounded-full overflow-hidden backdrop-blur-sm border border-white/10">
+                    <div className="h-4 bg-slate-100 rounded-full overflow-hidden p-1">
                         <div 
-                            className="h-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(251,191,36,0.6)]"
+                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full transition-all duration-1000 ease-out"
                             style={{ width: `${progressToNextLevel}%` }}
                         ></div>
                     </div>
                 </div>
             </div>
 
-            {/* Habits Grid */}
-            <div className="px-4 -mt-8 relative z-20">
-                <div className="bg-white rounded-3xl shadow-xl p-5 border border-slate-100">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-                            <span>✅</span> 今日任务
-                        </h3>
-                        {assessment && (
-                            <button onClick={() => initializeHabits(assessment, record!)} disabled={isHabitsLoading} className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded hover:bg-slate-200 transition-colors">
-                                {isHabitsLoading ? '生成中...' : '🔄 刷新目标'}
-                            </button>
-                        )}
+            {/* Habit List: 1 Item Per Row */}
+            <div className="px-6 -mt-6 space-y-4">
+                <div className="flex justify-between items-center mb-1 px-2">
+                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">今日目标</h3>
+                    {isHabitsLoading && <span className="text-[10px] text-teal-600 animate-pulse font-bold">同步中...</span>}
+                </div>
+
+                {habits.length === 0 ? (
+                    <div className="bg-white rounded-[2.5rem] p-12 text-center border border-slate-100 shadow-sm">
+                        <div className="text-4xl mb-4 grayscale opacity-50">🗓️</div>
+                        <p className="text-slate-400 text-sm font-medium">暂无任务，点击下方生成</p>
+                        <button 
+                            onClick={() => assessment && record && initializeHabits(assessment, record)}
+                            className="mt-4 px-6 py-2 bg-slate-900 text-white rounded-full text-xs font-bold"
+                        >
+                            智能生成计划
+                        </button>
                     </div>
+                ) : (
+                    habits.map(habit => {
+                        const today = new Date().toISOString().split('T')[0];
+                        const isDone = habit.history.includes(today);
+                        const dayOfWeek = new Date().getDay();
+                        const isWrongDay = habit.frequency === 'weekly' && habit.targetDay !== undefined && habit.targetDay !== dayOfWeek;
 
-                    {habits.length === 0 ? (
-                        <div className="text-center py-10 text-slate-400 text-sm">
-                            暂无打卡习惯，请点击刷新生成
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-3 gap-y-6 gap-x-4">
-                            {habits.map(habit => {
-                                const today = new Date().toISOString().split('T')[0];
-                                const isDone = habit.history.includes(today);
-                                const dayOfWeek = new Date().getDay(); 
-                                const isWrongDay = habit.frequency === 'weekly' && habit.targetDay !== undefined && habit.targetDay !== dayOfWeek;
-
-                                return (
-                                    <div key={habit.id} className="flex flex-col items-center">
-                                        <button 
-                                            onClick={() => !isDone && !isWrongDay && handleCheckIn(habit.id)}
-                                            disabled={isDone || isWrongDay || isSaving}
-                                            className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-sm transition-all duration-300 relative group ${
-                                                isDone 
-                                                ? `bg-gradient-to-br from-green-400 to-green-600 text-white scale-95 ring-4 ring-green-100`
-                                                : isWrongDay 
-                                                    ? 'bg-slate-50 border-2 border-slate-100 text-slate-300 grayscale cursor-not-allowed'
-                                                    : `bg-white border-2 border-slate-100 hover:border-indigo-200 active:scale-90`
-                                            }`}
-                                        >
-                                            <span className={`transition-transform duration-500 ${isDone ? 'rotate-[360deg] scale-110' : 'group-hover:scale-110'}`}>
-                                                {isDone ? '✔️' : habit.icon}
-                                            </span>
-                                        </button>
-                                        <span className={`text-xs font-bold mt-2 text-center truncate w-full ${isWrongDay ? 'text-slate-300' : isDone ? 'text-green-600' : 'text-slate-600'}`}>
+                        return (
+                            <div 
+                                key={habit.id}
+                                className={`group bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.01)] flex items-center justify-between transition-all active:scale-[0.98] ${isDone ? 'opacity-80' : ''}`}
+                            >
+                                <div className="flex items-center gap-5">
+                                    <div className={`w-14 h-14 rounded-[20px] flex items-center justify-center text-2xl transition-all duration-500 ${
+                                        isDone ? 'bg-green-500 text-white scale-90' : 'bg-slate-50 text-slate-800'
+                                    }`}>
+                                        {isDone ? '✓' : habit.icon}
+                                    </div>
+                                    <div>
+                                        <h4 className={`font-bold text-base transition-colors ${isDone ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
                                             {habit.title}
-                                        </span>
-                                        <div className="text-[9px] text-slate-400 mt-0.5">
-                                            {isWrongDay ? '非打卡日' : `连胜 ${habit.streak}`}
+                                        </h4>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black uppercase ${isWrongDay ? 'bg-slate-100 text-slate-400' : 'bg-orange-50 text-orange-600'}`}>
+                                                {isWrongDay ? '休整中' : `🔥 连胜 ${habit.streak} 天`}
+                                            </span>
                                         </div>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={() => !isDone && !isWrongDay && handleCheckIn(habit.id)}
+                                    disabled={isDone || isWrongDay || isSaving}
+                                    className={`px-6 py-2.5 rounded-full text-xs font-black tracking-tight transition-all ${
+                                        isDone 
+                                        ? 'bg-slate-100 text-slate-400 cursor-default' 
+                                        : isWrongDay
+                                            ? 'bg-slate-50 text-slate-300 cursor-not-allowed'
+                                            : 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 active:bg-indigo-700'
+                                    }`}
+                                >
+                                    {isDone ? '已完成' : isWrongDay ? '非打卡日' : '立即打卡'}
+                                </button>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+
+            {/* Badge Modal: Slide up */}
+            {showBadgeModal && (
+                <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-900/40 backdrop-blur-md animate-fadeIn" onClick={() => setShowBadgeModal(false)}>
+                    <div 
+                        className="bg-white w-full max-w-md rounded-t-[3rem] p-8 animate-slideUp max-h-[80vh] overflow-y-auto"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-8"></div>
+                        <div className="text-center mb-8">
+                            <h3 className="text-2xl font-black text-slate-900">成就勋章库</h3>
+                            <p className="text-sm text-slate-400 font-medium mt-1">您已解锁 {gameData.badges.length} 枚荣誉</p>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-6">
+                            {BADGES.map(badge => {
+                                const isUnlocked = gameData.badges.includes(badge.id);
+                                return (
+                                    <div key={badge.id} className="flex flex-col items-center text-center group">
+                                        <div className={`w-20 h-20 rounded-[28px] flex items-center justify-center text-4xl mb-3 transition-all duration-500 ${
+                                            isUnlocked 
+                                            ? 'bg-yellow-50 shadow-[0_10px_25px_rgba(251,191,36,0.15)] border-2 border-yellow-200 scale-100 rotate-0' 
+                                            : 'bg-slate-50 grayscale opacity-30 scale-90'
+                                        }`}>
+                                            {badge.icon}
+                                        </div>
+                                        <span className={`text-[11px] font-black tracking-tight ${isUnlocked ? 'text-slate-800' : 'text-slate-300'}`}>
+                                            {badge.name}
+                                        </span>
                                     </div>
                                 );
                             })}
                         </div>
-                    )}
-                </div>
-            </div>
 
-            {/* Badges Section */}
-            <div className="px-4 mt-6">
-                <div className="bg-white rounded-3xl shadow-sm p-5 border border-slate-100">
-                    <h3 className="font-bold text-slate-800 text-lg mb-4 flex items-center gap-2">
-                        <span>🏆</span> 成就勋章
-                    </h3>
-                    <div className="grid grid-cols-4 gap-4">
-                        {BADGES.map(badge => {
-                            const isUnlocked = gameData.badges.includes(badge.id);
-                            const isJustUnlocked = justUnlockedBadges.includes(badge.id);
-                            
-                            return (
-                                <div key={badge.id} className="flex flex-col items-center text-center">
-                                    <div className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl border-2 transition-all duration-500 relative ${
-                                        isUnlocked 
-                                        ? 'bg-yellow-50 border-yellow-200 text-yellow-600 shadow-md' 
-                                        : 'bg-slate-50 border-slate-100 text-slate-300 grayscale'
-                                    } ${isJustUnlocked ? 'animate-bounce ring-4 ring-yellow-300' : ''}`}>
-                                        {badge.icon}
-                                        {isJustUnlocked && (
-                                            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[8px] px-1.5 py-0.5 rounded-full font-bold animate-ping">NEW</span>
-                                        )}
-                                    </div>
-                                    <span className={`text-xs font-bold mt-2 ${isUnlocked ? 'text-slate-700' : 'text-slate-300'}`}>
-                                        {badge.name}
-                                    </span>
-                                </div>
-                            );
-                        })}
+                        <button 
+                            onClick={() => setShowBadgeModal(false)}
+                            className="mt-12 w-full py-4 bg-slate-900 text-white rounded-[22px] font-black text-sm active:scale-95 transition-transform"
+                        >
+                            我知道了
+                        </button>
                     </div>
                 </div>
-            </div>
-
-            {/* Motivational Quote */}
-            <div className="px-6 mt-8 text-center">
-                <p className="text-xs text-slate-400 italic">
-                    "每一个微小的习惯，都是通往健康的阶梯。"
-                </p>
-            </div>
+            )}
         </div>
     );
 };
