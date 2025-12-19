@@ -9,8 +9,9 @@ interface Props {
 }
 
 export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, unreadCount = 0 }) => {
+  // 移除了打卡 (habits) 选项
   const navItems = [
-    { id: 'home', label: '首页', icon: '⚡' },
+    { id: 'home', label: '首页', icon: '🏠' },
     { id: 'diet_motion', label: '记录', icon: '🥑' },
     { id: 'medical', label: '医疗', icon: '🏥' },
     { id: 'community', label: '社区', icon: '🎉' },
