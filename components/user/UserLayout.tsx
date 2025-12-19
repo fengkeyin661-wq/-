@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface Props {
@@ -9,8 +10,8 @@ interface Props {
 
 export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, unreadCount = 0 }) => {
   const navItems = [
-    { id: 'butler', label: '管家', icon: '🤖' }, // Updated from habits to butler
-    { id: 'diet_motion', label: '记录', icon: '🥑' }, 
+    { id: 'habits', label: '打卡', icon: '✅' }, // New independent tab
+    { id: 'diet_motion', label: '记录', icon: '🥑' }, // Renamed from '健康' to '记录' to signify manual logging
     { id: 'medical', label: '医疗', icon: '🏥' },
     { id: 'community', label: '社区', icon: '🎉' },
     { id: 'interaction', label: '咨询', icon: '💬' },
@@ -55,7 +56,7 @@ export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, 
                 {isActive && item.label}
               </span>
               
-              {/* Active Indicator Dot */}
+              {/* Active Indicator Dot (Optional style choice) */}
               {isActive && (
                   <span className="absolute bottom-1 w-1 h-1 bg-teal-600 rounded-full opacity-50"></span>
               )}
