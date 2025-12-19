@@ -1,11 +1,15 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord } from "../types";
+import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel } from "../types";
 import { ContentItem } from "./contentService";
 
+// Initialize Gemini AI with API key from environment
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// --- [AI 健康管家：深度咨询与资源匹配接口] ---
+/**
+ * AI 健康管家：深度咨询与智能匹配接口
+ * 整合体检、随访、资源库，实现“诊后闭环”
+ */
 export const getButlerChatResponse = async (
     userMessage: string,
     history: {role: 'user'|'ai', content: string}[],
@@ -14,33 +18,32 @@ export const getButlerChatResponse = async (
     resources: ContentItem[]
 ): Promise<{ reply: string, recommendedItemIds?: string[], focusMetric?: string }> => {
     
-    // 构建上下文：包含体检异常、最近随访、可用资源
     const abnormalities = record.checkup.abnormalities || [];
     const latestFollowUp = followUps.length > 0 ? followUps[followUps.length - 1] : null;
     
     const systemInstruction = `
-    你是一名来自“郑州大学医院健康管理中心”的资深AI健康管家。你的任务是基于受检者的档案提供深度干预建议。
+    你是一名来自“郑州大学医院健康管理中心”的资深AI健康管家。你的职责是基于受检者的电子健康档案（EHR）提供深度的健康咨询、指标解释及服务推荐。
 
     【受检者核心档案】
     - 姓名：${record.profile.name}
-    - 异常指标：${abnormalities.map(a => `${a.item}(${a.result})`).join('; ')}
-    - 最近随访记录：${latestFollowUp ? `日期:${latestFollowUp.date}, 主诉:${latestFollowUp.mainComplaint}, 结论:${latestFollowUp.assessment.majorIssues}` : '暂无随访'}
+    - 异常指标：${abnormalities.map(a => `${a.item}(结果:${a.result})`).join('; ')}
+    - 最近随访记录：${latestFollowUp ? `日期:${latestFollowUp.date}, 结论:${latestFollowUp.assessment.majorIssues}` : '暂无随访历史'}
 
-    【中心资源库】
-    你可以从以下现有服务中挑选最匹配的推荐给用户（必须返回对应的ID）：
-    ${resources.map(r => `[类型:${r.type}] ID:${r.id}, 名称:${r.title}, 标签:${r.tags.join(',')}`).join('\n')}
+    【中心服务资源库】
+    当用户询问如何管理异常或寻求帮助时，请务必从以下资源库中选择最匹配的 ID：
+    ${resources.map(r => `[${r.type}] ID:${r.id}, 标题:${r.title}`).join('\n')}
 
-    【回复准则】
-    1. 语气：像私人医生一样温和、专业。称呼对方为“老师”。
-    2. 深度咨询：如果用户问“怎么办”，必须结合体检异常。比如：有高尿酸，必须提醒避开海鲜酒精，并推荐中心的相关科普或医生。
-    3. 混合交互：你的回复应引导用户查看你推荐的卡片。
-    4. 禁忌：严禁给出具体的药物剂量处方，应引导预约中心医生。
+    【回复指南】
+    1. 语气：温和、专业、有温度，称呼用户为“老师”。
+    2. 策略：针对体检异常项，解释其危害并给出生活方式建议。
+    3. 闭环：引导用户通过卡片预约中心的医生、购买对应药品、参加相关活动或查看饮食方案。
+    4. 禁止：严禁开具具体的处方药物剂量，涉及用药建议引导用户咨询中心医师。
 
-    【输出格式】必须严格返回 JSON：
+    【输出要求】必须返回严格的 JSON 格式：
     {
-       "reply": "Markdown格式的文字回复",
-       "recommendedItemIds": ["匹配的资源ID1", "ID2"],
-       "focusMetric": "当前讨论的核心指标名称"
+       "reply": "Markdown格式的文本回复",
+       "recommendedItemIds": ["匹配的资源ID1", "匹配的资源ID2"],
+       "focusMetric": "当前重点讨论的指标名称"
     }
     `;
 
@@ -48,7 +51,7 @@ export const getButlerChatResponse = async (
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: [
-                { role: 'user', parts: [{ text: `上下文：\n${history.map(h => `${h.role}:${h.content}`).join('\n')}\n\n当前提问：${userMessage}` }] }
+                { role: 'user', parts: [{ text: `对话历史：\n${history.map(h => `${h.role}:${h.content}`).join('\n')}\n\n当前提问：${userMessage}` }] }
             ],
             config: {
                 systemInstruction,
@@ -59,183 +62,255 @@ export const getButlerChatResponse = async (
         const resText = response.text || '{}';
         return JSON.parse(resText);
     } catch (e) {
-        console.error("Gemini Butler Error:", e);
-        return { reply: "管家正在整理您的健康档案，请稍后再试。", recommendedItemIds: [] };
+        console.error("Gemini AI Butler Error:", e);
+        return { 
+            reply: "管家刚才在整理您的档案，稍微走神了。请问您想了解关于体检报告中哪方面的建议？", 
+            recommendedItemIds: [] 
+        };
     }
 };
 
-// 保持其他原有接口逻辑...
+/**
+ * 从原始文本解析健康档案数据
+ */
 export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord> => {
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: raw,
         config: {
-            systemInstruction: "你是一个专业的医疗数据解析专家，请将文本解析为JSON结构...",
+            systemInstruction: "你是一个专业的医疗数据解析专家，请将文本解析为符合系统定义的 HealthRecord JSON 结构。包含个人信息、体征、实验数据及异常项总结。",
             responseMimeType: "application/json"
         }
     });
     return JSON.parse(response.text || '{}');
 };
 
+/**
+ * 生成完整的健康风险评估报告
+ */
 export const generateHealthAssessment = async (rec: HealthRecord): Promise<HealthAssessment> => {
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: JSON.stringify(rec),
         config: {
-            systemInstruction: "作为资深全科医生，生成健康评估报告JSON...",
+            systemInstruction: "作为资深全科医生，根据档案生成健康评估报告JSON。必须包含风险等级(RED/YELLOW/GREEN)和详细的管理方案。",
             responseMimeType: "application/json"
         }
     });
     return JSON.parse(response.text || '{}');
 };
 
+/**
+ * 生成后续随访计划
+ */
 export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollowUp[] => {
     const nextDate = new Date();
-    nextDate.setMonth(nextDate.getMonth() + (ass.riskLevel === 'RED' ? 1 : ass.riskLevel === 'YELLOW' ? 3 : 6));
+    nextDate.setMonth(nextDate.getMonth() + (ass.riskLevel === 'RED' ? 1 : 3));
     return [{ id: Date.now().toString(), date: nextDate.toISOString().split('T')[0], status: 'pending', riskLevelAtSchedule: ass.riskLevel, focusItems: ass.followUpPlan.nextCheckItems }];
 };
 
-// --- Implementation of missing functions and placeholders ---
-
-// Fix for: components/user/UserDiet.tsx on line 3
-export const generateDietAssessment = async (msg: string): Promise<{ reply: string }> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: msg,
-            config: {
-                systemInstruction: "你是一个专业的营养师，请根据用户的饮食情况提供专业的建议。语气要亲切专业。",
+/**
+ * [FIX] 分析随访记录并生成动态建议。修复 FollowUpDashboard 的 TS2339 错误。
+ */
+export const analyzeFollowUpRecord = async (
+    formData: any, 
+    assessment: HealthAssessment | null, 
+    latestRecord: FollowUpRecord | null
+): Promise<{
+    riskLevel: RiskLevel,
+    riskJustification: string,
+    doctorMessage: string,
+    majorIssues: string,
+    nextCheckPlan: string,
+    lifestyleGoals: string[]
+}> => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [
+            { 
+                role: 'user', 
+                parts: [{ 
+                    text: `本次随访录入: ${JSON.stringify(formData)}\n上次评估基线: ${JSON.stringify(assessment)}\n历史最后记录: ${JSON.stringify(latestRecord)}` 
+                }] 
             }
-        });
-        return { reply: response.text || "抱歉，我暂时无法分析您的饮食。" };
-    } catch (e) {
-        console.error("Gemini Diet Error:", e);
-        return { reply: "饮食分析服务暂时不可用。" };
-    }
+        ],
+        config: {
+            systemInstruction: "你是一个随访干预专家。请对比本次随访指标与历史数据，判定风险等级是否需要调整，并给出主要问题总结和下一步复查计划。必须返回 JSON 格式。",
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    riskLevel: { type: Type.STRING, description: "Must be one of: RED, YELLOW, GREEN" },
+                    riskJustification: { type: Type.STRING },
+                    doctorMessage: { type: Type.STRING },
+                    majorIssues: { type: Type.STRING },
+                    nextCheckPlan: { type: Type.STRING },
+                    lifestyleGoals: { type: Type.ARRAY, items: { type: Type.STRING } }
+                },
+                required: ["riskLevel", "riskJustification", "doctorMessage", "majorIssues", "nextCheckPlan", "lifestyleGoals"]
+            }
+        }
+    });
+    return JSON.parse(response.text || '{}');
 };
 
-// Fix for: components/user/UserExercise.tsx on line 2
-export const generateExercisePlan = async (input: string): Promise<{ plan: { day: string, content: string }[] }> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: input,
-            config: {
-                systemInstruction: "你是一个专业的健身教练。请根据用户提供的身体状况和目标设计一周计划。返回 JSON 数组，包含 day 和 content 字段。",
-                responseMimeType: "application/json"
+/**
+ * [FIX] 生成每日综合管理方案。修复 UserDietMotion 的 TS2339 错误。
+ */
+export const generateDailyIntegratedPlan = async (
+    profileStr: string, 
+    context: string, 
+    targetTdee: number
+): Promise<{
+    diet: { breakfast: string, lunch: string, dinner: string, snack: string },
+    exercise: { morning: string, afternoon: string, evening: string },
+    tips: string,
+    recommendedMealIds: string[],
+    recommendedExerciseIds: string[]
+}> => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [
+            { 
+                role: 'user', 
+                parts: [{ 
+                    text: `受检者概况: ${profileStr}\n目标能量: ${targetTdee} kcal\n可用资源库: ${context}` 
+                }] 
             }
-        });
-        return { plan: JSON.parse(response.text || "[]") };
-    } catch (e) {
-        console.error("Gemini Exercise Error:", e);
-        return { plan: [] };
-    }
+        ],
+        config: {
+            systemInstruction: "你是一个智慧健康管理专家。请根据受检者风险和热量目标，从资源库中匹配 ID 并生成今日饮食与运动方案。必须返回 JSON 格式。",
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    diet: {
+                        type: Type.OBJECT,
+                        properties: {
+                            breakfast: { type: Type.STRING },
+                            lunch: { type: Type.STRING },
+                            dinner: { type: Type.STRING },
+                            snack: { type: Type.STRING }
+                        },
+                        required: ["breakfast", "lunch", "dinner", "snack"]
+                    },
+                    exercise: {
+                        type: Type.OBJECT,
+                        properties: {
+                            morning: { type: Type.STRING },
+                            afternoon: { type: Type.STRING },
+                            evening: { type: Type.STRING }
+                        },
+                        required: ["morning", "afternoon", "evening"]
+                    },
+                    tips: { type: Type.STRING },
+                    recommendedMealIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    recommendedExerciseIds: { type: Type.ARRAY, items: { type: Type.STRING } }
+                },
+                required: ["diet", "exercise", "tips", "recommendedMealIds", "recommendedExerciseIds"]
+            }
+        }
+    });
+    return JSON.parse(response.text || '{}');
 };
 
-// Implementation for FollowUpDashboard functionality
-export const analyzeFollowUpRecord = async (form: any, ass: any, last: any): Promise<any> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `当前表单: ${JSON.stringify(form)}\n上期评估: ${JSON.stringify(ass)}\n上期随访: ${JSON.stringify(last)}`,
-            config: {
-                systemInstruction: "你是一名资深的随访管理医生。请根据体检指标和既往记录，生成随访评估 JSON：{ riskLevel, riskJustification, doctorMessage, majorIssues, nextCheckPlan, lifestyleGoals: [] }",
-                responseMimeType: "application/json"
-            }
-        });
-        return JSON.parse(response.text || '{}');
-    } catch (e) {
-        console.error("Gemini FollowUp Analysis Error:", e);
-        return { riskLevel: 'GREEN', riskJustification: '分析异常', doctorMessage: '请继续保持健康生活习惯。', majorIssues: '无', nextCheckPlan: '按原计划复查', lifestyleGoals: [] };
-    }
+/**
+ * 膳食营养评估咨询
+ */
+export const generateDietAssessment = async (msg: string) => { 
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: msg,
+        config: { systemInstruction: "你是一个专业的营养师，请为受检者提供膳食建议。" }
+    });
+    return { reply: response.text || "管家正在学习该食物的营养知识..." };
 };
 
-// Implementation for SMS generation
-export const generateFollowUpSMS = async (name: string): Promise<{smsContent: string}> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `姓名: ${name}`,
-            config: {
-                systemInstruction: "你是一个医院助理。请为郑州大学医院健康管理中心生成一条温馨的随访提醒短信，针对没接电话或需要延期的受检者。",
+/**
+ * 生成运动计划
+ */
+export const generateExercisePlan = async (input: string) => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: input,
+        config: {
+            systemInstruction: "生成一份针对受检者身体状况的周运动计划 JSON。",
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    plan: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                day: { type: Type.STRING },
+                                content: { type: Type.STRING }
+                            },
+                            required: ["day", "content"]
+                        }
+                    }
+                },
+                required: ["plan"]
             }
-        });
-        return { smsContent: response.text || "" };
-    } catch (e) {
-        console.error("Gemini SMS Error:", e);
-        return { smsContent: "郑州大学医院健康管理中心提醒您：您的随访计划已更新，请关注通知。" };
-    }
+        }
+    });
+    return JSON.parse(response.text || '{ "plan": [] }');
 };
 
-// Implementation for hospital analytics
-export const generateHospitalBusinessAnalysis = async (issues: any): Promise<any[]> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `异常分布数据: ${JSON.stringify(issues)}`,
-            config: {
-                systemInstruction: "作为医院运营专家，根据体检问题分布分析科室业务潜力。返回 JSON 数组，包含 departmentName, patientCount, riskLevel (HIGH/MEDIUM/LOW), suggestedServices: [{name, description}], keyConditions: []",
-                responseMimeType: "application/json"
-            }
-        });
-        return JSON.parse(response.text || '[]');
-    } catch (e) {
-        console.error("Gemini Analytics Error:", e);
-        return [];
-    }
+/**
+ * 生成随访短信内容
+ */
+export const generateFollowUpSMS = async (name: string) => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `受检者: ${name}`,
+        config: { systemInstruction: "撰写一条专业且贴心的随访提醒短信。" }
+    });
+    return { smsContent: response.text || "" };
 };
 
-// Implementation for nutrition calculation
-export const calculateNutritionFromIngredients = async (items: any[]): Promise<any> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: JSON.stringify(items),
-            config: {
-                systemInstruction: "你是一个专业的营养师。请根据提供的食材和重量，计算总热量及宏量营养素。返回 JSON { nutritionData: { [recipeName]: { cal, nutrition, protein, fat, carbs, fiber } } }",
-                responseMimeType: "application/json"
-            }
-        });
-        return JSON.parse(response.text || '{ "nutritionData": {} }');
-    } catch (e) {
-        console.error("Gemini Nutrition Error:", e);
-        return { nutritionData: {} };
-    }
+/**
+ * 医院业务潜力分析
+ */
+export const generateHospitalBusinessAnalysis = async (issueSummary: any) => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: JSON.stringify(issueSummary),
+        config: {
+            systemInstruction: "作为医院经营专家，根据汇总的健康异常项分析潜在的医疗服务需求。返回 DepartmentAnalytics 数组 JSON。",
+            responseMimeType: "application/json"
+        }
+    });
+    return JSON.parse(response.text || "[]");
 };
 
-// Implementation for habit generation
-export const generatePersonalizedHabits = async (ass: any, rec: any): Promise<{ habits: any[] }> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `评估: ${JSON.stringify(ass)}\n档案: ${JSON.stringify(rec)}`,
-            config: {
-                systemInstruction: "你是一个健康教练。请根据用户的风险评估和档案生成 3-6 个个性化习惯任务。返回 JSON { habits: [{ id, title, icon, color, frequency, history: [], streak: 0 }] }",
-                responseMimeType: "application/json"
-            }
-        });
-        const result = JSON.parse(response.text || '{ "habits": [] }');
-        return { habits: result.habits || [] };
-    } catch (e) {
-        console.error("Gemini Habits Error:", e);
-        return { habits: [] };
-    }
+/**
+ * 计算配料营养成分
+ */
+export const calculateNutritionFromIngredients = async (ingredients: any) => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: JSON.stringify(ingredients),
+        config: {
+            systemInstruction: "精准计算食材列表的卡路里和微量元素。返回 nutritionData JSON，key 为食物名称。",
+            responseMimeType: "application/json"
+        }
+    });
+    return JSON.parse(response.text || '{ "nutritionData": {} }');
 };
 
-// Implementation for daily integrated plan
-export const generateDailyIntegratedPlan = async (u: string, r: string, t: number): Promise<any> => {
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `档案: ${u}\n资源: ${r}\n热量目标: ${t}`,
-            config: {
-                systemInstruction: "你是一个高级健康管家。请根据用户档案和资源库设计今日餐饮运动方案。返回 JSON：{ diet: { breakfast, lunch, dinner }, exercise: { morning, afternoon, evening }, tips, recommendedMealIds: [], recommendedExerciseIds: [] }",
-                responseMimeType: "application/json"
-            }
-        });
-        return JSON.parse(response.text || '{}');
-    } catch (e) {
-        console.error("Gemini Integrated Plan Error:", e);
-        return {};
-    }
+/**
+ * 生成个性化生活打卡习惯
+ */
+export const generatePersonalizedHabits = async (a: HealthAssessment, r: HealthRecord) => {
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `评估: ${JSON.stringify(a)}\n档案: ${JSON.stringify(r)}`,
+        config: {
+            systemInstruction: "基于评估结果生成个性化的打卡习惯建议列表。返回 HabitRecord 数组 JSON。",
+            responseMimeType: "application/json"
+        }
+    });
+    return JSON.parse(response.text || '{ "habits": [] }');
 };
