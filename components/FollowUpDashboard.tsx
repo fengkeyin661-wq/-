@@ -191,7 +191,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       sbp: 0, dbp: 0, heartRate: 0, glucose: 0, glucoseType: '空腹', weight: 0,
       tc: 0, tg: 0, ldl: 0, hdl: 0
     },
-    status: 'pending',
+    /* status: 'pending', removed because 'status' is not a property of FollowUpRecord */
     organRisks: {
       carotidPlaque: '无', carotidStatus: '无',
       thyroidNodule: '无', thyroidStatus: '无',

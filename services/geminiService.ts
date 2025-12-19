@@ -38,7 +38,7 @@ export const generateHealthAssessment = async (data: HealthRecord): Promise<Heal
     return JSON.parse(response.text || "{}");
 };
 
-// [NEW] AI 健康管家交互接口 (模拟 DeepSeek 逻辑)
+// AI 健康管家交互接口
 export const chatWithHealthButler = async (
     userMessage: string, 
     userProfile: string, 
@@ -46,24 +46,23 @@ export const chatWithHealthButler = async (
     chatHistory: {role: 'user'|'model', text: string}[]
 ): Promise<{ text: string, recommendations: string[] }> => {
     const ai = getAI();
-    const systemPrompt = `你是一个专业的“私人医生助手”，服务于郑州大学医院健康管理中心。
-    你的任务是根据咨询结合用户的【健康档案】提供医学建议，并从【中心资源库】中匹配服务。
+    const systemPrompt = `你是一个专业的“AI健康管家”，服务于郑州大学医院健康管理中心。
+    你的任务是根据咨询结合用户的【健康档案】提供极速、专业的医学建议，并从【中心资源库】中匹配最适合的服务。
 
     【上下文信息】
-    1. 用户档案摘要 (包含历史异常): ${userProfile}
+    1. 用户档案摘要: ${userProfile}
     2. 中心可用资源清单: ${availableResources}
 
     【回复规则】
-    - (语气): 专业、亲切。如果用户提到疼痛，提醒及时就医。
-    - (关联性): 如果用户提到的问题与其档案中的异常（如高血脂）相关，请主动点出。
-    - (推荐): 从清单中选择最匹配的 ID (医生/商品/课程)，放入 recommendations 数组。
+    - (语气): 亲切、严谨、高效。
+    - (关联性): 如果用户提到的问题与其档案中的异常（如高尿酸）相关，请主动提醒。
+    - (推荐): 从清单中选择 1-3 个最匹配的 ID (医生/商品/课程)，放入 recommendations 数组。
 
-    请严格返回 JSON:
+    必须返回 JSON:
     {
-      "text": "你的专业建议文本 (支持换行和 markdown)",
+      "text": "你的专业建议文本",
       "recommendations": ["id1", "id2"] 
-    }
-    `;
+    }`;
 
     try {
         const response = await ai.models.generateContent({
@@ -78,13 +77,13 @@ export const chatWithHealthButler = async (
             }
         });
 
-        return JSON.parse(response.text || '{"text": "抱歉，我暂时无法处理您的请求。", "recommendations": []}');
+        return JSON.parse(response.text || '{"text": "抱歉，由于网络波动，请稍后再试。", "recommendations": []}');
     } catch (e) {
-        return { text: "网络连接繁忙，请稍后再试。", recommendations: [] };
+        return { text: "服务繁忙，请稍后再试。", recommendations: [] };
     }
 };
 
-// ... 其他原有函数保持不变 (generateFollowUpSchedule, analyzeFollowUpRecord 等)
+// 其他原有函数保持不变
 export const generateFollowUpSchedule = (assessment: HealthAssessment): ScheduledFollowUp[] => {
     const risk = assessment.riskLevel;
     const focus = assessment.followUpPlan.nextCheckItems;
@@ -111,7 +110,6 @@ export const generateFollowUpSMS = async (patientName: string): Promise<{smsCont
     return { smsContent: response.text || "" };
 };
 
-// @google/genai fix: Added Promise return type wrapper for async function
 export const generateHospitalBusinessAnalysis = async (topIssues: Record<string, number>): Promise<any> => {
     const ai = getAI();
     const response = await ai.models.generateContent({ model: "gemini-3-pro-preview", contents: `分析异常项潜在业务: ${JSON.stringify(topIssues)}`, config: { responseMimeType: "application/json" } });

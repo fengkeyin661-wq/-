@@ -43,7 +43,7 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, onOpenButler })
         </div>
       </div>
 
-      {/* AI Butler Entry - Floating Island Style */}
+      {/* AI Butler Entry - Dynamic Island Style */}
       <div className="relative group">
         <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[2rem] blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
         <button 
@@ -58,9 +58,9 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, onOpenButler })
               <div className="text-left">
                   <div className="flex items-center gap-2">
                     <h3 className="font-black text-xl tracking-tight">AI 健康管家</h3>
-                    <span className="bg-blue-500 text-[9px] px-1.5 py-0.5 rounded-full font-black animate-bounce">PRO</span>
+                    <span className="bg-blue-500 text-[9px] px-1.5 py-0.5 rounded-full font-black animate-bounce tracking-tighter">DEEPSEEK</span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">智能分析档案 · 推送精准方案</p>
+                  <p className="text-xs text-slate-400 mt-1">专属档案分析 · 语音极速交互</p>
               </div>
            </div>
            <div className="bg-white/10 p-2.5 rounded-full backdrop-blur-md relative z-10 border border-white/10">
@@ -75,7 +75,7 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, onOpenButler })
       <div className="bg-white rounded-3xl p-6 text-slate-800 shadow-sm border border-slate-100 relative overflow-hidden">
          <div className="flex justify-between items-center">
             <div>
-               <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Current Status</div>
+               <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Health Status</div>
                <div className="text-2xl font-black flex items-center gap-2">
                  <span className={`w-3 h-3 rounded-full ${riskLevel === 'RED' ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : riskLevel === 'YELLOW' ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
                  {riskLevel === 'RED' ? '高风险' : riskLevel === 'YELLOW' ? '中风险' : '低风险'}
@@ -85,7 +85,7 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, onOpenButler })
                </p>
             </div>
             <div className="w-14 h-14 rounded-2xl border border-teal-100 flex flex-col items-center justify-center bg-teal-50 text-teal-600">
-                <span className="text-xs font-bold">得分</span>
+                <span className="text-xs font-bold">积分</span>
                 <span className="text-xl font-black">88</span>
             </div>
          </div>
@@ -110,7 +110,7 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, onOpenButler })
                      </div>
                      <div>
                         <div className="font-bold text-slate-800 text-sm">{task.title}</div>
-                        <div className="text-[10px] text-yellow-600 font-black tracking-tighter">EARN +{task.points} POINTS</div>
+                        <div className="text-[10px] text-yellow-600 font-black tracking-tighter">+{task.points} XP</div>
                      </div>
                   </div>
                   <button 
