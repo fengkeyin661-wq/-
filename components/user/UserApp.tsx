@@ -7,8 +7,8 @@ import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserCommunity } from './UserCommunity';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../services/dataService';
-import { getUnreadCount } from '../services/contentService';
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
+import { getUnreadCount } from '../../services/contentService';
 
 interface Props {
   checkupId: string;
