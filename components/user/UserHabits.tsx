@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { HealthAssessment, HealthRecord } from '../../types';
+import { HealthAssessment, HealthRecord, RiskLevel } from '../../types';
 import { HabitRecord, UserGamification, findArchiveByCheckupId, updateHabits } from '../../services/dataService';
 import { generatePersonalizedHabits } from '../../services/geminiService';
-import { fetchContent, ContentItem } from '../../services/contentService';
+import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
 
 interface Props {
     assessment?: HealthAssessment;
     userCheckupId?: string;
+    userName?: string;
     record?: HealthRecord;
     onRefresh?: () => void;
 }
@@ -15,6 +16,13 @@ interface Props {
 const LEVEL_XP = 100;
 const XP_PER_HABIT = 15;
 const STREAK_BONUS = 25;
+
+const DAY_MAP: Record<string, string> = {
+    'Mon': '周一', 'Tue': '周二', 'Wed': '周三', 'Thu': '周四', 'Fri': '周五', 'Sat': '周六', 'Sun': '周日'
+};
+const SLOT_MAP: Record<string, string> = {
+    'AM': '上午', 'PM': '下午'
+};
 
 const BADGES = [
     { id: 'first_step', icon: '🌱', name: '起步', desc: '完成第1次打卡' },
@@ -33,7 +41,15 @@ const INITIAL_GAME_DATA: UserGamification = {
     badges: []
 };
 
-export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record }) => {
+const getSmartIcon = (item: ContentItem): string => {
+    if (item.image) return item.image;
+    if (item.type === 'doctor') return '👨‍⚕️';
+    if (item.type === 'meal') return '🥗';
+    if (item.type === 'drug') return '💊';
+    return '✨';
+};
+
+export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userName, record }) => {
     const [habits, setHabits] = useState<HabitRecord[]>([]);
     const [gameData, setGameData] = useState<UserGamification>(INITIAL_GAME_DATA);
     const [isHabitsLoading, setIsHabitsLoading] = useState(false);
@@ -41,8 +57,12 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
     const [showLevelUp, setShowLevelUp] = useState(false);
     const [showBadgeModal, setShowBadgeModal] = useState(false);
 
-    // Recommendation State
+    // Recommendation & Interaction State
     const [recommendedResources, setRecommendedResources] = useState<{item: ContentItem, reason: string}[]>([]);
+    const [selectedResource, setSelectedResource] = useState<ContentItem | null>(null);
+    const [allInteractions, setAllInteractions] = useState<InteractionItem[]>([]);
+    const [showBookingModal, setShowBookingModal] = useState(false);
+    const [bookingDoctor, setBookingDoctor] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         loadData();
@@ -50,7 +70,13 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
 
     const loadData = async () => {
         if (!userCheckupId) return;
-        const archive = await findArchiveByCheckupId(userCheckupId);
+        const [archive, inters] = await Promise.all([
+            findArchiveByCheckupId(userCheckupId),
+            fetchInteractions()
+        ]);
+        
+        setAllInteractions(inters);
+
         if (archive) {
             if (archive.habit_tracker && archive.habit_tracker.length > 0) {
                 setHabits(archive.habit_tracker);
@@ -66,38 +92,93 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
 
     const loadRecommendations = async () => {
         if (!assessment) return;
-        
-        // 1. Extract potential keywords from risks
         const risks = [...assessment.risks.red, ...assessment.risks.yellow];
         const keywords = ['高血压', '糖尿病', '血脂', '尿酸', '痛风', '结节', '肥胖', '心', '肝', '胃', '睡眠'];
         const matchedKeys = keywords.filter(key => 
             risks.some(r => r.includes(key)) || assessment.summary.includes(key)
         );
 
-        if (matchedKeys.length === 0) matchedKeys.push('健康'); // Fallback
+        if (matchedKeys.length === 0) matchedKeys.push('健康');
 
-        // 2. Fetch all active resources
         const allResources = await fetchContent();
         const matches: {item: ContentItem, reason: string}[] = [];
 
-        // 3. Match Logic
         allResources.forEach(res => {
-            const resText = (res.title + res.description + (res.tags?.join('') || '')).toLowerCase();
+            const resText = (res.title + (res.description || '') + (res.tags?.join('') || '')).toLowerCase();
             const foundKey = matchedKeys.find(key => resText.includes(key.toLowerCase()));
             
             if (foundKey) {
-                // Ensure diversity: only 1 of each type
                 if (matches.filter(m => m.item.type === res.type).length < 2) {
-                    matches.push({
-                        item: res,
-                        reason: `针对您的[${foundKey}]风险推荐`
-                    });
+                    matches.push({ item: res, reason: `针对您的[${foundKey}]风险推荐` });
                 }
             }
         });
 
-        // 4. Randomly pick 3 from matches to keep it fresh
         setRecommendedResources(matches.sort(() => 0.5 - Math.random()).slice(0, 3));
+    };
+
+    const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
+        if (!userCheckupId || !userName) return alert("用户信息缺失");
+        
+        let interactionType: InteractionItem['type'] = 'doctor_booking'; 
+        let confirmMsg = '';
+        let details = '';
+
+        if (type === 'signing') {
+            interactionType = 'doctor_signing';
+            confirmMsg = `确定申请签约【${target.title}】为家庭医生吗？`;
+            details = '申请家庭医生签约';
+        } else if (type === 'booking' && target.type === 'doctor') {
+            interactionType = 'doctor_booking';
+            if (!timeSlot) {
+                setBookingDoctor(target);
+                setShowBookingModal(true);
+                setSelectedResource(null);
+                return;
+            }
+            confirmMsg = `确定预约【${target.title}】在【${timeSlot}】的门诊吗？`;
+            details = `预约挂号：${timeSlot}，费用: ${target.details?.fee || 0}元`;
+        } else if (type === 'drug_order') {
+            interactionType = 'drug_order';
+            confirmMsg = `确定申请预约药品【${target.title}】吗？`;
+            details = `预约药品，规格: ${target.details?.spec}`;
+        } else if (target.type === 'event') {
+            interactionType = 'event_signup';
+            confirmMsg = `确定报名参加【${target.title}】吗？`;
+            details = `活动报名`;
+        }
+
+        if(confirm(confirmMsg)) {
+            await saveInteraction({
+                id: `${interactionType}_${Date.now()}`,
+                type: interactionType,
+                userId: userCheckupId,
+                userName: userName,
+                targetId: target.id,
+                targetName: target.title,
+                status: 'pending',
+                date: new Date().toISOString().split('T')[0],
+                details: details
+            });
+            alert("申请已提交，请等待审核。");
+            setSelectedResource(null);
+            setShowBookingModal(false);
+            setBookingDoctor(null);
+            fetchInteractions().then(setAllInteractions);
+        }
+    };
+
+    const getSlotUsage = (docId: string, dayKey: string, slotId: string) => {
+        const slotText = `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`;
+        const count = allInteractions.filter(i => 
+            i.type === 'doctor_booking' && 
+            i.targetId === docId && 
+            i.status !== 'cancelled' && 
+            i.details?.includes(slotText)
+        ).length;
+        
+        const quota = bookingDoctor?.details?.slotQuotas?.[dayKey]?.[slotId] || 10;
+        return { count, quota, full: count >= quota };
     };
 
     const initializeHabits = async (ass: HealthAssessment, rec: HealthRecord) => {
@@ -145,9 +226,6 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
             setTimeout(() => setShowLevelUp(false), 3000);
         }
 
-        if (newGameData.currentStreak >= 3 && !newGameData.badges.includes('streak_3')) newGameData.badges.push('streak_3');
-        if (newGameData.totalXP > 0 && !newGameData.badges.includes('first_step')) newGameData.badges.push('first_step');
-
         setHabits(updatedHabits);
         setGameData(newGameData);
 
@@ -175,7 +253,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                 </div>
             )}
 
-            {/* Smart Recommendations Section (NEW) */}
+            {/* Smart Recommendations Section */}
             {recommendedResources.length > 0 && (
                 <div className="px-6 pt-6">
                     <div className="flex justify-between items-center mb-3">
@@ -184,13 +262,13 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                     </div>
                     <div className="flex overflow-x-auto gap-3 pb-2 scrollbar-hide -mx-2 px-2">
                         {recommendedResources.map((rec, idx) => (
-                            <div key={idx} className="flex-shrink-0 w-[240px] bg-white rounded-3xl p-4 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-50 flex flex-col gap-3 relative overflow-hidden group active:scale-95 transition-transform">
+                            <div key={idx} className="flex-shrink-0 w-[240px] bg-white rounded-3xl p-4 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-50 flex flex-col gap-3 relative overflow-hidden group active:scale-95 transition-transform cursor-pointer" onClick={() => setSelectedResource(rec.item)}>
                                 <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full opacity-10 group-hover:scale-110 transition-transform ${
                                     rec.item.type === 'doctor' ? 'bg-blue-600' : 
                                     rec.item.type === 'meal' ? 'bg-orange-500' : 'bg-teal-500'
                                 }`}></div>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-2xl">{rec.item.image || '✨'}</span>
+                                    <span className="text-2xl">{getSmartIcon(rec.item)}</span>
                                     <div>
                                         <div className="text-[10px] font-bold text-teal-600 uppercase mb-0.5">{rec.reason}</div>
                                         <div className="font-bold text-slate-800 text-sm line-clamp-1">{rec.item.title}</div>
@@ -227,11 +305,6 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                         className="bg-slate-900 text-white w-14 h-14 rounded-[22px] flex items-center justify-center text-2xl shadow-xl shadow-slate-200 active:scale-90 transition-transform relative"
                     >
                         🏆
-                        {gameData.badges.length > 0 && (
-                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white font-bold">
-                                {gameData.badges.length}
-                            </span>
-                        )}
                     </button>
                 </div>
 
@@ -259,21 +332,12 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                 {habits.length === 0 ? (
                     <div className="bg-white rounded-[2.5rem] p-12 text-center border border-slate-100 shadow-sm">
                         <div className="text-4xl mb-4 grayscale opacity-50">🗓️</div>
-                        <p className="text-slate-400 text-sm font-medium">暂无任务，点击下方生成</p>
-                        <button 
-                            onClick={() => assessment && record && initializeHabits(assessment, record)}
-                            className="mt-4 px-6 py-2 bg-slate-900 text-white rounded-full text-xs font-bold"
-                        >
-                            智能生成计划
-                        </button>
+                        <p className="text-slate-400 text-sm font-medium">暂无任务</p>
                     </div>
                 ) : (
                     habits.map(habit => {
                         const today = new Date().toISOString().split('T')[0];
                         const isDone = habit.history.includes(today);
-                        const dayOfWeek = new Date().getDay();
-                        const isWrongDay = habit.frequency === 'weekly' && habit.targetDay !== undefined && habit.targetDay !== dayOfWeek;
-
                         return (
                             <div 
                                 key={habit.id}
@@ -290,25 +354,20 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                                             {habit.title}
                                         </h4>
                                         <div className="flex items-center gap-2 mt-0.5">
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-black uppercase ${isWrongDay ? 'bg-slate-100 text-slate-400' : 'bg-orange-50 text-orange-600'}`}>
-                                                {isWrongDay ? '休整中' : `🔥 连胜 ${habit.streak} 天`}
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded-md font-black uppercase bg-orange-50 text-orange-600">
+                                                🔥 连胜 {habit.streak} 天
                                             </span>
                                         </div>
                                     </div>
                                 </div>
-
                                 <button
-                                    onClick={() => !isDone && !isWrongDay && handleCheckIn(habit.id)}
-                                    disabled={isDone || isWrongDay || isSaving}
+                                    onClick={() => !isDone && handleCheckIn(habit.id)}
+                                    disabled={isDone || isSaving}
                                     className={`px-6 py-2.5 rounded-full text-xs font-black tracking-tight transition-all ${
-                                        isDone 
-                                        ? 'bg-slate-100 text-slate-400 cursor-default' 
-                                        : isWrongDay
-                                            ? 'bg-slate-50 text-slate-300 cursor-not-allowed'
-                                            : 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 active:bg-indigo-700'
+                                        isDone ? 'bg-slate-100 text-slate-400' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-100'
                                     }`}
                                 >
-                                    {isDone ? '已完成' : isWrongDay ? '非打卡日' : '立即打卡'}
+                                    {isDone ? '已完成' : '立即打卡'}
                                 </button>
                             </div>
                         );
@@ -316,28 +375,142 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                 )}
             </div>
 
-            {/* Badge Modal */}
+            {/* Content Detail Modal (Standardized) */}
+            {selectedResource && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedResource(null)}>
+                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
+                            <button onClick={() => setSelectedResource(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm z-10">×</button>
+                            <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">{getSmartIcon(selectedResource)}</div>
+                            <h3 className="text-xl font-black text-slate-800 mb-1">{selectedResource.title}</h3>
+                            <div className="flex items-center justify-center gap-2">
+                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                    selectedResource.type === 'doctor' ? 'bg-blue-100 text-blue-700' : 
+                                    selectedResource.type === 'meal' ? 'bg-orange-100 text-orange-700' : 'bg-teal-100 text-teal-700'
+                                }`}>
+                                    {selectedResource.type === 'doctor' ? `${selectedResource.details?.dept} · ${selectedResource.details?.title}` : 
+                                     selectedResource.type === 'meal' ? '健康膳食' : '健康干预'}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+                            <div>
+                                <h4 className="font-bold text-slate-800 mb-2">{selectedResource.type === 'doctor' ? '专家简介' : '内容详情'}</h4>
+                                <p className="text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl">
+                                    {selectedResource.description || selectedResource.details?.ingredients || '暂无详细描述'}
+                                </p>
+                            </div>
+                            
+                            {selectedResource.type === 'doctor' && (
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                    <div className="bg-blue-50 p-3 rounded-xl">
+                                        <div className="text-xs text-blue-400 mb-1">挂号费</div>
+                                        <div className="font-bold text-blue-900">¥{selectedResource.details?.fee || '0'}</div>
+                                    </div>
+                                    <div className="bg-blue-50 p-3 rounded-xl">
+                                        <div className="text-xs text-blue-400 mb-1">科室</div>
+                                        <div className="font-bold text-blue-900">{selectedResource.details?.dept || '全科'}</div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedResource.type === 'meal' && selectedResource.details?.macros && (
+                                <div className="grid grid-cols-3 gap-2 text-center">
+                                    <div className="bg-orange-50 p-2 rounded-xl">
+                                        <div className="text-[10px] text-orange-400">热量</div>
+                                        <div className="font-bold text-orange-700">{selectedResource.details.cal}</div>
+                                    </div>
+                                    <div className="bg-blue-50 p-2 rounded-xl">
+                                        <div className="text-[10px] text-blue-400">蛋白质</div>
+                                        <div className="font-bold text-blue-700">{selectedResource.details.macros.protein}g</div>
+                                    </div>
+                                    <div className="bg-green-50 p-2 rounded-xl">
+                                        <div className="text-[10px] text-green-400">脂肪</div>
+                                        <div className="font-bold text-green-700">{selectedResource.details.macros.fat}g</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div className="p-4 border-t border-slate-100 bg-white">
+                            {selectedResource.type === 'doctor' && (
+                                <div className="flex gap-3">
+                                    <button onClick={() => handleInteract('booking', selectedResource)} className="flex-1 bg-white border border-blue-200 text-blue-600 py-3.5 rounded-xl font-bold text-sm hover:bg-blue-50 transition-all flex items-center justify-center gap-2"><span>📅</span> 预约挂号</button>
+                                    <button onClick={() => handleInteract('signing', selectedResource)} className="flex-1 bg-blue-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2"><span>✍️</span> 签约家庭医生</button>
+                                </div>
+                            )}
+                            {selectedResource.type === 'meal' && (
+                                <button onClick={() => setSelectedResource(null)} className="w-full bg-orange-500 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2"><span>🥗</span> 好的，我知道了</button>
+                            )}
+                            {selectedResource.type === 'event' && (
+                                <button onClick={() => handleInteract('signup', selectedResource)} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2"><span>✍️</span> 立即报名活动</button>
+                            )}
+                            {selectedResource.type === 'drug' && (
+                                <button onClick={() => handleInteract('drug_order', selectedResource)} className="w-full bg-teal-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2"><span>💊</span> 预约领药</button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Time Selection Modal for Recommendations */}
+            {showBookingModal && bookingDoctor && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setShowBookingModal(false)}>
+                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择就诊时间</h3>
+                        <p className="text-xs text-slate-400 text-center mb-6">预约专家：{bookingDoctor.title}</p>
+                        
+                        <div className="flex-1 overflow-y-auto space-y-6 pb-6">
+                            {Object.keys(DAY_MAP).map(dayKey => {
+                                const activeSlots = bookingDoctor.details?.weeklySchedule?.[dayKey] || [];
+                                if (activeSlots.length === 0) return null;
+                                return (
+                                    <div key={dayKey}>
+                                        <h4 className="font-black text-xs text-slate-400 uppercase tracking-widest mb-3 px-1">{DAY_MAP[dayKey]}</h4>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {activeSlots.map((slotId: string) => {
+                                                const { count, quota, full } = getSlotUsage(bookingDoctor.id, dayKey, slotId);
+                                                return (
+                                                    <button 
+                                                        key={slotId}
+                                                        disabled={full}
+                                                        onClick={() => handleInteract('booking', bookingDoctor, `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`)}
+                                                        className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center transition-all group relative ${
+                                                            full 
+                                                            ? 'opacity-50 cursor-not-allowed border-slate-100 grayscale' 
+                                                            : 'border-slate-100 hover:bg-blue-50 hover:border-blue-200'
+                                                        }`}
+                                                    >
+                                                        <span className="font-bold text-slate-700">{SLOT_MAP[slotId]}</span>
+                                                        <span className={`text-[10px] mt-1 font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                            {full ? '约满' : `余 ${quota - count} 位`}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <button onClick={() => setShowBookingModal(false)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm active:scale-95 transition-transform">取消</button>
+                    </div>
+                </div>
+            )}
+
+            {/* Achievement Badge Modal */}
             {showBadgeModal && (
                 <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-900/40 backdrop-blur-md animate-fadeIn" onClick={() => setShowBadgeModal(false)}>
-                    <div 
-                        className="bg-white w-full max-w-md rounded-t-[3rem] p-8 animate-slideUp max-h-[80vh] overflow-y-auto"
-                        onClick={e => e.stopPropagation()}
-                    >
+                    <div className="bg-white w-full max-w-md rounded-t-[3rem] p-8 animate-slideUp" onClick={e => e.stopPropagation()}>
                         <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-8"></div>
-                        <div className="text-center mb-8">
-                            <h3 className="text-2xl font-black text-slate-900">成就勋章库</h3>
-                            <p className="text-sm text-slate-400 font-medium mt-1">您已解锁 {gameData.badges.length} 枚荣誉</p>
-                        </div>
-
                         <div className="grid grid-cols-3 gap-6">
                             {BADGES.map(badge => {
                                 const isUnlocked = gameData.badges.includes(badge.id);
                                 return (
                                     <div key={badge.id} className="flex flex-col items-center text-center group">
                                         <div className={`w-20 h-20 rounded-[28px] flex items-center justify-center text-4xl mb-3 transition-all duration-500 ${
-                                            isUnlocked 
-                                            ? 'bg-yellow-50 shadow-[0_10px_25px_rgba(251,191,36,0.15)] border-2 border-yellow-200 scale-100 rotate-0' 
-                                            : 'bg-slate-50 grayscale opacity-30 scale-90'
+                                            isUnlocked ? 'bg-yellow-50 shadow-lg border-2 border-yellow-200' : 'bg-slate-50 grayscale opacity-30'
                                         }`}>
                                             {badge.icon}
                                         </div>
@@ -348,13 +521,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                                 );
                             })}
                         </div>
-
-                        <button 
-                            onClick={() => setShowBadgeModal(false)}
-                            className="mt-12 w-full py-4 bg-slate-900 text-white rounded-[22px] font-black text-sm active:scale-95 transition-transform"
-                        >
-                            我知道了
-                        </button>
+                        <button onClick={() => setShowBadgeModal(false)} className="mt-12 w-full py-4 bg-slate-900 text-white rounded-[22px] font-black text-sm active:scale-95 transition-transform">我知道了</button>
                     </div>
                 </div>
             )}

@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
 import { UserDietMotion } from './UserDietMotion';
-import { UserHabits } from './UserHabits'; // New import
+import { UserHabits } from './UserHabits'; 
 import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserCommunity } from './UserCommunity';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
-import { getUnreadCount } from '../../services/contentService';
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../services/dataService';
+import { getUnreadCount } from '../services/contentService';
 
 interface Props {
   checkupId: string;
@@ -16,7 +16,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits'); // Default to habits
+  const [activeTab, setActiveTab] = useState('habits'); 
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -94,6 +94,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
           <UserHabits 
               assessment={userArchive.assessment_data}
               userCheckupId={userArchive.checkup_id}
+              userName={userArchive.name}
               record={userArchive.health_record}
               onRefresh={() => loadUser(true)}
           />
