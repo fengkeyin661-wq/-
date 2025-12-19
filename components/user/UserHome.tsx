@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HealthProfile, HealthAssessment, HealthRecord, RiskLevel } from '../../types';
 import { fetchContent, ContentItem } from '../../services/contentService';
 
@@ -14,34 +14,37 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavig
   const [recommendations, setRecommendations] = useState<ContentItem[]>([]);
   const [loadingRecs, setLoadingRecs] = useState(true);
 
-  // 1. 获取针对性的推荐内容：基于用户的风险点从资源库匹配
+  // 1. 鲁棒的推荐加载逻辑
   useEffect(() => {
     const loadRecs = async () => {
         setLoadingRecs(true);
         try {
             const all = await fetchContent(undefined, 'active');
-            if (!assessment) {
+            
+            // 安全提取风险关键词，防止 assessment 为空时报错
+            const redRisks = assessment?.risks?.red || [];
+            const yellowRisks = assessment?.risks?.yellow || [];
+            const followUpItems = assessment?.followUpPlan?.nextCheckItems || [];
+            
+            const riskKeywords = [...redRisks, ...yellowRisks, ...followUpItems].join(' ');
+
+            if (!riskKeywords.trim()) {
                 setRecommendations(all.slice(0, 4));
                 return;
             }
-            
-            const riskKeywords = [
-                ...assessment.risks.red, 
-                ...assessment.risks.yellow,
-                ...assessment.followUpPlan.nextCheckItems
-            ].join(' ');
 
-            // 智能过滤逻辑：匹配标题或描述中包含风险关键词的资源
+            // 模糊匹配逻辑
             const matched = all.filter(item => {
-                const searchStr = (item.title + (item.description || '') + (item.tags?.join('') || '')).toLowerCase();
-                // 提取关键词（去重，去掉短词）
+                const searchStr = (item.title + (item.description || '')).toLowerCase();
                 const keywords = riskKeywords.split(/[、\s，,。]/).filter(k => k.length >= 2);
                 return keywords.some(kw => searchStr.includes(kw.toLowerCase()));
             });
             
-            // 如果匹配项不足，用普通优质资源填充
+            // 补齐策略
             const finalRecs = matched.length >= 4 ? matched : [...matched, ...all.filter(a => !matched.find(m => m.id === a.id))];
             setRecommendations(finalRecs.slice(0, 5));
+        } catch (err) {
+            console.error("Recommendations Load Failed", err);
         } finally {
             setLoadingRecs(false);
         }
@@ -49,35 +52,40 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavig
     loadRecs();
   }, [assessment]);
 
-  const riskStyles = {
+  // 风险样式映射
+  const riskStyles: any = {
     RED: { color: 'from-red-500 to-rose-600', label: '高风险', icon: '🚨' },
     YELLOW: { color: 'from-orange-400 to-amber-500', label: '中风险', icon: '⚠️' },
     GREEN: { color: 'from-teal-500 to-emerald-600', label: '低风险', icon: '🛡️' },
   };
 
-  const currentRisk = assessment?.riskLevel || RiskLevel.GREEN;
-  const style = riskStyles[currentRisk];
+  const currentRisk = assessment?.riskLevel || 'GREEN';
+  const style = riskStyles[currentRisk] || riskStyles.GREEN;
+
+  // 数据提取安全网
+  const basics = record?.checkup?.basics || {};
+  const lab = record?.checkup?.labBasic || {};
 
   return (
     <div className="p-5 space-y-6 animate-fadeIn pb-32">
-      {/* Header */}
+      {/* 头部：欢迎与状态 */}
       <div className="flex justify-between items-center px-1">
         <div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">你好，{profile.name}</h1>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">郑州大学医院 · 智慧健康看板</p>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">你好，{profile?.name || '受检者'}</h1>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">郑州大学医院 · 检后管理看板</p>
         </div>
-        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center text-2xl border border-slate-50">
-            {profile.gender === '女' ? '👩' : '👨'}
+        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-50 flex items-center justify-center text-2xl">
+            {profile?.gender === '女' ? '👩' : '👨'}
         </div>
       </div>
 
-      {/* Risk Hero Card: 核心健康状态 */}
+      {/* 核心卡片：当前健康状态等级 */}
       <div className={`bg-gradient-to-br ${style.color} rounded-[2.5rem] p-6 text-white shadow-xl shadow-teal-100 relative overflow-hidden`}>
          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
          <div className="relative z-10">
             <div className="flex justify-between items-start mb-4">
                 <div>
-                    <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">当前健康等级</div>
+                    <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">当前健康等级评估</div>
                     <div className="text-3xl font-black flex items-center gap-2">
                         {style.icon} {style.label}
                     </div>
@@ -89,7 +97,7 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavig
             
             <div className="bg-black/10 rounded-2xl p-4 backdrop-blur-sm border border-white/10">
                 <p className="text-xs leading-relaxed opacity-95 font-medium line-clamp-3">
-                    {assessment?.summary || '系统正在同步您的体检数据。建议定期联系家庭医生，获取针对性的健康改善建议。'}
+                    {assessment?.summary || '您的体检数据已录入。建议完善健康问卷，以获得更精准的 AI 风险评估。'}
                 </p>
             </div>
 
@@ -98,7 +106,7 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavig
                     onClick={() => onNavigate?.('profile')}
                     className="flex-1 bg-white text-slate-900 py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider shadow-lg active:scale-95 transition-transform"
                 >
-                    查看详情报告
+                    查看报告详情
                 </button>
                 <button 
                     onClick={() => onNavigate?.('interaction')}
@@ -110,68 +118,92 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavig
          </div>
       </div>
 
-      {/* Metrics Grid: 关键体征数据 */}
+      {/* 指标看板：防报错版 */}
       <div>
           <div className="flex justify-between items-center mb-3 px-1">
             <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">核心体检指标</h2>
-            <span className="text-[9px] text-slate-300">更新于 {record.profile.checkupDate || '近期'}</span>
+            <span className="text-[9px] text-slate-300">数据同步于 {profile?.checkupId ? '2024' : '--'}</span>
           </div>
           <div className="grid grid-cols-2 gap-3">
-             <MetricBox label="BMI 指数" value={record.checkup.basics.bmi} unit="" status={Number(record.checkup.basics.bmi) > 24 ? 'warning' : 'ok'} />
-             <MetricBox label="收缩压" value={record.checkup.basics.sbp} unit="mmHg" status={Number(record.checkup.basics.sbp) > 140 ? 'danger' : 'ok'} />
-             <MetricBox label="舒张压" value={record.checkup.basics.dbp} unit="mmHg" status={Number(record.checkup.basics.dbp) > 90 ? 'danger' : 'ok'} />
-             <MetricBox label="空腹血糖" value={record.checkup.labBasic.glucose?.fasting} unit="mmol/L" status={Number(record.checkup.labBasic.glucose?.fasting) > 6.1 ? 'warning' : 'ok'} />
+             <MetricBox 
+                label="BMI 指数" 
+                value={basics?.bmi} 
+                unit="" 
+                status={Number(basics?.bmi) > 24 ? 'warning' : 'ok'} 
+             />
+             <MetricBox 
+                label="收缩压" 
+                value={basics?.sbp} 
+                unit="mmHg" 
+                status={Number(basics?.sbp) > 140 ? 'danger' : 'ok'} 
+             />
+             <MetricBox 
+                label="舒张压" 
+                value={basics?.dbp} 
+                unit="mmHg" 
+                status={Number(basics?.dbp) > 90 ? 'danger' : 'ok'} 
+             />
+             <MetricBox 
+                label="空腹血糖" 
+                value={lab?.glucose?.fasting} 
+                unit="mmol/L" 
+                status={Number(lab?.glucose?.fasting) > 6.1 ? 'warning' : 'ok'} 
+             />
           </div>
       </div>
 
-      {/* Today's Recommendations: 智能干预 */}
+      {/* 智能干预推荐区域 */}
       <div>
          <div className="flex justify-between items-center mb-4 px-1">
             <h2 className="text-lg font-black text-slate-800">今日健康干预推荐</h2>
-            <span className="text-[10px] font-black text-teal-600 bg-teal-50 px-2 py-0.5 rounded-md">AI 智能匹配</span>
+            <span className="text-[10px] font-black text-teal-600 bg-teal-50 px-2 py-0.5 rounded-md">专家方案匹配</span>
          </div>
          
          <div className="space-y-4">
             {loadingRecs ? (
                 <div className="py-12 text-center">
                     <div className="inline-block w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="mt-4 text-slate-400 text-xs font-bold animate-pulse">正在匹配个性化干预资源...</p>
+                    <p className="mt-4 text-slate-400 text-xs font-bold">正在为您匹配资源...</p>
                 </div>
-            ) : recommendations.map(item => (
+            ) : recommendations.length > 0 ? recommendations.map(item => (
                 <div key={item.id} 
                     onClick={() => {
                         if (item.type === 'doctor') onNavigate?.('medical');
                         else if (item.type === 'meal' || item.type === 'exercise') onNavigate?.('diet_motion');
                         else onNavigate?.('community');
                     }}
-                    className="bg-white p-4 rounded-[2.2rem] shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-50 flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group hover:border-teal-100"
+                    className="bg-white p-4 rounded-[2.2rem] shadow-sm border border-slate-50 flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group hover:border-teal-100"
                 >
                     <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-4xl shrink-0 group-hover:scale-105 transition-transform">
                         {item.image && item.image.length < 5 ? item.image : (item.type === 'doctor' ? '👨‍⚕️' : item.type === 'meal' ? '🥗' : '✨')}
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="text-[9px] font-black text-teal-600 uppercase mb-0.5">
-                            {item.type === 'doctor' ? '专家干预' : item.type === 'meal' ? '膳食方案' : item.type === 'exercise' ? '运动处方' : '健康服务'}
+                            {item.type === 'doctor' ? '医疗干预' : item.type === 'meal' ? '营养方案' : '运动处方'}
                         </div>
                         <h4 className="font-bold text-slate-800 text-sm truncate">{item.title}</h4>
-                        <p className="text-[10px] text-slate-400 truncate mt-0.5">{item.description || item.details?.dept || '点击查看详情及执行建议'}</p>
+                        <p className="text-[10px] text-slate-400 truncate mt-0.5">{item.description || '点击查看详情及执行建议'}</p>
                     </div>
                     <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center group-hover:bg-teal-600 group-hover:text-white transition-colors">
                         <span className="text-lg">→</span>
                     </div>
                 </div>
-            ))}
+            )) : (
+                <div className="text-center py-10 bg-white rounded-3xl border border-dashed text-slate-400 text-xs">
+                    暂无推荐资源，请咨询医生获取方案
+                </div>
+            )}
          </div>
       </div>
 
-      {/* Critical Findings Warning: 危急值提示 */}
+      {/* 危急值红色预警 */}
       {assessment?.isCritical && (
-          <div className="bg-red-50 border border-red-100 rounded-[2.5rem] p-6 flex items-center gap-5 shadow-lg shadow-red-100/50 animate-pulse">
-              <div className="text-4xl">🚨</div>
+          <div className="bg-red-50 border border-red-100 rounded-[2.5rem] p-6 flex items-center gap-5 shadow-lg shadow-red-100/50">
+              <div className="text-4xl animate-pulse">🚨</div>
               <div>
-                  <div className="text-sm font-black text-red-600 uppercase mb-1">危急值及重大异常预警</div>
+                  <div className="text-sm font-black text-red-600 uppercase mb-1">危急值及重大异常提醒</div>
                   <p className="text-[11px] text-red-800 font-bold leading-relaxed">
-                    系统检测到您有严重指标异常，为了您的健康，请务必尽快联系医生进行门诊复查。
+                    系统检测到您有严重指标异常，请务必尽快联系医生或前往门诊复查。
                   </p>
               </div>
           </div>
@@ -180,13 +212,16 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavig
   );
 };
 
-const MetricBox = ({ label, value, unit, status }: any) => (
-    <div className="bg-white p-5 rounded-[2.2rem] border border-slate-100 shadow-sm transition-all hover:shadow-md">
-        <div className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">{label}</div>
-        <div className={`text-2xl font-black ${status === 'danger' ? 'text-red-600' : status === 'warning' ? 'text-orange-500' : 'text-slate-800'}`}>
-            {value || '--'}
-            <span className="text-[10px] font-bold ml-1 text-slate-300">{unit}</span>
+const MetricBox = ({ label, value, unit, status }: any) => {
+    const displayValue = (value === undefined || value === null || value === 0 || value === '0') ? '--' : value;
+    return (
+        <div className="bg-white p-5 rounded-[2.2rem] border border-slate-100 shadow-sm transition-all hover:shadow-md">
+            <div className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">{label}</div>
+            <div className={`text-2xl font-black ${status === 'danger' ? 'text-red-600' : status === 'warning' ? 'text-orange-500' : 'text-slate-800'}`}>
+                {displayValue}
+                {displayValue !== '--' && <span className="text-[10px] font-bold ml-1 text-slate-300">{unit}</span>}
+            </div>
+            <div className={`mt-2 h-1 w-8 rounded-full ${status === 'danger' ? 'bg-red-500' : status === 'warning' ? 'bg-orange-500' : 'bg-teal-500'}`}></div>
         </div>
-        <div className={`mt-2 h-1 w-8 rounded-full ${status === 'danger' ? 'bg-red-500' : status === 'warning' ? 'bg-orange-500' : 'bg-teal-500'}`}></div>
-    </div>
-);
+    );
+};
