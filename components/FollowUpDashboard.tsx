@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
-import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
+// Removed generateAnnualReportSummary as it's not exported and not used in this component
+import { analyzeFollowUpRecord, generateFollowUpSMS } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
 import { CriticalHandleModal } from './CriticalHandleModal';
 
@@ -1056,7 +1058,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           <h3 className="font-bold text-red-800 mb-4 border-b border-red-200 pb-2">⚠️ 风险警示与问题</h3>
                           {isEditingGuide ? (
                               <textarea 
-                                  className="w-full text-sm border border-red-300 rounded p-2 focus:ring-1 focus:ring-red-500 h-24 bg-white"
+                                  className="w-full text-sm border border-blue-300 rounded p-2 focus:ring-1 focus:ring-red-500 h-24 bg-white"
                                   value={guideEditData.issues}
                                   onChange={e => setGuideEditData({...guideEditData, issues: e.target.value})}
                               />

@@ -9,9 +9,6 @@ interface Props {
 }
 
 export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavigate }) => {
-  const [points] = useState(1240);
-
-  // 提取体检报告中的异常项，用于提醒
   const abnormalities = record?.checkup?.abnormalities || [];
   const riskLevel = assessment?.riskLevel || 'GREEN';
 
@@ -20,97 +17,104 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavig
       {/* 状态栏 */}
       <div className="flex justify-between items-center px-2">
         <div className="flex items-center gap-3">
-           <div className="w-12 h-12 bg-teal-600 rounded-2xl flex items-center justify-center text-white font-black shadow-lg shadow-teal-100 text-xl">
+           <div className="w-12 h-12 bg-teal-600 rounded-2xl flex items-center justify-center text-white font-black shadow-lg shadow-teal-100 text-xl border-2 border-white">
              {profile.name.charAt(0)}
            </div>
            <div>
              <h1 className="text-lg font-bold text-slate-800 tracking-tight">您好, {profile.name}老师</h1>
-             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Employee Health Center</p>
+             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">郑州大学医院健康管理</p>
            </div>
         </div>
-        <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-sm">
-          <span className="text-lg">🪙</span>
-          <span className="text-sm font-black text-slate-700">{points}</span>
+        <div className="bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-sm flex items-center gap-1.5">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+          <span className="text-[10px] font-bold text-slate-500">管家在线</span>
         </div>
       </div>
 
-      {/* AI 健康管家 - 核心引导入口 */}
+      {/* AI 健康管家 - 动态终端风格 */}
       <div 
         onClick={() => onNavigate('butler')}
-        className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-[2.5rem] p-6 text-white shadow-2xl relative overflow-hidden group cursor-pointer active:scale-95 transition-all"
+        className="bg-slate-900 rounded-[2.5rem] p-6 text-white shadow-2xl relative overflow-hidden group cursor-pointer active:scale-95 transition-all"
       >
-         <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 group-hover:scale-110 transition-transform duration-500"></div>
+         {/* 背景流光动画 */}
+         <div className="absolute inset-0 bg-gradient-to-br from-teal-600/20 to-transparent opacity-50"></div>
+         <div className="absolute -top-10 -right-10 w-40 h-40 bg-teal-500/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700"></div>
+
          <div className="relative z-10 flex gap-5 items-center">
-            <div className="w-20 h-20 bg-white/10 backdrop-blur-md rounded-3xl flex items-center justify-center text-5xl shadow-inner border border-white/20">
-               🤖
+            <div className="w-20 h-20 bg-white/10 backdrop-blur-xl rounded-[2rem] flex items-center justify-center text-5xl shadow-inner border border-white/20 relative overflow-hidden">
+               <span className="animate-float">🤖</span>
+               <div className="absolute inset-0 bg-gradient-to-t from-teal-500/20 to-transparent"></div>
             </div>
             <div className="flex-1">
-               <h2 className="text-2xl font-black tracking-tight mb-1">AI 诊后管家</h2>
-               <p className="text-xs text-slate-300 leading-relaxed font-medium">针对您的体检指标，<br/>为您解读并制定改善计划。</p>
-               <div className="mt-3 flex items-center gap-2 text-teal-400 text-xs font-black group-hover:translate-x-1 transition-transform">
-                  进入管理会话 <span className="text-lg">→</span>
-               </div>
+               <div className="text-[10px] font-black text-teal-400 uppercase tracking-tighter mb-1">AI Health Butler</div>
+               <h2 className="text-2xl font-black tracking-tight mb-1">智能咨询终端</h2>
+               <p className="text-xs text-slate-400 leading-relaxed">
+                  {abnormalities.length > 0 
+                    ? `发现 ${abnormalities.length} 项关键异常，立即获取改善方案` 
+                    : "您的健康档案已更新，点击进入深度咨询"}
+               </p>
             </div>
+         </div>
+         <div className="mt-6 flex items-center justify-between bg-white/5 rounded-2xl p-3 border border-white/5">
+             <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-300">有问题随时问我</span>
+             </div>
+             <span className="text-teal-400 text-sm">●●●</span>
          </div>
       </div>
 
-      {/* 体检发现：异常项追踪（解决用户痛点：发现问题没处问） */}
+      {/* 风险雷达概览 */}
+      <section className="space-y-4">
+         <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100">
+            <div className="flex justify-between items-start mb-4">
+               <div>
+                  <h3 className="text-lg font-black text-slate-800">健康风险评估</h3>
+                  <div className={`mt-1 inline-block px-2 py-0.5 rounded-lg text-[10px] font-black ${
+                    riskLevel === 'RED' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+                  }`}>
+                    {riskLevel === 'RED' ? '需要临床干预' : '整体状况良好'}
+                  </div>
+               </div>
+               <div className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl shadow-inner border-4 ${
+                  riskLevel === 'RED' ? 'border-red-50 text-red-500' : 'border-green-50 text-green-500'
+               }`}>
+                  {riskLevel === 'RED' ? '!' : '✓'}
+               </div>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed italic line-clamp-2 bg-slate-50 p-3 rounded-2xl">
+               "{assessment?.summary || '暂无详细评估数据，建议完善健康问卷。'}"
+            </p>
+         </div>
+      </section>
+
+      {/* 待办异常追踪 */}
       {abnormalities.length > 0 && (
-        <section className="space-y-4 animate-slideUp">
-           <div className="flex justify-between items-center px-2">
-              <h3 className="font-black text-slate-800 flex items-center gap-2">
-                 发现健康风险 <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">{abnormalities.length} 项</span>
-              </h3>
-              <button onClick={() => onNavigate('butler')} className="text-xs text-teal-600 font-bold">查看对策</button>
-           </div>
-           
+        <section className="space-y-4">
+           <h3 className="font-black text-slate-800 flex items-center gap-2 px-2">
+              体检异常点追踪 <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded-full">{abnormalities.length}</span>
+           </h3>
            <div className="grid grid-cols-1 gap-3">
-              {abnormalities.slice(0, 3).map((item, idx) => (
+              {abnormalities.slice(0, 2).map((item, idx) => (
                 <div key={idx} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-                   <div className="w-10 h-10 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center text-lg">⚠️</div>
-                   <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-800 text-sm truncate">{item.item}</div>
-                      <div className="text-[10px] text-slate-400 font-medium truncate">{item.result}</div>
+                   <div className="w-10 h-10 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center text-lg">⚠️</div>
+                   <div className="flex-1">
+                      <div className="font-bold text-slate-800 text-sm">{item.item}</div>
+                      <div className="text-[10px] text-slate-400 font-medium">{item.result}</div>
                    </div>
-                   <div className={`px-2 py-1 rounded-lg text-[9px] font-black ${idx === 0 ? 'bg-red-50 text-red-500' : 'bg-orange-50 text-orange-500'}`}>
-                      {idx === 0 ? '待解决' : '需观察'}
-                   </div>
+                   <button onClick={() => onNavigate('butler')} className="text-[10px] font-black text-teal-600 bg-teal-50 px-3 py-2 rounded-xl">问管家</button>
                 </div>
               ))}
-              {abnormalities.length > 3 && (
-                  <p className="text-center text-[10px] text-slate-400 font-medium">还有 {(abnormalities.length - 3)} 项异常，进入管家查看完整清单</p>
-              )}
            </div>
         </section>
       )}
 
-      {/* 风险概览卡片 */}
-      <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 flex flex-col gap-5">
-         <div className="flex justify-between items-center">
-            <div>
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status Overview</div>
-               <h3 className="text-xl font-black text-slate-800">
-                {riskLevel === 'RED' ? '高风险预警' : riskLevel === 'YELLOW' ? '中风险关注' : '低风险良好'}
-               </h3>
-            </div>
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black shadow-lg ${
-                riskLevel === 'RED' ? 'bg-rose-500 shadow-rose-100' : riskLevel === 'YELLOW' ? 'bg-orange-400 shadow-orange-100' : 'bg-teal-500 shadow-teal-100'
-            }`}>
-                {riskLevel === 'RED' ? '!' : riskLevel === 'YELLOW' ? '!' : '✓'}
-            </div>
-         </div>
-         <p className="text-xs text-slate-500 leading-relaxed italic border-l-2 border-slate-100 pl-4 py-1">
-            "{assessment?.summary || '暂无详细评估数据，建议联系中心完成问卷。'}"
-         </p>
-      </div>
-
-      {/* 快捷操作 */}
+      {/* 底部功能区 */}
       <div className="grid grid-cols-4 gap-4">
          {[
-           { icon: '📅', label: '我的随访', tab: 'profile' },
            { icon: '🍔', label: '膳食记录', tab: 'diet_motion' },
-           { icon: '🏥', label: '签约医生', tab: 'medical' },
-           { icon: '💬', label: '问诊记录', tab: 'interaction' },
+           { icon: '📅', label: '我的随访', tab: 'profile' },
+           { icon: '🏥', label: '医疗服务', tab: 'medical' },
+           { icon: '👥', label: '健康社区', tab: 'community' },
          ].map((action, i) => (
            <button 
              key={i} 
@@ -124,8 +128,6 @@ export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavig
            </button>
          ))}
       </div>
-
-      <div className="h-10"></div>
     </div>
   );
 };
