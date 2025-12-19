@@ -2,7 +2,12 @@
 import { ContentItem } from './contentService';
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
-const API_KEY = (import.meta as any).env.VITE_DEEPSEEK_API_KEY;
+
+// Use a more robust way to access VITE environment variables in Vite
+const getApiKey = () => {
+    const env = (import.meta as any).env;
+    return env?.VITE_DEEPSEEK_API_KEY || '';
+};
 
 export interface ButlerResponse {
     text: string;
@@ -15,6 +20,8 @@ export const chatWithDeepSeekButler = async (
     availableResources: string,
     chatHistory: {role: 'user'|'assistant', content: string}[]
 ): Promise<ButlerResponse> => {
+    
+    const API_KEY = getApiKey();
     
     const systemPrompt = `你是一个专业的“AI健康管家”，服务于郑州大学医院健康管理中心。
     你的任务是根据咨询结合用户的【健康档案】提供医学建议，并从【中心资源库】中匹配服务。
@@ -52,6 +59,10 @@ export const chatWithDeepSeekButler = async (
             })
         });
 
+        if (!response.ok) {
+            throw new Error(`DeepSeek API error: ${response.status}`);
+        }
+
         const data = await response.json();
         const content = JSON.parse(data.choices[0].message.content);
         
@@ -62,7 +73,7 @@ export const chatWithDeepSeekButler = async (
     } catch (e) {
         console.error("DeepSeek Error:", e);
         return {
-            text: "抱歉，由于连接 DeepSeek 引擎超时，我暂时无法为您提供专业分析。请稍后再试。",
+            text: "抱歉，由于 DeepSeek 引擎响应异常，我暂时无法为您提供专业分析。请稍后再试或联系中心客服。",
             recommendations: []
         };
     }

@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from "@google/genai";
+
+import { GoogleGenAI } from "@google/genai";
 import { 
     HealthRecord, 
     HealthAssessment, 
@@ -8,25 +9,22 @@ import {
     DepartmentAnalytics
 } from "../types";
 
-// @google/genai fix: Initialize strictly according to guidelines using process.env.API_KEY
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper to get fresh AI instance inside each call per instructions
+const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// AI 助手解析健康数据
 export const parseHealthDataFromText = async (text: string): Promise<HealthRecord> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const systemPrompt = `你是一个专业的医学数据提取助手。你的任务是从用户提供的非结构化体检报告文本中提取关键指标，并转换为结构化的 JSON 格式。`;
     const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `待解析文本:\n${text}`,
         config: { systemInstruction: systemPrompt, responseMimeType: "application/json" }
     });
-    // @google/genai fix: Access response.text as a property
     try { return JSON.parse(response.text || "{}"); } catch (e) { throw new Error("AI 数据提取失败"); }
 };
 
-// AI 生成健康评估
 export const generateHealthAssessment = async (data: HealthRecord): Promise<HealthAssessment> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const systemPrompt = `你是一个资深的健康管理专家。请根据提供的个人健康档案生成专业的风险评估。判定等级 (RED/YELLOW/GREEN) 并标记危急值。`;
     const response = await ai.models.generateContent({
         model: "gemini-3-pro-preview",
@@ -46,7 +44,7 @@ export const generateFollowUpSchedule = (assessment: HealthAssessment): Schedule
 };
 
 export const analyzeFollowUpRecord = async (current: Omit<FollowUpRecord, 'id'>, baseline: HealthAssessment | null, latest: FollowUpRecord | null): Promise<FollowUpRecord['assessment']> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const systemPrompt = `分析随访数据并给出结论。`;
     const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
@@ -57,43 +55,43 @@ export const analyzeFollowUpRecord = async (current: Omit<FollowUpRecord, 'id'>,
 };
 
 export const generateFollowUpSMS = async (patientName: string): Promise<{smsContent: string}> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const response = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: `为 ${patientName} 撰写随访提醒短信` });
     return { smsContent: response.text || "" };
 };
 
 export const generateHospitalBusinessAnalysis = async (topIssues: Record<string, number>): Promise<DepartmentAnalytics[]> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const response = await ai.models.generateContent({ model: "gemini-3-pro-preview", contents: `分析异常项潜在业务: ${JSON.stringify(topIssues)}`, config: { responseMimeType: "application/json" } });
     return JSON.parse(response.text || "[]");
 };
 
 export const generateDietAssessment = async (message: string): Promise<{reply: string}> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const response = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: message });
     return { reply: response.text || "" };
 };
 
 export const generateExercisePlan = async (input: string): Promise<any> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const response = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: input, config: { responseMimeType: "application/json" } });
     return JSON.parse(response.text || '{"plan": []}');
 };
 
 export const generateDailyIntegratedPlan = async (profileStr: string, resources: string, tdee: number): Promise<any> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const response = await ai.models.generateContent({ model: "gemini-3-pro-preview", contents: `画像:${profileStr}, 能量:${tdee}, 资源:${resources}`, config: { responseMimeType: "application/json" } });
     return JSON.parse(response.text || "{}");
 };
 
 export const calculateNutritionFromIngredients = async (items: any[]): Promise<any> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const response = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: JSON.stringify(items), config: { responseMimeType: "application/json" } });
     return { nutritionData: JSON.parse(response.text || "{}") };
 };
 
 export const generatePersonalizedHabits = async (ass: HealthAssessment, rec: HealthRecord): Promise<any> => {
-    // @google/genai fix: Use global ai instance directly
+    const ai = getAI();
     const response = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: ass.summary, config: { responseMimeType: "application/json" } });
     return { habits: JSON.parse(response.text || '{"habits": []}').habits };
 };
