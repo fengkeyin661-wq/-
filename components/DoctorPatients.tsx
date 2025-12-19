@@ -19,13 +19,15 @@ const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SLOTS = [{id: 'AM', label: '上午'}, {id: 'PM', label: '下午'}];
 
 export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) => {
-    const [mainTab, setMainTab] = useState<'patients' | 'workboard' | 'schedule'>('workboard');
+    const [mainTab, setMainTab] = useState<'patients' | 'workboard' | 'schedule' | 'bookings'>('workboard');
     const [signedPatients, setSignedPatients] = useState<PatientData[]>([]);
     const [pendingRequests, setPendingRequests] = useState<InteractionItem[]>([]);
+    const [confirmedBookings, setConfirmedBookings] = useState<InteractionItem[]>([]);
     const [loading, setLoading] = useState(false);
 
-    // Schedule State
+    // Schedule State (Enhanced with Quotas)
     const [weeklySchedule, setWeeklySchedule] = useState<Record<string, string[]>>({});
+    const [slotQuotas, setSlotQuotas] = useState<Record<string, Record<string, number>>>({});
     const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
     // Chat State
@@ -60,8 +62,9 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
     const loadDoctorProfile = async () => {
         const allDocs = await fetchContent('doctor');
         const me = allDocs.find(d => d.id === doctorId);
-        if (me && me.details?.weeklySchedule) {
-            setWeeklySchedule(me.details.weeklySchedule);
+        if (me) {
+            if (me.details?.weeklySchedule) setWeeklySchedule(me.details.weeklySchedule);
+            if (me.details?.slotQuotas) setSlotQuotas(me.details.slotQuotas);
         }
     };
 
@@ -69,6 +72,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         if (!chatPatient) setLoading(true);
         const interactions = await fetchInteractions();
         
+        // Signed Patients
         const signings = interactions
             .filter(i => i.type === 'doctor_signing' && i.targetId === doctorId && i.status === 'confirmed');
 
@@ -84,6 +88,11 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         }
         setSignedPatients(patientsList);
 
+        // Confirmed Bookings (Already confirmed, waiting for visit)
+        const confirmed = interactions.filter(i => i.type === 'doctor_booking' && i.targetId === doctorId && i.status === 'confirmed');
+        setConfirmedBookings(confirmed);
+
+        // Pending Audit Requests
         const requests = interactions.filter(i => 
             i.status === 'pending' && 
             ((i.type === 'doctor_signing' && i.targetId === doctorId) || 
@@ -107,8 +116,22 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
             updated = current.filter(s => s !== slotId);
         } else {
             updated = [...current, slotId];
+            // Initialize quota if not exists
+            if (!slotQuotas[dayKey]?.[slotId]) {
+                setSlotQuotas(prev => ({
+                    ...prev,
+                    [dayKey]: { ...(prev[dayKey] || {}), [slotId]: 10 } // Default to 10
+                }));
+            }
         }
         setWeeklySchedule({ ...weeklySchedule, [dayKey]: updated });
+    };
+
+    const handleQuotaChange = (dayKey: string, slotId: string, value: number) => {
+        setSlotQuotas(prev => ({
+            ...prev,
+            [dayKey]: { ...(prev[dayKey] || {}), [slotId]: Math.max(1, value) }
+        }));
     };
 
     const saveSchedule = async () => {
@@ -120,10 +143,10 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
 
             const updatedMe = {
                 ...me,
-                details: { ...me.details, weeklySchedule }
+                details: { ...me.details, weeklySchedule, slotQuotas }
             };
             await saveContent(updatedMe);
-            alert("出诊设置保存成功！用户预约时将看到最新排班。");
+            alert("设置已保存！");
         } catch (e) {
             alert("保存失败，请稍后重试");
         } finally {
@@ -144,22 +167,28 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                     <span>🩺</span> 医生工作站
                 </h2>
-                <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
+                <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm flex-wrap">
                     <button 
                         onClick={() => setMainTab('workboard')}
-                        className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${mainTab === 'workboard' ? 'bg-orange-500 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
+                        className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${mainTab === 'workboard' ? 'bg-orange-500 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         待办工作台 {pendingRequests.length > 0 && <span className="bg-white text-orange-500 text-[10px] px-1.5 rounded-full">{pendingRequests.length}</span>}
                     </button>
                     <button 
+                        onClick={() => setMainTab('bookings')}
+                        className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${mainTab === 'bookings' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >
+                        📅 预约清单 {confirmedBookings.length > 0 && <span className="bg-white text-indigo-600 text-[10px] px-1.5 rounded-full">{confirmedBookings.length}</span>}
+                    </button>
+                    <button 
                         onClick={() => setMainTab('patients')}
-                        className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${mainTab === 'patients' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
+                        className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${mainTab === 'patients' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         签约用户 {totalUnread > 0 && <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
                     </button>
                     <button 
                         onClick={() => setMainTab('schedule')}
-                        className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${mainTab === 'schedule' ? 'bg-teal-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
+                        className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${mainTab === 'schedule' ? 'bg-teal-600 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         🗓️ 出诊设置
                     </button>
@@ -195,6 +224,52 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                             </div>
                         )}
 
+                        {mainTab === 'bookings' && (
+                            <div className="space-y-6">
+                                {confirmedBookings.length === 0 ? (
+                                    <div className="text-center py-20 text-slate-400">近期暂无已约人员</div>
+                                ) : (
+                                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                                        <table className="w-full text-left text-sm border-collapse">
+                                            <thead className="bg-slate-50 text-slate-500 font-bold border-b">
+                                                <tr>
+                                                    <th className="p-4">预约时间段</th>
+                                                    <th className="p-4">受检人员</th>
+                                                    <th className="p-4">预约项目</th>
+                                                    <th className="p-4">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {confirmedBookings.map(bk => (
+                                                    <tr key={bk.id} className="hover:bg-slate-50">
+                                                        <td className="p-4 font-bold text-indigo-600">
+                                                            {bk.details?.match(/周[一二三四五六日][上下]午/)?.[0] || '常规时段'}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <div className="font-bold text-slate-800">{bk.userName}</div>
+                                                            <div className="text-[10px] text-slate-400">{bk.userId}</div>
+                                                        </td>
+                                                        <td className="p-4 text-slate-600 text-xs">{bk.details}</td>
+                                                        <td className="p-4">
+                                                            <button 
+                                                                onClick={async () => {
+                                                                    const arch = await findArchiveByCheckupId(bk.userId);
+                                                                    if (arch) onSelectPatient(arch, 'followup');
+                                                                }}
+                                                                className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-bold"
+                                                            >
+                                                                查看病历
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {mainTab === 'patients' && (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {signedPatients.length === 0 ? <div className="col-span-full text-center py-20 text-slate-400">暂无签约用户</div> : 
@@ -221,16 +296,16 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                         )}
 
                         {mainTab === 'schedule' && (
-                            <div className="max-w-4xl mx-auto animate-fadeIn">
+                            <div className="max-w-5xl mx-auto animate-fadeIn pb-20">
                                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mb-6">
                                     <h3 className="font-bold text-blue-800 flex items-center gap-2 mb-1">
-                                        <span>🗓️</span> 个人每周出诊时间设定
+                                        <span>🗓️</span> 出诊计划与限号量设定
                                     </h3>
-                                    <p className="text-xs text-blue-600">设置您的常规出诊规律，用户预约挂号时将以此为准。点击格子可开启/关闭对应时段。</p>
+                                    <p className="text-xs text-blue-600">设置您的常规出诊规律和每个时段的最大挂号限额。用户预约时若该时段约满将自动关闭。</p>
                                 </div>
 
-                                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                                    <table className="w-full text-center border-collapse">
+                                <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+                                    <table className="w-full text-center border-collapse min-w-[700px]">
                                         <thead>
                                             <tr className="bg-slate-50 border-b border-slate-200">
                                                 <th className="p-4 text-xs font-black text-slate-400 uppercase tracking-widest border-r border-slate-200">时段</th>
@@ -245,21 +320,37 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                                     <td className="p-4 bg-slate-50/50 font-bold text-slate-500 text-xs border-r border-slate-200">{slot.label}</td>
                                                     {DAY_KEYS.map(dayKey => {
                                                         const isActive = weeklySchedule[dayKey]?.includes(slot.id);
+                                                        const quota = slotQuotas[dayKey]?.[slot.id] || 10;
                                                         return (
-                                                            <td key={dayKey} className="p-2">
-                                                                <button 
-                                                                    onClick={() => toggleSchedule(dayKey, slot.id)}
-                                                                    className={`w-full py-6 rounded-xl transition-all duration-300 flex flex-col items-center justify-center gap-1 group ${
-                                                                        isActive 
-                                                                        ? 'bg-teal-600 text-white shadow-lg shadow-teal-100 scale-95' 
-                                                                        : 'bg-slate-50 text-slate-300 hover:bg-slate-100 border-2 border-dashed border-slate-200'
-                                                                    }`}
-                                                                >
-                                                                    <span className="text-lg">{isActive ? '🏥' : '⚪'}</span>
-                                                                    <span className={`text-[10px] font-bold ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                                                                        {isActive ? '出诊中' : '休息'}
-                                                                    </span>
-                                                                </button>
+                                                            <td key={dayKey} className="p-2 align-top">
+                                                                <div className={`p-3 rounded-xl transition-all duration-300 flex flex-col gap-2 ${
+                                                                    isActive 
+                                                                    ? 'bg-white border-2 border-teal-500 shadow-lg' 
+                                                                    : 'bg-slate-50 border-2 border-dashed border-slate-200'
+                                                                }`}>
+                                                                    <button 
+                                                                        onClick={() => toggleSchedule(dayKey, slot.id)}
+                                                                        className={`py-2 rounded-lg text-sm font-bold transition-colors ${isActive ? 'bg-teal-500 text-white' : 'text-slate-300 hover:text-slate-500'}`}
+                                                                    >
+                                                                        {isActive ? '🏥 出诊中' : '休息'}
+                                                                    </button>
+                                                                    
+                                                                    {isActive && (
+                                                                        <div className="flex flex-col gap-1 items-start mt-1">
+                                                                            <span className="text-[10px] text-slate-400 font-bold uppercase">限号量</span>
+                                                                            <div className="flex items-center gap-1 w-full">
+                                                                                <input 
+                                                                                    type="number" 
+                                                                                    min="1"
+                                                                                    max="100"
+                                                                                    value={quota}
+                                                                                    onChange={(e) => handleQuotaChange(dayKey, slot.id, parseInt(e.target.value) || 1)}
+                                                                                    className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-center font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         );
                                                     })}
@@ -269,13 +360,13 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
                                     </table>
                                 </div>
 
-                                <div className="mt-8 flex justify-center pb-10">
+                                <div className="mt-8 flex justify-center">
                                     <button 
                                         onClick={saveSchedule}
                                         disabled={isSavingSchedule}
                                         className="bg-slate-900 text-white px-12 py-3 rounded-xl font-bold shadow-xl hover:bg-slate-800 transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
                                     >
-                                        {isSavingSchedule ? '正在同步云端...' : '💾 保存排班设置'}
+                                        {isSavingSchedule ? '正在同步云端...' : '💾 保存所有设置'}
                                     </button>
                                 </div>
                             </div>

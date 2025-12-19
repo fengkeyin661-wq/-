@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { fetchContent, ContentItem, saveInteraction, InteractionItem } from '../../services/contentService';
+import { fetchContent, ContentItem, saveInteraction, InteractionItem, fetchInteractions } from '../../services/contentService';
 import { HealthAssessment } from '../../types';
 
 interface Props {
@@ -43,6 +43,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
     const [allDoctors, setAllDoctors] = useState<ContentItem[]>([]);
     const [allDrugs, setAllDrugs] = useState<ContentItem[]>([]);
     const [allServices, setAllServices] = useState<ContentItem[]>([]);
+    const [allInteractions, setAllInteractions] = useState<InteractionItem[]>([]);
     
     const [recommendedDoctors, setRecommendedDoctors] = useState<ContentItem[]>([]);
     const [recommendedDrugs, setRecommendedDrugs] = useState<ContentItem[]>([]);
@@ -60,12 +61,16 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
 
     useEffect(() => {
         const load = async () => {
-            const docs = await fetchContent('doctor');
-            const meds = await fetchContent('drug');
-            const svcs = await fetchContent('service');
+            const [docs, meds, svcs, inters] = await Promise.all([
+                fetchContent('doctor'),
+                fetchContent('drug'),
+                fetchContent('service'),
+                fetchInteractions()
+            ]);
             setAllDoctors(docs);
             setAllDrugs(meds);
             setAllServices(svcs);
+            setAllInteractions(inters);
             refreshRecommendations('doctor', docs);
             refreshRecommendations('drug', meds);
         };
@@ -95,7 +100,6 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
         } else if (type === 'booking' && target.type === 'doctor') {
             interactionType = 'doctor_booking';
             if (!timeSlot) {
-                // If no timeSlot provided, open modal instead
                 setBookingDoctor(target);
                 setShowBookingModal(true);
                 setSelectedItem(null);
@@ -129,7 +133,22 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
             setSelectedItem(null);
             setShowBookingModal(false);
             setBookingDoctor(null);
+            // Refresh interactions to update quotas
+            fetchInteractions().then(setAllInteractions);
         }
+    };
+
+    const getSlotUsage = (docId: string, dayKey: string, slotId: string) => {
+        const slotText = `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`;
+        const count = allInteractions.filter(i => 
+            i.type === 'doctor_booking' && 
+            i.targetId === docId && 
+            i.status !== 'cancelled' && 
+            i.details?.includes(slotText)
+        ).length;
+        
+        const quota = bookingDoctor?.details?.slotQuotas?.[dayKey]?.[slotId] || 10;
+        return { count, quota, full: count >= quota };
     };
 
     const visibleDoctors = search ? allDoctors.filter(d => d.title.includes(search) || d.tags.join('').includes(search)) : (showAllDoctors ? allDoctors : recommendedDoctors);
@@ -152,6 +171,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
             </div>
 
             <div className="p-6 space-y-8">
+                {/* Sections: Recommended Doctors, Services, etc. */}
                 <section>
                     <div className="flex justify-between items-center mb-4"><h2 className="font-bold text-slate-800 text-lg">名医推荐</h2></div>
                     <div className="space-y-4">
@@ -172,7 +192,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                         ))}
                     </div>
                 </section>
-
+                {/* (Keep other sections like services unchanged) */}
                 <section>
                     <div className="flex justify-between items-center mb-4"><h2 className="font-bold text-slate-800 text-lg">便民服务</h2></div>
                     <div className="flex gap-2 overflow-x-auto pb-4 mb-2 scrollbar-hide">
@@ -214,12 +234,12 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                             {selectedItem.type === 'doctor' && (
                                 <div className="grid grid-cols-2 gap-3 text-sm">
                                     <div className="bg-blue-50 p-3 rounded-xl">
-                                        <div className="text-xs text-blue-400 mb-1">常规门诊</div>
-                                        <div className="font-bold text-blue-900">{selectedItem.details?.schedule || '详见挂号排班'}</div>
-                                    </div>
-                                    <div className="bg-blue-50 p-3 rounded-xl">
                                         <div className="text-xs text-blue-400 mb-1">挂号费</div>
                                         <div className="font-bold text-blue-900">¥{selectedItem.details?.fee || '0'}</div>
+                                    </div>
+                                    <div className="bg-blue-50 p-3 rounded-xl">
+                                        <div className="text-xs text-blue-400 mb-1">科室</div>
+                                        <div className="font-bold text-blue-900">{selectedItem.details?.dept || '全科'}</div>
                                     </div>
                                 </div>
                             )}
@@ -238,7 +258,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                 </div>
             )}
 
-            {/* Time Selection Modal */}
+            {/* Time Selection Modal with Quota Logic */}
             {showBookingModal && bookingDoctor && (
                 <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setShowBookingModal(false)}>
                     <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -254,16 +274,29 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                                     <div key={dayKey}>
                                         <h4 className="font-black text-xs text-slate-400 uppercase tracking-widest mb-3 px-1">{DAY_MAP[dayKey]}</h4>
                                         <div className="grid grid-cols-2 gap-3">
-                                            {activeSlots.map((slotId: string) => (
-                                                <button 
-                                                    key={slotId}
-                                                    onClick={() => handleInteract('booking', bookingDoctor, `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`)}
-                                                    className="bg-slate-50 border border-slate-100 p-4 rounded-2xl flex justify-between items-center hover:bg-blue-50 hover:border-blue-200 transition-all group"
-                                                >
-                                                    <span className="font-bold text-slate-700">{SLOT_MAP[slotId]}</span>
-                                                    <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">点击预约</span>
-                                                </button>
-                                            ))}
+                                            {activeSlots.map((slotId: string) => {
+                                                const { count, quota, full } = getSlotUsage(bookingDoctor.id, dayKey, slotId);
+                                                return (
+                                                    <button 
+                                                        key={slotId}
+                                                        disabled={full}
+                                                        onClick={() => handleInteract('booking', bookingDoctor, `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`)}
+                                                        className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center transition-all group relative ${
+                                                            full 
+                                                            ? 'opacity-50 cursor-not-allowed border-slate-100 grayscale' 
+                                                            : 'border-slate-100 hover:bg-blue-50 hover:border-blue-200'
+                                                        }`}
+                                                    >
+                                                        <span className="font-bold text-slate-700">{SLOT_MAP[slotId]}</span>
+                                                        <span className={`text-[10px] mt-1 font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                            {full ? '约满' : `余 ${quota - count} 位`}
+                                                        </span>
+                                                        {!full && (
+                                                            <div className="absolute inset-0 bg-blue-600/0 group-active:bg-blue-600/5 rounded-2xl transition-colors"></div>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 );
