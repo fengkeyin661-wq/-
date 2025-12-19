@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { HealthAssessment, HealthRecord } from '../../types';
 import { HabitRecord, UserGamification, findArchiveByCheckupId, updateHabits } from '../../services/dataService';
 import { generatePersonalizedHabits } from '../../services/geminiService';
+import { fetchContent, ContentItem } from '../../services/contentService';
 
 interface Props {
     assessment?: HealthAssessment;
@@ -40,6 +41,9 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
     const [showLevelUp, setShowLevelUp] = useState(false);
     const [showBadgeModal, setShowBadgeModal] = useState(false);
 
+    // Recommendation State
+    const [recommendedResources, setRecommendedResources] = useState<{item: ContentItem, reason: string}[]>([]);
+
     useEffect(() => {
         loadData();
     }, [userCheckupId, assessment]);
@@ -57,6 +61,43 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                 setGameData({ ...INITIAL_GAME_DATA, ...archive.gamification });
             }
         }
+        loadRecommendations();
+    };
+
+    const loadRecommendations = async () => {
+        if (!assessment) return;
+        
+        // 1. Extract potential keywords from risks
+        const risks = [...assessment.risks.red, ...assessment.risks.yellow];
+        const keywords = ['高血压', '糖尿病', '血脂', '尿酸', '痛风', '结节', '肥胖', '心', '肝', '胃', '睡眠'];
+        const matchedKeys = keywords.filter(key => 
+            risks.some(r => r.includes(key)) || assessment.summary.includes(key)
+        );
+
+        if (matchedKeys.length === 0) matchedKeys.push('健康'); // Fallback
+
+        // 2. Fetch all active resources
+        const allResources = await fetchContent();
+        const matches: {item: ContentItem, reason: string}[] = [];
+
+        // 3. Match Logic
+        allResources.forEach(res => {
+            const resText = (res.title + res.description + (res.tags?.join('') || '')).toLowerCase();
+            const foundKey = matchedKeys.find(key => resText.includes(key.toLowerCase()));
+            
+            if (foundKey) {
+                // Ensure diversity: only 1 of each type
+                if (matches.filter(m => m.item.type === res.type).length < 2) {
+                    matches.push({
+                        item: res,
+                        reason: `针对您的[${foundKey}]风险推荐`
+                    });
+                }
+            }
+        });
+
+        // 4. Randomly pick 3 from matches to keep it fresh
+        setRecommendedResources(matches.sort(() => 0.5 - Math.random()).slice(0, 3));
     };
 
     const initializeHabits = async (ass: HealthAssessment, rec: HealthRecord) => {
@@ -104,7 +145,6 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
             setTimeout(() => setShowLevelUp(false), 3000);
         }
 
-        // Auto unlock badges
         if (newGameData.currentStreak >= 3 && !newGameData.badges.includes('streak_3')) newGameData.badges.push('streak_3');
         if (newGameData.totalXP > 0 && !newGameData.badges.includes('first_step')) newGameData.badges.push('first_step');
 
@@ -122,7 +162,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
 
     return (
         <div className="bg-slate-50 min-h-full pb-32 animate-fadeIn">
-            {/* iOS Style Floating Level Up */}
+            {/* Level Up Banner */}
             {showLevelUp && (
                 <div className="fixed inset-x-0 top-10 z-[100] flex justify-center px-6 pointer-events-none">
                     <div className="bg-white/90 backdrop-blur-2xl px-6 py-4 rounded-3xl shadow-2xl border border-yellow-200 flex items-center gap-4 animate-bounce">
@@ -135,8 +175,44 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                 </div>
             )}
 
-            {/* Dashboard: iPhone 17 Premium Look */}
-            <div className="px-6 pt-8 pb-12 bg-white rounded-b-[3rem] shadow-[0_10px_40px_rgba(0,0,0,0.03)]">
+            {/* Smart Recommendations Section (NEW) */}
+            {recommendedResources.length > 0 && (
+                <div className="px-6 pt-6">
+                    <div className="flex justify-between items-center mb-3">
+                        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">智能干预建议</h3>
+                        <span className="text-[10px] bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded font-bold">AI 动态匹配</span>
+                    </div>
+                    <div className="flex overflow-x-auto gap-3 pb-2 scrollbar-hide -mx-2 px-2">
+                        {recommendedResources.map((rec, idx) => (
+                            <div key={idx} className="flex-shrink-0 w-[240px] bg-white rounded-3xl p-4 shadow-[0_8px_30px_rgb(0,0,0,0.02)] border border-slate-50 flex flex-col gap-3 relative overflow-hidden group active:scale-95 transition-transform">
+                                <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full opacity-10 group-hover:scale-110 transition-transform ${
+                                    rec.item.type === 'doctor' ? 'bg-blue-600' : 
+                                    rec.item.type === 'meal' ? 'bg-orange-500' : 'bg-teal-500'
+                                }`}></div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-2xl">{rec.item.image || '✨'}</span>
+                                    <div>
+                                        <div className="text-[10px] font-bold text-teal-600 uppercase mb-0.5">{rec.reason}</div>
+                                        <div className="font-bold text-slate-800 text-sm line-clamp-1">{rec.item.title}</div>
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed h-[32px]">
+                                    {rec.item.description || rec.item.details?.dept || '为您匹配的专项健康资源'}
+                                </p>
+                                <button className={`mt-1 w-full py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors ${
+                                    rec.item.type === 'doctor' ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 
+                                    rec.item.type === 'meal' ? 'bg-orange-50 text-orange-600 hover:bg-orange-100' : 'bg-teal-50 text-teal-600 hover:bg-teal-100'
+                                }`}>
+                                    立即查看
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Dashboard Header */}
+            <div className="px-6 pt-6 pb-12 bg-white rounded-b-[3rem] shadow-[0_10px_40px_rgba(0,0,0,0.03)]">
                 <div className="flex justify-between items-end mb-8">
                     <div>
                         <h2 className="text-3xl font-black text-slate-900 tracking-tight">打卡记录</h2>
@@ -146,7 +222,6 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                             <span className="text-xs font-bold text-orange-500">连续 {gameData.currentStreak} 天</span>
                         </div>
                     </div>
-                    {/* Badge Entry Button */}
                     <button 
                         onClick={() => setShowBadgeModal(true)}
                         className="bg-slate-900 text-white w-14 h-14 rounded-[22px] flex items-center justify-center text-2xl shadow-xl shadow-slate-200 active:scale-90 transition-transform relative"
@@ -160,7 +235,6 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                     </button>
                 </div>
 
-                {/* Modern Progress Bar */}
                 <div className="space-y-2">
                     <div className="flex justify-between items-center px-1">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">XP 经验值</span>
@@ -175,7 +249,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                 </div>
             </div>
 
-            {/* Habit List: 1 Item Per Row */}
+            {/* Habit List */}
             <div className="px-6 -mt-6 space-y-4">
                 <div className="flex justify-between items-center mb-1 px-2">
                     <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">今日目标</h3>
@@ -242,7 +316,7 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, record 
                 )}
             </div>
 
-            {/* Badge Modal: Slide up */}
+            {/* Badge Modal */}
             {showBadgeModal && (
                 <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-900/40 backdrop-blur-md animate-fadeIn" onClick={() => setShowBadgeModal(false)}>
                     <div 
