@@ -12,58 +12,27 @@ interface Props {
 const PRESETS = {
     circleTags: ['运动', '饮食', '慢病', '养生', '心理', '减重', '科普'],
     activityTypes: ['义诊', '健康讲座', '亲子活动', '急救培训', '慢病小组', '户外运动'],
-    targetAudience: ['老年人', '孕产妇', '儿童', '高血压患者', '糖尿病患者', '全人群'],
-    enrollMethod: ['线上预约', '电话报名', '现场空降'],
     depts: ['全科', '中医科', '内科', '外科', '妇科', '儿科', '口腔科', '康复科', '预防保健科'],
-    docTitles: ['主任医师', '副主任医师', '主治医师', '医师', '康复师', '营养师'],
-    docStatus: ['出诊中', '停诊', '休假'],
-    drugRx: ['RX (处方药)', 'OTC (甲类)', 'OTC (乙类)'],
-    drugInsurance: ['甲类', '乙类', '自费'],
-    drugStock: ['充足', '紧张', '缺货'],
-    dietDifficulty: ['初级', '中等', '较难'],
-    exerciseIntensity: ['低强度', '中强度', '高强度'],
-    dietTags: ['低GI', '高纤维', '低脂', '高蛋白', '适合糖友', '护心'],
-    exerciseTypes: ['有氧', '力量', '柔韧性', '康复训练', '体态矫正'],
-    serviceInsurance: ['甲类', '乙类', '自费'],
-    bookingTypes: ['需预约', '无需预约'],
 };
 
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise' | 'audit'>('event');
-    const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
+    const [eventSubTab, setEventSubTab] = useState<'list' | 'circle' | 'user_recipe'>('list');
     
     const [items, setItems] = useState<ContentItem[]>([]);
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     const [loading, setLoading] = useState(false);
-    const [loadingText, setLoadingText] = useState('加载中...');
-    
-    const [dbStatus, setDbStatus] = useState<{status: string, message: string, details?: string} | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editItem, setEditItem] = useState<Partial<ContentItem>>({});
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-    const batchImportRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
     }, [activeTab, eventSubTab]);
 
-    useEffect(() => {
-        runDiagnostics();
-    }, []);
-
-    const runDiagnostics = async () => {
-        const result = await checkDbConnection();
-        setDbStatus(result);
-    };
-
     const loadData = async () => {
+        setLoading(true);
         try {
-            setLoading(true);
-            setLoadingText('加载数据中...');
             let contentType: string | string[] = '';
-            
             switch(activeTab) {
                 case 'recipe': contentType = 'meal'; break;
                 case 'exercise': contentType = 'exercise'; break;
@@ -74,8 +43,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             }
 
             if (contentType) {
-                const content = await fetchContent(contentType);
-                if (activeTab === 'event') {
+                let content = await fetchContent(contentType);
+                if (activeTab === 'recipe') {
+                    // 在食谱标签页下，区分官方和用户
+                    setItems(eventSubTab === 'user_recipe' ? content.filter(c => c.isUserUpload) : content.filter(c => !c.isUserUpload));
+                } else if (activeTab === 'event') {
                     setItems(eventSubTab === 'circle' ? content.filter(c => c.type === 'circle') : content.filter(c => c.type === 'event'));
                 } else {
                     setItems(content);
@@ -89,13 +61,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         } finally { setLoading(false); }
     };
 
-    const handleInteractionStatus = async (id: string, status: InteractionItem['status']) => {
-        await updateInteractionStatus(id, status);
+    const handleAuditPass = async (item: ContentItem) => {
+        const nextStatus = 'active';
+        await saveContent({ ...item, status: nextStatus, updatedAt: new Date().toISOString() });
+        alert("审核通过！该内容已正式加入资源库。");
         loadData();
     };
 
     const handleSaveContent = async () => {
-        if (!editItem.title || !editItem.type) return alert("标题和类型为必填项");
+        if (!editItem.title || !editItem.type) return alert("必填项缺失");
         await saveContent(editItem as ContentItem);
         setIsModalOpen(false);
         loadData();
@@ -105,13 +79,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         if (item) {
             setEditItem({...item});
         } else {
-            let type: any = 'meal';
-            if (activeTab === 'exercise') type = 'exercise';
-            if (activeTab === 'event') type = eventSubTab === 'circle' ? 'circle' : 'event';
-            if (activeTab === 'service') type = 'service';
-            if (activeTab === 'drug') type = 'drug';
-            if (activeTab === 'doctor') type = 'doctor';
-            setEditItem({ id: `item_${Date.now()}`, type, title: '', status: 'active', tags: [], image: '✨', details: {} });
+            setEditItem({ id: `item_${Date.now()}`, type: activeTab === 'recipe' ? 'meal' : 'event', status: 'active', tags: [], image: '✨', details: {} });
         }
         setIsModalOpen(true);
     };
@@ -121,94 +89,105 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
              <header className="bg-teal-700 text-white px-6 py-4 flex justify-between items-center shadow-md">
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center font-bold">R</div>
-                    <h1 className="text-lg font-bold">资源运营工作台</h1>
+                    <h1 className="text-lg font-bold">郑州大学医院健康管理后台</h1>
                 </div>
-                <div className="flex items-center gap-4">
-                    <button onClick={onLogout} className="bg-teal-800 hover:bg-teal-900 px-4 py-1.5 rounded text-xs font-bold transition-colors">退出</button>
-                </div>
+                <button onClick={onLogout} className="bg-teal-800 hover:bg-teal-900 px-4 py-1.5 rounded text-xs font-bold transition-colors">退出</button>
             </header>
 
             <div className="flex flex-1 overflow-hidden">
-                <aside className="w-64 bg-white border-r border-slate-200 flex flex-col p-4 space-y-2">
-                    <NavButton id="audit" icon="🛡️" label="审核中心" active={activeTab} onClick={setActiveTab} />
+                <aside className="w-60 bg-white border-r border-slate-200 p-4 space-y-2">
+                    {/* Fixed missing NavButton component usage */}
+                    <NavButton id="audit" icon="🛡️" label="审批中心" active={activeTab} onClick={setActiveTab} />
                     <div className="h-px bg-slate-200 my-2"></div>
-                    <NavButton id="event" icon="✨" label="社区活动" active={activeTab} onClick={setActiveTab} />
-                    <NavButton id="service" icon="🏥" label="医院服务" active={activeTab} onClick={setActiveTab} />
-                    <NavButton id="doctor" icon="👨‍⚕️" label="医生管理" active={activeTab} onClick={setActiveTab} />
-                    <NavButton id="drug" icon="💊" label="药品库" active={activeTab} onClick={setActiveTab} />
-                    <NavButton id="recipe" icon="🥗" label="膳食库" active={activeTab} onClick={setActiveTab} />
-                    <NavButton id="exercise" icon="🏃" label="运动/康复" active={activeTab} onClick={setActiveTab} />
+                    <NavButton id="recipe" icon="🥗" label="膳食方案库" active={activeTab} onClick={setActiveTab} />
+                    <NavButton id="doctor" icon="👨‍⚕️" label="医疗团队管理" active={activeTab} onClick={setActiveTab} />
+                    <NavButton id="event" icon="✨" label="社区与圈子" active={activeTab} onClick={setActiveTab} />
+                    <NavButton id="service" icon="🏥" label="服务管理" active={activeTab} onClick={setActiveTab} />
                 </aside>
 
                 <main className="flex-1 p-8 overflow-y-auto">
                     {activeTab === 'audit' ? (
                         <div className="bg-white rounded-xl shadow-sm p-6">
-                            <h3 className="text-lg font-bold mb-4">入群/活动报名审核</h3>
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">类型</th><th className="p-3">申请人</th><th className="p-3">目标对象</th><th className="p-3">日期</th><th className="p-3 text-right">操作</th></tr></thead>
-                                <tbody>
-                                    {interactions.map(i => (
-                                        <tr key={i.id} className="border-t border-slate-50">
-                                            <td className="p-3"><span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-bold">{i.type === 'circle_join' ? '入圈申请' : '活动报名'}</span></td>
-                                            <td className="p-3 font-bold">{i.userName}</td>
-                                            <td className="p-3 text-slate-500">{i.targetName}</td>
-                                            <td className="p-3 text-slate-400 text-xs">{i.date}</td>
-                                            <td className="p-3 text-right">
-                                                {i.status === 'pending' ? (
-                                                    <div className="flex gap-2 justify-end">
-                                                        <button onClick={() => handleInteractionStatus(i.id, 'confirmed')} className="text-green-600 font-bold">同意</button>
-                                                        <button onClick={() => handleInteractionStatus(i.id, 'cancelled')} className="text-red-500">忽略</button>
-                                                    </div>
-                                                ) : <span className="text-slate-300">已处理</span>}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                            <h3 className="text-lg font-bold mb-6">社区活动与服务预约审核</h3>
+                            <div className="space-y-4">
+                                {interactions.map(i => (
+                                    <div key={i.id} className="p-4 border rounded-xl flex justify-between items-center hover:bg-slate-50 transition-colors">
+                                        <div>
+                                            <div className="font-bold text-slate-800">{i.userName}</div>
+                                            <div className="text-xs text-slate-500 mt-1 uppercase font-bold tracking-wider">{i.type.replace('_', ' ')} · {i.targetName}</div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => updateInteractionStatus(i.id, 'confirmed').then(loadData)} className="bg-teal-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm hover:bg-teal-700">通过</button>
+                                            <button onClick={() => updateInteractionStatus(i.id, 'cancelled').then(loadData)} className="bg-white border border-red-200 text-red-500 px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-red-50">拒绝</button>
+                                        </div>
+                                    </div>
+                                ))}
+                                {interactions.length === 0 && <div className="text-center py-20 text-slate-400">暂无待审核申请</div>}
+                            </div>
                         </div>
                     ) : (
                         <div className="bg-white rounded-xl shadow-sm p-6">
                             <div className="flex justify-between items-center mb-6">
                                 <div className="flex items-center gap-4">
-                                    <h3 className="text-lg font-bold">资源列表</h3>
-                                    {activeTab === 'event' && (
+                                    <h3 className="text-lg font-bold">全量健康资源管理</h3>
+                                    {activeTab === 'recipe' && (
                                         <div className="flex bg-slate-100 p-1 rounded-lg">
-                                            <button onClick={() => setEventSubTab('list')} className={`px-4 py-1 rounded-md text-xs font-bold ${eventSubTab === 'list' ? 'bg-white shadow text-teal-600' : 'text-slate-500'}`}>活动</button>
-                                            <button onClick={() => setEventSubTab('circle')} className={`px-4 py-1 rounded-md text-xs font-bold ${eventSubTab === 'circle' ? 'bg-white shadow text-teal-600' : 'text-slate-500'}`}>圈子</button>
+                                            <button onClick={() => setEventSubTab('list')} className={`px-4 py-1 rounded-md text-xs font-bold ${eventSubTab === 'list' ? 'bg-white shadow text-teal-600' : 'text-slate-500'}`}>官方推荐</button>
+                                            <button onClick={() => setEventSubTab('user_recipe')} className={`px-4 py-1 rounded-md text-xs font-bold ${eventSubTab === 'user_recipe' ? 'bg-white shadow text-teal-600' : 'text-slate-500'}`}>用户分享</button>
                                         </div>
                                     )}
                                 </div>
-                                <button onClick={() => openEdit()} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-bold">+ 新增内容</button>
+                                <button onClick={() => openEdit()} className="bg-teal-600 text-white px-5 py-2 rounded-lg text-sm font-bold shadow-lg hover:bg-teal-700 transition-colors">+ 新增资源</button>
                             </div>
+                            
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">名称</th><th className="p-3">详情/状态</th><th className="p-3">发起者</th><th className="p-3 text-right">操作</th></tr></thead>
-                                <tbody className="divide-y divide-slate-50">
+                                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+                                    <tr>
+                                        <th className="p-4">图标 & 名称</th>
+                                        <th className="p-4">来源/类型</th>
+                                        <th className="p-4">内容摘要</th>
+                                        <th className="p-4">状态</th>
+                                        <th className="p-4 text-right">管理操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
                                     {items.map(item => (
-                                        <tr key={item.id} className="hover:bg-slate-50">
-                                            <td className="p-3 flex items-center gap-3">
-                                                <span className="text-2xl bg-slate-100 p-1 rounded-lg">{item.image}</span>
+                                        <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="p-4 flex items-center gap-4">
+                                                <span className="text-3xl bg-slate-50 w-12 h-12 flex items-center justify-center rounded-xl">{item.image}</span>
                                                 <span className="font-bold text-slate-700">{item.title}</span>
                                             </td>
-                                            <td className="p-3">
-                                                <span className={`px-2 py-1 rounded text-[10px] font-bold ${item.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'}`}>
-                                                    {item.status === 'active' ? '已上架' : '待审核申请'}
+                                            <td className="p-4">
+                                                <div className="text-[10px] font-black uppercase text-slate-400">{item.isUserUpload ? '职工上传' : '中心内置'}</div>
+                                                <div className="text-[10px] text-slate-500">{item.details?.creatorId || 'System'}</div>
+                                            </td>
+                                            <td className="p-4">
+                                                <div className="flex gap-2">
+                                                    {/* Fixed truncated JSX content */}
+                                                    <span className="bg-teal-50 text-teal-700 px-2 py-0.5 rounded text-[10px] font-bold">
+                                                        {item.details?.cal ? `${item.details.cal} kcal` : item.description?.slice(0, 30) || '无摘要'}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td className="p-4">
+                                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${item.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                    {item.status === 'active' ? '已上架' : '待审核'}
                                                 </span>
-                                                <div className="text-[10px] text-slate-400 mt-1 truncate max-w-[200px]">{item.description}</div>
                                             </td>
-                                            <td className="p-3 text-xs text-slate-500">
-                                                {item.details?.creatorName ? (
-                                                    <div className="flex flex-col">
-                                                        <span>{item.details.creatorName}</span>
-                                                        <span className="text-[9px] opacity-60">({item.details.creatorRole === 'doctor' ? '医生' : '职工'})</span>
-                                                    </div>
-                                                ) : <span className="opacity-40">系统内置</span>}
-                                            </td>
-                                            <td className="p-3 text-right">
-                                                <button onClick={() => openEdit(item)} className="text-blue-600 mr-3">查看/编辑</button>
-                                                <button onClick={() => deleteContent(item.id).then(loadData)} className="text-red-500">删除</button>
+                                            <td className="p-4 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    {item.status === 'pending' && (
+                                                        <button onClick={() => handleAuditPass(item)} className="text-xs bg-teal-600 text-white px-2 py-1 rounded font-bold shadow-sm">通过</button>
+                                                    )}
+                                                    <button onClick={() => openEdit(item)} className="text-xs text-blue-600 font-bold hover:underline">编辑</button>
+                                                    <button onClick={() => deleteContent(item.id).then(loadData)} className="text-xs text-red-500 font-bold hover:underline">删除</button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
+                                    {items.length === 0 && (
+                                        <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无资源项</td></tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -216,23 +195,40 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 </main>
             </div>
 
-            {/* Modal */}
+            {/* Modal for content modification */}
             {isModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-4">
-                        <h3 className="text-lg font-bold">资源属性设置</h3>
-                        <div className="space-y-3">
-                            <InputField label="标题/名称" value={editItem.title} onChange={(v:any)=>setEditItem({...editItem, title:v})} />
-                            <TextAreaField label="简介内容" value={editItem.description} onChange={(v:any)=>setEditItem({...editItem, description:v})} />
-                            <SelectField label="展示状态" value={editItem.status} options={['active', 'pending', 'rejected']} onChange={(v:any)=>setEditItem({...editItem, status:v})} />
-                            {editItem.type === 'circle' && <TagSelector label="圈子分类" tags={PRESETS.circleTags} selected={editItem.tags} onToggle={(t:string)=>{
-                                const cur = editItem.tags || [];
-                                setEditItem({...editItem, tags: cur.includes(t) ? cur.filter(x=>x!==t) : [...cur, t]});
-                            }} />}
+                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8 animate-scaleIn">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h3 className="text-xl font-bold text-slate-800">{editItem.id ? '编辑资源' : '新增资源'}</h3>
+                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
                         </div>
-                        <div className="flex gap-2 justify-end pt-4 border-t">
-                            <button onClick={()=>setIsModalOpen(false)} className="px-4 py-2 text-slate-500">取消</button>
-                            <button onClick={handleSaveContent} className="px-6 py-2 bg-teal-600 text-white rounded-lg font-bold">保存更改</button>
+                        <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">资源标题</label>
+                                <input className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500 outline-none" placeholder="输入名称..." value={editItem.title || ''} onChange={e => setEditItem({...editItem, title: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">内容描述</label>
+                                <textarea className="w-full border border-slate-200 rounded-xl p-3 text-sm h-32 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="输入详情..." value={editItem.description || ''} onChange={e => setEditItem({...editItem, description: e.target.value})} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">图标 (Emoji)</label>
+                                    <input className="w-full border border-slate-200 rounded-xl p-3 text-sm" placeholder="例如: 🍱" value={editItem.image || ''} onChange={e => setEditItem({...editItem, image: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">状态</label>
+                                    <select className="w-full border border-slate-200 rounded-xl p-3 text-sm bg-white" value={editItem.status} onChange={e => setEditItem({...editItem, status: e.target.value as any})}>
+                                        <option value="active">立即发布</option>
+                                        <option value="pending">待审核</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="mt-8 flex justify-end gap-3">
+                            <button onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-slate-500 font-bold rounded-xl hover:bg-slate-100 transition-colors">取消</button>
+                            <button onClick={handleSaveContent} className="px-8 py-2.5 bg-teal-600 text-white rounded-xl font-bold shadow-lg shadow-teal-100 hover:bg-teal-700 transition-all active:scale-95">确认保存</button>
                         </div>
                     </div>
                 </div>
@@ -241,27 +237,18 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     );
 };
 
+/* Helper Component for Sidebar Navigation (Fixes Cannot find name 'NavButton' errors) */
 const NavButton = ({ id, icon, label, active, onClick }: any) => (
-    <button onClick={() => onClick(id)} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${active === id ? 'bg-teal-50 text-teal-700' : 'text-slate-500 hover:bg-slate-50'}`}>
-        <span className="text-lg">{icon}</span>{label}
+    <button 
+        onClick={() => onClick(id)}
+        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-sm font-bold ${
+            active === id 
+            ? 'bg-teal-50 text-teal-700 shadow-sm border border-teal-100' 
+            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+        }`}
+    >
+        <span className="text-lg">{icon}</span>
+        <span>{label}</span>
+        {active === id && <span className="ml-auto text-teal-400">●</span>}
     </button>
-);
-
-const InputField = ({ label, value, onChange }: any) => (
-    <div><label className="text-[10px] font-bold text-slate-400 block mb-1">{label}</label><input className="w-full border p-2.5 rounded-xl text-sm" value={value || ''} onChange={e=>onChange(e.target.value)} /></div>
-);
-
-const TextAreaField = ({ label, value, onChange }: any) => (
-    <div><label className="text-[10px] font-bold text-slate-400 block mb-1">{label}</label><textarea className="w-full border p-2.5 rounded-xl text-sm h-24" value={value || ''} onChange={e=>onChange(e.target.value)} /></div>
-);
-
-const SelectField = ({ label, value, options, onChange }: any) => (
-    <div><label className="text-[10px] font-bold text-slate-400 block mb-1">{label}</label><select className="w-full border p-2.5 rounded-xl text-sm bg-white" value={value || ''} onChange={e=>onChange(e.target.value)}>{options.map((o:any)=><option key={o} value={o}>{o}</option>)}</select></div>
-);
-
-const TagSelector = ({ label, tags, selected, onToggle }: any) => (
-    <div>
-        <label className="text-[10px] font-bold text-slate-400 block mb-2">{label}</label>
-        <div className="flex flex-wrap gap-2">{tags.map((t:string)=><button key={t} onClick={()=>onToggle(t)} className={`px-3 py-1 rounded-full text-xs border ${selected?.includes(t)?'bg-teal-600 text-white border-teal-600':'text-slate-500 border-slate-200'}`}>{t}</button>)}</div>
-    </div>
 );
