@@ -1,128 +1,208 @@
 
-import React, { useState } from 'react';
-import { HealthProfile, DailyTask, HealthAssessment } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { HealthProfile, HealthAssessment, HealthRecord, RiskLevel } from '../../types';
+import { fetchContent, ContentItem } from '../../services/contentService';
 
 interface Props {
-  profile: HealthProfile;
+  profile?: HealthProfile;
   assessment?: HealthAssessment;
+  record?: HealthRecord;
+  onNavigate?: (tab: string) => void;
 }
 
-export const UserHome: React.FC<Props> = ({ profile, assessment }) => {
-  const [points, setPoints] = useState(1240);
-  const [tasks, setTasks] = useState<DailyTask[]>([
-    { id: '1', title: '测量并记录晨起血压', type: 'measure', isCompleted: false, points: 50 },
-    { id: '2', title: '午餐后步行 15 分钟', type: 'exercise', isCompleted: true, points: 30 },
-    { id: '3', title: '按时服用降压药', type: 'med', isCompleted: false, points: 20 },
-    { id: '4', title: '阅读一篇健康科普文章', type: 'diet', isCompleted: false, points: 10 },
-  ]);
+export const UserHome: React.FC<Props> = ({ profile, assessment, record, onNavigate }) => {
+  const [recommendations, setRecommendations] = useState<ContentItem[]>([]);
+  const [loadingRecs, setLoadingRecs] = useState(true);
 
-  const handleTaskComplete = (id: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === id && !t.isCompleted) {
-        setPoints(p => p + t.points);
-        return { ...t, isCompleted: true };
-      }
-      return t;
-    }));
+  // 1. 深度安全的推荐加载逻辑
+  useEffect(() => {
+    const loadRecs = async () => {
+        setLoadingRecs(true);
+        try {
+            const all = await fetchContent(undefined, 'active');
+            
+            // 安全提取风险关键词，防止 assessment 为空时报错
+            const redRisks = assessment?.risks?.red || [];
+            const yellowRisks = assessment?.risks?.yellow || [];
+            const followUpItems = assessment?.followUpPlan?.nextCheckItems || [];
+            
+            const riskKeywords = [...redRisks, ...yellowRisks, ...followUpItems].join(' ');
+
+            if (!riskKeywords.trim()) {
+                setRecommendations(all.slice(0, 4));
+                return;
+            }
+
+            // 模糊匹配逻辑
+            const matched = all.filter(item => {
+                const searchStr = ((item.title || '') + (item.description || '')).toLowerCase();
+                const keywords = riskKeywords.split(/[、\s，,。]/).filter(k => k.length >= 2);
+                return keywords.some(kw => searchStr.includes(kw.toLowerCase()));
+            });
+            
+            // 补齐策略
+            const finalRecs = matched.length >= 4 ? matched : [...matched, ...all.filter(a => !matched.find(m => m.id === a.id))];
+            setRecommendations(finalRecs.slice(0, 5));
+        } catch (err) {
+            console.error("Recommendations Load Failed", err);
+        } finally {
+            setLoadingRecs(false);
+        }
+    };
+    loadRecs();
+  }, [assessment]);
+
+  // 风险样式映射 - 增加默认 fallback 避免崩
+  const riskStyles: Record<string, any> = {
+    RED: { color: 'from-red-500 to-rose-600', label: '高风险', icon: '🚨' },
+    YELLOW: { color: 'from-orange-400 to-amber-500', label: '中风险', icon: '⚠️' },
+    GREEN: { color: 'from-teal-500 to-emerald-600', label: '低风险', icon: '🛡️' },
   };
 
-  const riskLevel = assessment?.riskLevel || 'GREEN';
+  const currentRisk = assessment?.riskLevel || 'GREEN';
+  const style = riskStyles[currentRisk] || riskStyles.GREEN;
+
+  // 数据提取安全网：确保嵌套属性即便缺失也不报错
+  const basics = record?.checkup?.basics || {};
+  const lab = record?.checkup?.labBasic || {};
 
   return (
-    <div className="p-4 space-y-6 animate-fadeIn">
+    <div className="p-5 space-y-6 animate-fadeIn pb-32">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center px-1">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">早安，{profile.name}</h1>
-          <p className="text-xs text-slate-500">今天也要保持健康好状态！</p>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">你好，{profile?.name || '教职工'}</h1>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">郑州大学医院 · 检后管理看板</p>
         </div>
-        <div className="flex items-center gap-2 bg-yellow-50 px-3 py-1.5 rounded-full border border-yellow-200">
-          <span className="text-lg">🪙</span>
-          <span className="text-sm font-bold text-yellow-700">{points} 积分</span>
+        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-50 flex items-center justify-center text-2xl">
+            {profile?.gender === '女' ? '👩' : '👨'}
         </div>
       </div>
 
-      {/* Health Score Card */}
-      <div className="bg-gradient-to-br from-teal-500 to-teal-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
-         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10"></div>
-         <div className="relative z-10 flex justify-between items-center">
-            <div>
-               <div className="text-xs opacity-80 mb-1">健康风险评估</div>
-               <div className="text-3xl font-bold flex items-center gap-2">
-                 <span className={`w-3 h-3 rounded-full ${riskLevel === 'RED' ? 'bg-red-300' : riskLevel === 'YELLOW' ? 'bg-yellow-300' : 'bg-green-300'}`}></span>
-                 {riskLevel === 'RED' ? '高风险' : riskLevel === 'YELLOW' ? '中风险' : '低风险'}
-               </div>
-               <p className="text-xs mt-2 opacity-90 max-w-[200px] truncate">
-                  {assessment?.summary || '暂无评估数据'}
-               </p>
+      {/* 核心卡片：健康状态评估 */}
+      <div className={`bg-gradient-to-br ${style.color} rounded-[2.5rem] p-6 text-white shadow-xl shadow-teal-100 relative overflow-hidden`}>
+         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+         <div className="relative z-10">
+            <div className="flex justify-between items-start mb-4">
+                <div>
+                    <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">AI 健康等级评定</div>
+                    <div className="text-3xl font-black flex items-center gap-2">
+                        {style.icon} {style.label}
+                    </div>
+                </div>
+                <div className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black uppercase">
+                    v1.0 深度评估
+                </div>
             </div>
-            <div className="w-16 h-16 rounded-full border-4 border-white/30 flex items-center justify-center text-xl font-bold bg-white/10 backdrop-blur-sm">
-                85
+            
+            <div className="bg-black/10 rounded-2xl p-4 backdrop-blur-sm border border-white/10">
+                <p className="text-xs leading-relaxed opacity-95 font-medium line-clamp-3">
+                    {assessment?.summary || '系统正在同步您的体检异常项。建议尽快联系签约医生完善病史信息，以获得精准评估结果。'}
+                </p>
+            </div>
+
+            <div className="mt-5 flex gap-3">
+                <button 
+                    onClick={() => onNavigate?.('profile')}
+                    className="flex-1 bg-white text-slate-900 py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider shadow-lg active:scale-95 transition-transform"
+                >
+                    查看报告
+                </button>
+                <button 
+                    onClick={() => onNavigate?.('interaction')}
+                    className="px-6 bg-white/20 text-white py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider backdrop-blur-md border border-white/20 active:scale-95 transition-transform"
+                >
+                    咨询
+                </button>
             </div>
          </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-4 gap-2">
-         {[
-           { icon: '💊', label: '服药提醒', color: 'bg-blue-100 text-blue-600' },
-           { icon: '🩺', label: '症状自查', color: 'bg-red-100 text-red-600' },
-           { icon: '🥗', label: '饮食打卡', color: 'bg-green-100 text-green-600' },
-           { icon: '💬', label: '咨询医生', color: 'bg-purple-100 text-purple-600' },
-         ].map((action, i) => (
-           <button key={i} className="flex flex-col items-center gap-2 p-2 active:scale-95 transition-transform">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${action.color}`}>
-                {action.icon}
-              </div>
-              <span className="text-xs font-medium text-slate-600">{action.label}</span>
-           </button>
-         ))}
-      </div>
-
-      {/* Daily Tasks */}
+      {/* 指标面板 */}
       <div>
-         <div className="flex justify-between items-center mb-3">
-            <h2 className="font-bold text-slate-800">今日健康任务</h2>
-            <span className="text-xs text-slate-500">已完成 {tasks.filter(t => t.isCompleted).length}/{tasks.length}</span>
+          <div className="flex justify-between items-center mb-3 px-1">
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">核心体检指标</h2>
+            <span className="text-[9px] text-slate-300">更新: {profile?.checkupId ? '2024' : '--'}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+             <MetricBox label="BMI 指数" value={basics?.bmi} unit="" status={Number(basics?.bmi) > 24 ? 'warning' : 'ok'} />
+             <MetricBox label="收缩压" value={basics?.sbp} unit="mmHg" status={Number(basics?.sbp) > 140 ? 'danger' : 'ok'} />
+             <MetricBox label="舒张压" value={basics?.dbp} unit="mmHg" status={Number(basics?.dbp) > 90 ? 'danger' : 'ok'} />
+             <MetricBox label="空腹血糖" value={lab?.glucose?.fasting} unit="mmol/L" status={Number(lab?.glucose?.fasting) > 6.1 ? 'warning' : 'ok'} />
+          </div>
+      </div>
+
+      {/* 智能推荐 */}
+      <div>
+         <div className="flex justify-between items-center mb-4 px-1">
+            <h2 className="text-lg font-black text-slate-800">检后干预方案推荐</h2>
+            <span className="text-[10px] font-black text-teal-600 bg-teal-50 px-2 py-0.5 rounded-md">精准匹配</span>
          </div>
-         <div className="space-y-3">
-            {tasks.map(task => (
-               <div key={task.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg
-                        ${task.type === 'measure' ? 'bg-blue-50 text-blue-500' : 
-                          task.type === 'exercise' ? 'bg-orange-50 text-orange-500' : 
-                          task.type === 'med' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}
-                     `}>
-                        {task.type === 'measure' ? '📏' : task.type === 'exercise' ? '🏃' : task.type === 'med' ? '💊' : '📖'}
-                     </div>
-                     <div>
-                        <div className="font-bold text-slate-800 text-sm">{task.title}</div>
-                        <div className="text-xs text-yellow-600 font-bold">+{task.points} 积分</div>
-                     </div>
-                  </div>
-                  <button 
-                    onClick={() => handleTaskComplete(task.id)}
-                    disabled={task.isCompleted}
-                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
-                       task.isCompleted ? 'bg-slate-100 text-slate-400' : 'bg-teal-600 text-white hover:bg-teal-700 shadow-md active:scale-95'
-                    }`}
-                  >
-                     {task.isCompleted ? '已完成' : '打卡'}
-                  </button>
-               </div>
-            ))}
+         
+         <div className="space-y-4">
+            {loadingRecs ? (
+                <div className="py-12 text-center">
+                    <div className="inline-block w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="mt-4 text-slate-400 text-xs font-bold">AI 正在为您匹配个性化资源...</p>
+                </div>
+            ) : recommendations.length > 0 ? recommendations.map(item => (
+                <div key={item.id} 
+                    onClick={() => {
+                        if (item.type === 'doctor') onNavigate?.('medical');
+                        else if (item.type === 'meal' || item.type === 'exercise') onNavigate?.('diet_motion');
+                        else onNavigate?.('community');
+                    }}
+                    className="bg-white p-4 rounded-[2.2rem] shadow-sm border border-slate-50 flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group"
+                >
+                    <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-4xl shrink-0 group-hover:scale-105 transition-transform">
+                        {item.image && item.image.length < 5 ? item.image : (item.type === 'doctor' ? '👨‍⚕️' : item.type === 'meal' ? '🥗' : '✨')}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-[9px] font-black text-teal-600 uppercase mb-0.5">
+                            {item.type === 'doctor' ? '医疗干预' : item.type === 'meal' ? '营养方案' : '运动建议'}
+                        </div>
+                        <h4 className="font-bold text-slate-800 text-sm truncate">{item.title}</h4>
+                        <p className="text-[10px] text-slate-400 truncate mt-0.5">{item.description || '点击查看详情及执行建议'}</p>
+                    </div>
+                    <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center group-hover:bg-teal-600 group-hover:text-white transition-colors">
+                        <span className="text-lg">→</span>
+                    </div>
+                </div>
+            )) : (
+                <div className="text-center py-10 bg-white rounded-3xl border border-dashed text-slate-400 text-xs">
+                    暂无推荐，请联系医生获取个性化方案
+                </div>
+            )}
          </div>
       </div>
 
-      {/* Banner */}
-      <div className="bg-indigo-600 rounded-xl p-4 text-white flex items-center justify-between shadow-lg">
-          <div>
-             <div className="font-bold mb-1">积分商城上新啦 🎁</div>
-             <div className="text-xs opacity-80">用健康积分兑换体检优惠券</div>
+      {/* 危急值红色告警 */}
+      {assessment?.isCritical && (
+          <div className="bg-red-50 border border-red-100 rounded-[2.5rem] p-6 flex items-center gap-5 shadow-lg shadow-red-100/50">
+              <div className="text-4xl animate-pulse">🚨</div>
+              <div>
+                  <div className="text-sm font-black text-red-600 uppercase mb-1">危急值/重大异常提示</div>
+                  <p className="text-[11px] text-red-800 font-bold leading-relaxed">
+                    系统检测到您的核心指标存在严重异常，请务必尽快前往郑州大学医院进行门诊复查或急诊就医。
+                  </p>
+              </div>
           </div>
-          <button className="bg-white text-indigo-600 px-3 py-1.5 rounded-lg text-xs font-bold">去兑换</button>
-      </div>
+      )}
     </div>
   );
+};
+
+const MetricBox = ({ label, value, unit, status }: any) => {
+    // 强制处理 undefined/null 逻辑
+    const displayValue = (value === undefined || value === null || value === 0 || value === '0') ? '--' : value;
+    return (
+        <div className="bg-white p-5 rounded-[2.2rem] border border-slate-100 shadow-sm transition-all hover:shadow-md">
+            <div className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">{label}</div>
+            <div className={`text-2xl font-black ${status === 'danger' ? 'text-red-600' : status === 'warning' ? 'text-orange-500' : 'text-slate-800'}`}>
+                {displayValue}
+                {displayValue !== '--' && <span className="text-[10px] font-bold ml-1 text-slate-300">{unit}</span>}
+            </div>
+            <div className={`mt-2 h-1 w-8 rounded-full ${status === 'danger' ? 'bg-red-500' : status === 'warning' ? 'bg-orange-500' : 'bg-teal-500'}`}></div>
+        </div>
+    );
 };

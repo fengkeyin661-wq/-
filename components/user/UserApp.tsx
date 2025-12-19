@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
+import { UserHome } from './UserHome';
 import { UserDietMotion } from './UserDietMotion';
-import { UserHabits } from './UserHabits'; 
 import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
@@ -16,7 +16,8 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits'); 
+  // 强制设置初始标签为首页 'home'
+  const [activeTab, setActiveTab] = useState('home'); 
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -43,7 +44,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     loadUser();
   }, [loadUser]);
 
-  // Poll for unread messages
   useEffect(() => {
       const checkUnread = async () => {
           if (!userArchive) return;
@@ -62,9 +62,9 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       if (!userArchive) return;
       
       const newCheckup = {
-          ...userArchive.health_record.checkup,
-          basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
-          labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic }
+          ...(userArchive.health_record?.checkup || {}),
+          basics: { ...(userArchive.health_record?.checkup?.basics || {}), ...updatedData.basics },
+          labBasic: { ...(userArchive.health_record?.checkup?.labBasic || {}), ...updatedData.labBasic }
       };
 
       const newRecord = { ...userArchive.health_record, checkup: newCheckup };
@@ -81,7 +81,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold text-sm">正在加载您的健康数据...</p>
+        <p className="text-slate-500 font-bold text-sm">正在加载健康管理系统...</p>
       </div>
     );
   }
@@ -90,13 +90,12 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
-      {activeTab === 'habits' && (
-          <UserHabits 
+      {activeTab === 'home' && (
+          <UserHome 
+              profile={userArchive.health_record?.profile}
               assessment={userArchive.assessment_data}
-              userCheckupId={userArchive.checkup_id}
-              userName={userArchive.name}
               record={userArchive.health_record}
-              onRefresh={() => loadUser(true)}
+              onNavigate={setActiveTab}
           />
       )}
       {activeTab === 'diet_motion' && (
