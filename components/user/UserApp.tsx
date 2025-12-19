@@ -7,8 +7,8 @@ import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserCommunity } from './UserCommunity';
-import { UserHome } from './UserHome'; // Ensure import
-import { UserButler } from './UserButler'; // New Import
+import { UserHome } from './UserHome';
+import { UserButler } from './UserButler';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
 
@@ -18,12 +18,12 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('home'); // Change default to home
+  const [activeTab, setActiveTab] = useState('home');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   
-  const [showButler, setShowButler] = useState(false); // Butler visibility
+  const [showButler, setShowButler] = useState(false);
 
   const loadUser = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -33,7 +33,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
         setUserArchive(archive);
         syncArchiveToLocal(archive); 
       } else {
-        alert('未找到您的档案，请联系管理员核对体检编号');
+        alert('未找到您的档案，请重新登录');
         onLogout();
       }
     } catch (e) {
@@ -62,25 +62,17 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
-      const newCheckup = {
-          ...userArchive.health_record.checkup,
-          basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
-          labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic }
-      };
-      const newRecord = { ...userArchive.health_record, checkup: newCheckup };
+      const newRecord = { ...userArchive.health_record };
+      newRecord.checkup.basics = { ...newRecord.checkup.basics, ...updatedData };
       setUserArchive({ ...userArchive, health_record: newRecord });
-      try {
-          await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
-      } catch (e) {
-          console.error("Sync failed", e);
-      }
+      await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
   };
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold text-sm">正在加载您的健康数据...</p>
+      <div className="flex flex-col items-center justify-center h-screen bg-white">
+        <div className="w-12 h-12 border-4 border-slate-900 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-400 font-bold text-sm tracking-widest uppercase">Initializing Health Data</p>
       </div>
     );
   }
@@ -90,7 +82,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
       
-      {/* Butler Component (Floating Layer) */}
       {showButler && (
           <UserButler 
             record={userArchive.health_record}
