@@ -10,12 +10,11 @@ interface Props {
 
 export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, unreadCount = 0 }) => {
   const navItems = [
-    { id: 'home', label: '首页', icon: '⚡' },
-    { id: 'diet_motion', label: '记录', icon: '🥑' },
-    { id: 'medical', label: '医疗', icon: '🏥' },
-    { id: 'community', label: '社区', icon: '🎉' },
-    { id: 'interaction', label: '咨询', icon: '💬' },
-    { id: 'profile', label: '我的', icon: '👤' },
+    { id: 'profile', label: '我的报告', icon: '👤' },
+    { id: 'diet_motion', label: '健康记录', icon: '🥑' },
+    { id: 'medical', label: '医疗服务', icon: '🏥' },
+    { id: 'interaction', label: '咨询医生', icon: '💬' },
+    { id: 'community', label: '健康社区', icon: '🎉' },
   ];
 
   return (

@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
-import { UserHome } from './UserHome';
 import { UserDietMotion } from './UserDietMotion';
 import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
@@ -16,8 +15,8 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  // 核心修复：初始值必须设为 'home' 以对应新首页组件
-  const [activeTab, setActiveTab] = useState('home'); 
+  // 设默认页面为 'profile' (我的报告)，这是检后管理的核心
+  const [activeTab, setActiveTab] = useState('profile'); 
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -81,7 +80,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-[#F8FAFC]">
         <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-400 font-bold text-xs tracking-widest uppercase">健康数据同步中...</p>
+        <p className="text-slate-400 font-bold text-xs tracking-widest uppercase">健康档案加载中...</p>
       </div>
     );
   }
@@ -90,11 +89,15 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
-      {activeTab === 'home' && (
-          <UserHome 
-              profile={userArchive.health_record?.profile}
+      {activeTab === 'profile' && (
+          <UserProfile 
+              record={userArchive.health_record} 
               assessment={userArchive.assessment_data}
-              record={userArchive.health_record}
+              dailyPlan={userArchive.custom_daily_plan}
+              userId={userArchive.checkup_id}
+              archive={userArchive}
+              onUpdateRecord={handleUpdateRecord}
+              onLogout={onLogout}
               onNavigate={setActiveTab}
           />
       )}
@@ -114,13 +117,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               assessment={userArchive.assessment_data} 
           />
       )}
-      {activeTab === 'community' && (
-          <UserCommunity 
-              userId={userArchive.checkup_id}
-              userName={userArchive.name}
-              assessment={userArchive.assessment_data} 
-          />
-      )}
       {activeTab === 'interaction' && (
           <UserInteraction 
               userId={userArchive.checkup_id} 
@@ -128,16 +124,11 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               onMessageRead={() => setUnreadCount(0)}
           />
       )}
-      {activeTab === 'profile' && (
-          <UserProfile 
-              record={userArchive.health_record} 
-              assessment={userArchive.assessment_data}
-              dailyPlan={userArchive.custom_daily_plan}
+      {activeTab === 'community' && (
+          <UserCommunity 
               userId={userArchive.checkup_id}
-              archive={userArchive}
-              onUpdateRecord={handleUpdateRecord}
-              onLogout={onLogout}
-              onNavigate={setActiveTab}
+              userName={userArchive.name}
+              assessment={userArchive.assessment_data} 
           />
       )}
     </UserLayout>
