@@ -1,9 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
-// @google/genai fix: Removed non-existent export generateAnnualReportSummary
-import { analyzeFollowUpRecord, generateFollowUpSMS } from '../services/geminiService';
+import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
 import { CriticalHandleModal } from './CriticalHandleModal';
 
@@ -191,7 +189,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       sbp: 0, dbp: 0, heartRate: 0, glucose: 0, glucoseType: '空腹', weight: 0,
       tc: 0, tg: 0, ldl: 0, hdl: 0
     },
-    /* status: 'pending', removed because 'status' is not a property of FollowUpRecord */
     organRisks: {
       carotidPlaque: '无', carotidStatus: '无',
       thyroidNodule: '无', thyroidStatus: '无',

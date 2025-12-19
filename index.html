@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -13,27 +12,19 @@
         background-color: #f8fafc;
       }
       ::-webkit-scrollbar {
-        width: 0px;
-        background: transparent;
+        width: 8px;
+        height: 8px;
       }
-
-      @keyframes slideUp {
-        from { transform: translateY(100%); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
+      ::-webkit-scrollbar-track {
+        background: #f1f5f9; 
       }
-      .animate-slideUp { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-
-      @keyframes voiceWave {
-        0%, 100% { transform: scaleY(1); }
-        50% { transform: scaleY(2.5); }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1; 
+        border-radius: 4px;
       }
-      .animate-voice-wave { animation: voiceWave 0.6s infinite ease-in-out; }
-
-      @keyframes pulseSlow {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.8; transform: scale(1.05); }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8; 
       }
-      .animate-pulse-slow { animation: pulseSlow 3s infinite ease-in-out; }
 
       @media print {
         @page { margin: 15mm; size: A4; }
@@ -41,7 +32,9 @@
         aside, header, .no-print { display: none !important; }
         #root, .flex, .h-screen, main { display: block !important; height: auto !important; width: 100% !important; overflow: visible !important; position: static !important; }
         main { padding: 0 !important; margin: 0 !important; }
+        ::-webkit-scrollbar { display: none; }
         .break-inside-avoid { break-inside: avoid; }
+        .page-break { page-break-before: always; }
       }
     </style>
   <script type="importmap">
