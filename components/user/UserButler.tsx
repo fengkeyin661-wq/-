@@ -73,7 +73,6 @@ export const UserButler: React.FC<Props> = ({ record, assessment, followUps = []
 
         try {
             const history = messages.slice(-6).map(m => ({ role: m.role, content: m.content }));
-            // 调用重构后的深度咨询接口
             const result = await getButlerChatResponse(userMsg, history, record, followUps, resources);
 
             const recommendedItems = result.recommendedItemIds 
@@ -181,9 +180,9 @@ export const UserButler: React.FC<Props> = ({ record, assessment, followUps = []
     );
 };
 
-// 内部卡片组件，解决 TS2339 错误
+// 内部卡片组件
 const RecommendationCard: React.FC<{ item: ContentItem, onNavigate: (tab: string) => void }> = ({ item, onNavigate }) => {
-    // 补全所有业务类型的标签映射
+    // 显式标注 Record<string, string> 类型，解决 TS2339 错误
     const typeLabel: Record<string, string> = {
         'doctor': '专家门诊',
         'event': '线下活动',
