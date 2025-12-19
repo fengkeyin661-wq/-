@@ -2,11 +2,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
 import { UserDietMotion } from './UserDietMotion';
-import { UserHabits } from './UserHabits'; // New import
+import { UserHabits } from './UserHabits'; 
 import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserCommunity } from './UserCommunity';
+import { UserHome } from './UserHome'; // Ensure import
+import { UserButler } from './UserButler'; // New Import
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
 
@@ -16,10 +18,12 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits'); // Default to habits
+  const [activeTab, setActiveTab] = useState('home'); // Change default to home
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  
+  const [showButler, setShowButler] = useState(false); // Butler visibility
 
   const loadUser = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -43,14 +47,12 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     loadUser();
   }, [loadUser]);
 
-  // Poll for unread messages
   useEffect(() => {
       const checkUnread = async () => {
           if (!userArchive) return;
           const count = await getUnreadCount(userArchive.checkup_id);
           setUnreadCount(count);
       };
-
       if (userArchive) {
           checkUnread();
           const interval = setInterval(checkUnread, 5000);
@@ -60,16 +62,13 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
-      
       const newCheckup = {
           ...userArchive.health_record.checkup,
           basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
           labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic }
       };
-
       const newRecord = { ...userArchive.health_record, checkup: newCheckup };
       setUserArchive({ ...userArchive, health_record: newRecord });
-      
       try {
           await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
       } catch (e) {
@@ -90,6 +89,25 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
+      
+      {/* Butler Component (Floating Layer) */}
+      {showButler && (
+          <UserButler 
+            record={userArchive.health_record}
+            assessment={userArchive.assessment_data}
+            userId={userArchive.checkup_id}
+            onClose={() => setShowButler(false)}
+            onNavigate={(tab) => { setActiveTab(tab); setShowButler(false); }}
+          />
+      )}
+
+      {activeTab === 'home' && (
+          <UserHome 
+             profile={userArchive.health_record.profile} 
+             assessment={userArchive.assessment_data} 
+             onOpenButler={() => setShowButler(true)}
+          />
+      )}
       {activeTab === 'habits' && (
           <UserHabits 
               assessment={userArchive.assessment_data}
