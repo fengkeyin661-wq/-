@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
+import { UserHome } from './UserHome';
 import { UserDietMotion } from './UserDietMotion';
-import { UserHabits } from './UserHabits'; 
 import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
@@ -16,7 +16,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits'); 
+  const [activeTab, setActiveTab] = useState('home'); 
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -43,7 +43,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     loadUser();
   }, [loadUser]);
 
-  // Poll for unread messages
   useEffect(() => {
       const checkUnread = async () => {
           if (!userArchive) return;
@@ -90,13 +89,12 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
-      {activeTab === 'habits' && (
-          <UserHabits 
+      {activeTab === 'home' && (
+          <UserHome 
+              profile={userArchive.health_record.profile}
               assessment={userArchive.assessment_data}
-              userCheckupId={userArchive.checkup_id}
-              userName={userArchive.name}
               record={userArchive.health_record}
-              onRefresh={() => loadUser(true)}
+              onNavigate={setActiveTab}
           />
       )}
       {activeTab === 'diet_motion' && (
