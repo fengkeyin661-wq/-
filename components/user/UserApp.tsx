@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { UserLayout } from './UserLayout';
-import { UserHome } from './UserHome'; // Import UserHome
-import { UserDietMotion } from './UserDietMotion';
-import { UserButler } from './UserButler'; // New Butler component
-import { UserMedicalServices } from './UserMedicalServices';
-import { UserInteraction } from './UserInteraction';
-import { UserProfile } from './UserProfile';
-import { UserCommunity } from './UserCommunity';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
-import { getUnreadCount } from '../../services/contentService';
+import { UserLayout } from './user/UserLayout';
+import { UserHome } from './user/UserHome'; 
+import { UserDietMotion } from './user/UserDietMotion';
+import { UserButler } from './user/UserButler'; 
+import { UserMedicalServices } from './user/UserMedicalServices';
+import { UserInteraction } from './user/UserInteraction';
+import { UserProfile } from './user/UserProfile';
+import { UserCommunity } from './user/UserCommunity';
+import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../services/dataService';
+import { getUnreadCount } from '../services/contentService';
 
 interface Props {
   checkupId: string;
@@ -16,7 +16,8 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('butler'); // Default to butler now
+  // 默认进入“home”首页，提供体检后的行动概览
+  const [activeTab, setActiveTab] = useState('home'); 
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -24,6 +25,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   const loadUser = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
+      // 重新加载时确保清除旧数据引用
       const archive = await findArchiveByCheckupId(checkupId);
       if (archive) {
         setUserArchive(archive);
@@ -43,7 +45,6 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
     loadUser();
   }, [loadUser]);
 
-  // Poll for unread messages
   useEffect(() => {
       const checkUnread = async () => {
           if (!userArchive) return;
@@ -60,16 +61,13 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   const handleUpdateRecord = async (updatedData: any) => {
       if (!userArchive) return;
-      
       const newCheckup = {
           ...userArchive.health_record.checkup,
           basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
           labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic }
       };
-
       const newRecord = { ...userArchive.health_record, checkup: newCheckup };
       setUserArchive({ ...userArchive, health_record: newRecord });
-      
       try {
           await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
       } catch (e) {
@@ -79,9 +77,12 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold text-sm">正在加载您的健康数据...</p>
+      <div className="flex flex-col items-center justify-center h-screen bg-[#F8FAFC]">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-teal-100 rounded-full"></div>
+          <div className="w-16 h-16 border-4 border-teal-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+        </div>
+        <p className="mt-6 text-slate-500 font-bold text-sm tracking-widest animate-pulse">郑大医院健康管家加载中...</p>
       </div>
     );
   }
@@ -90,17 +91,18 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
-      {activeTab === 'butler' && (
-          <UserButler 
-              record={userArchive.health_record}
-              assessment={userArchive.assessment_data}
-              onNavigate={setActiveTab}
-          />
-      )}
       {activeTab === 'home' && (
           <UserHome 
               profile={userArchive.health_record.profile} 
               assessment={userArchive.assessment_data} 
+              record={userArchive.health_record}
+              onNavigate={setActiveTab}
+          />
+      )}
+      {activeTab === 'butler' && (
+          <UserButler 
+              record={userArchive.health_record}
+              assessment={userArchive.assessment_data}
               onNavigate={setActiveTab}
           />
       )}
