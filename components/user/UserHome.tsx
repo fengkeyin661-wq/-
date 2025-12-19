@@ -1,179 +1,128 @@
 
-import React, { useMemo } from 'react';
-import { HealthProfile, HealthAssessment, HealthRecord } from '../../types';
-import { DailyHealthPlan } from '../../services/dataService';
+import React, { useState } from 'react';
+import { HealthProfile, DailyTask, HealthAssessment } from '../../types';
 
 interface Props {
-  profile?: HealthProfile;
+  profile: HealthProfile;
   assessment?: HealthAssessment;
-  record?: HealthRecord;
-  dailyPlan?: DailyHealthPlan;
-  onNavigate?: (tab: string) => void;
 }
 
-export const UserHome: React.FC<Props> = ({ profile, assessment, record, dailyPlan, onNavigate }) => {
-  
-  // 1. 计算热量目标与当前进度 (逻辑同步自 UserDietMotion)
-  const stats = useMemo(() => {
-    // 目标计算
-    const w = record?.checkup?.basics?.weight || 65;
-    const h = record?.checkup?.basics?.height || 170;
-    const age = record?.profile?.age || 40;
-    const gender = record?.profile?.gender || '男';
-    let bmr = (10 * w) + (6.25 * h) - (5 * age) + (gender === '女' ? -161 : 5);
-    const targetCal = Math.round(bmr * 1.375);
+export const UserHome: React.FC<Props> = ({ profile, assessment }) => {
+  const [points, setPoints] = useState(1240);
+  const [tasks, setTasks] = useState<DailyTask[]>([
+    { id: '1', title: '测量并记录晨起血压', type: 'measure', isCompleted: false, points: 50 },
+    { id: '2', title: '午餐后步行 15 分钟', type: 'exercise', isCompleted: true, points: 30 },
+    { id: '3', title: '按时服用降压药', type: 'med', isCompleted: false, points: 20 },
+    { id: '4', title: '阅读一篇健康科普文章', type: 'diet', isCompleted: false, points: 10 },
+  ]);
 
-    // 当前摄入与消耗
-    const dLogs = dailyPlan?.dietLogs || [];
-    const eLogs = dailyPlan?.exerciseLogs || [];
-    
-    const intake = dLogs.reduce((acc, item) => ({
-        cal: acc.cal + (Number(item.calories) || 0),
-        p: acc.p + (Number(item.protein) || 0),
-        f: acc.f + (Number(item.fat) || 0),
-        c: acc.c + (Number(item.carbs) || 0),
-    }), { cal: 0, p: 0, f: 0, c: 0 });
-
-    const burned = eLogs.reduce((acc, item) => acc + (Number(item.calories) || 0), 0);
-    const remaining = Math.max(0, targetCal - intake.cal + burned);
-    const progress = Math.min(100, ((intake.cal - burned) / targetCal) * 100);
-
-    return { targetCal, intake, burned, remaining, progress };
-  }, [record, dailyPlan]);
-
-  const riskStyles: Record<string, any> = {
-    RED: { color: 'from-red-500 to-rose-600', label: '高风险', icon: '🚨' },
-    YELLOW: { color: 'from-orange-400 to-amber-500', label: '中风险', icon: '⚠️' },
-    GREEN: { color: 'from-teal-500 to-emerald-600', label: '低风险', icon: '🛡️' },
+  const handleTaskComplete = (id: string) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id === id && !t.isCompleted) {
+        setPoints(p => p + t.points);
+        return { ...t, isCompleted: true };
+      }
+      return t;
+    }));
   };
 
-  const currentRisk = assessment?.riskLevel || 'GREEN';
-  const style = riskStyles[currentRisk] || riskStyles.GREEN;
+  const riskLevel = assessment?.riskLevel || 'GREEN';
 
   return (
-    <div className="p-5 space-y-6 animate-fadeIn pb-32">
-      {/* 顶部个人信息 */}
-      <div className="flex justify-between items-center px-1">
+    <div className="p-4 space-y-6 animate-fadeIn">
+      {/* Header */}
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">你好，{profile?.name || '教职工'}</h1>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">郑州大学医院 · 智慧健康管理</p>
+          <h1 className="text-xl font-bold text-slate-800">早安，{profile.name}</h1>
+          <p className="text-xs text-slate-500">今天也要保持健康好状态！</p>
         </div>
-        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-50 flex items-center justify-center text-2xl">
-            {profile?.gender === '女' ? '👩' : '👨'}
+        <div className="flex items-center gap-2 bg-yellow-50 px-3 py-1.5 rounded-full border border-yellow-200">
+          <span className="text-lg">🪙</span>
+          <span className="text-sm font-bold text-yellow-700">{points} 积分</span>
         </div>
       </div>
 
-      {/* 核心卡片：风险状态 */}
-      <div className={`bg-gradient-to-br ${style.color} rounded-[2.5rem] p-6 text-white shadow-xl shadow-teal-100 relative overflow-hidden`}>
-         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
-         <div className="relative z-10">
-            <div className="flex justify-between items-start mb-4">
-                <div>
-                    <div className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80 mb-1">AI 健康评估结果</div>
-                    <div className="text-3xl font-black">{style.icon} {style.label}</div>
-                </div>
-                <div className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-black">实时分析</div>
+      {/* Health Score Card */}
+      <div className="bg-gradient-to-br from-teal-500 to-teal-700 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
+         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10"></div>
+         <div className="relative z-10 flex justify-between items-center">
+            <div>
+               <div className="text-xs opacity-80 mb-1">健康风险评估</div>
+               <div className="text-3xl font-bold flex items-center gap-2">
+                 <span className={`w-3 h-3 rounded-full ${riskLevel === 'RED' ? 'bg-red-300' : riskLevel === 'YELLOW' ? 'bg-yellow-300' : 'bg-green-300'}`}></span>
+                 {riskLevel === 'RED' ? '高风险' : riskLevel === 'YELLOW' ? '中风险' : '低风险'}
+               </div>
+               <p className="text-xs mt-2 opacity-90 max-w-[200px] truncate">
+                  {assessment?.summary || '暂无评估数据'}
+               </p>
             </div>
-            <p className="text-xs leading-relaxed opacity-95 font-medium line-clamp-2 bg-black/10 rounded-xl p-3 border border-white/10">
-                {assessment?.summary || '请尽快完善体检报告解析以获得深度健康画像。'}
-            </p>
-         </div>
-      </div>
-
-      {/* [核心更新] 饮食运动记录模块 */}
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden transition-all hover:shadow-md">
-         <div className="bg-slate-50 px-6 py-4 flex justify-between items-center border-b border-slate-100">
-            <h2 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                <span className="text-lg">🥑</span> 今日记录
-            </h2>
-            <button 
-                onClick={() => onNavigate?.('diet_motion')}
-                className="text-[10px] font-black text-teal-600 bg-teal-50 px-2.5 py-1 rounded-full hover:bg-teal-100 transition-colors"
-            >
-                详情/打卡 →
-            </button>
-         </div>
-         
-         <div className="p-6">
-            <div className="flex items-center justify-around mb-8">
-                <div className="text-center">
-                    <div className="text-xl font-black text-slate-800">{stats.intake.cal}</div>
-                    <div className="text-[9px] text-slate-400 font-bold uppercase">已摄入</div>
-                </div>
-
-                <div className="relative w-28 h-28 flex items-center justify-center">
-                    <svg className="w-full h-full transform -rotate-90">
-                        <circle cx="56" cy="56" r="50" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-100" />
-                        <circle cx="56" cy="56" r="50" stroke="currentColor" strokeWidth="8" fill="transparent" strokeDasharray={314.15} strokeDashoffset={314.15 - (314.15 * stats.progress) / 100} strokeLinecap="round" className="text-teal-500 transition-all duration-1000 ease-out" />
-                    </svg>
-                    <div className="absolute flex flex-col items-center">
-                        <span className="text-2xl font-black text-slate-800">{stats.remaining}</span>
-                        <span className="text-[8px] text-slate-400 font-bold uppercase">剩余热量</span>
-                    </div>
-                </div>
-
-                <div className="text-center">
-                    <div className="text-xl font-black text-slate-800">{stats.burned}</div>
-                    <div className="text-[9px] text-slate-400 font-bold uppercase">已消耗</div>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-                <MacroBar label="碳水" current={stats.intake.c} target={Math.round(stats.targetCal * 0.5 / 4)} color="bg-emerald-400" />
-                <MacroBar label="蛋白" current={stats.intake.p} target={Math.round(stats.targetCal * 0.2 / 4)} color="bg-sky-400" />
-                <MacroBar label="脂肪" current={stats.intake.f} target={Math.round(stats.targetCal * 0.3 / 9)} color="bg-amber-400" />
+            <div className="w-16 h-16 rounded-full border-4 border-white/30 flex items-center justify-center text-xl font-bold bg-white/10 backdrop-blur-sm">
+                85
             </div>
          </div>
       </div>
 
-      {/* 体检核心指标 */}
-      <div>
-          <div className="flex justify-between items-center mb-3 px-1">
-            <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">关键体检指标</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-             <MetricSmall label="收缩压" value={record?.checkup?.basics?.sbp} unit="mmHg" />
-             <MetricSmall label="空腹血糖" value={record?.checkup?.labBasic?.glucose?.fasting} unit="mmol/L" />
-          </div>
-      </div>
-
-      {/* 危急值告警 */}
-      {assessment?.isCritical && (
-          <div className="bg-red-50 border border-red-100 rounded-[2.2rem] p-5 flex items-center gap-4 shadow-lg shadow-red-100/30">
-              <div className="text-3xl animate-pulse">🚨</div>
-              <div className="flex-1">
-                  <div className="text-xs font-black text-red-600 uppercase mb-1">危急值提醒</div>
-                  <p className="text-[10px] text-red-800 font-bold leading-relaxed">
-                    系统检测到您的核心指标存在严重异常，请尽快复查或就医。
-                  </p>
+      {/* Quick Actions */}
+      <div className="grid grid-cols-4 gap-2">
+         {[
+           { icon: '💊', label: '服药提醒', color: 'bg-blue-100 text-blue-600' },
+           { icon: '🩺', label: '症状自查', color: 'bg-red-100 text-red-600' },
+           { icon: '🥗', label: '饮食打卡', color: 'bg-green-100 text-green-600' },
+           { icon: '💬', label: '咨询医生', color: 'bg-purple-100 text-purple-600' },
+         ].map((action, i) => (
+           <button key={i} className="flex flex-col items-center gap-2 p-2 active:scale-95 transition-transform">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${action.color}`}>
+                {action.icon}
               </div>
+              <span className="text-xs font-medium text-slate-600">{action.label}</span>
+           </button>
+         ))}
+      </div>
+
+      {/* Daily Tasks */}
+      <div>
+         <div className="flex justify-between items-center mb-3">
+            <h2 className="font-bold text-slate-800">今日健康任务</h2>
+            <span className="text-xs text-slate-500">已完成 {tasks.filter(t => t.isCompleted).length}/{tasks.length}</span>
+         </div>
+         <div className="space-y-3">
+            {tasks.map(task => (
+               <div key={task.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg
+                        ${task.type === 'measure' ? 'bg-blue-50 text-blue-500' : 
+                          task.type === 'exercise' ? 'bg-orange-50 text-orange-500' : 
+                          task.type === 'med' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-500'}
+                     `}>
+                        {task.type === 'measure' ? '📏' : task.type === 'exercise' ? '🏃' : task.type === 'med' ? '💊' : '📖'}
+                     </div>
+                     <div>
+                        <div className="font-bold text-slate-800 text-sm">{task.title}</div>
+                        <div className="text-xs text-yellow-600 font-bold">+{task.points} 积分</div>
+                     </div>
+                  </div>
+                  <button 
+                    onClick={() => handleTaskComplete(task.id)}
+                    disabled={task.isCompleted}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                       task.isCompleted ? 'bg-slate-100 text-slate-400' : 'bg-teal-600 text-white hover:bg-teal-700 shadow-md active:scale-95'
+                    }`}
+                  >
+                     {task.isCompleted ? '已完成' : '打卡'}
+                  </button>
+               </div>
+            ))}
+         </div>
+      </div>
+
+      {/* Banner */}
+      <div className="bg-indigo-600 rounded-xl p-4 text-white flex items-center justify-between shadow-lg">
+          <div>
+             <div className="font-bold mb-1">积分商城上新啦 🎁</div>
+             <div className="text-xs opacity-80">用健康积分兑换体检优惠券</div>
           </div>
-      )}
+          <button className="bg-white text-indigo-600 px-3 py-1.5 rounded-lg text-xs font-bold">去兑换</button>
+      </div>
     </div>
   );
 };
-
-const MacroBar = ({ label, current, target, color }: any) => {
-    const pct = Math.min(100, (current / target) * 100);
-    return (
-        <div>
-            <div className="flex justify-between text-[8px] font-black text-slate-400 uppercase mb-1">
-                <span>{label}</span>
-                <span>{Math.round(pct)}%</span>
-            </div>
-            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-1000 ${color}`} style={{ width: `${pct}%` }}></div>
-            </div>
-        </div>
-    );
-};
-
-const MetricSmall = ({ label, value, unit }: any) => (
-    <div className="bg-white p-4 rounded-3xl border border-slate-100 flex justify-between items-center">
-        <div>
-            <div className="text-[9px] font-bold text-slate-400 uppercase">{label}</div>
-            <div className="text-lg font-black text-slate-800">{value || '--'}<span className="text-[8px] font-normal ml-1 text-slate-300">{unit}</span></div>
-        </div>
-        <div className="w-1.5 h-6 bg-slate-100 rounded-full"></div>
-    </div>
-);
