@@ -12,7 +12,7 @@ interface Props {
 
 interface Message {
     id: string;
-    role: 'user' | 'assistant'; // Changed from 'model' to 'assistant' to match OpenAI standard used by DeepSeek
+    role: 'user' | 'model';
     text: string;
     recommendations?: ContentItem[];
     timestamp: Date;
@@ -29,9 +29,11 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
         const init = async () => {
             const all = await fetchContent();
             setResources(all);
+            
+            // 欢迎语
             setMessages([{
                 id: 'welcome',
-                role: 'assistant',
+                role: 'model',
                 text: `你好，${record.profile.name}老师！我是您的专属健康助手“副驾驶”。我已经分析了您最近的体检报告，发现您的${record.checkup.abnormalities.slice(0,2).map(a => a.item).join('和')}需要持续关注。今天有什么我可以帮您的吗？`,
                 timestamp: new Date()
             }]);
@@ -54,18 +56,16 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
         };
         
         setMessages(prev => [...prev, userMsg]);
-        const currentInput = input;
         setInput('');
         setIsTyping(true);
 
         try {
-            // Map messages to DeepSeek API format
             const history = messages.map(m => ({
                 role: m.role,
-                content: m.text
+                parts: [{ text: m.text }]
             }));
 
-            const result = await chatWithHealthAssistant(currentInput, history, {
+            const result = await chatWithHealthAssistant(input, history, {
                 record,
                 followUps,
                 availableResources: resources
@@ -77,7 +77,7 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
 
             const aiMsg: Message = {
                 id: (Date.now() + 1).toString(),
-                role: 'assistant',
+                role: 'model',
                 text: result.reply,
                 recommendations: recommendedItems,
                 timestamp: new Date()
@@ -87,7 +87,7 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
         } catch (e) {
             setMessages(prev => [...prev, {
                 id: 'err',
-                role: 'assistant',
+                role: 'model',
                 text: '抱歉，我现在无法处理您的请求，请稍后再试。',
                 timestamp: new Date()
             }]);
@@ -107,7 +107,7 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
                     <h1 className="font-black text-slate-800">健康副驾驶</h1>
                     <div className="flex items-center gap-1">
                         <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
-                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">DeepSeek Powered</span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">AI Powered</span>
                     </div>
                 </div>
             </div>
@@ -124,6 +124,7 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
                             {m.text}
                         </div>
                         
+                        {/* Resource Cards */}
                         {m.recommendations && m.recommendations.length > 0 && (
                             <div className="w-full mt-3 flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
                                 {m.recommendations.map(res => (
@@ -150,7 +151,7 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
                         <span className="animate-bounce">●</span>
                         <span className="animate-bounce delay-75">●</span>
                         <span className="animate-bounce delay-150">●</span>
-                        副驾驶正在为您规划方案...
+                        健康助手正在思考...
                     </div>
                 )}
                 <div ref={chatEndRef} />
@@ -161,7 +162,7 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
                 <div className="flex gap-2 items-center bg-slate-100 rounded-2xl p-1.5 pr-2 focus-within:bg-white focus-within:ring-2 focus-within:ring-teal-500 transition-all">
                     <input 
                         className="flex-1 bg-transparent px-4 py-2 text-sm outline-none placeholder:text-slate-400"
-                        placeholder="咨询健康问题或获取方案建议..."
+                        placeholder="咨询您的健康问题或获取建议..."
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && handleSend()}
@@ -175,10 +176,10 @@ export const UserAI: React.FC<Props> = ({ record, followUps, onNavigate }) => {
                     </button>
                 </div>
                 <div className="flex gap-3 mt-3 px-1 overflow-x-auto scrollbar-hide">
-                    {['最近检查建议', '推荐健康餐', '专家咨询', '本周活动'].map(q => (
+                    {['最近检查建议', '推荐健康餐', '心血管专家', '本周讲座'].map(q => (
                         <button 
                             key={q} 
-                            onClick={() => { setInput(q); }}
+                            onClick={() => setInput(q)}
                             className="text-[10px] whitespace-nowrap bg-white border border-slate-200 px-3 py-1 rounded-full text-slate-500 hover:border-teal-500 hover:text-teal-600"
                         >
                             {q}

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
@@ -206,7 +207,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       sleepHours: 7, sleepQuality: '好',
       psychology: '平稳', stress: '低'
     },
-    // FIX: Removed non-existent property 'maskCompliance' as per error report
+    maskCompliance: [], // Added missing field mapping from types if necessary, though using taskCompliance
     taskCompliance: [],
     otherInfo: '',
     assessment: {
