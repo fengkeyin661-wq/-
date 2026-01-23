@@ -24,7 +24,7 @@ const getBaichuanApiKey = (): string => {
 };
 
 const BAICHUAN_API_KEY = getBaichuanApiKey();
-const BAICHUAN_API_URL = 'https://api.baichuan-ai.com/v1/assistants';
+const BAICHUAN_API_URL = 'https://api.baichuan-ai.com/v1/chat/completions';
 
 export const VirtualHealthAssistant: React.FC<Props> = ({ userName }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
