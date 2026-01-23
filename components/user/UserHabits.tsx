@@ -4,6 +4,7 @@ import { HealthAssessment, HealthRecord, RiskLevel } from '../../types';
 import { HabitRecord, UserGamification, findArchiveByCheckupId, updateHabits } from '../../services/dataService';
 import { generatePersonalizedHabits } from '../../services/geminiService';
 import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { VirtualHealthAssistant } from './VirtualHealthAssistant';
 
 interface Props {
     assessment?: HealthAssessment;
@@ -252,6 +253,8 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
 
     return (
         <div className="bg-slate-50 min-h-full pb-32 animate-fadeIn">
+            {/* Virtual Health Assistant (Baichuan) */}
+            <VirtualHealthAssistant userName={userName} />
             {/* Level Up Banner */}
             {showLevelUp && (
                 <div className="fixed inset-x-0 top-10 z-[100] flex justify-center px-6 pointer-events-none">
