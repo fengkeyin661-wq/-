@@ -12,6 +12,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false, 
         rewrite: (path) => path.replace(/^\/api\/deepseek/, '')
+      },
+      '/api/baichuan': {
+        target: 'https://api.baichuan-ai.com',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/baichuan/, '')
       }
     }
   },

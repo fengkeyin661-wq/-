@@ -24,7 +24,20 @@ const getBaichuanApiKey = (): string => {
 };
 
 const BAICHUAN_API_KEY = getBaichuanApiKey();
-const BAICHUAN_API_URL = 'https://api.baichuan-ai.com/v1/chat/completions';
+
+// Use proxy in development, direct URL in production
+const isDev = (() => {
+  try {
+    // @ts-ignore
+    return !!import.meta.env.DEV;
+  } catch {
+    return false;
+  }
+})();
+
+const BAICHUAN_API_URL = isDev 
+  ? '/api/baichuan/v1/chat/completions'  // Use Vite proxy in development
+  : 'https://api.baichuan-ai.com/v1/chat/completions';  // Direct call in production
 
 export const VirtualHealthAssistant: React.FC<Props> = ({ userName }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -50,7 +63,11 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName }) => {
     setIsLoading(true);
     try {
       if (!BAICHUAN_API_KEY) {
-        console.warn('Missing VITE_BAICHUAN_API_KEY for Baichuan assistant');
+        const errorMsg = '未配置百川API密钥，请在环境变量中设置 VITE_BAICHUAN_API_KEY';
+        console.error(errorMsg);
+        setError(errorMsg);
+        setIsLoading(false);
+        return;
       }
 
       const systemPrompt =
@@ -76,31 +93,48 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName }) => {
         temperature: 0.3,
       };
 
+      console.log('[Baichuan] Calling API:', BAICHUAN_API_URL);
+      console.log('[Baichuan] Payload:', JSON.stringify(payload, null, 2));
+
       const resp = await fetch(BAICHUAN_API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(BAICHUAN_API_KEY ? { Authorization: `Bearer ${BAICHUAN_API_KEY}` } : {}),
+          'Authorization': `Bearer ${BAICHUAN_API_KEY}`,
         },
         body: JSON.stringify(payload),
       });
 
+      console.log('[Baichuan] Response status:', resp.status, resp.statusText);
+
       if (!resp.ok) {
         const text = await resp.text();
-        throw new Error(`百川接口返回错误：${resp.status} - ${text.slice(0, 100)}`);
+        console.error('[Baichuan] Error response:', text);
+        throw new Error(`百川接口返回错误：${resp.status} ${resp.statusText} - ${text.slice(0, 200)}`);
       }
 
       const data = await resp.json();
+      console.log('[Baichuan] Response data:', data);
+
+      // 百川API响应格式：{ choices: [{ message: { content: "..." } }] }
       const assistantContent =
         data?.choices?.[0]?.message?.content ||
+        data?.data?.choices?.[0]?.message?.content ||
         data?.reply ||
         data?.message ||
+        data?.content ||
         '抱歉，暂时没有获取到明确的回复，请稍后再试或联系线下医生。';
 
       setMessages((prev) => [...prev, { role: 'assistant', content: String(assistantContent) }]);
     } catch (e: any) {
-      console.error('Baichuan assistant error', e);
-      setError(e?.message || '调用虚拟助手失败，请稍后重试。');
+      console.error('[Baichuan] Exception:', e);
+      const errorMessage = e?.message || '调用虚拟助手失败，请稍后重试。';
+      setError(errorMessage);
+      
+      // 如果是网络错误，提供更友好的提示
+      if (e?.message?.includes('Failed to fetch') || e?.message?.includes('NetworkError')) {
+        setError('网络连接失败，请检查网络或稍后重试。如果问题持续，请联系技术支持。');
+      }
     } finally {
       setIsLoading(false);
     }
