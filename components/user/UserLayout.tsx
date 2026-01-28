@@ -10,8 +10,8 @@ interface Props {
 
 export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, unreadCount = 0 }) => {
   const navItems = [
-    { id: 'habits', label: '打卡', icon: '✅' }, // New independent tab
-    { id: 'diet_motion', label: '记录', icon: '🥑' }, // Renamed from '健康' to '记录' to signify manual logging
+    { id: 'habits', label: '首页', icon: '🏠' }, // 虚拟健康助手 + 智能推荐
+    { id: 'diet_motion', label: '记录', icon: '🥑' }, // 饮食运动记录
     { id: 'medical', label: '医疗', icon: '🏥' },
     { id: 'community', label: '社区', icon: '🎉' },
     { id: 'interaction', label: '咨询', icon: '💬' },

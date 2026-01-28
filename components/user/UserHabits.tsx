@@ -255,22 +255,10 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
         <div className="bg-slate-50 min-h-full pb-32 animate-fadeIn">
             {/* Virtual Health Assistant (Baichuan) */}
             <VirtualHealthAssistant userName={userName} />
-            {/* Level Up Banner */}
-            {showLevelUp && (
-                <div className="fixed inset-x-0 top-10 z-[100] flex justify-center px-6 pointer-events-none">
-                    <div className="bg-white/90 backdrop-blur-2xl px-6 py-4 rounded-3xl shadow-2xl border border-yellow-200 flex items-center gap-4 animate-bounce">
-                        <span className="text-3xl">🎉</span>
-                        <div>
-                            <p className="text-xs font-black text-yellow-600 uppercase">Level Up!</p>
-                            <p className="text-lg font-bold text-slate-800">您已升至第 {gameData.level} 级</p>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Smart Recommendations Section */}
             {recommendedResources.length > 0 && (
-                <div className="px-6 pt-6">
+                <div className="px-6 pt-2">
                     <div className="flex justify-between items-center mb-3 px-1">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">智能干预建议</h3>
                         <span className="text-[10px] bg-teal-50 text-teal-600 px-2 py-0.5 rounded-md font-bold border border-teal-100">AI 精准匹配</span>
@@ -312,92 +300,6 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
                     </div>
                 </div>
             )}
-
-            {/* Dashboard Header */}
-            <div className="px-6 pt-6 pb-12 bg-white rounded-b-[3rem] shadow-[0_10px_40px_rgba(0,0,0,0.03)]">
-                <div className="flex justify-between items-end mb-8">
-                    <div>
-                        <h2 className="text-3xl font-black text-slate-900 tracking-tight">打卡记录</h2>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs font-bold text-slate-400">目前等级: Lv.{gameData.level}</span>
-                            <div className="h-1 w-1 rounded-full bg-slate-300"></div>
-                            <span className="text-xs font-bold text-orange-500">连续 {gameData.currentStreak} 天</span>
-                        </div>
-                    </div>
-                    <button 
-                        onClick={() => setShowBadgeModal(true)}
-                        className="bg-slate-900 text-white w-14 h-14 rounded-[22px] flex items-center justify-center text-2xl shadow-xl shadow-slate-200 active:scale-90 transition-transform relative"
-                    >
-                        🏆
-                    </button>
-                </div>
-
-                <div className="space-y-2">
-                    <div className="flex justify-between items-center px-1">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">XP 经验值</span>
-                        <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{gameData.totalXP % LEVEL_XP} / {LEVEL_XP}</span>
-                    </div>
-                    <div className="h-4 bg-slate-100 rounded-full overflow-hidden p-1">
-                        <div 
-                            className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full transition-all duration-1000 ease-out"
-                            style={{ width: `${progressToNextLevel}%` }}
-                        ></div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Habit List */}
-            <div className="px-6 -mt-6 space-y-4">
-                <div className="flex justify-between items-center mb-1 px-2">
-                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">今日目标</h3>
-                    {isHabitsLoading && <span className="text-[10px] text-teal-600 animate-pulse font-bold">同步中...</span>}
-                </div>
-
-                {habits.length === 0 ? (
-                    <div className="bg-white rounded-[2.5rem] p-12 text-center border border-slate-100 shadow-sm">
-                        <div className="text-4xl mb-4 grayscale opacity-50">🗓️</div>
-                        <p className="text-slate-400 text-sm font-medium">暂无任务</p>
-                    </div>
-                ) : (
-                    habits.map(habit => {
-                        const today = new Date().toISOString().split('T')[0];
-                        const isDone = habit.history.includes(today);
-                        return (
-                            <div 
-                                key={habit.id}
-                                className={`group bg-white p-5 rounded-[2.5rem] border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.01)] flex items-center justify-between transition-all active:scale-[0.98] ${isDone ? 'opacity-80' : ''}`}
-                            >
-                                <div className="flex items-center gap-5">
-                                    <div className={`w-14 h-14 rounded-[20px] flex items-center justify-center text-2xl transition-all duration-500 ${
-                                        isDone ? 'bg-green-500 text-white scale-90' : 'bg-slate-50 text-slate-800'
-                                    }`}>
-                                        {isDone ? '✓' : habit.icon}
-                                    </div>
-                                    <div>
-                                        <h4 className={`font-bold text-base transition-colors ${isDone ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                                            {habit.title}
-                                        </h4>
-                                        <div className="flex items-center gap-2 mt-0.5">
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded-md font-black uppercase bg-orange-50 text-orange-600">
-                                                🔥 连胜 {habit.streak} 天
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => !isDone && handleCheckIn(habit.id)}
-                                    disabled={isDone || isSaving}
-                                    className={`px-6 py-2.5 rounded-full text-xs font-black tracking-tight transition-all ${
-                                        isDone ? 'bg-slate-100 text-slate-400' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-100'
-                                    }`}
-                                >
-                                    {isDone ? '已完成' : '立即打卡'}
-                                </button>
-                            </div>
-                        );
-                    })
-                )}
-            </div>
 
             {/* Standardized Detail Modal (Synced with Medical Services) */}
             {selectedResource && (
@@ -541,32 +443,6 @@ export const UserHabits: React.FC<Props> = ({ assessment, userCheckupId, userNam
                 </div>
             )}
 
-            {/* Achievement Badge Modal */}
-            {showBadgeModal && (
-                <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-900/40 backdrop-blur-md animate-fadeIn" onClick={() => setShowBadgeModal(false)}>
-                    <div className="bg-white w-full max-w-md rounded-t-[3rem] p-8 animate-slideUp" onClick={e => e.stopPropagation()}>
-                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-8"></div>
-                        <div className="grid grid-cols-3 gap-6">
-                            {BADGES.map(badge => {
-                                const isUnlocked = gameData.badges.includes(badge.id);
-                                return (
-                                    <div key={badge.id} className="flex flex-col items-center text-center group">
-                                        <div className={`w-20 h-20 rounded-[28px] flex items-center justify-center text-4xl mb-3 transition-all duration-500 ${
-                                            isUnlocked ? 'bg-yellow-50 shadow-lg border-2 border-yellow-200' : 'bg-slate-50 grayscale opacity-30'
-                                        }`}>
-                                            {badge.icon}
-                                        </div>
-                                        <span className={`text-[11px] font-black tracking-tight ${isUnlocked ? 'text-slate-800' : 'text-slate-300'}`}>
-                                            {badge.name}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                        <button onClick={() => setShowBadgeModal(false)} className="mt-12 w-full py-4 bg-slate-900 text-white rounded-[22px] font-black text-sm active:scale-95 transition-transform">我知道了</button>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
