@@ -10,11 +10,10 @@ interface Props {
 
 export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, unreadCount = 0 }) => {
   const navItems = [
-    { id: 'habits', label: '首页', icon: '🏠' }, // 虚拟健康助手 + 智能推荐
-    { id: 'diet_motion', label: '记录', icon: '🥑' }, // 饮食运动记录
-    { id: 'medical', label: '医疗', icon: '🏥' },
-    { id: 'community', label: '社区', icon: '🎉' },
-    { id: 'interaction', label: '咨询', icon: '💬' },
+    { id: 'habits', label: '问诊', icon: '🤖' }, // 智能问诊（虚拟健康助手）
+    { id: 'resources', label: '推荐', icon: '✨' }, // AI健康资源推荐
+    { id: 'community', label: '发现', icon: '🎯' }, // 社区+医疗+饮食资源
+    { id: 'interaction', label: '消息', icon: '💬' }, // 咨询+医生资源
     { id: 'profile', label: '我的', icon: '👤' },
   ];
 

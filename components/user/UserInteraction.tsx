@@ -1,11 +1,14 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount } from '../../services/contentService';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
+import { HealthAssessment } from '../../types';
 
 interface Props {
     userId: string;
+    userName?: string;
     archive?: HealthArchive;
+    assessment?: HealthAssessment;
     onMessageRead?: () => void;
 }
 
@@ -14,65 +17,112 @@ interface DoctorWithUnread {
     unread: number;
 }
 
-export const UserInteraction: React.FC<Props> = ({ userId, archive, onMessageRead }) => {
-    // New State: List of signed doctors
+type ViewMode = 'doctors' | 'chat_list' | 'chat';
+
+const DAY_MAP: Record<string, string> = {
+    'Mon': '周一', 'Tue': '周二', 'Wed': '周三', 'Thu': '周四', 'Fri': '周五', 'Sat': '周六', 'Sun': '周日'
+};
+const SLOT_MAP: Record<string, string> = { 'AM': '上午', 'PM': '下午' };
+
+const getMedicalIcon = (item: ContentItem): string => {
+    const t = (item.title + (item.details?.dept || '')).toLowerCase();
+    if (t.includes('中医')) return '🌿';
+    if (t.includes('牙') || t.includes('口腔')) return '🦷';
+    if (t.includes('骨') || t.includes('康复')) return '🦴';
+    if (t.includes('心')) return '🫀';
+    if (t.includes('妇') || t.includes('产')) return '👩‍⚕️';
+    if (t.includes('儿') || t.includes('小儿')) return '👶';
+    return '👨‍⚕️';
+};
+
+const scoreDoctor = (doc: ContentItem, risks: string[]) => {
+    let score = 0;
+    const text = (doc.title + (doc.tags?.join(' ') || '') + (doc.description || '') + (doc.details?.dept || '')).toLowerCase();
+    risks.forEach(r => {
+        if (text.includes(r.replace('风险',''))) score += 2;
+    });
+    return score + Math.random();
+};
+
+export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead }) => {
+    const [viewMode, setViewMode] = useState<ViewMode>('doctors');
+    
+    // Doctor List State
+    const [allDoctors, setAllDoctors] = useState<ContentItem[]>([]);
+    const [allInteractions, setAllInteractions] = useState<InteractionItem[]>([]);
+    const [selectedDoctor, setSelectedDoctor] = useState<ContentItem | null>(null);
+    const [showBookingModal, setShowBookingModal] = useState(false);
+    const [bookingDoctor, setBookingDoctor] = useState<ContentItem | null>(null);
+    
+    // Signed Doctors (for Chat)
     const [doctorList, setDoctorList] = useState<DoctorWithUnread[]>([]);
-    // New State: Currently active doctor for chat
     const [activeDoctor, setActiveDoctor] = useState<InteractionItem | null>(null);
     
-    // Chat state
+    // Chat State
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [chatInput, setChatInput] = useState('');
     const chatEndRef = useRef<HTMLDivElement>(null);
+    
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        loadDoctors();
+        loadAllData();
     }, []);
 
-    // Polling for updates (list unread counts OR active chat messages)
     useEffect(() => {
         let interval: any;
-        
         const poll = () => {
             if (activeDoctor) {
-                // If chatting, refresh messages
                 loadMessages();
                 markAsRead(userId, activeDoctor.targetId).then(() => { if(onMessageRead) onMessageRead(); });
             } else {
-                // If in list view, refresh doctor list to update unread counts
-                loadDoctors();
+                loadSignedDoctors();
             }
         };
-
-        // Initial call
         poll();
-        
         interval = setInterval(poll, 3000);
         return () => clearInterval(interval);
-    }, [activeDoctor]); // Re-run effect when activeDoctor changes
+    }, [activeDoctor]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatMessages]);
 
-    const loadDoctors = async () => {
-        const allInteractions = await fetchInteractions();
-        // Filter confirmed doctor signings
-        const signings = allInteractions.filter(i => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
-        
-        // Calculate unread for each
+    const loadAllData = async () => {
+        setLoading(true);
+        try {
+            const [docs, inters] = await Promise.all([
+                fetchContent('doctor', 'active'),
+                fetchInteractions()
+            ]);
+            setAllDoctors(docs);
+            setAllInteractions(inters);
+            
+            // Load signed doctors
+            const signings = inters.filter(i => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
+            const listWithCount: DoctorWithUnread[] = [];
+            for (const sign of signings) {
+                const count = await getUnreadCount(userId, sign.targetId);
+                listWithCount.push({ interaction: sign, unread: count });
+            }
+            setDoctorList(listWithCount);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadSignedDoctors = async () => {
+        const inters = await fetchInteractions();
+        setAllInteractions(inters);
+        const signings = inters.filter(i => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
         const listWithCount: DoctorWithUnread[] = [];
         for (const sign of signings) {
             const count = await getUnreadCount(userId, sign.targetId);
             listWithCount.push({ interaction: sign, unread: count });
         }
-        
         setDoctorList(listWithCount);
-
-        // Auto-select if only 1 doctor and not currently selected (optional, but good UX for single-doctor users)
-        if (listWithCount.length === 1 && !activeDoctor) {
-            setActiveDoctor(listWithCount[0].interaction);
-        }
     };
 
     const loadMessages = async () => {
@@ -93,135 +143,339 @@ export const UserInteraction: React.FC<Props> = ({ userId, archive, onMessageRea
         loadMessages();
     };
 
-    const handleBackToList = () => {
-        setActiveDoctor(null);
-        setChatMessages([]);
-        loadDoctors(); // Refresh list to update unread status
-    };
+    const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
+        if (!userId || !userName) return alert("用户信息缺失");
+        
+        let interactionType: InteractionItem['type'] = 'doctor_booking';
+        let confirmMsg = '';
+        let details = '';
 
-    // --- RENDER: LIST VIEW ---
-    if (!activeDoctor) {
-        if (doctorList.length === 0) {
-            return (
-                <div className="h-full flex flex-col items-center justify-center bg-slate-50 text-center px-6">
-                    <div className="w-24 h-24 bg-slate-200 rounded-full flex items-center justify-center text-4xl mb-6 grayscale opacity-50">👨‍⚕️</div>
-                    <h3 className="text-xl font-bold text-slate-700 mb-2">暂无家庭医生</h3>
-                    <p className="text-sm text-slate-400 leading-relaxed max-w-xs">
-                        签约家庭医生后，您可以在此进行一对一健康咨询。请前往“医疗”板块申请。
-                    </p>
-                </div>
-            );
+        if (type === 'signing') {
+            interactionType = 'doctor_signing';
+            confirmMsg = `确定申请签约【${target.title}】为家庭医生吗？`;
+            details = '申请家庭医生签约';
+        } else if (type === 'booking') {
+            interactionType = 'doctor_booking';
+            if (!timeSlot) {
+                setBookingDoctor(target);
+                setShowBookingModal(true);
+                setSelectedDoctor(null);
+                return;
+            }
+            confirmMsg = `确定预约【${target.title}】在【${timeSlot}】的门诊吗？`;
+            details = `预约挂号：${timeSlot}，费用: ${target.details?.fee || 0}元`;
         }
 
+        if (confirm(confirmMsg)) {
+            await saveInteraction({
+                id: `${interactionType}_${Date.now()}`,
+                type: interactionType,
+                userId, userName: userName || '用户',
+                targetId: target.id,
+                targetName: target.title,
+                status: 'pending',
+                date: new Date().toISOString().split('T')[0],
+                details
+            });
+            alert("申请已提交！");
+            setSelectedDoctor(null);
+            setShowBookingModal(false);
+            setBookingDoctor(null);
+            loadAllData();
+        }
+    };
+
+    const getSlotUsage = (docId: string, dayKey: string, slotId: string) => {
+        const slotText = `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`;
+        const count = allInteractions.filter(i => 
+            i.type === 'doctor_booking' && 
+            i.targetId === docId && 
+            i.status !== 'cancelled' && 
+            i.details?.includes(slotText)
+        ).length;
+        const quota = bookingDoctor?.details?.slotQuotas?.[dayKey]?.[slotId] || 10;
+        return { count, quota, full: count >= quota };
+    };
+
+    // AI 排序医生
+    const risks = assessment ? [...assessment.risks.red, ...assessment.risks.yellow] : [];
+    const sortedDoctors = useMemo(() => {
+        return [...allDoctors].sort((a, b) => scoreDoctor(b, risks) - scoreDoctor(a, risks)).slice(0, 20);
+    }, [allDoctors, risks]);
+
+    const totalUnread = doctorList.reduce((sum, d) => sum + d.unread, 0);
+
+    // ======== RENDER: CHAT VIEW ========
+    if (viewMode === 'chat' && activeDoctor) {
         return (
-            <div className="h-full bg-slate-50 flex flex-col">
-                <div className="bg-white px-6 py-4 border-b border-slate-100 shadow-sm sticky top-0 z-10">
-                    <h1 className="text-xl font-bold text-slate-800">我的咨询列表</h1>
+            <div className="bg-[#F0F2F5] h-full flex flex-col relative">
+                <div className="bg-white/90 backdrop-blur-md px-4 py-3 shadow-sm z-10 flex items-center gap-3 border-b border-slate-100">
+                    <button onClick={() => { setViewMode('chat_list'); setActiveDoctor(null); }} className="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 rounded-full">←</button>
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-lg shadow-inner">👨‍⚕️</div>
+                    <div>
+                        <h1 className="text-base font-bold text-slate-800">{activeDoctor.targetName} 医生</h1>
+                        <p className="text-[10px] text-green-600 font-medium">在线</p>
+                    </div>
                 </div>
-                <div className="p-4 space-y-3 overflow-y-auto">
-                    {doctorList.map(item => (
-                        <div 
-                            key={item.interaction.id}
-                            onClick={() => setActiveDoctor(item.interaction)}
-                            className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:bg-blue-50 transition-colors active:scale-[0.98] relative"
-                        >
-                            <div className="relative">
-                                <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-2xl shadow-inner border-2 border-white">
-                                    👨‍⚕️
-                                </div>
-                                {item.unread > 0 && (
-                                    <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold border-2 border-white animate-pulse">
-                                        {item.unread}
+
+                <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-4">
+                    <div className="text-center text-[10px] text-slate-400 my-4 bg-slate-200/50 py-1 px-3 rounded-full mx-auto w-fit">
+                        仅提供健康咨询，急诊请及时就医
+                    </div>
+                    
+                    {chatMessages.length === 0 ? (
+                        <div className="text-center text-slate-400 text-xs mt-10">暂无消息，打个招呼吧 👋</div>
+                    ) : (
+                        chatMessages.map(msg => {
+                            const isMe = msg.senderRole === 'user';
+                            return (
+                                <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[75%] px-4 py-3 text-sm shadow-sm ${
+                                        isMe ? 'bg-teal-600 text-white rounded-2xl rounded-tr-sm' : 'bg-white text-slate-800 rounded-2xl rounded-tl-sm border border-slate-100'
+                                    }`}>
+                                        <p className="leading-relaxed">{msg.content}</p>
+                                        <div className={`text-[9px] mt-1 text-right ${isMe ? 'text-teal-200' : 'text-slate-300'}`}>
+                                            {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-                            <div className="flex-1">
-                                <div className="flex justify-between items-center mb-1">
-                                    <h3 className="font-bold text-slate-800 text-lg">{item.interaction.targetName}</h3>
-                                    <span className="text-[10px] text-slate-400">刚刚</span>
                                 </div>
-                                <p className="text-xs text-slate-500 line-clamp-1">点击进入咨询...</p>
-                            </div>
-                            <div className="text-slate-300">›</div>
-                        </div>
-                    ))}
+                            );
+                        })
+                    )}
+                    <div ref={chatEndRef} />
+                </div>
+
+                <div className="absolute bottom-20 left-0 w-full px-4 pb-2">
+                    <div className="bg-white p-2 rounded-full shadow-lg border border-slate-100 flex gap-2 items-center">
+                        <input 
+                            className="flex-1 bg-transparent px-4 py-2 text-sm focus:outline-none"
+                            placeholder="输入消息..."
+                            value={chatInput}
+                            onChange={e => setChatInput(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleSendMsg()}
+                        />
+                        <button onClick={handleSendMsg} disabled={!chatInput.trim()} className="w-9 h-9 bg-teal-600 text-white rounded-full flex items-center justify-center hover:bg-teal-700 disabled:opacity-50 disabled:bg-slate-300 active:scale-90">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         );
     }
 
-    // --- RENDER: CHAT VIEW ---
+    // ======== RENDER: MAIN VIEW (Doctors + Chat List Tabs) ========
     return (
-        <div className="bg-[#F0F2F5] h-full flex flex-col relative">
+        <div className="bg-slate-50 min-h-full pb-28">
             {/* Header */}
-            <div className="bg-white/90 backdrop-blur-md px-4 py-3 shadow-sm z-10 flex items-center gap-3 border-b border-slate-100">
-                <button 
-                    onClick={handleBackToList}
-                    className="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 rounded-full transition-colors"
-                >
-                    ←
-                </button>
-                <div className="relative">
-                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-lg shadow-inner">👨‍⚕️</div>
-                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
-                </div>
-                <div>
-                    <h1 className="text-base font-bold text-slate-800">{activeDoctor.targetName} 医生</h1>
-                    <p className="text-[10px] text-green-600 font-medium">在线</p>
-                </div>
+            <div className="bg-white px-6 py-5 border-b border-slate-100 sticky top-0 z-10">
+                <h1 className="text-2xl font-black text-slate-800 tracking-tight">消息中心</h1>
+                <p className="text-xs text-slate-500 mt-1">医生资源 · 在线咨询</p>
             </div>
 
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-4">
-                <div className="text-center text-[10px] text-slate-400 my-4 bg-slate-200/50 py-1 px-3 rounded-full mx-auto w-fit">
-                    仅提供健康咨询，急诊请及时就医
-                </div>
-                
-                {chatMessages.length === 0 ? (
-                    <div className="text-center text-slate-400 text-xs mt-10">
-                        暂无消息，打个招呼吧 👋
-                    </div>
-                ) : (
-                    chatMessages.map(msg => {
-                        const isMe = msg.senderRole === 'user';
-                        return (
-                            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[75%] px-4 py-3 text-sm shadow-sm ${
-                                    isMe 
-                                    ? 'bg-teal-600 text-white rounded-2xl rounded-tr-sm' 
-                                    : 'bg-white text-slate-800 rounded-2xl rounded-tl-sm border border-slate-100'
-                                }`}>
-                                    <p className="leading-relaxed">{msg.content}</p>
-                                    <div className={`text-[9px] mt-1 text-right ${isMe ? 'text-teal-200' : 'text-slate-300'}`}>
-                                        {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+            {/* Tabs */}
+            <div className="px-4 py-3 flex gap-2 bg-white border-b border-slate-100 sticky top-[76px] z-10">
+                <button
+                    onClick={() => setViewMode('doctors')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                        viewMode === 'doctors' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600'
+                    }`}
+                >
+                    👨‍⚕️ 医生资源
+                </button>
+                <button
+                    onClick={() => setViewMode('chat_list')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all relative ${
+                        viewMode === 'chat_list' ? 'bg-teal-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600'
+                    }`}
+                >
+                    💬 我的咨询
+                    {totalUnread > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold animate-pulse">
+                            {totalUnread > 9 ? '9+' : totalUnread}
+                        </span>
+                    )}
+                </button>
+            </div>
+
+            <div className="p-4">
+                {loading ? (
+                    <div className="text-center py-16 text-slate-400">加载中...</div>
+                ) : viewMode === 'doctors' ? (
+                    // ======== DOCTORS LIST ========
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center px-1">
+                            <h2 className="font-bold text-slate-800">名医推荐</h2>
+                            <span className="text-xs text-teal-600 font-bold">AI匹配</span>
+                        </div>
+                        {sortedDoctors.length === 0 ? (
+                            <div className="text-center py-16 text-slate-400 bg-white rounded-2xl">暂无医生资源</div>
+                        ) : (
+                            sortedDoctors.map(doc => (
+                                <div 
+                                    key={doc.id}
+                                    onClick={() => setSelectedDoctor(doc)}
+                                    className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
+                                >
+                                    <div className="w-14 h-14 bg-blue-50 rounded-xl flex items-center justify-center text-3xl shrink-0">
+                                        {getMedicalIcon(doc)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex justify-between items-start mb-1">
+                                            <h3 className="font-bold text-slate-800">{doc.title}</h3>
+                                            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold shrink-0">详情</span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mb-2">{doc.details?.dept} · {doc.details?.title}</p>
+                                        <div className="flex flex-wrap gap-1">
+                                            {doc.tags.slice(0, 3).map(t => (
+                                                <span key={t} className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t}</span>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
+                            ))
+                        )}
+                    </div>
+                ) : (
+                    // ======== CHAT LIST ========
+                    <div className="space-y-3">
+                        {doctorList.length === 0 ? (
+                            <div className="text-center py-16 bg-white rounded-2xl">
+                                <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 opacity-50">👨‍⚕️</div>
+                                <h3 className="text-lg font-bold text-slate-700 mb-2">暂无签约医生</h3>
+                                <p className="text-sm text-slate-400 mb-4">签约家庭医生后，可在此进行咨询</p>
+                                <button 
+                                    onClick={() => setViewMode('doctors')}
+                                    className="bg-blue-600 text-white px-6 py-2 rounded-xl text-sm font-bold"
+                                >
+                                    去签约医生
+                                </button>
                             </div>
-                        );
-                    })
+                        ) : (
+                            doctorList.map(item => (
+                                <div 
+                                    key={item.interaction.id}
+                                    onClick={() => { setActiveDoctor(item.interaction); setViewMode('chat'); }}
+                                    className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:bg-blue-50 active:scale-[0.98] transition-all"
+                                >
+                                    <div className="relative">
+                                        <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-2xl shadow-inner border-2 border-white">
+                                            👨‍⚕️
+                                        </div>
+                                        {item.unread > 0 && (
+                                            <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold border-2 border-white animate-pulse">
+                                                {item.unread}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="font-bold text-slate-800">{item.interaction.targetName}</h3>
+                                        <p className="text-xs text-slate-500">点击进入咨询...</p>
+                                    </div>
+                                    <div className="text-slate-300 text-lg">›</div>
+                                </div>
+                            ))
+                        )}
+                    </div>
                 )}
-                <div ref={chatEndRef} />
             </div>
 
-            {/* Input Area */}
-            <div className="absolute bottom-20 left-0 w-full px-4 pb-2">
-                <div className="bg-white p-2 rounded-full shadow-lg border border-slate-100 flex gap-2 items-center">
-                    <input 
-                        className="flex-1 bg-transparent px-4 py-2 text-sm focus:outline-none placeholder:text-slate-400"
-                        placeholder="输入消息..."
-                        value={chatInput}
-                        onChange={e => setChatInput(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleSendMsg()}
-                    />
-                    <button 
-                        onClick={handleSendMsg}
-                        disabled={!chatInput.trim()}
-                        className="w-9 h-9 bg-teal-600 text-white rounded-full flex items-center justify-center hover:bg-teal-700 disabled:opacity-50 disabled:bg-slate-300 transition-all active:scale-90"
-                    >
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
-                    </button>
+            {/* Doctor Detail Modal */}
+            {selectedDoctor && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedDoctor(null)}>
+                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
+                            <button onClick={() => setSelectedDoctor(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm">×</button>
+                            <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">
+                                {getMedicalIcon(selectedDoctor)}
+                            </div>
+                            <h3 className="text-xl font-black text-slate-800 mb-1">{selectedDoctor.title}</h3>
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">
+                                {selectedDoctor.details?.dept} · {selectedDoctor.details?.title}
+                            </span>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto space-y-4 flex-1">
+                            <div className="flex flex-wrap gap-2 justify-center">
+                                {selectedDoctor.tags.map(t => <span key={t} className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs">{t}</span>)}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-blue-50 p-3 rounded-xl text-center">
+                                    <div className="text-xs text-blue-400 mb-1">挂号费</div>
+                                    <div className="font-bold text-blue-900 text-lg">¥{selectedDoctor.details?.fee || '0'}</div>
+                                </div>
+                                <div className="bg-blue-50 p-3 rounded-xl text-center">
+                                    <div className="text-xs text-blue-400 mb-1">科室</div>
+                                    <div className="font-bold text-blue-900">{selectedDoctor.details?.dept || '全科'}</div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 className="font-bold text-slate-800 text-sm mb-2">专家简介</h4>
+                                <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl">
+                                    {selectedDoctor.description || '暂无简介'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-slate-100 bg-white">
+                            <div className="flex gap-3">
+                                <button onClick={() => handleInteract('booking', selectedDoctor)} className="flex-1 bg-white border border-blue-200 text-blue-600 py-3.5 rounded-xl font-bold text-sm hover:bg-blue-50 flex items-center justify-center gap-2">
+                                    <span>📅</span> 预约挂号
+                                </button>
+                                <button onClick={() => handleInteract('signing', selectedDoctor)} className="flex-1 bg-blue-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg hover:bg-blue-700 flex items-center justify-center gap-2">
+                                    <span>✍️</span> 签约医生
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
+
+            {/* Time Selection Modal */}
+            {showBookingModal && bookingDoctor && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setShowBookingModal(false)}>
+                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择就诊时间</h3>
+                        <p className="text-xs text-slate-400 text-center mb-6">预约专家：{bookingDoctor.title}</p>
+                        
+                        <div className="flex-1 overflow-y-auto space-y-6 pb-6">
+                            {Object.keys(DAY_MAP).map(dayKey => {
+                                const activeSlots = bookingDoctor.details?.weeklySchedule?.[dayKey] || [];
+                                if (activeSlots.length === 0) return null;
+                                return (
+                                    <div key={dayKey}>
+                                        <h4 className="font-black text-xs text-slate-400 uppercase tracking-widest mb-3 px-1">{DAY_MAP[dayKey]}</h4>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {activeSlots.map((slotId: string) => {
+                                                const { count, quota, full } = getSlotUsage(bookingDoctor.id, dayKey, slotId);
+                                                return (
+                                                    <button 
+                                                        key={slotId}
+                                                        disabled={full}
+                                                        onClick={() => handleInteract('booking', bookingDoctor, `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`)}
+                                                        className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center transition-all ${
+                                                            full ? 'opacity-50 cursor-not-allowed border-slate-100' : 'border-slate-100 hover:bg-blue-50 hover:border-blue-200'
+                                                        }`}
+                                                    >
+                                                        <span className="font-bold text-slate-700">{SLOT_MAP[slotId]}</span>
+                                                        <span className={`text-[10px] mt-1 font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                            {full ? '约满' : `余 ${quota - count} 位`}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        
+                        <button onClick={() => setShowBookingModal(false)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm active:scale-95">取消</button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

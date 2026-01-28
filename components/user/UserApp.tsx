@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
-import { UserDietMotion } from './UserDietMotion';
+import { UserHealthResources } from './UserHealthResources'; // 新：AI健康资源推荐
 import { UserHabits } from './UserHabits'; 
-import { UserMedicalServices } from './UserMedicalServices';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserCommunity } from './UserCommunity';
@@ -90,6 +89,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
 
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
+      {/* 第一页：智能问诊（仅虚拟健康助手） */}
       {activeTab === 'habits' && (
           <UserHabits 
               assessment={userArchive.assessment_data}
@@ -99,22 +99,16 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               onRefresh={() => loadUser(true)}
           />
       )}
-      {activeTab === 'diet_motion' && (
-          <UserDietMotion 
+      {/* 第二页：AI健康资源推荐 */}
+      {activeTab === 'resources' && (
+          <UserHealthResources 
               assessment={userArchive.assessment_data} 
               userCheckupId={userArchive.checkup_id}
+              userName={userArchive.name}
               record={userArchive.health_record}
-              dailyPlan={userArchive.custom_daily_plan}
-              onRefresh={() => loadUser(true)}
           />
       )}
-      {activeTab === 'medical' && (
-          <UserMedicalServices 
-              userId={userArchive.checkup_id} 
-              userName={userArchive.name} 
-              assessment={userArchive.assessment_data} 
-          />
-      )}
+      {/* 第三页：发现（社区+医疗服务+饮食资源） */}
       {activeTab === 'community' && (
           <UserCommunity 
               userId={userArchive.checkup_id}
@@ -122,10 +116,13 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
               assessment={userArchive.assessment_data} 
           />
       )}
+      {/* 第四页：消息（咨询+医生资源） */}
       {activeTab === 'interaction' && (
           <UserInteraction 
               userId={userArchive.checkup_id} 
+              userName={userArchive.name}
               archive={userArchive} 
+              assessment={userArchive.assessment_data}
               onMessageRead={() => setUnreadCount(0)}
           />
       )}

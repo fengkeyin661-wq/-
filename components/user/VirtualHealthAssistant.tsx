@@ -7,6 +7,7 @@ type ChatMessage = {
 
 interface Props {
   userName?: string;
+  fullPage?: boolean; // 全屏模式
 }
 
 // Helper to safely read env in Vite/browser
@@ -39,7 +40,7 @@ const BAICHUAN_API_URL = isDev
   ? '/api/baichuan/v1/chat/completions'  // Use Vite proxy in development
   : 'https://api.baichuan-ai.com/v1/chat/completions';  // Direct call in production
 
-export const VirtualHealthAssistant: React.FC<Props> = ({ userName }) => {
+export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = false }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -147,6 +148,98 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName }) => {
     }
   };
 
+  // 全屏模式 - 用于首页
+  if (fullPage) {
+    return (
+      <div className="flex flex-col h-[calc(100vh-180px)] bg-slate-50">
+        {/* Chat Messages Area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.map((m, idx) => (
+            <div
+              key={idx}
+              className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}
+            >
+              {m.role === 'assistant' && (
+                <div className="w-9 h-9 rounded-full bg-teal-500 flex items-center justify-center text-lg mr-2 shrink-0 shadow-md">
+                  🤖
+                </div>
+              )}
+              <div
+                className={`px-4 py-3 rounded-2xl max-w-[80%] text-sm leading-relaxed whitespace-pre-wrap shadow-sm ${
+                  m.role === 'user'
+                    ? 'bg-teal-600 text-white rounded-br-sm'
+                    : 'bg-white text-slate-700 border border-slate-100 rounded-bl-sm'
+                }`}
+              >
+                {m.content}
+              </div>
+              {m.role === 'user' && (
+                <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-lg ml-2 shrink-0">
+                  👤
+                </div>
+              )}
+            </div>
+          ))}
+          {isLoading && (
+            <div className="flex justify-start animate-fadeIn">
+              <div className="w-9 h-9 rounded-full bg-teal-500 flex items-center justify-center text-lg mr-2 shrink-0 shadow-md">
+                🤖
+              </div>
+              <div className="bg-white text-slate-400 px-4 py-3 rounded-2xl rounded-bl-sm border border-slate-100 shadow-sm">
+                <span className="animate-pulse">正在思考...</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Quick Questions */}
+        <div className="px-4 py-2 flex gap-2 overflow-x-auto scrollbar-hide">
+          {['血压偏高怎么办？', '如何改善睡眠？', '推荐减脂运动', '体检报告解读'].map((q) => (
+            <button
+              key={q}
+              onClick={() => setInput(q)}
+              className="shrink-0 px-3 py-1.5 bg-white border border-slate-200 rounded-full text-xs text-slate-600 hover:bg-teal-50 hover:border-teal-300 transition-colors"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+
+        {/* Input Area */}
+        <div className="p-4 bg-white border-t border-slate-100">
+          {error && (
+            <div className="text-xs text-rose-500 mb-2 px-1">{error}</div>
+          )}
+          <div className="flex items-end gap-3">
+            <textarea
+              className="flex-1 text-sm resize-none rounded-2xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/60"
+              rows={2}
+              placeholder="请描述您的健康问题..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+            <button
+              onClick={handleSend}
+              disabled={isLoading || !input.trim()}
+              className={`h-12 w-12 rounded-full flex items-center justify-center text-white text-xl shadow-lg active:scale-95 transition-all ${
+                isLoading || !input.trim()
+                  ? 'bg-slate-300 cursor-not-allowed'
+                  : 'bg-teal-600 hover:bg-teal-700'
+              }`}
+            >
+              {isLoading ? '...' : '↑'}
+            </button>
+          </div>
+          <div className="text-[10px] text-slate-400 mt-2 text-center">
+            仅供健康科普参考，不能作为诊断或处方依据
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 卡片模式 - 用于其他页面嵌入
   return (
     <div className="px-6 pt-4">
       <div className="bg-gradient-to-r from-teal-500 to-emerald-500 rounded-3xl p-[1px] shadow-lg mb-4">
@@ -195,7 +288,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName }) => {
             <textarea
               className="flex-1 text-[13px] resize-none rounded-2xl border border-slate-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/60"
               rows={2}
-              placeholder="简单描述您的健康疑问，例如：最近血压有点高，应该怎么调整作息和饮食？"
+              placeholder="简单描述您的健康疑问..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
