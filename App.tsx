@@ -14,12 +14,14 @@ import { ResourceAdmin } from './components/ResourceAdmin';
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
 import { DoctorPatients } from './components/DoctorPatients';
 import { CriticalFollowUpManager } from './components/CriticalFollowUpManager'; // New Import
+import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 
-import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData } from './types';
+import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, findArchiveByPhone, updateHealthRecordOnly } from './services/dataService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions } from './services/contentService';
+import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -48,6 +50,7 @@ export const App: React.FC = () => {
   const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysisData | undefined>(undefined);
   
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingElderly, setIsSavingElderly] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) {
@@ -281,6 +284,37 @@ export const App: React.FC = () => {
       }
   };
 
+  const handleSelectArchiveWithoutNavigation = (archive: HealthArchive) => {
+      setHealthRecord(archive.health_record);
+      setAssessment(archive.assessment_data);
+      setFollowUps(archive.follow_ups || []);
+      setSchedule(archive.follow_up_schedule || []);
+      setRiskAnalysis(archive.risk_analysis);
+  };
+
+  const handleSaveElderlyAssessment = async (data: ElderlyAssessmentData, result: ElderlyAssessmentResult) => {
+      if (!healthRecord || !assessment) {
+          alert("请先选择一个已建档用户");
+          return;
+      }
+      setIsSavingElderly(true);
+      try {
+          const mergedRecord: HealthRecord = { ...healthRecord, elderlyAssessment: data };
+          const mergedAssessment = mergeElderlyResultToAssessment(assessment, result);
+          const res = await saveArchive(mergedRecord, mergedAssessment, schedule, followUps, riskAnalysis);
+          if (res.success) {
+              setHealthRecord(mergedRecord);
+              setAssessment(mergedAssessment);
+              alert("老年专项评估已保存");
+              await refreshArchives();
+          } else {
+              alert("保存失败: " + res.message);
+          }
+      } finally {
+          setIsSavingElderly(false);
+      }
+  };
+
   if (currentUserRole === 'home') {
       return <HomeAdmin onLogout={() => { setIsAuthenticated(false); setCurrentUserRole(null); }} />;
   }
@@ -374,6 +408,15 @@ export const App: React.FC = () => {
             {activeTab === 'survey' && <HealthSurvey onSubmit={handleHealthSurveySubmit} initialData={healthRecord} isLoading={isLoading} />}
             {activeTab === 'external_survey' && <NativeSurveyForm onSubmit={handleSurveySubmit} isLoading={isLoading} initialCheckupId={healthRecord?.profile.checkupId} />}
             {activeTab === 'assessment' && assessment && healthRecord && <AssessmentReport assessment={assessment} patientName={healthRecord.profile.name} profile={healthRecord.profile} healthRecord={healthRecord} riskAnalysis={riskAnalysis} onSave={handleSaveAssessment} onUpdateReport={handleUpdateCheckupReport} onUpdateRiskAnalysis={refreshArchives} onSupplementQuestionnaire={() => setActiveTab('external_survey')} />}
+            {activeTab === 'elderly_assessment' && (
+                <ElderlyAssessmentModule
+                    archives={archives}
+                    currentArchive={healthRecord ? archives.find(a => a.checkup_id === healthRecord.profile.checkupId) || null : null}
+                    onSelectArchive={handleSelectArchiveWithoutNavigation}
+                    onSave={handleSaveElderlyAssessment}
+                    isSaving={isSavingElderly}
+                />
+            )}
             
             {/* TAB REPLACEMENT LOGIC: 危急值随访管理 */}
             {activeTab === 'risk_portrait' && (

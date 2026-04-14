@@ -256,11 +256,62 @@ export interface QuestionnaireData {
   };
 }
 
+// --- 老年专项评估数据 ---
+export interface ElderlyAssessmentData {
+  checkupMetrics: {
+    sbp?: number;
+    dbp?: number;
+    bmi?: number;
+    fastingGlucose?: number;
+    ldl?: number;
+    egfr?: number;
+    hgb?: number;
+  };
+  functionalStatus: {
+    adlScore?: number; // 0-100
+    iadlScore?: number; // 0-8
+    gaitSpeed?: number; // m/s
+    fallRisk?: 'low' | 'medium' | 'high';
+    recentFalls?: number; // last 12 months
+  };
+  emotion: {
+    depressionScore?: number;
+    anxietyScore?: number;
+    loneliness?: 'none' | 'mild' | 'moderate' | 'severe';
+  };
+  nutrition: {
+    mnaScore?: number; // 0-14
+    appetiteLoss?: boolean;
+    weightLoss3m?: boolean;
+  };
+  visionOrHearing: {
+    visionImpairment?: 'none' | 'mild' | 'moderate' | 'severe';
+    hearingImpairment?: 'none' | 'mild' | 'moderate' | 'severe';
+  };
+  oralHealth: {
+    chewingDifficulty?: boolean;
+    missingTeethCount?: number;
+    oralPain?: boolean;
+  };
+  sleep: {
+    sleepHours?: number;
+    insomniaSeverity?: 'none' | 'mild' | 'moderate' | 'severe';
+    daytimeSleepiness?: boolean;
+  };
+  screenings: {
+    cognitiveRisk?: 'none' | 'mild' | 'moderate' | 'high';
+    frailty?: 'none' | 'pre' | 'frail';
+    osteoporosisRisk?: 'low' | 'medium' | 'high';
+    depressionScreenPositive?: boolean;
+  };
+}
+
 // --- 4. 聚合数据对象 ---
 export interface HealthRecord {
   profile: HealthProfile;
   checkup: CheckupData;
   questionnaire: QuestionnaireData;
+  elderlyAssessment?: ElderlyAssessmentData;
   // 用于存储模型计算时的补充变量 (如父母髋骨骨折史等不在常规问卷中的)
   riskModelExtras?: { [key: string]: any }; 
 }
@@ -295,6 +346,16 @@ export interface HealthAssessment {
   followUpPlan: {
     frequency: string;
     nextCheckItems: string[];
+  };
+  elderlyRiskLevel?: RiskLevel;
+  elderlyRiskSummary?: string;
+  elderlyRiskReasons?: string[];
+  elderlyPersonalizedPlan?: {
+    diet: string[];
+    exercise: string[];
+    sleep: string[];
+    psychosocial: string[];
+    followup: string[];
   };
 }
 

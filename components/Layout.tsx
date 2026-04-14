@@ -26,6 +26,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'dashboard', label: '健康总览', icon: '📊', roles: ['admin', 'doctor'] },
     { id: 'survey', label: '健康调查建档', icon: '📝', roles: ['admin', 'doctor'] },
     { id: 'assessment', label: '风险评估与方案', icon: '📋', roles: ['admin', 'doctor'] },
+    { id: 'elderly_assessment', label: '老年专项评估', icon: '👵', roles: ['admin', 'doctor'] },
     { id: 'risk_portrait', label: '危急值随访管理', icon: '🛡️', roles: ['admin', 'doctor'] }, // Renamed & New Icon
     { id: 'followup', label: '随访监测', icon: '📅', roles: ['admin', 'doctor'] },
     { id: 'my_patients', label: '我的签约用户', icon: '🤝', roles: ['doctor'] }, 
@@ -35,7 +36,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const visibleItems = isAuthenticated 
     ? navItems.filter(item => item.roles.includes(currentUserRole || 'admin'))
-    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'risk_portrait', 'followup', 'heatmap'].includes(item.id));
+    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'risk_portrait', 'followup', 'heatmap'].includes(item.id));
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden print:block print:h-auto print:overflow-visible">
