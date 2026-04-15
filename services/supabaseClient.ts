@@ -28,11 +28,23 @@ const getEnvVar = (key: string): string => {
   return '';
 };
 
-const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
-const supabaseKey = getEnvVar('VITE_SUPABASE_KEY');
+const isNonPlaceholder = (v: string) =>
+  v.length > 10 && !v.toLowerCase().includes('placeholder');
 
-// Log config status for debugging
-console.log(`[Supabase Config] URL found: ${!!supabaseUrl}, Key found: ${!!supabaseKey}`);
+const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
+// 常见：Vite 模板使用 VITE_SUPABASE_ANON_KEY；与 VITE_SUPABASE_KEY 二选一即可
+const supabaseKey = (() => {
+  const primary = getEnvVar('VITE_SUPABASE_KEY');
+  if (primary && isNonPlaceholder(primary)) return primary;
+  const anon = getEnvVar('VITE_SUPABASE_ANON_KEY');
+  if (anon && isNonPlaceholder(anon)) return anon;
+  return primary || anon || '';
+})();
+
+// Log config status for debugging（不打印密钥内容）
+console.log(
+  `[Supabase Config] URL ok: ${!!(supabaseUrl && isNonPlaceholder(supabaseUrl))}, Key ok: ${!!(supabaseKey && isNonPlaceholder(supabaseKey))}`
+);
 
 export const supabase = createClient(
     supabaseUrl || 'https://placeholder.supabase.co', 
@@ -40,9 +52,25 @@ export const supabase = createClient(
 );
 
 export const isSupabaseConfigured = () => {
-    // Strict check: Ensure variables exist, are long enough, AND are not placeholders
-    const isUrlValid = supabaseUrl && supabaseUrl.length > 10 && !supabaseUrl.includes('placeholder');
-    const isKeyValid = supabaseKey && supabaseKey.length > 10 && !supabaseKey.includes('placeholder');
-    
-    return !!(isUrlValid && isKeyValid);
+    const isUrlValid = !!(supabaseUrl && isNonPlaceholder(supabaseUrl));
+    const isKeyValid = !!(supabaseKey && isNonPlaceholder(supabaseKey));
+    return isUrlValid && isKeyValid;
+};
+
+/** 仅布尔与变量名，用于界面排查（不含密钥） */
+export const getSupabaseEnvDiagnostics = () => {
+    const rawUrl = getEnvVar('VITE_SUPABASE_URL');
+    const rawKey = getEnvVar('VITE_SUPABASE_KEY');
+    const rawAnon = getEnvVar('VITE_SUPABASE_ANON_KEY');
+    const urlConfigured = !!(rawUrl && isNonPlaceholder(rawUrl));
+    const keyFromPrimary = !!(rawKey && isNonPlaceholder(rawKey));
+    const keyFromAnon = !!(rawAnon && isNonPlaceholder(rawAnon));
+    const keyConfigured = keyFromPrimary || keyFromAnon;
+    return {
+        urlConfigured,
+        keyConfigured,
+        /** 当前实际采用的 key 来源，未配置则为 null */
+        keyEnvName: keyFromPrimary ? 'VITE_SUPABASE_KEY' : keyFromAnon ? 'VITE_SUPABASE_ANON_KEY' : null,
+        clientConfigured: isSupabaseConfigured(),
+    };
 };

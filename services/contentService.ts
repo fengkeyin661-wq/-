@@ -52,7 +52,11 @@ export const checkDbConnection = async (): Promise<{
     details?: string;
 }> => {
     if (!isSupabaseConfigured()) {
-        return { status: 'local_only', message: '未配置云数据库，仅使用本地存储' };
+        return {
+            status: 'local_only',
+            message:
+                '未配置云数据库，仅使用本地存储（Vite 需在构建时注入 VITE_SUPABASE_URL 与 VITE_SUPABASE_KEY 或 VITE_SUPABASE_ANON_KEY；Vercel 改变量后请 Redeploy）',
+        };
     }
 
     try {

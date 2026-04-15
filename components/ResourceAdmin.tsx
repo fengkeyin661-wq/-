@@ -7,6 +7,7 @@ import {
     checkDbConnection 
 } from '../services/contentService';
 import { calculateNutritionFromIngredients } from '../services/geminiService';
+import { getSupabaseEnvDiagnostics } from '../services/supabaseClient';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -658,7 +659,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 </div>
             </header>
 
-            {dbStatus?.status === 'local_only' && (
+            {dbStatus?.status === 'local_only' && (() => {
+                const diag = getSupabaseEnvDiagnostics();
+                return (
                 <div
                     className="bg-amber-50 border-b border-amber-200 px-6 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-start gap-2 shadow-sm"
                     role="status"
@@ -668,16 +671,29 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         <span className="text-lg" aria-hidden>📍</span>
                         本地模式
                     </div>
-                    <div className="min-w-0 flex-1 space-y-1">
+                    <div className="min-w-0 flex-1 space-y-2">
                         <p>{dbStatus.message}</p>
+                        <p className="text-xs text-amber-900 font-semibold rounded border border-amber-200 bg-amber-100/40 px-2 py-1.5">
+                            前端包内检测：Supabase URL {diag.urlConfigured ? '已注入' : '未注入'}；密钥{' '}
+                            {diag.keyConfigured ? `已注入（${diag.keyEnvName}）` : '未注入'}。
+                            {!diag.urlConfigured && !diag.keyConfigured && (
+                                <span className="block mt-1 font-normal text-amber-800">
+                                    若在 Vercel 已填写变量仍如此：Vite 只在<strong>构建</strong>时写入 <code className="text-[11px]">import.meta.env</code>，请在 Vercel 对对应环境执行一次 <strong>Redeploy</strong>；预览链接需在变量里勾选 Preview；生产链接需勾选 Production。
+                                </span>
+                            )}
+                            {diag.urlConfigured && !diag.keyConfigured && (
+                                <span className="block mt-1 font-normal text-amber-800">
+                                    URL 已进入前端包，但密钥未进入。请确认变量名为 <code className="text-[11px]">VITE_SUPABASE_KEY</code> 或官方模板常用的 <code className="text-[11px]">VITE_SUPABASE_ANON_KEY</code>（anon public），保存后重新部署。
+                                </span>
+                            )}
+                        </p>
                         <p className="text-xs text-amber-800 leading-relaxed">
-                            资源与审核数据保存在本机浏览器（localStorage），未写入云端。更换电脑或清除浏览器数据后无法从服务器恢复；多人协作或备份请配置环境变量{' '}
-                            <code className="rounded bg-amber-100/80 px-1 py-0.5 text-[11px]">VITE_SUPABASE_URL</code> 与{' '}
-                            <code className="rounded bg-amber-100/80 px-1 py-0.5 text-[11px]">VITE_SUPABASE_KEY</code> 并初始化云端表。
+                            资源与审核数据暂存在本机浏览器（localStorage）。多人协作或云端备份需让上述检测均为「已注入」，并在 Supabase 中创建 <code className="text-[11px]">app_content</code> 等表及 RLS。
                         </p>
                     </div>
                 </div>
-            )}
+                );
+            })()}
 
             <div className="flex flex-1 overflow-hidden">
                 <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
