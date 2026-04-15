@@ -635,15 +635,49 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 </div>
                 <div className="flex items-center gap-4">
                     {dbStatus && (
-                        <span className={`text-[10px] px-2 py-1 rounded border ${
-                            dbStatus.status === 'connected' ? 'bg-green-600 border-green-400 text-white' : 'bg-slate-600 border-slate-500 text-slate-300'
-                        }`}>
-                            {dbStatus.status === 'connected' ? '🟢 云端已连接' : '⚪️ 本地模式'}
+                        <span
+                            className={`text-xs px-2.5 py-1 rounded-md border font-bold ${
+                                dbStatus.status === 'connected'
+                                    ? 'bg-green-600 border-green-400 text-white'
+                                    : dbStatus.status === 'local_only'
+                                    ? 'bg-amber-500 border-amber-400 text-white'
+                                    : 'bg-slate-600 border-slate-500 text-slate-200'
+                            }`}
+                            title={dbStatus.details || dbStatus.message}
+                        >
+                            {dbStatus.status === 'connected'
+                                ? '🟢 云端已连接'
+                                : dbStatus.status === 'local_only'
+                                ? '📍 本地模式（未连接数据库）'
+                                : dbStatus.status === 'error'
+                                ? '⚠️ 数据库异常'
+                                : '⚪️ ' + (dbStatus.message || '离线')}
                         </span>
                     )}
                     <button onClick={onLogout} className="bg-teal-800 hover:bg-teal-900 px-4 py-1.5 rounded text-xs font-bold transition-colors">退出</button>
                 </div>
             </header>
+
+            {dbStatus?.status === 'local_only' && (
+                <div
+                    className="bg-amber-50 border-b border-amber-200 px-6 py-3 text-sm text-amber-950 flex flex-col sm:flex-row sm:items-start gap-2 shadow-sm"
+                    role="status"
+                    aria-live="polite"
+                >
+                    <div className="flex items-center gap-2 shrink-0 font-bold text-amber-900">
+                        <span className="text-lg" aria-hidden>📍</span>
+                        本地模式
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                        <p>{dbStatus.message}</p>
+                        <p className="text-xs text-amber-800 leading-relaxed">
+                            资源与审核数据保存在本机浏览器（localStorage），未写入云端。更换电脑或清除浏览器数据后无法从服务器恢复；多人协作或备份请配置环境变量{' '}
+                            <code className="rounded bg-amber-100/80 px-1 py-0.5 text-[11px]">VITE_SUPABASE_URL</code> 与{' '}
+                            <code className="rounded bg-amber-100/80 px-1 py-0.5 text-[11px]">VITE_SUPABASE_KEY</code> 并初始化云端表。
+                        </p>
+                    </div>
+                </div>
+            )}
 
             <div className="flex flex-1 overflow-hidden">
                 <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
