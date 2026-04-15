@@ -23,7 +23,20 @@ import { generateSystemPortraits, evaluateRiskModels } from './services/riskMode
 import { ContentItem, fetchInteractions } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
 
+type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
+
+const detectPortalModeFromHostname = (): PortalMode => {
+  if (typeof window === 'undefined') return 'all';
+  const host = window.location.hostname.toLowerCase();
+  if (host.startsWith('admin.')) return 'admin';
+  if (host.startsWith('ops.')) return 'ops';
+  if (host.startsWith('doctor.')) return 'doctor';
+  if (host.startsWith('user.')) return 'user';
+  return 'all';
+};
+
 export const App: React.FC = () => {
+  const portalMode = detectPortalModeFromHostname();
   const [activeTab, setActiveTab] = useState('dashboard');
   
   // Auth State
@@ -52,11 +65,20 @@ export const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingElderly, setIsSavingElderly] = useState(false);
 
+  const canShowAdminEntry = portalMode === 'all' || portalMode === 'admin';
+  const canShowOpsEntry = portalMode === 'all' || portalMode === 'ops';
+  const canShowDoctorEntry = portalMode === 'all' || portalMode === 'doctor';
+  const canShowUserEntry = portalMode === 'all' || portalMode === 'user';
+
   useEffect(() => {
     if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) {
         refreshArchives();
     }
   }, [isAuthenticated, currentUserRole, currentDoctor]); 
+
+  useEffect(() => {
+    if (portalMode === 'user') setShowUserEntry(true);
+  }, [portalMode]);
 
   const refreshArchives = async () => {
     const allArchives = await fetchArchives();
@@ -83,6 +105,23 @@ export const App: React.FC = () => {
   };
 
   const handleLoginSuccess = (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
+    if (portalMode === 'admin' && !['admin', 'home'].includes(role)) {
+        alert('当前子域仅允许管理控制台登录');
+        return;
+    }
+    if (portalMode === 'ops' && role !== 'resource_admin') {
+        alert('当前子域仅允许资源运营台登录');
+        return;
+    }
+    if (portalMode === 'doctor' && role !== 'doctor') {
+        alert('当前子域仅允许医生工作站登录');
+        return;
+    }
+    if (portalMode === 'user') {
+        alert('当前子域仅允许用户端登录');
+        return;
+    }
+
     setIsAuthenticated(true);
     setCurrentUserRole(role);
     setShowLoginModal(false);
@@ -119,6 +158,13 @@ export const App: React.FC = () => {
       }
       setShowLoginModal(true);
   };
+
+  useEffect(() => {
+      if (isAuthenticated || showLoginModal) return;
+      if (portalMode === 'admin') openLoginFor('admin');
+      if (portalMode === 'ops') openLoginFor('resource');
+      if (portalMode === 'doctor') openLoginFor('doctor');
+  }, [portalMode, isAuthenticated, showLoginModal]);
 
   const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' | 'assessment' = 'view') => {
       setHealthRecord(archive.health_record);
@@ -335,7 +381,8 @@ export const App: React.FC = () => {
                 <h1 className="text-3xl font-black text-slate-800 tracking-tight">郑州大学医院</h1>
                 <p className="text-slate-500 font-medium mt-1">智慧健康管理中心</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
+            <div className={`grid grid-cols-1 ${portalMode === 'all' ? 'md:grid-cols-2' : ''} gap-6 w-full max-w-4xl`}>
+                {canShowAdminEntry && (
                 <button onClick={() => openLoginFor('admin')} className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 hover:shadow-xl hover:border-slate-300 transition-all text-left group relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-slate-100 rounded-bl-full -mr-4 -mt-4 opacity-50 group-hover:scale-110 transition-transform"></div>
                     <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center text-2xl mb-4 text-white relative z-10">⚡</div>
@@ -343,6 +390,8 @@ export const App: React.FC = () => {
                     <p className="text-xs text-slate-500">Admin Console</p>
                     <p className="text-sm text-slate-600 mt-3 opacity-80">系统配置、档案管理与全局分析</p>
                 </button>
+                )}
+                {canShowOpsEntry && (
                 <button onClick={() => openLoginFor('resource')} className="bg-white p-6 rounded-2xl shadow-lg border border-teal-100 hover:shadow-xl hover:border-teal-300 transition-all text-left group relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-teal-50 rounded-bl-full -mr-4 -mt-4 opacity-50 group-hover:scale-110 transition-transform"></div>
                     <div className="w-12 h-12 bg-teal-500 rounded-xl flex items-center justify-center text-2xl mb-4 text-white relative z-10">📦</div>
@@ -350,6 +399,8 @@ export const App: React.FC = () => {
                     <p className="text-xs text-teal-600">Resource Operations</p>
                     <p className="text-sm text-slate-600 mt-3 opacity-80">膳食、运动、医疗资源与活动发布</p>
                 </button>
+                )}
+                {canShowDoctorEntry && (
                 <button onClick={() => openLoginFor('doctor')} className="bg-white p-6 rounded-2xl shadow-lg border border-blue-100 hover:shadow-xl hover:border-blue-300 transition-all text-left group relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-bl-full -mr-4 -mt-4 opacity-50 group-hover:scale-110 transition-transform"></div>
                     <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-2xl mb-4 text-white relative z-10">👨‍⚕️</div>
@@ -357,7 +408,9 @@ export const App: React.FC = () => {
                     <p className="text-xs text-blue-600">Doctor Workstation</p>
                     <p className="text-sm text-slate-600 mt-3 opacity-80">我的签约用户、随访干预与审核</p>
                 </button>
-                {showUserEntry ? (
+                )}
+                {canShowUserEntry && (
+                showUserEntry ? (
                     <div className="bg-white p-6 rounded-2xl shadow-lg border border-green-200 text-left relative overflow-hidden flex flex-col justify-center animate-flipIn">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-lg font-bold text-green-900">职工健康登录</h3>
@@ -374,6 +427,7 @@ export const App: React.FC = () => {
                         <p className="text-xs text-green-600">User Health Portal</p>
                         <p className="text-sm text-slate-600 mt-3 opacity-80">查看个人档案、健康计划与服务</p>
                     </button>
+                )
                 )}
             </div>
             <div className="mt-12 text-xs text-slate-400 flex gap-4">
