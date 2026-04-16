@@ -219,6 +219,20 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    const handleTogglePublish = async (item: ContentItem) => {
+        const nextStatus: ContentItem['status'] = item.status === 'active' ? 'pending' : 'active';
+        const actionText = nextStatus === 'active' ? '上架' : '下架';
+        if (!confirm(`确定要${actionText}【${item.title}】吗？`)) return;
+        setLoading(true);
+        setLoadingText(`正在${actionText}...`);
+        try {
+            await saveContent({ ...item, status: nextStatus, updatedAt: new Date().toISOString() });
+            await loadData();
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
             setSelectedIds(new Set(items.map(i => i.id)));
@@ -940,13 +954,19 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                 </td>
                                                 <td className="p-3">
                                                     <div className="flex flex-wrap gap-1">
-                                                        {item.status === 'active' 
-                                                            ? <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-xs">已发布</span> 
-                                                            : <span className="bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded text-xs">草稿</span>}
+                                                        {item.status === 'active'
+                                                            ? <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-xs">已上架</span>
+                                                            : <span className="bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded text-xs">已下架</span>}
                                                         {item.tags?.slice(0,2).map(t => <span key={t} className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded text-xs">{t}</span>)}
                                                     </div>
                                                 </td>
                                                 <td className="p-3 text-right space-x-2">
+                                                    <button
+                                                        onClick={() => handleTogglePublish(item)}
+                                                        className={item.status === 'active' ? 'text-amber-600 hover:underline' : 'text-green-600 hover:underline'}
+                                                    >
+                                                        {item.status === 'active' ? '下架' : '上架'}
+                                                    </button>
                                                     <button onClick={() => openEdit(item)} className="text-blue-600 hover:underline">编辑</button>
                                                     <button onClick={() => handleDeleteContent(item.id)} className="text-red-600 hover:underline">删除</button>
                                                 </td>
@@ -1025,7 +1045,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         </div>
                                     </div>
                                 </div>
-                                <SelectField label="状态" value={editItem.status} onChange={(v:any) => setEditItem({...editItem, status: v})} options={['active', 'draft']} />
+                                <SelectField label="状态" value={editItem.status} onChange={(v:any) => setEditItem({...editItem, status: v})} options={['active', 'pending']} />
                             </FormSection>
 
                             {/* --- Specific Fields --- */}

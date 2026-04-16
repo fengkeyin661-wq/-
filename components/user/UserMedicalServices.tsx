@@ -62,9 +62,9 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
     useEffect(() => {
         const load = async () => {
             const [docs, meds, svcs, inters] = await Promise.all([
-                fetchContent('doctor'),
-                fetchContent('drug'),
-                fetchContent('service'),
+                fetchContent('doctor', 'active'),
+                fetchContent('drug', 'active'),
+                fetchContent('service', 'active'),
                 fetchInteractions()
             ]);
             setAllDoctors(docs);
