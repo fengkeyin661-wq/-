@@ -35,6 +35,26 @@ const getMedicalIcon = (item: ContentItem): string => {
     return '👨‍⚕️';
 };
 
+const isImageLike = (value?: string) => !!value && (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:image'));
+const withImageVersion = (item: ContentItem): string => {
+    const src = item.image || '';
+    if (!src || src.startsWith('data:image')) return src;
+    const ver = encodeURIComponent(item.updatedAt || '');
+    if (!ver) return src;
+    return src.includes('?') ? `${src}&v=${ver}` : `${src}?v=${ver}`;
+};
+
+const DoctorAvatar: React.FC<{ doctor: ContentItem; className?: string; fallbackClassName?: string }> = ({
+    doctor,
+    className = 'w-14 h-14',
+    fallbackClassName = 'bg-blue-50 rounded-xl flex items-center justify-center text-3xl'
+}) => {
+    if (isImageLike(doctor.image)) {
+        return <img src={withImageVersion(doctor)} alt={doctor.title} className={`${className} rounded-xl object-cover border border-slate-200 shrink-0`} />;
+    }
+    return <div className={`${className} ${fallbackClassName} shrink-0`}>{getMedicalIcon(doctor)}</div>;
+};
+
 const scoreDoctor = (doc: ContentItem, risks: string[]) => {
     let score = 0;
     const text = (doc.title + (doc.tags?.join(' ') || '') + (doc.description || '') + (doc.details?.dept || '')).toLowerCase();
@@ -144,7 +164,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     };
 
     const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
-        if (!userId || !userName) return alert("用户信息缺失");
+        if (!userId) return alert("用户信息缺失，请重新登录后再试");
         
         let interactionType: InteractionItem['type'] = 'doctor_booking';
         let confirmMsg = '';
@@ -170,7 +190,8 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
             await saveInteraction({
                 id: `${interactionType}_${Date.now()}`,
                 type: interactionType,
-                userId, userName: userName || '用户',
+                userId,
+                userName: userName?.trim() || archive?.name?.trim() || '用户',
                 targetId: target.id,
                 targetName: target.title,
                 status: 'pending',
@@ -316,9 +337,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                     onClick={() => setSelectedDoctor(doc)}
                                     className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
                                 >
-                                    <div className="w-14 h-14 bg-blue-50 rounded-xl flex items-center justify-center text-3xl shrink-0">
-                                        {getMedicalIcon(doc)}
-                                    </div>
+                                    <DoctorAvatar doctor={doc} />
                                     <div className="flex-1 min-w-0">
                                         <div className="flex justify-between items-start mb-1">
                                             <h3 className="font-bold text-slate-800">{doc.title}</h3>
@@ -385,9 +404,13 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                     <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
                             <button onClick={() => setSelectedDoctor(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm">×</button>
-                            <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">
-                                {getMedicalIcon(selectedDoctor)}
-                            </div>
+                            {isImageLike(selectedDoctor.image) ? (
+                                <img src={withImageVersion(selectedDoctor)} alt={selectedDoctor.title} className="w-20 h-20 rounded-2xl object-cover border border-slate-200 shadow-sm mx-auto mb-4" />
+                            ) : (
+                                <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">
+                                    {getMedicalIcon(selectedDoctor)}
+                                </div>
+                            )}
                             <h3 className="text-xl font-black text-slate-800 mb-1">{selectedDoctor.title}</h3>
                             <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">
                                 {selectedDoctor.details?.dept} · {selectedDoctor.details?.title}

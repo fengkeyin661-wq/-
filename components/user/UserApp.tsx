@@ -19,6 +19,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const resolvedUserName = userArchive?.name?.trim() || userArchive?.health_record?.profile?.name?.trim() || '用户';
 
   const loadUser = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -94,7 +95,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
           <UserHabits 
               assessment={userArchive.assessment_data}
               userCheckupId={userArchive.checkup_id}
-              userName={userArchive.name}
+              userName={resolvedUserName}
               record={userArchive.health_record}
               onRefresh={() => loadUser(true)}
           />
@@ -104,7 +105,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
           <UserHealthResources 
               assessment={userArchive.assessment_data} 
               userCheckupId={userArchive.checkup_id}
-              userName={userArchive.name}
+              userName={resolvedUserName}
               record={userArchive.health_record}
           />
       )}
@@ -112,7 +113,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       {activeTab === 'community' && (
           <UserCommunity 
               userId={userArchive.checkup_id}
-              userName={userArchive.name}
+              userName={resolvedUserName}
               assessment={userArchive.assessment_data} 
           />
       )}
@@ -120,7 +121,7 @@ export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
       {activeTab === 'interaction' && (
           <UserInteraction 
               userId={userArchive.checkup_id} 
-              userName={userArchive.name}
+              userName={resolvedUserName}
               archive={userArchive} 
               assessment={userArchive.assessment_data}
               onMessageRead={() => setUnreadCount(0)}
