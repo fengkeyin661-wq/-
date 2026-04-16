@@ -268,6 +268,41 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    const handleBatchSetPublishStatus = async (nextStatus: ContentItem['status']) => {
+        if (selectedIds.size === 0) return;
+        const actionText = nextStatus === 'active' ? '上架' : '下架';
+        const selectedItems = items.filter((i) => selectedIds.has(i.id));
+        const needUpdate = selectedItems.filter((i) => i.status !== nextStatus);
+
+        if (needUpdate.length === 0) {
+            alert(`选中资源已全部处于${actionText}状态`);
+            return;
+        }
+
+        if (!confirm(`确定批量${actionText} ${needUpdate.length} 项资源吗？`)) return;
+
+        setLoading(true);
+        setLoadingText(`正在批量${actionText}...`);
+        try {
+            await Promise.all(
+                needUpdate.map((item) =>
+                    saveContent({
+                        ...item,
+                        status: nextStatus,
+                        updatedAt: new Date().toISOString(),
+                    })
+                )
+            );
+            setSelectedIds(new Set());
+            await loadData();
+        } catch (e) {
+            console.error(e);
+            alert(`批量${actionText}过程中发生错误`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSaveContent = async () => {
         if (!editItem.title || !editItem.type) {
             alert("标题和类型为必填项");
@@ -899,9 +934,23 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         )}
 
                                         {selectedIds.size > 0 && (
-                                            <button onClick={handleBatchDelete} className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 animate-fadeIn">
-                                                🗑️ 批量删除 ({selectedIds.size})
-                                            </button>
+                                            <>
+                                                <button
+                                                    onClick={() => handleBatchSetPublishStatus('active')}
+                                                    className="bg-green-50 text-green-700 border border-green-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-green-100 flex items-center gap-1 animate-fadeIn"
+                                                >
+                                                    ⬆️ 批量上架 ({selectedIds.size})
+                                                </button>
+                                                <button
+                                                    onClick={() => handleBatchSetPublishStatus('pending')}
+                                                    className="bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-amber-100 flex items-center gap-1 animate-fadeIn"
+                                                >
+                                                    ⬇️ 批量下架 ({selectedIds.size})
+                                                </button>
+                                                <button onClick={handleBatchDelete} className="bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1 animate-fadeIn">
+                                                    🗑️ 批量删除 ({selectedIds.size})
+                                                </button>
+                                            </>
                                         )}
                                         <button onClick={() => openEdit()} className="bg-teal-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-teal-700 shadow-sm flex items-center gap-2">
                                             <span>+</span> 新增
