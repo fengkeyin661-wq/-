@@ -8,6 +8,14 @@ import {
 } from '../services/contentService';
 import { calculateNutritionFromIngredients } from '../services/geminiService';
 import { getSupabaseEnvDiagnostics } from '../services/supabaseClient';
+import {
+    loadResourcePresets,
+    saveResourcePresets,
+    resetResourcePresetStorage,
+    RESOURCE_PRESET_META,
+    type ResourcePresets,
+    type ResourcePresetKey,
+} from '../services/resourcePresetStore';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -15,26 +23,97 @@ interface Props {
     onLogout: () => void;
 }
 
-// --- Constants & Options ---
-const PRESETS = {
-    activityTypes: ['义诊', '健康讲座', '亲子活动', '急救培训', '慢病小组', '户外运动'],
-    targetAudience: ['老年人', '孕产妇', '儿童', '高血压患者', '糖尿病患者', '全人群'],
-    enrollMethod: ['线上预约', '电话报名', '现场空降'],
-    depts: ['全科', '中医科', '内科', '外科', '妇科', '儿科', '口腔科', '康复科', '预防保健科'],
-    docTitles: ['主任医师', '副主任医师', '主治医师', '医师', '康复师', '营养师'],
-    docStatus: ['出诊中', '停诊', '休假'],
-    drugRx: ['RX (处方药)', 'OTC (甲类)', 'OTC (乙类)'],
-    drugInsurance: ['甲类', '乙类', '自费'],
-    drugStock: ['充足', '紧张', '缺货'],
-    dietDifficulty: ['初级', '中等', '较难'],
-    exerciseIntensity: ['低强度', '中强度', '高强度'],
-    dietTags: ['低GI', '高纤维', '低脂', '高蛋白', '适合糖友', '护心'],
-    exerciseTypes: ['有氧', '力量', '柔韧性', '康复训练', '体态矫正'],
-    // New Service Presets
-    serviceInsurance: ['甲类', '乙类', '自费'],
-    bookingTypes: ['需预约', '无需预约'],
-    // Circle Presets
-    circleTags: ['运动', '饮食', '慢病', '养生', '心理']
+function isImageLike(s?: string) {
+    if (!s) return false;
+    return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:image');
+}
+
+function defaultResourceEmoji(type?: ContentItem['type']): string {
+    switch (type) {
+        case 'meal':
+            return '🍲';
+        case 'exercise':
+            return '🏃';
+        case 'event':
+            return '🎉';
+        case 'service':
+            return '🏥';
+        case 'drug':
+            return '💊';
+        case 'circle':
+            return '⭕';
+        case 'doctor':
+            return '👨‍⚕️';
+        default:
+            return '📦';
+    }
+}
+
+const ResourceThumb: React.FC<{ value?: string; className?: string }> = ({ value, className = 'h-8 w-8' }) => {
+    if (!value) {
+        return <span className={`bg-slate-100 rounded flex items-center justify-center text-sm shrink-0 ${className}`}>?</span>;
+    }
+    if (isImageLike(value)) {
+        return <img src={value} alt="" className={`object-cover rounded border border-slate-200 shrink-0 ${className}`} />;
+    }
+    return <span className={`bg-slate-100 rounded flex items-center justify-center shrink-0 ${className}`}>{value}</span>;
+};
+
+const PresetListEditor: React.FC<{
+    label: string;
+    items: string[];
+    onChange: (next: string[]) => void;
+}> = ({ label, items, onChange }) => {
+    const [addVal, setAddVal] = useState('');
+    const add = () => {
+        const t = addVal.trim();
+        if (!t) return;
+        if (items.includes(t)) {
+            setAddVal('');
+            return;
+        }
+        onChange([...items, t]);
+        setAddVal('');
+    };
+    return (
+        <div className="border border-slate-200 rounded-lg p-3 bg-white">
+            <div className="text-xs font-bold text-slate-700 mb-2">{label}</div>
+            <div className="flex flex-wrap gap-2 mb-2 min-h-[28px]">
+                {items.map((it, idx) => (
+                    <span
+                        key={`${it}-${idx}`}
+                        className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-xs px-2 py-1 rounded border border-slate-200 max-w-full break-all"
+                    >
+                        {it}
+                        <button
+                            type="button"
+                            className="text-red-500 hover:text-red-700 font-bold shrink-0"
+                            onClick={() => onChange(items.filter((_, i) => i !== idx))}
+                        >
+                            ×
+                        </button>
+                    </span>
+                ))}
+            </div>
+            <div className="flex gap-2">
+                <input
+                    className="flex-1 border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                    value={addVal}
+                    onChange={(e) => setAddVal(e.target.value)}
+                    placeholder="输入新选项，回车或点添加"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            add();
+                        }
+                    }}
+                />
+                <button type="button" onClick={add} className="px-3 py-1 bg-teal-600 text-white text-xs font-bold rounded-lg hover:bg-teal-700 shrink-0">
+                    添加
+                </button>
+            </div>
+        </div>
+    );
 };
 
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
@@ -51,6 +130,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // DB Diagnostics
     const [dbStatus, setDbStatus] = useState<{status: string, message: string, details?: string} | null>(null);
 
+    const [presets, setPresets] = useState<ResourcePresets>(() => loadResourcePresets());
+    const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
+    const [presetDraft, setPresetDraft] = useState<ResourcePresets | null>(null);
+
     // Content Edit State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editItem, setEditItem] = useState<Partial<ContentItem>>({});
@@ -62,6 +145,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     // Generic ref for Excel Import
     const batchImportRef = useRef<HTMLInputElement>(null);
+    const coverImageInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
@@ -204,6 +288,49 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         } else {
             setEditItem({ ...editItem, tags: [...currentTags, tag] });
         }
+    };
+
+    const handleCoverImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件');
+            e.target.value = '';
+            return;
+        }
+        const max = 2 * 1024 * 1024;
+        if (file.size > max) {
+            alert('图片请控制在 2MB 以内，可压缩后再上传');
+            e.target.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            setEditItem((prev) => ({ ...prev, image: reader.result as string }));
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    };
+
+    const openPresetEditor = () => {
+        setPresetDraft(loadResourcePresets());
+        setIsPresetModalOpen(true);
+    };
+
+    const savePresetDraft = () => {
+        if (!presetDraft) return;
+        saveResourcePresets(presetDraft);
+        setPresets(loadResourcePresets());
+        setIsPresetModalOpen(false);
+        setPresetDraft(null);
+    };
+
+    const resetPresetsToDefault = () => {
+        if (!confirm('确定恢复所有下拉/标签选项为系统默认？将删除本地自定义模板。')) return;
+        resetResourcePresetStorage();
+        const next = loadResourcePresets();
+        setPresets(next);
+        setPresetDraft((d) => (d ? next : null));
     };
 
     // --- Circle Presets Logic ---
@@ -655,6 +782,13 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 : '⚪️ ' + (dbStatus.message || '离线')}
                         </span>
                     )}
+                    <button
+                        type="button"
+                        onClick={openPresetEditor}
+                        className="bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded text-xs font-bold border border-white/30 transition-colors"
+                    >
+                        选项模板
+                    </button>
                     <button onClick={onLogout} className="bg-teal-800 hover:bg-teal-900 px-4 py-1.5 rounded text-xs font-bold transition-colors">退出</button>
                 </div>
             </header>
@@ -792,7 +926,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             <tr key={item.id} className={`hover:bg-slate-50 ${selectedIds.has(item.id) ? 'bg-blue-50/30' : ''}`}>
                                                 <td className="p-3"><input type="checkbox" onChange={() => handleSelectRow(item.id)} checked={selectedIds.has(item.id)} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></td>
                                                 <td className="p-3 font-bold flex items-center gap-2">
-                                                    <span className="text-xl bg-slate-100 w-8 h-8 rounded flex items-center justify-center">{item.image}</span>
+                                                    <ResourceThumb value={item.image} />
                                                     {item.title}
                                                 </td>
                                                 <td className="p-3 text-xs text-slate-500">
@@ -848,13 +982,47 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {/* --- Common Fields --- */}
                             <FormSection title="基础信息">
                                 <InputField label="标题 / 名称" placeholder="请输入名称" value={editItem.title} onChange={(v:any) => setEditItem({...editItem, title: v})} />
-                                <div className="grid grid-cols-4 gap-2 items-end">
-                                    <div className="col-span-3">
-                                        <label className="block text-xs font-bold text-slate-700 mb-1">封面图标 / 头像</label>
-                                        <input className="w-full border border-slate-300 rounded-lg p-2 text-sm" value={editItem.image || ''} onChange={e => setEditItem({...editItem, image: e.target.value})} placeholder="输入 Emoji 或 图片URL" />
-                                    </div>
-                                    <div className="h-10 w-10 bg-slate-100 rounded-lg flex items-center justify-center text-xl border border-slate-200">
-                                        {editItem.image || '?'}
+                                <div className="col-span-2 space-y-2">
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">封面 / 头像（Emoji、图片链接或本地上传）</label>
+                                    <div className="flex flex-wrap items-start gap-3">
+                                        <ResourceThumb value={editItem.image} className="h-16 w-16 text-2xl" />
+                                        <div className="flex-1 min-w-[200px] space-y-2">
+                                            <input
+                                                className="w-full border border-slate-300 rounded-lg p-2 text-sm"
+                                                value={editItem.image?.startsWith('data:') ? '' : editItem.image || ''}
+                                                onChange={(e) => setEditItem({ ...editItem, image: e.target.value })}
+                                                placeholder="输入 Emoji 或 https 图片地址"
+                                            />
+                                            <div className="flex flex-wrap gap-2">
+                                                <input
+                                                    ref={coverImageInputRef}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    className="hidden"
+                                                    onChange={handleCoverImageFile}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => coverImageInputRef.current?.click()}
+                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white hover:bg-teal-700"
+                                                >
+                                                    上传图片
+                                                </button>
+                                                {(editItem.image?.startsWith('data:') ||
+                                                    (editItem.image && (editItem.image.startsWith('http') || editItem.image.startsWith('https')))) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setEditItem({ ...editItem, image: defaultResourceEmoji(editItem.type) })}
+                                                        className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-600 hover:bg-slate-50"
+                                                    >
+                                                        清除图片
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {editItem.image?.startsWith('data:') && (
+                                                <p className="text-[11px] text-amber-700">已使用本地上传（Base64 存入资源数据）。仅本地模式时请注意浏览器存储体积。</p>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                                 <SelectField label="状态" value={editItem.status} onChange={(v:any) => setEditItem({...editItem, status: v})} options={['active', 'draft']} />
@@ -871,13 +1039,13 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     </FormSection>
                                     <FormSection title="活动详情">
                                         <InputField label="主讲人/负责人" value={editItem.details?.speaker} onChange={(v:any) => updateDetail('speaker', v)} />
-                                        <SelectField label="报名方式" value={editItem.details?.method} onChange={(v:any) => updateDetail('method', v)} options={PRESETS.enrollMethod} />
+                                        <SelectField label="报名方式" value={editItem.details?.method} onChange={(v:any) => updateDetail('method', v)} options={presets.enrollMethod} />
                                         <InputField label="名额限制 (人)" type="number" value={editItem.details?.limit} onChange={(v:any) => updateDetail('limit', v)} />
                                         <InputField label="费用 (元)" placeholder="免费请填 0" value={editItem.details?.cost} onChange={(v:any) => updateDetail('cost', v)} />
                                     </FormSection>
                                     <FormSection title="分类标签">
-                                        <TagSelector label="活动类型" tags={PRESETS.activityTypes} selected={editItem.tags} onToggle={toggleTag} />
-                                        <TagSelector label="面向人群" tags={PRESETS.targetAudience} selected={editItem.tags} onToggle={toggleTag} />
+                                        <TagSelector label="活动类型" tags={presets.activityTypes} selected={editItem.tags} onToggle={toggleTag} />
+                                        <TagSelector label="面向人群" tags={presets.targetAudience} selected={editItem.tags} onToggle={toggleTag} />
                                     </FormSection>
                                 </>
                             )}
@@ -890,7 +1058,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="初始成员数 (虚拟)" type="number" value={editItem.details?.memberCount} onChange={(v:any) => updateDetail('memberCount', v)} />
                                     </FormSection>
                                     <FormSection title="分类标签">
-                                        <TagSelector label="圈子类型" tags={PRESETS.circleTags} selected={editItem.tags} onToggle={toggleTag} />
+                                        <TagSelector label="圈子类型" tags={presets.circleTags} selected={editItem.tags} onToggle={toggleTag} />
                                     </FormSection>
                                 </>
                             )}
@@ -899,7 +1067,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {activeTab === 'service' && (
                                 <>
                                     <FormSection title="基础分类与标识">
-                                        <SelectField label="归属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={PRESETS.depts} />
+                                        <SelectField label="归属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={presets.depts} />
                                         <InputField label="科室编码" placeholder="如：DEPT001" value={editItem.details?.deptCode} onChange={(v:any) => updateDetail('deptCode', v)} />
                                         <InputField label="一级分类" value={editItem.details?.categoryL1} onChange={(v:any) => updateDetail('categoryL1', v)} />
                                         <InputField label="二级分类" value={editItem.details?.categoryL2} onChange={(v:any) => updateDetail('categoryL2', v)} />
@@ -913,7 +1081,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="临床意义" full value={editItem.details?.clinicalSignificance} onChange={(v:any) => updateDetail('clinicalSignificance', v)} />
                                     </FormSection>
                                     <FormSection title="预约与执行">
-                                        <SelectField label="预约类型" value={editItem.details?.bookingType} onChange={(v:any) => updateDetail('bookingType', v)} options={PRESETS.bookingTypes} />
+                                        <SelectField label="预约类型" value={editItem.details?.bookingType} onChange={(v:any) => updateDetail('bookingType', v)} options={presets.bookingTypes} />
                                         <InputField label="预约规则模板" placeholder="如：常规检查预约" value={editItem.details?.bookingTemplate} onChange={(v:any) => updateDetail('bookingTemplate', v)} />
                                         <InputField label="就诊地点详情" value={editItem.details?.location} onChange={(v:any) => updateDetail('location', v)} />
                                         <InputField label="预计耗时" value={editItem.details?.duration} onChange={(v:any) => updateDetail('duration', v)} />
@@ -921,7 +1089,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     </FormSection>
                                     <FormSection title="费用与医保">
                                         <InputField label="标准价格 (元)" type="number" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
-                                        <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={PRESETS.serviceInsurance} />
+                                        <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={presets.serviceInsurance} />
                                         <InputField label="自费估算 (元)" type="number" value={editItem.details?.selfPayEst} onChange={(v:any) => updateDetail('selfPayEst', v)} />
                                         <InputField label="医保报销说明" full value={editItem.details?.reimbursementNote} onChange={(v:any) => updateDetail('reimbursementNote', v)} />
                                     </FormSection>
@@ -935,10 +1103,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {activeTab === 'doctor' && (
                                 <>
                                     <FormSection title="职业信息">
-                                        <SelectField label="所属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={PRESETS.depts} />
+                                        <SelectField label="所属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={presets.depts} />
                                         <InputField label="科室编码" value={editItem.details?.deptCode} onChange={(v:any) => updateDetail('deptCode', v)} />
-                                        <SelectField label="职称" value={editItem.details?.title} onChange={(v:any) => updateDetail('title', v)} options={PRESETS.docTitles} />
-                                        <SelectField label="当前状态" value={editItem.details?.docStatus} onChange={(v:any) => updateDetail('docStatus', v)} options={PRESETS.docStatus} />
+                                        <SelectField label="职称" value={editItem.details?.title} onChange={(v:any) => updateDetail('title', v)} options={presets.docTitles} />
+                                        <SelectField label="当前状态" value={editItem.details?.docStatus} onChange={(v:any) => updateDetail('docStatus', v)} options={presets.docStatus} />
                                         <InputField label="挂号费 (元)" value={editItem.details?.fee} onChange={(v:any) => updateDetail('fee', v)} />
                                     </FormSection>
                                     
@@ -959,9 +1127,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {activeTab === 'drug' && (
                                 <>
                                     <FormSection title="药品属性">
-                                        <SelectField label="处方类型" value={editItem.details?.rxType} onChange={(v:any) => updateDetail('rxType', v)} options={PRESETS.drugRx} />
-                                        <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={PRESETS.drugInsurance} />
-                                        <SelectField label="库存状态" value={editItem.details?.stock} onChange={(v:any) => updateDetail('stock', v)} options={PRESETS.drugStock} />
+                                        <SelectField label="处方类型" value={editItem.details?.rxType} onChange={(v:any) => updateDetail('rxType', v)} options={presets.drugRx} />
+                                        <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={presets.drugInsurance} />
+                                        <SelectField label="库存状态" value={editItem.details?.stock} onChange={(v:any) => updateDetail('stock', v)} options={presets.drugStock} />
                                         <InputField label="规格" placeholder="如：0.5g*20片/盒" value={editItem.details?.spec} onChange={(v:any) => updateDetail('spec', v)} />
                                     </FormSection>
                                     <FormSection title="用药指导">
@@ -976,7 +1144,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {activeTab === 'recipe' && (
                                 <>
                                     <FormSection title="制作详情">
-                                        <SelectField label="制作难度" value={editItem.details?.difficulty} onChange={(v:any) => updateDetail('difficulty', v)} options={PRESETS.dietDifficulty} />
+                                        <SelectField label="制作难度" value={editItem.details?.difficulty} onChange={(v:any) => updateDetail('difficulty', v)} options={presets.dietDifficulty} />
                                         <TextAreaField label="所需食材 (支持AI分析)" placeholder="如：干木耳10g，黄瓜一根" value={editItem.details?.ingredients} onChange={(v:any) => updateDetail('ingredients', v)} />
                                         <button onClick={handleAiAnalysis} disabled={isAnalyzing} className="col-span-2 text-xs bg-teal-50 text-teal-600 border border-teal-200 py-2 rounded flex justify-center items-center gap-2 hover:bg-teal-100">
                                             {isAnalyzing ? '⏳ 正在分析营养成分...' : '✨ 点击进行 AI 营养分析'}
@@ -993,7 +1161,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="营养素总结" full value={editItem.details?.nutrition} onChange={(v:any) => updateDetail('nutrition', v)} />
                                     </FormSection>
                                     <FormSection title="健康建议">
-                                        <TagSelector label="健康标签" tags={PRESETS.dietTags} selected={editItem.tags} onToggle={toggleTag} />
+                                        <TagSelector label="健康标签" tags={presets.dietTags} selected={editItem.tags} onToggle={toggleTag} />
                                         <TextAreaField label="制作步骤" value={editItem.details?.steps} onChange={(v:any) => updateDetail('steps', v)} />
                                     </FormSection>
                                 </>
@@ -1003,12 +1171,12 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {activeTab === 'exercise' && (
                                 <>
                                     <FormSection title="训练参数">
-                                        <SelectField label="强度等级" value={editItem.details?.intensity} onChange={(v:any) => updateDetail('intensity', v)} options={PRESETS.exerciseIntensity} />
+                                        <SelectField label="强度等级" value={editItem.details?.intensity} onChange={(v:any) => updateDetail('intensity', v)} options={presets.exerciseIntensity} />
                                         <InputField label="推荐时长/组数" value={editItem.details?.duration} onChange={(v:any) => updateDetail('duration', v)} />
                                         <InputField label="消耗热量 (估算)" value={editItem.details?.cal} onChange={(v:any) => updateDetail('cal', v)} />
                                     </FormSection>
                                     <FormSection title="专业指导">
-                                        <TagSelector label="运动类型" tags={PRESETS.exerciseTypes} selected={editItem.tags} onToggle={toggleTag} />
+                                        <TagSelector label="运动类型" tags={presets.exerciseTypes} selected={editItem.tags} onToggle={toggleTag} />
                                         <InputField label="演示视频/GIF链接" full value={editItem.details?.videoUrl} onChange={(v:any) => updateDetail('videoUrl', v)} />
                                         <InputField label="适宜人群" full value={editItem.details?.audience} onChange={(v:any) => updateDetail('audience', v)} />
                                         <TextAreaField label="禁忌/风险提示" value={editItem.details?.risks} onChange={(v:any) => updateDetail('risks', v)} />
@@ -1021,6 +1189,67 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
                             <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200 transition-colors">取消</button>
                             <button onClick={handleSaveContent} className="px-8 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-lg transition-transform active:scale-95">保存信息</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isPresetModalOpen && presetDraft && (
+                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">下拉与标签选项模板</h3>
+                                <p className="text-xs text-slate-500 mt-1">增删后保存，将用于新增/编辑资源时的下拉与标签选择。</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsPresetModalOpen(false);
+                                    setPresetDraft(null);
+                                }}
+                                className="text-slate-400 hover:text-slate-600 text-2xl font-bold leading-none"
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50">
+                            {RESOURCE_PRESET_META.map(({ key, label }) => (
+                                <PresetListEditor
+                                    key={key}
+                                    label={label}
+                                    items={presetDraft[key]}
+                                    onChange={(next) =>
+                                        setPresetDraft((d) => (d ? { ...d, [key]: next } : d))
+                                    }
+                                />
+                            ))}
+                        </div>
+                        <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={resetPresetsToDefault}
+                                className="px-4 py-2 rounded-lg text-sm font-bold text-amber-800 border border-amber-300 bg-amber-50 hover:bg-amber-100"
+                            >
+                                恢复默认
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsPresetModalOpen(false);
+                                    setPresetDraft(null);
+                                }}
+                                className="px-4 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-200"
+                            >
+                                取消
+                            </button>
+                            <button
+                                type="button"
+                                onClick={savePresetDraft}
+                                className="px-6 py-2 rounded-lg text-sm font-bold text-white bg-teal-600 hover:bg-teal-700"
+                            >
+                                保存模板
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1057,21 +1286,32 @@ const InputField = ({ label, value, onChange, placeholder, full = false, type = 
     </div>
 );
 
-const SelectField = ({ label, value, onChange, options, full = false }: any) => (
-    <div className={full ? "col-span-2" : ""}>
-        <label className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
-        <select 
-            className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-teal-500 outline-none"
-            value={value || ''}
-            onChange={e => onChange(e.target.value)}
-        >
-            <option value="">请选择...</option>
-            {options.map((opt: string) => (
-                <option key={opt} value={opt}>{opt}</option>
-            ))}
-        </select>
-    </div>
-);
+const SelectField = ({ label, value, onChange, options, full = false }: any) => {
+    const mergedOptions = React.useMemo(() => {
+        const opts = [...(options || [])];
+        const v = value && typeof value === 'string' ? value : '';
+        if (v && !opts.includes(v)) opts.unshift(v);
+        return opts;
+    }, [options, value]);
+
+    return (
+        <div className={full ? "col-span-2" : ""}>
+            <label className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
+            <select
+                className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-teal-500 outline-none"
+                value={value || ''}
+                onChange={(e) => onChange(e.target.value)}
+            >
+                <option value="">请选择...</option>
+                {mergedOptions.map((opt: string) => (
+                    <option key={opt} value={opt}>
+                        {opt}
+                    </option>
+                ))}
+            </select>
+        </div>
+    );
+};
 
 const ToggleField = ({ label, value, onChange }: any) => (
     <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
