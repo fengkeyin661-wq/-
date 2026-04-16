@@ -58,6 +58,17 @@ const scoreItem = (item: ContentItem, risks: string[]) => {
     return score + Math.random();
 };
 
+const formatEventSchedule = (details?: Record<string, any>) => {
+    const recurrenceType = details?.recurrenceType;
+    const recurrenceLabel = recurrenceType === 'weekly' ? '每周' : recurrenceType === 'monthly' ? '每月' : '单次';
+    if (recurrenceType === 'weekly' || recurrenceType === 'monthly') {
+        const firstDate = details?.date?.split?.('T')?.[0];
+        const startText = firstDate ? `（首次：${firstDate}）` : '';
+        return `${recurrenceLabel}${details?.recurrenceRule ? ` · ${details.recurrenceRule}` : ''}${startText}`;
+    }
+    return details?.date?.split?.('T')?.[0] || '待定';
+};
+
 export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment }) => {
     const [allEvents, setAllEvents] = useState<EventWithStatus[]>([]);
     const [allCircles, setAllCircles] = useState<ContentItem[]>([]);
@@ -262,6 +273,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                             <div className="text-2xl mb-2">{getCommunityIcon(g.title, 'circle')}</div>
                                             <span className="text-xs font-bold text-slate-700 text-center px-1 line-clamp-1">{g.title}</span>
                                             <span className="text-[9px] text-slate-400 mt-1">{g.details?.memberCount || 0} 成员</span>
+                                            {g.details?.leader && <span className="text-[9px] text-slate-400 line-clamp-1">负责人: {g.details.leader}</span>}
                                         </div>
                                     ))}
                                 </div>
@@ -300,7 +312,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                         </span>
                                                     </div>
                                                     <div className="text-xs text-slate-500 flex gap-3 mb-2">
-                                                        <span>📅 {evt.details?.date?.split('T')[0] || '待定'}</span>
+                                                        <span>📅 {formatEventSchedule(evt.details)}</span>
                                                         <span>📍 {evt.details?.loc || '线上'}</span>
                                                     </div>
                                                     <div className="flex items-center gap-2">
@@ -415,7 +427,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="bg-slate-50 p-3 rounded-xl">
                                         <div className="text-xs text-slate-400 mb-1">时间</div>
-                                        <div className="font-bold text-slate-800 text-sm">{selectedItem.details?.date?.split('T')[0] || '待定'}</div>
+                                        <div className="font-bold text-slate-800 text-sm">{formatEventSchedule(selectedItem.details)}</div>
                                     </div>
                                     <div className="bg-slate-50 p-3 rounded-xl">
                                         <div className="text-xs text-slate-400 mb-1">地点</div>
@@ -452,6 +464,23 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                     <div className="text-xs text-blue-400 mb-1">服务价格</div>
                                     <div className="text-2xl font-bold text-blue-700">
                                         {selectedItem.details?.price ? `¥${selectedItem.details.price}` : '免费'}
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedItem.type === 'circle' && (
+                                <div className="space-y-2">
+                                    <div className="bg-slate-50 p-3 rounded-xl text-sm">
+                                        <span className="text-slate-400">负责人：</span>
+                                        <span className="font-bold text-slate-700">{selectedItem.details?.leader || '待补充'}</span>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded-xl text-sm">
+                                        <span className="text-slate-400">联系方式：</span>
+                                        <span className="font-bold text-slate-700">{selectedItem.details?.contact || '待补充'}</span>
+                                    </div>
+                                    <div className="bg-slate-50 p-3 rounded-xl text-sm">
+                                        <div className="text-slate-400 mb-1">群二维码内容</div>
+                                        <div className="font-bold text-slate-700 break-all">{selectedItem.details?.groupQr || '待补充'}</div>
                                     </div>
                                 </div>
                             )}
