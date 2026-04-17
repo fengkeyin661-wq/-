@@ -5,6 +5,7 @@ import { findArchiveByCheckupId, HealthArchive } from '../services/dataService';
 
 interface Props {
     doctorId: string; 
+    doctorName?: string;
     onSelectPatient: (archive: HealthArchive, mode: 'assessment' | 'followup') => void;
 }
 
@@ -18,7 +19,7 @@ const DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周�
 const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SLOTS = [{id: 'AM', label: '上午'}, {id: 'PM', label: '下午'}];
 
-export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) => {
+export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelectPatient }) => {
     // 将默认 Tab 设为 'tasks'
     const [mainTab, setMainTab] = useState<'tasks' | 'patients' | 'schedule' | 'bookings'>('tasks');
     const [signedPatients, setSignedPatients] = useState<PatientData[]>([]);
@@ -38,6 +39,12 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
     const chatEndRef = useRef<HTMLDivElement>(null);
 
     const totalUnread = signedPatients.reduce((acc, curr) => acc + (curr.unread || 0), 0);
+
+    const matchesCurrentDoctor = (interaction: InteractionItem) => {
+        if (interaction.targetId === doctorId) return true;
+        if (doctorName && interaction.targetName === doctorName) return true;
+        return false;
+    };
 
     useEffect(() => {
         loadData();
@@ -75,7 +82,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         
         // 1. 获取已签约用户
         const signings = interactions
-            .filter(i => i.type === 'doctor_signing' && i.targetId === doctorId && i.status === 'confirmed');
+            .filter(i => i.type === 'doctor_signing' && matchesCurrentDoctor(i) && i.status === 'confirmed');
 
         const patientsList: PatientData[] = [];
         const seenUserIds = new Set<string>();
@@ -90,7 +97,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
         setSignedPatients(patientsList);
 
         // 2. 获取已确认预约（日程表）
-        const confirmed = interactions.filter(i => i.type === 'doctor_booking' && i.targetId === doctorId && i.status === 'confirmed');
+        const confirmed = interactions.filter(i => i.type === 'doctor_booking' && matchesCurrentDoctor(i) && i.status === 'confirmed');
         setConfirmedBookings(confirmed);
 
         // 3. 聚合待办任务（核心修改）
@@ -98,9 +105,9 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, onSelectPatient }) =
             i.status === 'pending' && 
             (
                 // 自己的签约申请
-                (i.type === 'doctor_signing' && i.targetId === doctorId) || 
+                (i.type === 'doctor_signing' && matchesCurrentDoctor(i)) || 
                 // 自己的挂号预约
-                (i.type === 'doctor_booking' && i.targetId === doctorId) ||
+                (i.type === 'doctor_booking' && matchesCurrentDoctor(i)) ||
                 // 签约用户的药品订单（由签约医生负责审核处方合理性）
                 (i.type === 'drug_order' && seenUserIds.has(i.userId))
             )

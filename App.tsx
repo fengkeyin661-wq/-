@@ -484,7 +484,7 @@ export const App: React.FC = () => {
             {activeTab === 'followup' && <FollowUpDashboard records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp} onUpdateData={handleManualDataUpdate} allArchives={archives} onPatientChange={(arch) => handleSelectPatient(arch, 'followup')} currentPatientId={healthRecord?.profile.checkupId} isAuthenticated={isAuthenticated} healthRecord={healthRecord} onRefresh={refreshArchives} />}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
             {activeTab === 'admin' && currentUserRole === 'admin' && <AdminConsole onSelectPatient={handleSelectPatient} onDataUpdate={refreshArchives} isAuthenticated={isAuthenticated} onTabChange={setActiveTab} />}
-            {activeTab === 'my_patients' && currentUserRole === 'doctor' && currentDoctor && <DoctorPatients doctorId={currentDoctor.id} onSelectPatient={handleSelectPatient} />}
+            {activeTab === 'my_patients' && currentUserRole === 'doctor' && currentDoctor && <DoctorPatients doctorId={currentDoctor.id} doctorName={currentDoctor.title} onSelectPatient={handleSelectPatient} />}
         </Layout>
         <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={handleLoginSuccess} roleContext={loginRoleContext} />
     </div>
