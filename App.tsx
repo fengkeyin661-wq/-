@@ -68,7 +68,8 @@ export const App: React.FC = () => {
   const canShowAdminEntry = portalMode === 'all' || portalMode === 'admin';
   const canShowOpsEntry = portalMode === 'all' || portalMode === 'ops';
   const canShowDoctorEntry = portalMode === 'all' || portalMode === 'doctor';
-  const canShowUserEntry = portalMode === 'all' || portalMode === 'user';
+  /** 职工健康入口仅在主域名聚合页展示；`user.` 子域直达 UserApp，不在此展示 */
+  const canShowUserEntry = portalMode === 'all';
 
   useEffect(() => {
     if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) {
