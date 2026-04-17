@@ -151,7 +151,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
   // 全屏模式 - 用于首页
   if (fullPage) {
     return (
-      <div className="flex flex-col h-[calc(100vh-180px)] bg-slate-50">
+      <div className="flex min-h-full flex-col bg-slate-50">
         {/* Chat Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((m, idx) => (
@@ -165,7 +165,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
                 </div>
               )}
               <div
-                className={`px-4 py-3 rounded-2xl max-w-[80%] text-sm leading-relaxed whitespace-pre-wrap shadow-sm ${
+                className={`max-w-[84%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                   m.role === 'user'
                     ? 'bg-teal-600 text-white rounded-br-sm'
                     : 'bg-white text-slate-700 border border-slate-100 rounded-bl-sm'
@@ -193,12 +193,12 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
         </div>
 
         {/* Quick Questions */}
-        <div className="px-4 py-2 flex gap-2 overflow-x-auto scrollbar-hide">
+        <div className="flex gap-2 overflow-x-auto px-4 py-2 scrollbar-hide">
           {['血压偏高怎么办？', '如何改善睡眠？', '推荐减脂运动', '体检报告解读'].map((q) => (
             <button
               key={q}
               onClick={() => setInput(q)}
-              className="shrink-0 px-3 py-1.5 bg-white border border-slate-200 rounded-full text-xs text-slate-600 hover:bg-teal-50 hover:border-teal-300 transition-colors"
+              className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 transition-colors hover:border-teal-300 hover:bg-teal-50"
             >
               {q}
             </button>
@@ -206,13 +206,13 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
         </div>
 
         {/* Input Area */}
-        <div className="p-4 bg-white border-t border-slate-100">
+        <div className="border-t border-slate-100 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+12px)]">
           {error && (
-            <div className="text-xs text-rose-500 mb-2 px-1">{error}</div>
+            <div className="mb-2 px-1 text-sm text-rose-500">{error}</div>
           )}
           <div className="flex items-end gap-3">
             <textarea
-              className="flex-1 text-sm resize-none rounded-2xl border border-slate-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/60"
+              className="flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
               rows={2}
               placeholder="请描述您的健康问题..."
               value={input}
@@ -231,7 +231,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
               {isLoading ? '...' : '↑'}
             </button>
           </div>
-          <div className="text-[10px] text-slate-400 mt-2 text-center">
+          <div className="mt-2 text-center text-xs text-slate-400">
             仅供健康科普参考，不能作为诊断或处方依据
           </div>
         </div>
@@ -241,7 +241,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
 
   // 卡片模式 - 用于其他页面嵌入
   return (
-    <div className="px-6 pt-4">
+    <div className="px-4 pt-4">
       <div className="bg-gradient-to-r from-teal-500 to-emerald-500 rounded-3xl p-[1px] shadow-lg mb-4">
         <div className="bg-white rounded-[22px] p-4 flex flex-col gap-3">
           <div className="flex items-center justify-between">
@@ -250,21 +250,21 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
                 🤖
               </div>
               <div>
-                <div className="text-xs font-black text-teal-600 uppercase tracking-widest">
+                <div className="text-sm font-black text-teal-600">
                   虚拟健康助手
                 </div>
-                <div className="text-[11px] text-slate-500">
+                <div className="text-xs text-slate-500">
                   针对体检和日常习惯的健康问答，不替代线下诊疗
                 </div>
               </div>
             </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-bold">
+            <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-600">
               百川大模型
             </span>
           </div>
 
           {/* Chat history (last 4 messages for compact view) */}
-          <div className="bg-slate-50 rounded-2xl p-3 max-h-40 overflow-y-auto space-y-2 text-[13px]">
+          <div className="max-h-44 space-y-2 overflow-y-auto rounded-2xl bg-slate-50 p-3 text-sm">
             {messages.slice(-4).map((m, idx) => (
               <div
                 key={idx}
@@ -286,7 +286,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
           {/* Input area */}
           <div className="flex items-end gap-2 mt-1">
             <textarea
-              className="flex-1 text-[13px] resize-none rounded-2xl border border-slate-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50/60"
+              className="flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
               rows={2}
               placeholder="简单描述您的健康疑问..."
               value={input}
@@ -307,12 +307,12 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
           </div>
 
           {error && (
-            <div className="text-[11px] text-rose-500 mt-1">
+            <div className="mt-1 text-sm text-rose-500">
               {error}
             </div>
           )}
 
-          <div className="text-[10px] text-slate-400 mt-1">
+          <div className="mt-1 text-xs text-slate-400">
             本功能基于百川大模型，仅供健康科普与生活方式建议参考，不能作为诊断或处方依据。
           </div>
         </div>

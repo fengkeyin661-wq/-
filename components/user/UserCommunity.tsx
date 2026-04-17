@@ -213,14 +213,14 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
     return (
         <div className="min-h-full bg-slate-50 pb-28">
             {/* Header */}
-            <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-md border-b border-slate-100">
-                <div className="px-6 py-4">
+            <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 backdrop-blur-md">
+                <div className="px-5 py-4">
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">发现</h1>
-                    <p className="text-xs text-slate-500">健康活动 · 膳食食谱 · 医疗服务</p>
+                    <p className="text-sm text-slate-500">健康活动 · 膳食食谱 · 医疗服务</p>
                 </div>
                 
                 {/* Search */}
-                <div className="px-6 pb-3">
+                <div className="px-5 pb-3">
                     <div className="relative">
                         <input 
                             className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 transition-all outline-none"
@@ -233,7 +233,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                 </div>
 
                 {/* Tabs */}
-                <div className="px-6 pb-3 flex gap-2">
+                <div className="px-5 pb-3 flex gap-2">
                     {[
                         { id: 'events', label: '健康活动', icon: '🎉' },
                         { id: 'meals', label: '饮食食谱', icon: '🥗' },
@@ -242,7 +242,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as TabType)}
-                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+                            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-1 ${
                                 activeTab === tab.id
                                     ? 'bg-slate-800 text-white shadow-lg'
                                     : 'bg-white text-slate-600 border border-slate-200'
@@ -278,8 +278,8 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                 imgClassName="h-full w-full object-cover rounded-xl"
                                             />
                                             <span className="text-xs font-bold text-slate-700 text-center px-1 line-clamp-1">{g.title}</span>
-                                            <span className="text-[9px] text-slate-400 mt-1">{g.details?.memberCount || 0} 成员</span>
-                                            {g.details?.leader && <span className="text-[9px] text-slate-400 line-clamp-1">负责人: {g.details.leader}</span>}
+                                            <span className="text-xs text-slate-400 mt-1">{g.details?.memberCount || 0} 成员</span>
+                                            {g.details?.leader && <span className="text-xs text-slate-400 line-clamp-1">负责人: {g.details.leader}</span>}
                                         </div>
                                     ))}
                                 </div>
@@ -309,7 +309,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex justify-between items-start mb-1">
                                                         <h3 className="font-bold text-slate-800 line-clamp-1">{evt.title}</h3>
-                                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold shrink-0 ml-2 ${
+                                                        <span className={`text-xs px-2 py-0.5 rounded font-bold shrink-0 ml-2 ${
                                                             evt.signupStatus === 'joined' ? 'bg-green-100 text-green-700' :
                                                             evt.signupStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
                                                             evt.signupStatus === 'full' ? 'bg-slate-100 text-slate-500' :
@@ -328,7 +328,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                         <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                                             <div className="h-full bg-teal-500 rounded-full" style={{ width: `${Math.min((evt.currentSignups / (evt.details?.limit || 100)) * 100, 100)}%` }}></div>
                                                         </div>
-                                                        <span className="text-[10px] text-slate-400">{evt.currentSignups}/{evt.details?.limit || 100}</span>
+                                                        <span className="text-xs text-slate-400">{evt.currentSignups}/{evt.details?.limit || 100}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -362,7 +362,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                 <div className="text-xs text-orange-600 font-bold text-center">{meal.details?.cal || 0} kcal</div>
                                                 <div className="flex flex-wrap justify-center gap-1 mt-2">
                                                     {meal.tags.slice(0, 2).map(t => (
-                                                        <span key={t} className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t}</span>
+                                                        <span key={t} className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t}</span>
                                                     ))}
                                                 </div>
                                             </div>
@@ -399,7 +399,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                         <span className="text-sm font-bold text-blue-600">
                                                             {svc.details?.price ? `¥${svc.details.price}` : '免费'}
                                                         </span>
-                                                        <span className="text-[10px] text-slate-400">{svc.details?.categoryL1 || '便民服务'}</span>
+                                                        <span className="text-xs text-slate-400">{svc.details?.categoryL1 || '便民服务'}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -415,9 +415,9 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
             {/* Detail Modal */}
             {selectedItem && (
                 <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedItem(null)}>
-                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
-                            <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm">×</button>
+                            <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-400 font-bold shadow-sm">×</button>
                             <div className="mx-auto mb-4 h-20 w-20">
                                 <ResourceCover
                                     item={selectedItem}
@@ -466,19 +466,19 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                             {selectedItem.type === 'meal' && selectedItem.details?.macros && (
                                 <div className="grid grid-cols-4 gap-2">
                                     <div className="bg-orange-50 p-2 rounded-xl text-center">
-                                        <div className="text-[10px] text-orange-400">热量</div>
+                                        <div className="text-xs text-orange-400">热量</div>
                                         <div className="font-bold text-orange-700 text-sm">{selectedItem.details.cal}</div>
                                     </div>
                                     <div className="bg-blue-50 p-2 rounded-xl text-center">
-                                        <div className="text-[10px] text-blue-400">蛋白</div>
+                                        <div className="text-xs text-blue-400">蛋白</div>
                                         <div className="font-bold text-blue-700 text-sm">{selectedItem.details.macros.protein}g</div>
                                     </div>
                                     <div className="bg-yellow-50 p-2 rounded-xl text-center">
-                                        <div className="text-[10px] text-yellow-600">脂肪</div>
+                                        <div className="text-xs text-yellow-600">脂肪</div>
                                         <div className="font-bold text-yellow-700 text-sm">{selectedItem.details.macros.fat}g</div>
                                     </div>
                                     <div className="bg-green-50 p-2 rounded-xl text-center">
-                                        <div className="text-[10px] text-green-400">碳水</div>
+                                        <div className="text-xs text-green-400">碳水</div>
                                         <div className="font-bold text-green-700 text-sm">{selectedItem.details.macros.carbs}g</div>
                                     </div>
                                 </div>

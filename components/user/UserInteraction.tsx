@@ -245,18 +245,18 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     // ======== RENDER: CHAT VIEW ========
     if (viewMode === 'chat' && activeDoctor) {
         return (
-            <div className="bg-[#F0F2F5] h-full flex flex-col relative">
-                <div className="bg-white/90 backdrop-blur-md px-4 py-3 shadow-sm z-10 flex items-center gap-3 border-b border-slate-100">
-                    <button onClick={() => { setViewMode('chat_list'); setActiveDoctor(null); }} className="w-8 h-8 flex items-center justify-center text-slate-500 hover:bg-slate-100 rounded-full">←</button>
+            <div className="relative flex h-full flex-col bg-[#F0F2F5]">
+                <div className="z-10 flex items-center gap-3 border-b border-slate-100 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-md">
+                    <button onClick={() => { setViewMode('chat_list'); setActiveDoctor(null); }} className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">←</button>
                     <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-lg shadow-inner">👨‍⚕️</div>
                     <div>
                         <h1 className="text-base font-bold text-slate-800">{activeDoctor.targetName} 医生</h1>
-                        <p className="text-[10px] text-green-600 font-medium">在线</p>
+                        <p className="text-xs font-medium text-green-600">在线</p>
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-4">
-                    <div className="text-center text-[10px] text-slate-400 my-4 bg-slate-200/50 py-1 px-3 rounded-full mx-auto w-fit">
+                <div className="flex-1 space-y-4 overflow-y-auto p-4 pb-28">
+                    <div className="mx-auto my-4 w-fit rounded-full bg-slate-200/50 px-3 py-1 text-center text-xs text-slate-500">
                         仅提供健康咨询，急诊请及时就医
                     </div>
                     
@@ -271,7 +271,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                         isMe ? 'bg-teal-600 text-white rounded-2xl rounded-tr-sm' : 'bg-white text-slate-800 rounded-2xl rounded-tl-sm border border-slate-100'
                                     }`}>
                                         <p className="leading-relaxed">{msg.content}</p>
-                                        <div className={`text-[9px] mt-1 text-right ${isMe ? 'text-teal-200' : 'text-slate-300'}`}>
+                                        <div className={`mt-1 text-right text-xs ${isMe ? 'text-teal-200' : 'text-slate-400'}`}>
                                             {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                         </div>
                                     </div>
@@ -282,7 +282,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                     <div ref={chatEndRef} />
                 </div>
 
-                <div className="absolute bottom-20 left-0 w-full px-4 pb-2">
+                <div className="absolute bottom-0 left-0 w-full px-4 pb-[calc(env(safe-area-inset-bottom)+10px)]">
                     <div className="bg-white p-2 rounded-full shadow-lg border border-slate-100 flex gap-2 items-center">
                         <input 
                             className="flex-1 bg-transparent px-4 py-2 text-sm focus:outline-none"
@@ -291,7 +291,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                             onChange={e => setChatInput(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && handleSendMsg()}
                         />
-                        <button onClick={handleSendMsg} disabled={!chatInput.trim()} className="w-9 h-9 bg-teal-600 text-white rounded-full flex items-center justify-center hover:bg-teal-700 disabled:opacity-50 disabled:bg-slate-300 active:scale-90">
+                        <button onClick={handleSendMsg} disabled={!chatInput.trim()} className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-600 text-white hover:bg-teal-700 disabled:bg-slate-300 disabled:opacity-50 active:scale-90">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
                         </button>
                     </div>
@@ -302,15 +302,15 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
 
     // ======== RENDER: MAIN VIEW (Doctors + Chat List Tabs) ========
     return (
-        <div className="bg-slate-50 min-h-full pb-28">
+        <div className="min-h-full bg-slate-50 pb-28">
             {/* Header */}
-            <div className="bg-white px-6 py-5 border-b border-slate-100 sticky top-0 z-10">
+            <div className="sticky top-0 z-10 border-b border-slate-100 bg-white px-5 py-4">
                 <h1 className="text-2xl font-black text-slate-800 tracking-tight">消息中心</h1>
-                <p className="text-xs text-slate-500 mt-1">医生资源 · 在线咨询</p>
+                <p className="mt-1 text-sm text-slate-500">医生资源 · 在线咨询</p>
             </div>
 
             {/* Tabs */}
-            <div className="px-4 py-3 flex gap-2 bg-white border-b border-slate-100 sticky top-[76px] z-10">
+            <div className="sticky top-[72px] z-10 flex gap-2 border-b border-slate-100 bg-white px-4 py-3">
                 <button
                     onClick={() => setViewMode('doctors')}
                     className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
@@ -327,7 +327,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                 >
                     💬 我的咨询
                     {totalUnread > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold animate-pulse">
+                        <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse">
                             {totalUnread > 9 ? '9+' : totalUnread}
                         </span>
                     )}
@@ -360,9 +360,9 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                             <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold shrink-0">详情</span>
                                         </div>
                                         <p className="text-xs text-slate-500 mb-2">{doc.details?.dept} · {doc.details?.title}</p>
-                                        <div className="flex flex-wrap gap-1">
+                                        <div className="flex flex-wrap gap-1.5">
                                             {doc.tags.slice(0, 3).map(t => (
-                                                <span key={t} className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t}</span>
+                                                <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{t}</span>
                                             ))}
                                         </div>
                                     </div>
@@ -409,7 +409,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                             👨‍⚕️
                                         </div>
                                         {item.unread > 0 && (
-                                            <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold border-2 border-white animate-pulse">
+                                            <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-red-500 text-xs font-bold text-white animate-pulse">
                                                 {item.unread}
                                             </div>
                                         )}
@@ -429,9 +429,9 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
             {/* Doctor Detail Modal */}
             {selectedDoctor && (
                 <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedDoctor(null)}>
-                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
-                            <button onClick={() => setSelectedDoctor(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm">×</button>
+                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="relative border-b border-slate-100 bg-slate-50 p-6 pb-8 text-center">
+                            <button onClick={() => setSelectedDoctor(null)} className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-400 font-bold shadow-sm">×</button>
                             {isImageLike(selectedDoctor.image) ? (
                                 <img src={withImageVersion(selectedDoctor)} alt={selectedDoctor.title} className="w-20 h-20 rounded-2xl object-cover border border-slate-200 shadow-sm mx-auto mb-4" />
                             ) : (
@@ -447,7 +447,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
 
                         <div className="p-6 overflow-y-auto space-y-4 flex-1">
                             <div className="flex flex-wrap gap-2 justify-center">
-                                {selectedDoctor.tags.map(t => <span key={t} className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs">{t}</span>)}
+                                {selectedDoctor.tags.map(t => <span key={t} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">{t}</span>)}
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
@@ -485,8 +485,8 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
 
             {/* Time Selection Modal */}
             {showBookingModal && bookingDoctor && (
-                <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setShowBookingModal(false)}>
-                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-900/60 backdrop-blur-sm animate-fadeIn" onClick={() => setShowBookingModal(false)}>
+                    <div className="max-h-[85dvh] w-full max-w-md animate-slideUp rounded-t-[2.5rem] bg-white p-6 flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
                         <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择就诊时间</h3>
                         <p className="text-xs text-slate-400 text-center mb-6">预约专家：{bookingDoctor.title}</p>
@@ -497,7 +497,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                 if (activeSlots.length === 0) return null;
                                 return (
                                     <div key={dayKey}>
-                                        <h4 className="font-black text-xs text-slate-400 uppercase tracking-widest mb-3 px-1">{DAY_MAP[dayKey]}</h4>
+                                        <h4 className="mb-3 px-1 text-xs font-black uppercase tracking-widest text-slate-500">{DAY_MAP[dayKey]}</h4>
                                         <div className="grid grid-cols-2 gap-3">
                                             {activeSlots.map((slotId: string) => {
                                                 const { count, quota, full } = getSlotUsage(bookingDoctor.id, dayKey, slotId);
@@ -511,7 +511,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                                         }`}
                                                     >
                                                         <span className="font-bold text-slate-700">{SLOT_MAP[slotId]}</span>
-                                                        <span className={`text-[10px] mt-1 font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                        <span className={`mt-1 text-xs font-bold ${full ? 'text-red-500' : 'text-slate-500'}`}>
                                                             {full ? '约满' : `余 ${quota - count} 位`}
                                                         </span>
                                                     </button>

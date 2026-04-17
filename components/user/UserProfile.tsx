@@ -150,7 +150,7 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                     <h3 className="font-bold text-slate-800 flex items-center gap-2">
                         📋 下阶段执行单
                     </h3>
-                    <span className="text-[10px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                    <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
                         遵医嘱执行
                     </span>
                 </div>
@@ -317,12 +317,12 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                                         </div>
                                     </div>
                                     <div className="flex flex-col items-end gap-2">
-                                        <span className="bg-green-400/20 text-green-100 border border-green-400/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                                        <span className="bg-green-400/20 text-green-100 border border-green-400/30 px-2 py-0.5 rounded text-xs font-bold">
                                             已签约
                                         </span>
                                         <button 
                                             onClick={() => handleCancelInteraction(doc.id, 'doctor_signing')}
-                                            className="text-[10px] text-white/50 hover:text-white border border-white/10 hover:border-white/30 px-2 py-0.5 rounded transition-colors"
+                                            className="text-xs text-white/60 hover:text-white border border-white/10 hover:border-white/30 px-2 py-0.5 rounded transition-colors"
                                         >
                                             解约
                                         </button>
@@ -366,7 +366,7 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                                 <div key={app.id} className="bg-white p-4 rounded-xl shadow-sm border border-teal-100 flex justify-between items-center">
                                     <div>
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                            <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
                                                 app.type === 'doctor_booking' ? 'bg-blue-100 text-blue-700' :
                                                 app.type === 'drug_order' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'
                                             }`}>
@@ -417,9 +417,9 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                                         }`}>
                                             {app.status === 'confirmed' ? '已完成' : app.status === 'pending' ? '审核中' : '已取消/拒绝'}
                                         </span>
-                                        <div className="text-[10px] text-slate-400 mt-1">{app.date}</div>
+                                        <div className="text-xs text-slate-400 mt-1">{app.date}</div>
                                         {app.status === 'pending' && (
-                                            <button onClick={() => handleCancelInteraction(app.id, app.type)} className="text-[10px] text-red-500 hover:underline mt-1 block w-full text-right">撤销申请</button>
+                                            <button onClick={() => handleCancelInteraction(app.id, app.type)} className="text-xs text-red-500 hover:underline mt-1 block w-full text-right">撤销申请</button>
                                         )}
                                     </div>
                                 </div>
@@ -434,14 +434,14 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
     return (
         <div className="bg-slate-50 min-h-full">
             {/* Header / ID Card */}
-            <div className="bg-teal-700 text-white p-6 pb-12 relative shadow-md">
+            <div className="relative bg-teal-700 px-5 pb-11 pt-6 text-white shadow-md">
                 <div className="flex items-center gap-4">
                     <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-3xl border-2 border-white/30 backdrop-blur-sm shadow-inner">
                         {record.profile.gender === '女' ? '👩' : '👨'}
                     </div>
                     <div>
                         <h1 className="text-xl font-bold">{record.profile.name}</h1>
-                        <div className="text-xs opacity-80 mt-1 flex items-center gap-2">
+                        <div className="mt-1 flex items-center gap-2 text-sm opacity-90">
                             <span className="bg-white/20 px-2 py-0.5 rounded backdrop-blur-sm">{record.profile.department}</span>
                             <span>{record.profile.age}岁</span>
                         </div>
@@ -450,7 +450,7 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
             </div>
 
             {/* Main Content Area */}
-            <div className="-mt-6 bg-slate-50 rounded-t-3xl min-h-[calc(100vh-180px)] flex flex-col relative z-10">
+            <div className="relative z-10 -mt-6 flex min-h-[calc(100dvh-180px)] flex-col rounded-t-3xl bg-slate-50">
                 
                 {/* Back Button for Sub Views */}
                 {subView !== 'menu' && (
@@ -462,7 +462,7 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                 )}
 
                 {subView === 'menu' && (
-                    <div className="p-4 space-y-3 flex-1">
+                    <div className="flex-1 space-y-3 p-4">
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
                         <MenuButton icon="📅" label="我的随访记录" desc="执行单与历史随访" onClick={() => setSubView('followup')} />
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
@@ -479,7 +479,7 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
 
                 {/* Logout Button (Only on Menu) */}
                 {subView === 'menu' && (
-                    <div className="p-6 mt-auto">
+                    <div className="mt-auto p-6 pb-[calc(env(safe-area-inset-bottom)+12px)]">
                         <button 
                             onClick={onLogout}
                             className="w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold border border-red-100 hover:bg-red-100 hover:shadow-md transition-all active:scale-95"
@@ -496,14 +496,14 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
 const MenuButton: React.FC<{icon: string, label: string, desc: string, onClick: () => void}> = ({ icon, label, desc, onClick }) => (
     <button 
         onClick={onClick}
-        className="w-full bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4 hover:shadow-md transition-all active:scale-95 text-left group"
+        className="group flex w-full items-center gap-4 rounded-xl border border-slate-100 bg-white p-4 text-left shadow-sm transition-all hover:shadow-md active:scale-95"
     >
         <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-xl group-hover:bg-teal-50 transition-colors">
             {icon}
         </div>
         <div className="flex-1">
-            <div className="font-bold text-slate-800 text-sm">{label}</div>
-            <div className="text-xs text-slate-400 mt-0.5">{desc}</div>
+            <div className="text-base font-bold text-slate-800">{label}</div>
+            <div className="mt-0.5 text-sm text-slate-500">{desc}</div>
         </div>
         <span className="text-slate-300">›</span>
     </button>
@@ -513,20 +513,20 @@ const PlanItem: React.FC<{ icon: string, title: string, items?: string[] }> = ({
     <div className="p-4 flex gap-4">
         <div className="text-xl pt-0.5">{icon}</div>
         <div className="flex-1">
-            <div className="font-bold text-slate-800 text-sm mb-1">{title}</div>
+            <div className="mb-1 text-base font-bold text-slate-800">{title}</div>
             {items && items.length > 0 ? (
-                <ul className="list-disc pl-4 text-xs text-slate-600 space-y-1">
+                <ul className="list-disc space-y-1 pl-4 text-sm text-slate-600">
                     {items.map((item, i) => <li key={i}>{item}</li>)}
                 </ul>
-            ) : <div className="text-xs text-slate-400">暂无具体建议</div>}
+            ) : <div className="text-sm text-slate-400">暂无具体建议</div>}
         </div>
     </div>
 );
 
 const StatBox: React.FC<{ label: string, value: any, unit: string }> = ({ label, value, unit }) => (
     <div className="bg-slate-50 p-3 rounded-2xl text-center">
-        <div className="text-xs text-slate-400 mb-1 font-bold">{label}</div>
+        <div className="mb-1 text-sm font-bold text-slate-400">{label}</div>
         <div className="text-lg font-black text-slate-700">{value}</div>
-        {unit && <div className="text-[10px] text-slate-400">{unit}</div>}
+        {unit && <div className="text-xs text-slate-400">{unit}</div>}
     </div>
 );

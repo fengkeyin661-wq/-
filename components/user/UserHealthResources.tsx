@@ -206,15 +206,15 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
     return (
         <div className="bg-slate-50 min-h-full pb-28">
             {/* Header */}
-            <div className="bg-white px-6 py-5 border-b border-slate-100 sticky top-0 z-10">
+            <div className="sticky top-0 z-10 border-b border-slate-100 bg-white px-5 py-4">
                 <div className="flex justify-between items-start">
                     <div>
                         <h1 className="text-2xl font-black text-slate-800 tracking-tight">健康资源推荐</h1>
-                        <p className="text-xs text-slate-500 mt-1">AI根据您的健康档案智能匹配</p>
+                        <p className="mt-1 text-sm text-slate-500">AI根据您的健康档案智能匹配</p>
                     </div>
                     <div className="bg-teal-50 px-3 py-1.5 rounded-full flex items-center gap-1">
                         <span className="text-lg">✨</span>
-                        <span className="text-xs font-bold text-teal-600">AI精选</span>
+                        <span className="text-sm font-bold text-teal-600">AI精选</span>
                     </div>
                 </div>
                 
@@ -226,9 +226,9 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                 assessment.riskLevel === 'RED' ? 'bg-red-500' :
                                 assessment.riskLevel === 'YELLOW' ? 'bg-yellow-500' : 'bg-green-500'
                             }`}></span>
-                            <span className="text-xs font-bold text-slate-600">您的健康画像</span>
+                            <span className="text-sm font-bold text-slate-600">您的健康画像</span>
                         </div>
-                        <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">{assessment.summary}</p>
+                        <p className="text-sm text-slate-500 leading-relaxed line-clamp-2">{assessment.summary}</p>
                     </div>
                 )}
             </div>
@@ -239,7 +239,7 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                     <button
                         key={cat.id}
                         onClick={() => setActiveCategory(cat.id)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                        className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all ${
                             activeCategory === cat.id
                                 ? `${cat.color} text-white shadow-lg`
                                 : 'bg-white text-slate-600 border border-slate-200'
@@ -294,10 +294,10 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                                     imgClassName="h-full w-full object-cover"
                                                 />
                                                 <h3 className="font-bold text-slate-800 text-sm mb-1 line-clamp-1">{item.title}</h3>
-                                                <p className="text-[10px] text-teal-600 font-medium mb-2 line-clamp-1">{reason}</p>
+                                                <p className="mb-2 line-clamp-1 text-xs font-medium text-teal-600">{reason}</p>
                                                 <div className="flex flex-wrap gap-1">
                                                     {item.tags.slice(0, 2).map(t => (
-                                                        <span key={t} className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t}</span>
+                                                        <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{t}</span>
                                                     ))}
                                                 </div>
                                             </div>
@@ -335,7 +335,7 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                                 <span className="text-xs text-orange-600 font-bold shrink-0">{item.details.cal} kcal</span>
                                             )}
                                         </div>
-                                        <p className="text-[10px] text-teal-600 font-medium mb-2">{reason}</p>
+                                        <p className="mb-2 text-xs font-medium text-teal-600">{reason}</p>
                                         <p className="text-xs text-slate-500 line-clamp-2">{item.description || '暂无简介'}</p>
                                     </div>
                                 </div>
@@ -348,9 +348,9 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
             {/* Detail Modal */}
             {selectedItem && (
                 <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedItem(null)}>
-                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
-                            <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm">×</button>
+                            <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-400 font-bold shadow-sm">×</button>
                             <div className="mx-auto mb-4 h-20 w-20">
                                 <ResourceCover
                                     item={selectedItem}
@@ -361,7 +361,7 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                             </div>
                             <h3 className="text-xl font-black text-slate-800 mb-1">{selectedItem.title}</h3>
                             <div className="flex items-center justify-center gap-2">
-                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                <span className={`px-2 py-1 rounded text-xs font-bold ${
                                     selectedItem.type === 'meal' ? 'bg-orange-100 text-orange-700' :
                                     selectedItem.type === 'exercise' ? 'bg-green-100 text-green-700' :
                                     selectedItem.type === 'service' ? 'bg-blue-100 text-blue-700' :
@@ -383,19 +383,19 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                             {selectedItem.type === 'meal' && selectedItem.details?.macros && (
                                 <div className="grid grid-cols-4 gap-2">
                                     <div className="bg-orange-50 p-2 rounded-xl text-center">
-                                        <div className="text-[10px] text-orange-400">热量</div>
+                                        <div className="text-xs text-orange-400">热量</div>
                                         <div className="font-bold text-orange-700">{selectedItem.details.cal}</div>
                                     </div>
                                     <div className="bg-blue-50 p-2 rounded-xl text-center">
-                                        <div className="text-[10px] text-blue-400">蛋白</div>
+                                        <div className="text-xs text-blue-400">蛋白</div>
                                         <div className="font-bold text-blue-700">{selectedItem.details.macros.protein}g</div>
                                     </div>
                                     <div className="bg-yellow-50 p-2 rounded-xl text-center">
-                                        <div className="text-[10px] text-yellow-600">脂肪</div>
+                                        <div className="text-xs text-yellow-600">脂肪</div>
                                         <div className="font-bold text-yellow-700">{selectedItem.details.macros.fat}g</div>
                                     </div>
                                     <div className="bg-green-50 p-2 rounded-xl text-center">
-                                        <div className="text-[10px] text-green-400">碳水</div>
+                                        <div className="text-xs text-green-400">碳水</div>
                                         <div className="font-bold text-green-700">{selectedItem.details.macros.carbs}g</div>
                                     </div>
                                 </div>

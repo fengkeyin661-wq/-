@@ -38,36 +38,36 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="bg-slate-50 min-h-full pb-28 px-6 py-8">
+    <div className="min-h-full bg-slate-50 px-5 py-8 pb-28">
       <div className="max-w-md mx-auto">
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-teal-600 rounded-2xl flex items-center justify-center text-3xl text-white font-bold mx-auto mb-4 shadow-lg">
             👤
           </div>
           <h1 className="text-xl font-black text-slate-800">登录后使用个人服务</h1>
-          <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">
             登录后可查看健康档案、随访与计划，以及签约、预约等记录
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
           <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1">体检编号或手机号</label>
+            <label className="mb-1 block text-sm font-bold text-slate-700">体检编号或手机号</label>
             <input
               type="text"
               autoComplete="username"
-              className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-teal-500"
               placeholder="请输入体检编号或预留手机号"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}
             />
           </div>
-          {error ? <p className="text-xs text-red-600 font-bold text-center">{error}</p> : null}
+          {error ? <p className="text-sm text-center font-bold text-red-600">{error}</p> : null}
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-teal-600 text-white py-3 rounded-xl font-bold text-sm shadow-md hover:bg-teal-700 disabled:opacity-50 transition-colors"
+            className="w-full rounded-xl bg-teal-600 py-3.5 text-base font-bold text-white shadow-md transition-colors hover:bg-teal-700 disabled:opacity-50"
           >
             {loading ? '验证中...' : '登录'}
           </button>
