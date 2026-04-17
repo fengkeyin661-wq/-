@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { fetchContent, ContentItem, saveInteraction, InteractionItem, fetchInteractions } from '../../services/contentService';
+import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
 
 interface Props {
@@ -28,15 +29,6 @@ const getMedicalIcon = (item: ContentItem): string => {
     } 
     if (item.type === 'drug') return '💊';
     return '🏥';
-};
-
-const isImageLike = (value?: string) => !!value && (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:image'));
-const withImageVersion = (item: ContentItem): string => {
-    const src = item.image || '';
-    if (!src || src.startsWith('data:image')) return src;
-    const ver = encodeURIComponent(item.updatedAt || '');
-    if (!ver) return src;
-    return src.includes('?') ? `${src}&v=${ver}` : `${src}?v=${ver}`;
 };
 
 const scoreItem = (item: ContentItem, risks: string[]) => {
@@ -186,11 +178,12 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                     <div className="space-y-4">
                         {visibleDoctors.map(doc => (
                             <div key={doc.id} onClick={() => setSelectedItem(doc)} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-50 flex items-start gap-4 hover:shadow-md transition-shadow cursor-pointer active:scale-98">
-                                {isImageLike(doc.image) ? (
-                                    <img src={withImageVersion(doc)} alt={doc.title} className="w-16 h-16 rounded-2xl object-cover border border-slate-200 shrink-0" />
-                                ) : (
-                                    <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-3xl shrink-0">{getMedicalIcon(doc)}</div>
-                                )}
+                                <ResourceCover
+                                    item={doc}
+                                    fallback={<span className="text-3xl">{getMedicalIcon(doc)}</span>}
+                                    className="h-16 w-16 shrink-0 rounded-2xl border border-slate-200 bg-blue-50 text-3xl"
+                                    imgClassName="h-full w-full rounded-2xl object-cover"
+                                />
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-start">
                                         <div>
@@ -217,7 +210,12 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                         {filteredServices.map((s, i) => (
                             <div key={s.id} onClick={() => setSelectedItem(s)} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between h-full active:scale-95 transition-transform cursor-pointer group hover:border-blue-200">
                                 <div className="flex flex-col items-center text-center gap-2 mb-2">
-                                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl mb-1 bg-blue-50 text-blue-600">{getMedicalIcon(s)}</div>
+                                    <ResourceCover
+                                        item={s}
+                                        fallback={<span className="text-2xl">{getMedicalIcon(s)}</span>}
+                                        className="mb-1 h-12 w-12 rounded-2xl bg-blue-50 text-2xl text-blue-600"
+                                        imgClassName="h-full w-full rounded-2xl object-cover"
+                                    />
                                     <div className="font-bold text-sm text-slate-800 line-clamp-1">{s.title}</div>
                                 </div>
                                 <div className="flex justify-center"><span className="text-[10px] bg-slate-50 text-slate-500 px-2 py-1 rounded-full">{s.details?.price ? `¥${s.details.price}` : '免费'}</span></div>
@@ -233,11 +231,14 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                     <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
                             <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm z-10">×</button>
-                            {isImageLike(selectedItem.image) ? (
-                                <img src={withImageVersion(selectedItem)} alt={selectedItem.title} className="w-20 h-20 rounded-2xl object-cover border border-slate-200 shadow-sm mx-auto mb-4" />
-                            ) : (
-                                <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">{getMedicalIcon(selectedItem)}</div>
-                            )}
+                            <div className="mx-auto mb-4 h-20 w-20">
+                                <ResourceCover
+                                    item={selectedItem}
+                                    fallback={<span className="text-5xl">{getMedicalIcon(selectedItem)}</span>}
+                                    className="h-full w-full rounded-2xl border border-slate-200 bg-white text-5xl shadow-sm"
+                                    imgClassName="h-full w-full rounded-2xl object-cover shadow-sm"
+                                />
+                            </div>
                             <h3 className="text-xl font-black text-slate-800 mb-1">{selectedItem.title}</h3>
                             <div className="flex items-center justify-center gap-2">
                                 {selectedItem.type === 'doctor' && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">{selectedItem.details?.dept} · {selectedItem.details?.title}</span>}

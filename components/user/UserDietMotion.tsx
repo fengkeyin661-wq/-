@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, ContentItem } from '../../services/contentService';
+import { ResourceCover } from './ResourceCover';
 import { HealthAssessment, HealthRecord } from '../../types';
 import { generateDailyIntegratedPlan } from '../../services/geminiService';
 import { updateUserPlan, DailyHealthPlan, DietLogItem, ExerciseLogItem, findArchiveByCheckupId } from '../../services/dataService';
@@ -422,7 +423,12 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                     <div className="columns-2 gap-4 space-y-4">
                         {filteredResources.map(item => (
                             <div key={item.id} onClick={() => setSelectedItem(item)} className="break-inside-avoid bg-white p-3 rounded-xl shadow-sm border border-slate-100 cursor-pointer active:scale-95 transition-transform hover:shadow-md">
-                                <div className="text-3xl mb-2 text-center py-2 bg-slate-50 rounded-lg">{getSmartIcon(item.title, item.type)}</div>
+                                <ResourceCover
+                                    item={item}
+                                    fallback={<span className="text-3xl">{getSmartIcon(item.title, item.type)}</span>}
+                                    className="mb-2 h-20 w-full rounded-lg bg-slate-50 text-center text-3xl"
+                                    imgClassName="h-full w-full object-cover rounded-lg"
+                                />
                                 <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1">{item.title}</h4>
                                 <div className="text-[10px] text-slate-400">
                                     {item.type === 'meal' ? `${item.details?.cal || 0} kcal` : `${item.details?.duration || 0} min`}
@@ -442,8 +448,13 @@ export const UserDietMotion: React.FC<Props> = ({ assessment, userCheckupId, rec
                         <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-b from-teal-50 to-white -z-10"></div>
                         
                         <div className="text-center mb-6 mt-2">
-                            <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-5xl shadow-lg mx-auto mb-4 border-4 border-white">
-                                {getSmartIcon(selectedItem.title, selectedItem.type)}
+                            <div className="mx-auto mb-4 h-20 w-20 rounded-full border-4 border-white">
+                                <ResourceCover
+                                    item={selectedItem}
+                                    fallback={<span className="text-5xl">{getSmartIcon(selectedItem.title, selectedItem.type)}</span>}
+                                    className="h-full w-full rounded-full bg-white text-5xl shadow-lg"
+                                    imgClassName="h-full w-full rounded-full object-cover shadow-lg"
+                                />
                             </div>
                             <h3 className="text-xl font-black text-slate-800 leading-tight">{selectedItem.title}</h3>
                             <div className="flex justify-center gap-2 mt-2">

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
 
 interface Props {
@@ -270,7 +271,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                             onClick={() => setSelectedItem(g)}
                                             className="flex-shrink-0 flex flex-col items-center justify-center w-24 h-28 bg-white border border-slate-100 shadow-sm rounded-2xl cursor-pointer active:scale-95 transition-transform"
                                         >
-                                            <div className="text-2xl mb-2">{getCommunityIcon(g.title, 'circle')}</div>
+                                            <ResourceCover
+                                                item={g}
+                                                fallback={<span className="text-2xl">{getCommunityIcon(g.title, 'circle')}</span>}
+                                                className="mb-2 h-14 w-14 rounded-xl bg-slate-50 text-2xl"
+                                                imgClassName="h-full w-full object-cover rounded-xl"
+                                            />
                                             <span className="text-xs font-bold text-slate-700 text-center px-1 line-clamp-1">{g.title}</span>
                                             <span className="text-[9px] text-slate-400 mt-1">{g.details?.memberCount || 0} 成员</span>
                                             {g.details?.leader && <span className="text-[9px] text-slate-400 line-clamp-1">负责人: {g.details.leader}</span>}
@@ -294,9 +300,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                             className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer active:scale-[0.98] transition-transform"
                                         >
                                             <div className="flex gap-3">
-                                                <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center text-2xl shrink-0">
-                                                    {getCommunityIcon(evt.title, 'event')}
-                                                </div>
+                                                <ResourceCover
+                                                    item={evt}
+                                                    fallback={<span className="text-2xl">{getCommunityIcon(evt.title, 'event')}</span>}
+                                                    className="h-12 w-12 shrink-0 rounded-xl bg-slate-50 text-2xl"
+                                                    imgClassName="h-full w-full object-cover rounded-xl"
+                                                />
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex justify-between items-start mb-1">
                                                         <h3 className="font-bold text-slate-800 line-clamp-1">{evt.title}</h3>
@@ -343,7 +352,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                 onClick={() => setSelectedItem(meal)}
                                                 className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer active:scale-95 transition-transform"
                                             >
-                                                <div className="text-3xl mb-2 text-center">{getCommunityIcon(meal.title, 'meal')}</div>
+                                                <ResourceCover
+                                                    item={meal}
+                                                    fallback={<span className="text-3xl">{getCommunityIcon(meal.title, 'meal')}</span>}
+                                                    className="mb-2 h-20 w-full rounded-xl bg-slate-50 text-3xl"
+                                                    imgClassName="h-full w-full object-cover rounded-xl"
+                                                />
                                                 <h3 className="font-bold text-slate-800 text-sm text-center line-clamp-1 mb-1">{meal.title}</h3>
                                                 <div className="text-xs text-orange-600 font-bold text-center">{meal.details?.cal || 0} kcal</div>
                                                 <div className="flex flex-wrap justify-center gap-1 mt-2">
@@ -372,9 +386,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                 onClick={() => setSelectedItem(svc)}
                                                 className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
                                             >
-                                                <div className="w-14 h-14 bg-blue-50 rounded-xl flex items-center justify-center text-2xl shrink-0">
-                                                    {getCommunityIcon(svc.title, 'service')}
-                                                </div>
+                                                <ResourceCover
+                                                    item={svc}
+                                                    fallback={<span className="text-2xl">{getCommunityIcon(svc.title, 'service')}</span>}
+                                                    className="h-14 w-14 shrink-0 rounded-xl bg-blue-50 text-2xl"
+                                                    imgClassName="h-full w-full object-cover rounded-xl"
+                                                />
                                                 <div className="flex-1 min-w-0">
                                                     <h3 className="font-bold text-slate-800 line-clamp-1 mb-1">{svc.title}</h3>
                                                     <p className="text-xs text-slate-500 line-clamp-2 mb-2">{svc.description || '暂无简介'}</p>
@@ -401,8 +418,17 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                     <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
                             <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm">×</button>
-                            <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">
-                                {getCommunityIcon(selectedItem.title, selectedItem.type)}
+                            <div className="mx-auto mb-4 h-20 w-20">
+                                <ResourceCover
+                                    item={selectedItem}
+                                    fallback={
+                                        <span className="text-5xl">
+                                            {getCommunityIcon(selectedItem.title, selectedItem.type)}
+                                        </span>
+                                    }
+                                    className="h-full w-full rounded-2xl bg-white text-5xl shadow-sm"
+                                    imgClassName="h-full w-full rounded-2xl object-cover shadow-sm"
+                                />
                             </div>
                             <h3 className="text-xl font-black text-slate-800 mb-1">{selectedItem.title}</h3>
                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${

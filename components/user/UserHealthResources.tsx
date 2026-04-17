@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { HealthAssessment, HealthRecord } from '../../types';
 import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { ResourceCover } from './ResourceCover';
 
 interface Props {
     assessment?: HealthAssessment;
@@ -286,7 +287,12 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                                 onClick={() => setSelectedItem(item)}
                                                 className="flex-shrink-0 w-[200px] bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer active:scale-95 transition-transform"
                                             >
-                                                <div className="text-3xl mb-3">{getSmartIcon(item)}</div>
+                                                <ResourceCover
+                                                    item={item}
+                                                    fallback={<span className="text-3xl">{getSmartIcon(item)}</span>}
+                                                    className="mb-3 h-16 w-full rounded-xl bg-slate-50 text-3xl"
+                                                    imgClassName="h-full w-full object-cover"
+                                                />
                                                 <h3 className="font-bold text-slate-800 text-sm mb-1 line-clamp-1">{item.title}</h3>
                                                 <p className="text-[10px] text-teal-600 font-medium mb-2 line-clamp-1">{reason}</p>
                                                 <div className="flex flex-wrap gap-1">
@@ -316,9 +322,12 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                     onClick={() => setSelectedItem(item)}
                                     className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
                                 >
-                                    <div className="w-14 h-14 bg-slate-50 rounded-xl flex items-center justify-center text-3xl shrink-0">
-                                        {getSmartIcon(item)}
-                                    </div>
+                                    <ResourceCover
+                                        item={item}
+                                        fallback={<span className="text-3xl">{getSmartIcon(item)}</span>}
+                                        className="w-14 h-14 shrink-0 rounded-xl bg-slate-50 text-3xl"
+                                        imgClassName="h-full w-full object-cover rounded-xl"
+                                    />
                                     <div className="flex-1 min-w-0">
                                         <div className="flex justify-between items-start mb-1">
                                             <h3 className="font-bold text-slate-800 line-clamp-1">{item.title}</h3>
@@ -342,8 +351,13 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                     <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
                             <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 w-8 h-8 bg-white rounded-full flex items-center justify-center text-slate-400 font-bold shadow-sm">×</button>
-                            <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-5xl shadow-sm mx-auto mb-4">
-                                {getSmartIcon(selectedItem)}
+                            <div className="mx-auto mb-4 h-20 w-20">
+                                <ResourceCover
+                                    item={selectedItem}
+                                    fallback={<span className="text-5xl">{getSmartIcon(selectedItem)}</span>}
+                                    className="h-full w-full rounded-2xl bg-white text-5xl shadow-sm"
+                                    imgClassName="h-full w-full rounded-2xl object-cover shadow-sm"
+                                />
                             </div>
                             <h3 className="text-xl font-black text-slate-800 mb-1">{selectedItem.title}</h3>
                             <div className="flex items-center justify-center gap-2">
