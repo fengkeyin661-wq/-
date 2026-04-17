@@ -44,7 +44,7 @@ export interface ChatMessage {
 const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V4';
 const INTERACTION_KEY = 'HEALTH_GUARD_INTERACTIONS_V1';
 const CHAT_KEY = 'HEALTH_GUARD_CHATS_V1';
-const CHAT_TABLE = 'app_chat_messages';
+const CHAT_TABLE = 'app_chats';
 
 // --- Diagnostic Tool ---
 export const checkDbConnection = async (): Promise<{
@@ -340,11 +340,11 @@ export const fetchMessages = async (userId: string, doctorId: string): Promise<C
         try {
             const { data, error } = await supabase
                 .from(CHAT_TABLE)
-                .select('id, sender_id, sender_role, receiver_id, content, timestamp, read')
+                .select('id, sender_id, sender_role, receiver_id, content, created_at, is_read')
                 .or(
                     `and(sender_id.eq.${userId},receiver_id.eq.${doctorId}),and(sender_id.eq.${doctorId},receiver_id.eq.${userId})`
                 )
-                .order('timestamp', { ascending: true });
+                .order('created_at', { ascending: true });
 
             if (!error && data) {
                 const cloudMsgs: ChatMessage[] = data.map((row: any) => ({
@@ -353,8 +353,8 @@ export const fetchMessages = async (userId: string, doctorId: string): Promise<C
                     senderRole: row.sender_role,
                     receiverId: row.receiver_id,
                     content: row.content,
-                    timestamp: row.timestamp,
-                    read: !!row.read,
+                    timestamp: row.created_at,
+                    read: !!row.is_read,
                 }));
                 // Keep local cache warm for offline fallback.
                 localStorage.setItem(CHAT_KEY, JSON.stringify(cloudMsgs));
@@ -385,8 +385,8 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
                 sender_role: newMsg.senderRole,
                 receiver_id: newMsg.receiverId,
                 content: newMsg.content,
-                timestamp: newMsg.timestamp,
-                read: newMsg.read,
+                created_at: newMsg.timestamp,
+                is_read: newMsg.read,
             };
             const { error } = await supabase.from(CHAT_TABLE).upsert(payload);
             if (error) {
@@ -407,7 +407,7 @@ export const getUnreadCount = async (receiverId: string, senderId?: string): Pro
                 .from(CHAT_TABLE)
                 .select('id', { count: 'exact', head: true })
                 .eq('receiver_id', receiverId)
-                .eq('read', false);
+                .eq('is_read', false);
             if (senderId) query = query.eq('sender_id', senderId);
             const { count, error } = await query;
             if (!error) return count || 0;
@@ -449,10 +449,10 @@ export const markAsRead = async (receiverId: string, senderId: string): Promise<
         try {
             const { error } = await supabase
                 .from(CHAT_TABLE)
-                .update({ read: true })
+                .update({ is_read: true })
                 .eq('receiver_id', receiverId)
                 .eq('sender_id', senderId)
-                .eq('read', false);
+                .eq('is_read', false);
             if (error) {
                 console.warn('Cloud markAsRead failed, local updated only:', error.message);
             }
