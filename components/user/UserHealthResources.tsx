@@ -161,7 +161,9 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
     }, [allResources, assessment]);
 
     const handleInteract = async (type: string, target: ContentItem) => {
-        if (!userCheckupId || !userName) return alert("用户信息缺失");
+        if (!userCheckupId || !userName) {
+            return alert('请先在底部「我的」登录后再报名/预约/收藏');
+        }
         
         let interactionType: InteractionItem['type'] = 'service_booking';
         let confirmMsg = '';

@@ -8,7 +8,7 @@ import { HospitalHeatmap } from './components/HospitalHeatmap';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { NativeSurveyForm } from './components/NativeSurveyForm';
-import { UserApp } from './components/UserApp';
+import { UserApp } from './components/user/UserApp';
 import { HomeAdmin } from './components/HomeAdmin';
 import { ResourceAdmin } from './components/ResourceAdmin'; 
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
@@ -74,11 +74,7 @@ export const App: React.FC = () => {
     if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) {
         refreshArchives();
     }
-  }, [isAuthenticated, currentUserRole, currentDoctor]); 
-
-  useEffect(() => {
-    if (portalMode === 'user') setShowUserEntry(true);
-  }, [portalMode]);
+  }, [isAuthenticated, currentUserRole, currentDoctor]);
 
   const refreshArchives = async () => {
     const allArchives = await fetchArchives();
@@ -361,6 +357,10 @@ export const App: React.FC = () => {
       }
   };
 
+  if (portalMode === 'user') {
+      return <UserApp />;
+  }
+
   if (currentUserRole === 'home') {
       return <HomeAdmin onLogout={() => { setIsAuthenticated(false); setCurrentUserRole(null); }} />;
   }
@@ -370,7 +370,7 @@ export const App: React.FC = () => {
   }
 
   if (currentUserRole === 'user') {
-      return <UserApp checkupId={userCheckupId} onLogout={() => { setCurrentUserRole(null); setUserCheckupId(''); }} />;
+      return <UserApp initialCheckupId={userCheckupId} onLogout={() => { setCurrentUserRole(null); setUserCheckupId(''); }} />;
   }
 
   if (!isAuthenticated && activeTab === 'dashboard') {

@@ -1,144 +1,202 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
-import { UserHealthResources } from './UserHealthResources'; // 新：AI健康资源推荐
-import { UserHabits } from './UserHabits'; 
+import { UserHealthResources } from './UserHealthResources';
+import { UserHabits } from './UserHabits';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
+import { UserProfileShell } from './UserProfileShell';
 import { UserCommunity } from './UserCommunity';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
 
+const USER_SESSION_CHECKUP_KEY = 'user_portal_checkup_id';
+
 interface Props {
-  checkupId: string;
-  onLogout: () => void;
+  /** 主域名入口登录后传入的体检编号 */
+  initialCheckupId?: string;
+  /** 主域名聚合入口退出时清空 App 侧状态；子域名访客模式可不传 */
+  onLogout?: () => void;
 }
 
-export const UserApp: React.FC<Props> = ({ checkupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits'); 
+export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
+  const [activeTab, setActiveTab] = useState('habits');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
-  const resolvedUserName = userArchive?.name?.trim() || userArchive?.health_record?.profile?.name?.trim() || '用户';
 
-  const loadUser = useCallback(async (isSilent = false) => {
-    if (!isSilent) setLoading(true);
+  const resolvedUserName =
+    userArchive?.name?.trim() || userArchive?.health_record?.profile?.name?.trim() || '用户';
+
+  const persistSessionCheckupId = (checkupId: string) => {
     try {
-      const archive = await findArchiveByCheckupId(checkupId);
-      if (archive) {
-        setUserArchive(archive);
-        syncArchiveToLocal(archive); 
-      } else {
-        alert('未找到您的档案，请联系管理员核对体检编号');
-        onLogout();
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      if (!isSilent) setLoading(false);
+      sessionStorage.setItem(USER_SESSION_CHECKUP_KEY, checkupId);
+    } catch {
+      /* ignore */
     }
-  }, [checkupId, onLogout]);
+  };
 
-  useEffect(() => {
-    loadUser();
-  }, [loadUser]);
+  const clearSessionCheckupId = () => {
+    try {
+      sessionStorage.removeItem(USER_SESSION_CHECKUP_KEY);
+    } catch {
+      /* ignore */
+    }
+  };
 
-  // Poll for unread messages
-  useEffect(() => {
-      const checkUnread = async () => {
-          if (!userArchive) return;
-          const count = await getUnreadCount(userArchive.checkup_id);
-          setUnreadCount(count);
-      };
-
-      if (userArchive) {
-          checkUnread();
-          const interval = setInterval(checkUnread, 5000);
-          return () => clearInterval(interval);
+  const loadArchiveById = useCallback(
+    async (checkupId: string, isSilent = false, showAlertOnMissing = false) => {
+      if (!isSilent) setLoading(true);
+      try {
+        const archive = await findArchiveByCheckupId(checkupId);
+        if (archive) {
+          setUserArchive(archive);
+          syncArchiveToLocal(archive);
+          persistSessionCheckupId(archive.checkup_id);
+        } else {
+          setUserArchive(null);
+          clearSessionCheckupId();
+          if (showAlertOnMissing) {
+            alert('未找到您的档案，请联系管理员核对体检编号');
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        setUserArchive(null);
+      } finally {
+        if (!isSilent) setLoading(false);
       }
+    },
+    []
+  );
+
+  useEffect(() => {
+    const bootstrap = async () => {
+      const fromProp = initialCheckupId?.trim();
+      let fromSession = '';
+      try {
+        fromSession = sessionStorage.getItem(USER_SESSION_CHECKUP_KEY) || '';
+      } catch {
+        fromSession = '';
+      }
+      const id = fromProp || fromSession;
+      if (id) {
+        await loadArchiveById(id, false, !!fromProp && !fromSession);
+      } else {
+        setLoading(false);
+        setUserArchive(null);
+      }
+    };
+    bootstrap();
+  }, [initialCheckupId, loadArchiveById]);
+
+  useEffect(() => {
+    const checkUnread = async () => {
+      if (!userArchive) return;
+      const count = await getUnreadCount(userArchive.checkup_id);
+      setUnreadCount(count);
+    };
+
+    if (userArchive) {
+      checkUnread();
+      const interval = setInterval(checkUnread, 5000);
+      return () => clearInterval(interval);
+    }
   }, [userArchive?.checkup_id]);
 
   const handleUpdateRecord = async (updatedData: any) => {
-      if (!userArchive) return;
-      
-      const newCheckup = {
-          ...userArchive.health_record.checkup,
-          basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
-          labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic }
-      };
+    if (!userArchive) return;
 
-      const newRecord = { ...userArchive.health_record, checkup: newCheckup };
-      setUserArchive({ ...userArchive, health_record: newRecord });
-      
-      try {
-          await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
-      } catch (e) {
-          console.error("Sync failed", e);
-      }
+    const newCheckup = {
+      ...userArchive.health_record.checkup,
+      basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
+      labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic },
+    };
+
+    const newRecord = { ...userArchive.health_record, checkup: newCheckup };
+    setUserArchive({ ...userArchive, health_record: newRecord });
+
+    try {
+      await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
+    } catch (e) {
+      console.error('Sync failed', e);
+    }
+  };
+
+  const handleProfileLogout = () => {
+    clearSessionCheckupId();
+    setUserArchive(null);
+    setUnreadCount(0);
+    setActiveTab('habits');
+    onLogout?.();
+  };
+
+  const handleShellLoginSuccess = async (archive: HealthArchive) => {
+    setUserArchive(archive);
+    syncArchiveToLocal(archive);
+    persistSessionCheckupId(archive.checkup_id);
+    setLoading(false);
   };
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
         <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold text-sm">正在加载您的健康数据...</p>
+        <p className="text-slate-500 font-bold text-sm">正在加载...</p>
       </div>
     );
   }
 
-  if (!userArchive) return null;
-
   return (
     <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
-      {/* 第一页：智能问诊（仅虚拟健康助手） */}
       {activeTab === 'habits' && (
-          <UserHabits 
-              assessment={userArchive.assessment_data}
-              userCheckupId={userArchive.checkup_id}
-              userName={resolvedUserName}
-              record={userArchive.health_record}
-              onRefresh={() => loadUser(true)}
-          />
+        <UserHabits
+          assessment={userArchive?.assessment_data}
+          userCheckupId={userArchive?.checkup_id}
+          userName={userArchive ? resolvedUserName : '访客'}
+          record={userArchive?.health_record}
+          onRefresh={() => userArchive && loadArchiveById(userArchive.checkup_id, true)}
+        />
       )}
-      {/* 第二页：AI健康资源推荐 */}
       {activeTab === 'resources' && (
-          <UserHealthResources 
-              assessment={userArchive.assessment_data} 
-              userCheckupId={userArchive.checkup_id}
-              userName={resolvedUserName}
-              record={userArchive.health_record}
-          />
+        <UserHealthResources
+          assessment={userArchive?.assessment_data}
+          userCheckupId={userArchive?.checkup_id}
+          userName={userArchive ? resolvedUserName : undefined}
+          record={userArchive?.health_record}
+        />
       )}
-      {/* 第三页：发现（社区+医疗服务+饮食资源） */}
       {activeTab === 'community' && (
-          <UserCommunity 
-              userId={userArchive.checkup_id}
-              userName={resolvedUserName}
-              assessment={userArchive.assessment_data} 
-          />
+        <UserCommunity
+          userId={userArchive?.checkup_id}
+          userName={userArchive ? resolvedUserName : undefined}
+          assessment={userArchive?.assessment_data}
+        />
       )}
-      {/* 第四页：消息（咨询+医生资源） */}
       {activeTab === 'interaction' && (
-          <UserInteraction 
-              userId={userArchive.checkup_id} 
-              userName={resolvedUserName}
-              archive={userArchive} 
-              assessment={userArchive.assessment_data}
-              onMessageRead={() => setUnreadCount(0)}
-          />
+        <UserInteraction
+          userId={userArchive?.checkup_id}
+          userName={userArchive ? resolvedUserName : undefined}
+          archive={userArchive ?? undefined}
+          assessment={userArchive?.assessment_data}
+          onMessageRead={() => setUnreadCount(0)}
+        />
       )}
-      {activeTab === 'profile' && (
-          <UserProfile 
-              record={userArchive.health_record} 
-              assessment={userArchive.assessment_data}
-              dailyPlan={userArchive.custom_daily_plan}
-              userId={userArchive.checkup_id}
-              archive={userArchive}
-              onUpdateRecord={handleUpdateRecord}
-              onLogout={onLogout}
-              onNavigate={setActiveTab}
+      {activeTab === 'profile' &&
+        (userArchive ? (
+          <UserProfile
+            record={userArchive.health_record}
+            assessment={userArchive.assessment_data}
+            dailyPlan={userArchive.custom_daily_plan}
+            userId={userArchive.checkup_id}
+            archive={userArchive}
+            onUpdateRecord={handleUpdateRecord}
+            onLogout={handleProfileLogout}
+            onNavigate={setActiveTab}
           />
-      )}
+        ) : (
+          <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />
+        ))}
     </UserLayout>
   );
 };

@@ -5,7 +5,7 @@ import { HealthArchive } from '../../services/dataService';
 import { HealthAssessment } from '../../types';
 
 interface Props {
-    userId: string;
+    userId?: string;
     userName?: string;
     archive?: HealthArchive;
     assessment?: HealthAssessment;
@@ -87,14 +87,17 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
 
     useEffect(() => {
         loadAllData();
-    }, []);
+    }, [userId]);
 
     useEffect(() => {
-        let interval: any;
+        if (!userId) return;
+        let interval: ReturnType<typeof setInterval>;
         const poll = () => {
             if (activeDoctor) {
                 loadMessages();
-                markAsRead(userId, activeDoctor.targetId).then(() => { if(onMessageRead) onMessageRead(); });
+                markAsRead(userId, activeDoctor.targetId).then(() => {
+                    if (onMessageRead) onMessageRead();
+                });
             } else {
                 loadSignedDoctors();
             }
@@ -102,7 +105,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         poll();
         interval = setInterval(poll, 3000);
         return () => clearInterval(interval);
-    }, [activeDoctor]);
+    }, [activeDoctor, userId]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -117,15 +120,20 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
             ]);
             setAllDoctors(docs);
             setAllInteractions(inters);
-            
-            // Load signed doctors
-            const signings = inters.filter(i => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
-            const listWithCount: DoctorWithUnread[] = [];
-            for (const sign of signings) {
-                const count = await getUnreadCount(userId, sign.targetId);
-                listWithCount.push({ interaction: sign, unread: count });
+
+            if (!userId) {
+                setDoctorList([]);
+            } else {
+                const signings = inters.filter(
+                    (i) => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed'
+                );
+                const listWithCount: DoctorWithUnread[] = [];
+                for (const sign of signings) {
+                    const count = await getUnreadCount(userId, sign.targetId);
+                    listWithCount.push({ interaction: sign, unread: count });
+                }
+                setDoctorList(listWithCount);
             }
-            setDoctorList(listWithCount);
         } catch (e) {
             console.error(e);
         } finally {
@@ -134,9 +142,13 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     };
 
     const loadSignedDoctors = async () => {
+        if (!userId) {
+            setDoctorList([]);
+            return;
+        }
         const inters = await fetchInteractions();
         setAllInteractions(inters);
-        const signings = inters.filter(i => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
+        const signings = inters.filter((i) => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
         const listWithCount: DoctorWithUnread[] = [];
         for (const sign of signings) {
             const count = await getUnreadCount(userId, sign.targetId);
@@ -146,12 +158,16 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     };
 
     const loadMessages = async () => {
-        if (!activeDoctor) return;
+        if (!activeDoctor || !userId) return;
         const msgs = await fetchMessages(userId, activeDoctor.targetId);
         setChatMessages(msgs);
     };
 
     const handleSendMsg = async () => {
+        if (!userId) {
+            alert('请先在底部「我的」登录后再发送消息');
+            return;
+        }
         if (!activeDoctor || !chatInput.trim()) return;
         await sendMessage({
             senderId: userId,
@@ -164,7 +180,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     };
 
     const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
-        if (!userId) return alert("用户信息缺失，请重新登录后再试");
+        if (!userId) return alert('请先在底部「我的」登录后再签约或挂号');
         
         let interactionType: InteractionItem['type'] = 'doctor_booking';
         let confirmMsg = '';
@@ -360,13 +376,25 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                         {doctorList.length === 0 ? (
                             <div className="text-center py-16 bg-white rounded-2xl">
                                 <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 opacity-50">👨‍⚕️</div>
-                                <h3 className="text-lg font-bold text-slate-700 mb-2">暂无签约医生</h3>
-                                <p className="text-sm text-slate-400 mb-4">签约家庭医生后，可在此进行咨询</p>
-                                <button 
-                                    onClick={() => setViewMode('doctors')}
-                                    className="bg-blue-600 text-white px-6 py-2 rounded-xl text-sm font-bold"
+                                <h3 className="text-lg font-bold text-slate-700 mb-2">
+                                    {!userId ? '登录后查看咨询' : '暂无签约医生'}
+                                </h3>
+                                <p className="text-sm text-slate-400 mb-4 px-4">
+                                    {!userId
+                                        ? '请先在底部「我的」登录，签约家庭医生后即可在此咨询'
+                                        : '签约家庭医生后，可在此进行咨询'}
+                                </p>
+                                <button
+                                    onClick={() =>
+                                        userId
+                                            ? setViewMode('doctors')
+                                            : alert('请切换到底部「我的」完成登录后再签约医生')
+                                    }
+                                    className={`px-6 py-2 rounded-xl text-sm font-bold ${
+                                        userId ? 'bg-blue-600 text-white' : 'bg-teal-600 text-white'
+                                    }`}
                                 >
-                                    去签约医生
+                                    {userId ? '去签约医生' : '我知道了'}
                                 </button>
                             </div>
                         ) : (
