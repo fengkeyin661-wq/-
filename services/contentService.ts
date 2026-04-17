@@ -44,6 +44,7 @@ export interface ChatMessage {
 const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V4';
 const INTERACTION_KEY = 'HEALTH_GUARD_INTERACTIONS_V1';
 const CHAT_KEY = 'HEALTH_GUARD_CHATS_V1';
+const CHAT_TABLE = 'app_chat_messages';
 
 // --- Diagnostic Tool ---
 export const checkDbConnection = async (): Promise<{
@@ -335,6 +336,36 @@ export const updateInteractionStatus = async (id: string, status: InteractionIte
 
 // 3. Chat Messages
 export const fetchMessages = async (userId: string, doctorId: string): Promise<ChatMessage[]> => {
+    if (isSupabaseConfigured()) {
+        try {
+            const { data, error } = await supabase
+                .from(CHAT_TABLE)
+                .select('id, sender_id, sender_role, receiver_id, content, timestamp, read')
+                .or(
+                    `and(sender_id.eq.${userId},receiver_id.eq.${doctorId}),and(sender_id.eq.${doctorId},receiver_id.eq.${userId})`
+                )
+                .order('timestamp', { ascending: true });
+
+            if (!error && data) {
+                const cloudMsgs: ChatMessage[] = data.map((row: any) => ({
+                    id: row.id,
+                    senderId: row.sender_id,
+                    senderRole: row.sender_role,
+                    receiverId: row.receiver_id,
+                    content: row.content,
+                    timestamp: row.timestamp,
+                    read: !!row.read,
+                }));
+                // Keep local cache warm for offline fallback.
+                localStorage.setItem(CHAT_KEY, JSON.stringify(cloudMsgs));
+                return cloudMsgs;
+            }
+            console.warn('Fetch chat from cloud failed, fallback to local:', error?.message);
+        } catch (e) {
+            console.warn('Fetch chat from cloud exception, fallback to local:', e);
+        }
+    }
+
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
     return all.filter(m => (m.senderId === userId && m.receiverId === doctorId) || (m.senderId === doctorId && m.receiverId === userId)).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -345,10 +376,47 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
     all.push(newMsg);
     localStorage.setItem(CHAT_KEY, JSON.stringify(all));
+
+    if (isSupabaseConfigured()) {
+        try {
+            const payload = {
+                id: newMsg.id,
+                sender_id: newMsg.senderId,
+                sender_role: newMsg.senderRole,
+                receiver_id: newMsg.receiverId,
+                content: newMsg.content,
+                timestamp: newMsg.timestamp,
+                read: newMsg.read,
+            };
+            const { error } = await supabase.from(CHAT_TABLE).upsert(payload);
+            if (error) {
+                console.error('Cloud sendMessage failed, message kept locally:', error.message);
+            }
+        } catch (e) {
+            console.error('Cloud sendMessage exception, message kept locally:', e);
+        }
+    }
+
     return newMsg;
 };
 
 export const getUnreadCount = async (receiverId: string, senderId?: string): Promise<number> => {
+    if (isSupabaseConfigured()) {
+        try {
+            let query = supabase
+                .from(CHAT_TABLE)
+                .select('id', { count: 'exact', head: true })
+                .eq('receiver_id', receiverId)
+                .eq('read', false);
+            if (senderId) query = query.eq('sender_id', senderId);
+            const { count, error } = await query;
+            if (!error) return count || 0;
+            console.warn('Cloud getUnreadCount failed, fallback to local:', error.message);
+        } catch (e) {
+            console.warn('Cloud getUnreadCount exception, fallback to local:', e);
+        }
+    }
+
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
     
@@ -375,6 +443,22 @@ export const markAsRead = async (receiverId: string, senderId: string): Promise<
 
     if (changed) {
         localStorage.setItem(CHAT_KEY, JSON.stringify(all));
+    }
+
+    if (isSupabaseConfigured()) {
+        try {
+            const { error } = await supabase
+                .from(CHAT_TABLE)
+                .update({ read: true })
+                .eq('receiver_id', receiverId)
+                .eq('sender_id', senderId)
+                .eq('read', false);
+            if (error) {
+                console.warn('Cloud markAsRead failed, local updated only:', error.message);
+            }
+        } catch (e) {
+            console.warn('Cloud markAsRead exception, local updated only:', e);
+        }
     }
 };
 
