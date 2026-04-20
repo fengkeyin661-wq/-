@@ -94,7 +94,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
                   <div key={m.id} className="rounded-lg bg-white/80 border border-teal-100 px-2 py-2 text-xs text-slate-700">
                     <div className="font-bold text-slate-800">{m.title}</div>
                     <div>电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
-                    {m.details?.wechat_qr && /^https?:\/\//i.test(String(m.details.wechat_qr)) && (
+                    {m.details?.wechat_qr && (/^https?:\/\//i.test(String(m.details.wechat_qr)) || String(m.details.wechat_qr).startsWith('data:image')) && (
                       <img src={String(m.details.wechat_qr)} alt="微信二维码" className="mt-2 h-20 w-20 rounded border border-slate-200 object-cover" />
                     )}
                   </div>

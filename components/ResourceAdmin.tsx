@@ -164,6 +164,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // Generic ref for Excel Import
     const batchImportRef = useRef<HTMLInputElement>(null);
     const coverImageInputRef = useRef<HTMLInputElement>(null);
+    const wechatQrInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
@@ -374,6 +375,28 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         const reader = new FileReader();
         reader.onload = () => {
             setEditItem((prev) => ({ ...prev, image: reader.result as string }));
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    };
+
+    const handleWechatQrFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件');
+            e.target.value = '';
+            return;
+        }
+        const max = 2 * 1024 * 1024;
+        if (file.size > max) {
+            alert('二维码图片请控制在 2MB 以内');
+            e.target.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            updateDetail('wechat_qr', reader.result as string);
         };
         reader.readAsDataURL(file);
         e.target.value = '';
@@ -1259,6 +1282,50 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             value={editItem.details?.wechat_qr}
                                             onChange={(v: any) => updateDetail('wechat_qr', v)}
                                         />
+                                        <div className="col-span-2 space-y-2">
+                                            <label className="block text-xs font-bold text-slate-700">二维码图片上传（支持 png/jpg/webp）</label>
+                                            <div className="flex flex-wrap items-start gap-3">
+                                                {editItem.details?.wechat_qr ? (
+                                                    <img
+                                                        src={editItem.details?.wechat_qr}
+                                                        alt="微信二维码"
+                                                        className="h-20 w-20 rounded border border-slate-200 object-cover bg-white"
+                                                    />
+                                                ) : (
+                                                    <div className="h-20 w-20 rounded border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-[11px] text-slate-400">
+                                                        无二维码
+                                                    </div>
+                                                )}
+                                                <div className="space-y-2">
+                                                    <input
+                                                        ref={wechatQrInputRef}
+                                                        type="file"
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                        onChange={handleWechatQrFile}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => wechatQrInputRef.current?.click()}
+                                                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white hover:bg-teal-700"
+                                                    >
+                                                        上传二维码图片
+                                                    </button>
+                                                    {editItem.details?.wechat_qr && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => updateDetail('wechat_qr', '')}
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-600 hover:bg-slate-50"
+                                                        >
+                                                            清除二维码
+                                                        </button>
+                                                    )}
+                                                    <p className="text-[11px] text-slate-500">
+                                                        支持直接上传图片，或在上方填写 URL 地址。
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <InputField
                                             label="微信号（可选）"
                                             placeholder="例如：health_manager_01"

@@ -470,7 +470,9 @@ export const App: React.FC = () => {
                                         <div key={m.id} className="rounded-md border border-green-100 bg-white px-2 py-2">
                                             <div className="text-[11px] font-bold text-slate-800">{m.title}</div>
                                             <div className="text-[11px] text-slate-700">电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
-                                            {m.details?.wechat_qr && /^https?:\/\//i.test(String(m.details.wechat_qr)) && (
+                                            {m.details?.wechat_qr &&
+                                                (/^https?:\/\//i.test(String(m.details.wechat_qr)) ||
+                                                    String(m.details.wechat_qr).startsWith('data:image')) && (
                                                 <img src={String(m.details.wechat_qr)} alt="微信二维码" className="mt-1 h-16 w-16 rounded border border-slate-200 object-cover" />
                                             )}
                                         </div>
