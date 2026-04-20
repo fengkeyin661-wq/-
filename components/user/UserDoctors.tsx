@@ -25,6 +25,15 @@ const DAY_MAP: Record<string, string> = {
   Sun: '周日',
 };
 const SLOT_MAP: Record<string, string> = { AM: '上午', PM: '下午' };
+const DAY_INDEX_TO_KEY: Record<number, string> = {
+  0: 'Sun',
+  1: 'Mon',
+  2: 'Tue',
+  3: 'Wed',
+  4: 'Thu',
+  5: 'Fri',
+  6: 'Sat',
+};
 
 const avatar = (doctor: ContentItem) => {
   if (doctor.image && /^https?:\/\//i.test(doctor.image)) {
@@ -120,6 +129,25 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
     ).length;
     const quota = bookingDoctor?.details?.slotQuotas?.[dayKey]?.[slotId] || 10;
     return { count, quota, full: count >= quota };
+  };
+
+  const getNextMonthSlots = (doctor: ContentItem) => {
+    const slots: { dateKey: string; displayDate: string; dayKey: string; slotId: string }[] = [];
+    const weekly = doctor.details?.weeklySchedule || {};
+    const today = new Date();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const dayKey = DAY_INDEX_TO_KEY[d.getDay()];
+      const daySlots: string[] = weekly[dayKey] || [];
+      if (!daySlots.length) continue;
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const dateKey = d.toISOString().split('T')[0];
+      const displayDate = `${mm}-${dd} ${DAY_MAP[dayKey]}`;
+      daySlots.forEach((slotId) => slots.push({ dateKey, displayDate, dayKey, slotId }));
+    }
+    return slots;
   };
 
   const submitInteraction = async (
@@ -294,38 +322,38 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
           <div className="w-full max-w-md rounded-t-3xl bg-white p-5 space-y-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-black text-slate-800">选择预约时段</h3>
             <p className="text-xs text-slate-500">{bookingDoctor.title}</p>
-            {Object.keys(DAY_MAP).map((dayKey) => {
-              const slots = bookingDoctor.details?.weeklySchedule?.[dayKey] || [];
-              if (!slots.length) return null;
+            {(() => {
+              const monthSlots = getNextMonthSlots(bookingDoctor);
+              if (!monthSlots.length) {
+                return <div className="text-center text-slate-400 text-sm py-8">未来30天暂无可预约号源</div>;
+              }
               return (
-                <div key={dayKey}>
-                  <h4 className="text-xs font-black text-slate-500 mb-2">{DAY_MAP[dayKey]}</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    {slots.map((slotId: string) => {
-                      const { count, quota, full } = slotUsage(bookingDoctor.id, dayKey, slotId);
-                      return (
-                        <button
-                          key={`${dayKey}-${slotId}`}
-                          disabled={full}
-                          className={`rounded-xl border p-3 text-sm font-bold ${
-                            full ? 'bg-slate-100 text-slate-400 border-slate-100' : 'bg-white text-slate-700 border-slate-200'
-                          }`}
-                          onClick={() =>
-                            submitInteraction(
-                              'doctor_booking',
-                              bookingDoctor,
-                              `预约挂号：${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}，费用: ${bookingDoctor.details?.fee || 0}元`
-                            )
-                          }
-                        >
-                          {SLOT_MAP[slotId]}（{full ? '约满' : `余${quota - count}`})
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {monthSlots.map((slot) => {
+                    const { count, quota, full } = slotUsage(bookingDoctor.id, slot.dayKey, slot.slotId);
+                    return (
+                      <button
+                        key={`${slot.dateKey}-${slot.slotId}`}
+                        disabled={full}
+                        className={`rounded-xl border p-3 text-sm font-bold flex items-center justify-between ${
+                          full ? 'bg-slate-100 text-slate-400 border-slate-100' : 'bg-white text-slate-700 border-slate-200'
+                        }`}
+                        onClick={() =>
+                          submitInteraction(
+                            'doctor_booking',
+                            bookingDoctor,
+                            `预约挂号：${slot.displayDate}${SLOT_MAP[slot.slotId]}，费用: ${bookingDoctor.details?.fee || 0}元`
+                          )
+                        }
+                      >
+                        <span>{slot.displayDate} · {SLOT_MAP[slot.slotId]}</span>
+                        <span>{full ? '约满' : `余${quota - count}`}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               );
-            })}
+            })()}
           </div>
         </div>
       )}
