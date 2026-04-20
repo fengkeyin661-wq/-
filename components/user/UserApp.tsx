@@ -9,6 +9,7 @@ import { UserCommunity } from './UserCommunity';
 import { UserDoctors } from './UserDoctors';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
+import { getCurrentUserCheckupId, signOutAuth } from '../../services/authService';
 
 const USER_SESSION_CHECKUP_KEY = 'user_portal_checkup_id';
 
@@ -77,6 +78,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
 
   useEffect(() => {
     const bootstrap = async () => {
+      const fromAuth = (await getCurrentUserCheckupId()) || '';
       const fromProp = initialCheckupId?.trim();
       let fromSession = '';
       try {
@@ -84,7 +86,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
       } catch {
         fromSession = '';
       }
-      const id = fromProp || fromSession;
+      const id = fromAuth || fromProp || fromSession;
       if (id) {
         await loadArchiveById(id, false, !!fromProp && !fromSession);
       } else {
@@ -128,7 +130,12 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     }
   };
 
-  const handleProfileLogout = () => {
+  const handleProfileLogout = async () => {
+    try {
+      await signOutAuth();
+    } catch (e) {
+      console.warn('Auth signOut failed', e);
+    }
     clearSessionCheckupId();
     setUserArchive(null);
     setUnreadCount(0);

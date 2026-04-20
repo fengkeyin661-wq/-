@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { authenticateUserByPhone, type HealthArchive } from '../../services/dataService';
+import { findArchiveByCheckupId, type HealthArchive } from '../../services/dataService';
+import { signInWithPhonePassword } from '../../services/authService';
 
 interface Props {
   onLoginSuccess: (archive: HealthArchive) => void;
@@ -25,19 +26,23 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true);
     setError('');
     try {
-      const result = await authenticateUserByPhone(p, password);
-      if (result.success) {
-        onLoginSuccess(result.archive);
-      } else {
-        if (result.reason === 'archive_not_found') {
-          setError('未查询到可登录档案。请联系健康管家（电话、微信号或在线消息）先完成健康建档注册后再登录。');
-        } else if (result.reason === 'invalid_password') {
-          setError('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
-        } else if (result.reason === 'permission_denied') {
-          setError('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+      const auth = await signInWithPhonePassword(p, password);
+      if (!auth.success) {
+        if (
+          auth.message.toLowerCase().includes('invalid') ||
+          auth.message.toLowerCase().includes('credentials')
+        ) {
+          setError('账号或密码错误，请核对后重试。');
         } else {
-          setError(`登录失败：${result.message || '查询异常，请稍后重试'}`);
+          setError(`登录失败：${auth.message}`);
         }
+        return;
+      }
+      const archive = await findArchiveByCheckupId(auth.checkupId);
+      if (archive) {
+        onLoginSuccess(archive);
+      } else {
+        setError('登录成功但未找到健康档案，请联系健康管家核对建档信息。');
       }
     } catch (err) {
       console.error(err);
