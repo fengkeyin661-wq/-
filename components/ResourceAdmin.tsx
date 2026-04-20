@@ -1253,6 +1253,18 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             value={editItem.details?.phone}
                                             onChange={(v: any) => updateDetail('phone', v)}
                                         />
+                                        <InputField
+                                            label="微信二维码图片地址（用户登录页展示）"
+                                            placeholder="https://.../wechat-qr.png"
+                                            value={editItem.details?.wechat_qr}
+                                            onChange={(v: any) => updateDetail('wechat_qr', v)}
+                                        />
+                                        <InputField
+                                            label="微信号（可选）"
+                                            placeholder="例如：health_manager_01"
+                                            value={editItem.details?.wechat_id}
+                                            onChange={(v: any) => updateDetail('wechat_id', v)}
+                                        />
                                     </FormSection>
 
                                     <FormSection title="专业能力">

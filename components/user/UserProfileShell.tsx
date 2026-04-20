@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { type HealthArchive } from '../../services/dataService';
 import { loginUserDualPath } from '../../services/userLoginService';
+import { fetchContent, isHealthManagerContent, type ContentItem } from '../../services/contentService';
 
 interface Props {
   onLoginSuccess: (archive: HealthArchive) => void;
@@ -11,6 +12,23 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [managers, setManagers] = useState<ContentItem[]>([]);
+
+  React.useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const doctors = await fetchContent('doctor', 'active');
+        const rows = doctors.filter(isHealthManagerContent);
+        if (!cancel) setManagers(rows);
+      } catch {
+        if (!cancel) setManagers([]);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -64,7 +82,25 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             仅已完成健康建档注册的用户可登录。请使用预留手机号登录；默认密码为体检编号，登录后可在「我的」中修改密码。
           </p>
           <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs leading-relaxed text-amber-800">
-            未建档用户请先联系健康管家完成建档注册，可通过电话、微信号或在线消息联系。
+            未建档用户请先联系健康管家完成建档注册，建档后才可登录。
+          </div>
+          <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-3 text-left">
+            <p className="text-xs font-bold text-teal-800 mb-2">健康管家联系方式</p>
+            {managers.length === 0 ? (
+              <p className="text-xs text-teal-700">请联系健康管理中心获取健康管家电话与微信。</p>
+            ) : (
+              <div className="space-y-2">
+                {managers.slice(0, 3).map((m) => (
+                  <div key={m.id} className="rounded-lg bg-white/80 border border-teal-100 px-2 py-2 text-xs text-slate-700">
+                    <div className="font-bold text-slate-800">{m.title}</div>
+                    <div>电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
+                    {m.details?.wechat_qr && /^https?:\/\//i.test(String(m.details.wechat_qr)) && (
+                      <img src={String(m.details.wechat_qr)} alt="微信二维码" className="mt-2 h-20 w-20 rounded border border-slate-200 object-cover" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

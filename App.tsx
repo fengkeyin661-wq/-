@@ -21,7 +21,7 @@ import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFrom
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
 import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
-import { ContentItem, fetchInteractions } from './services/contentService';
+import { ContentItem, fetchInteractions, fetchContent, isHealthManagerContent } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
 
 type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
@@ -56,6 +56,7 @@ export const App: React.FC = () => {
   
   // Doctor State
   const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); 
+  const [healthManagerContacts, setHealthManagerContacts] = useState<ContentItem[]>([]);
 
   // Medical Data State
   const [archives, setArchives] = useState<HealthArchive[]>([]);
@@ -79,6 +80,23 @@ export const App: React.FC = () => {
         refreshArchives();
     }
   }, [isAuthenticated, currentUserRole, currentDoctor]);
+
+  useEffect(() => {
+    if (!canShowUserEntry) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const doctors = await fetchContent('doctor', 'active');
+        const managers = doctors.filter(isHealthManagerContent);
+        if (!cancelled) setHealthManagerContacts(managers);
+      } catch {
+        if (!cancelled) setHealthManagerContacts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canShowUserEntry]);
 
   const refreshArchives = async () => {
     const allArchives = await fetchArchives();
@@ -441,7 +459,25 @@ export const App: React.FC = () => {
                         <label className="block text-xs font-bold text-green-900 mb-1">密码（默认：体检编号）</label>
                         <input type="password" autoComplete="current-password" placeholder="默认密码为体检编号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPassword} onChange={(e) => setUserLoginPassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
                         <p className="text-[11px] text-green-800/80 mb-2">首次登录请使用预留手机号，密码填写本人体检编号；登录后可在「我的」中修改密码。</p>
-                        <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">仅已完成健康建档注册用户可登录。未建档请联系健康管家（电话、微信号或在线消息）完成建档后再登录。</p>
+                        <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">仅已完成健康建档注册用户可登录。未建档用户请先联系健康管家建档后再登录。</p>
+                        <div className="mb-3 rounded-lg border border-green-200 bg-green-50 p-3">
+                            <p className="text-[11px] font-bold text-green-900 mb-2">健康管家联系方式（由资源运营台维护）</p>
+                            {healthManagerContacts.length === 0 ? (
+                                <p className="text-[11px] text-green-800/80">暂未维护健康管家联系方式，请联系健康管理中心。</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {healthManagerContacts.slice(0, 2).map((m) => (
+                                        <div key={m.id} className="rounded-md border border-green-100 bg-white px-2 py-2">
+                                            <div className="text-[11px] font-bold text-slate-800">{m.title}</div>
+                                            <div className="text-[11px] text-slate-700">电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
+                                            {m.details?.wechat_qr && /^https?:\/\//i.test(String(m.details.wechat_qr)) && (
+                                                <img src={String(m.details.wechat_qr)} alt="微信二维码" className="mt-1 h-16 w-16 rounded border border-slate-200 object-cover" />
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                         <button type="button" onClick={() => handleUserLogin()} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg text-sm hover:bg-green-700 mb-2">登录</button>
                         <button className="text-xs text-green-700 font-bold self-start hover:underline" onClick={() => setActiveTab('external_survey')}>📝 还没有档案？填写健康问卷</button>
                     </div>
