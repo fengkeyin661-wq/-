@@ -18,7 +18,7 @@ import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, findArchiveByPhone, updateHealthRecordOnly } from './services/dataService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly, authenticateUserByPhone } from './services/dataService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
@@ -50,6 +50,8 @@ export const App: React.FC = () => {
   // User Entry State
   const [showUserEntry, setShowUserEntry] = useState(false);
   const [userCheckupId, setUserCheckupId] = useState('');
+  const [userLoginPhone, setUserLoginPhone] = useState('');
+  const [userLoginPassword, setUserLoginPassword] = useState('');
   
   // Doctor State
   const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); 
@@ -131,17 +133,21 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleUserLogin = async (input: string) => {
-      let archive = await findArchiveByCheckupId(input);
-      if (!archive) {
-          archive = await findArchiveByPhone(input);
+  const handleUserLogin = async () => {
+      const phone = userLoginPhone.trim();
+      const password = userLoginPassword;
+      if (!phone || !password) {
+          alert('请输入预留手机号与密码（默认密码为体检编号）');
+          return;
       }
+      const archive = await authenticateUserByPhone(phone, password);
       if (archive) {
           setUserCheckupId(archive.checkup_id);
           setCurrentUserRole('user');
-          setIsAuthenticated(true); 
+          setIsAuthenticated(true);
+          setUserLoginPassword('');
       } else {
-          alert('未找到档案，请核对体检编号或预留手机号');
+          alert('登录失败：请核对预留手机号与密码（默认密码为体检编号）');
       }
   };
 
@@ -184,7 +190,7 @@ export const App: React.FC = () => {
           const portraits = generateSystemPortraits(data);
           const models = evaluateRiskModels(data);
           const analysis = { portraits, models };
-          const res = await saveArchive(data, newAssessment, newSchedule, followUps, analysis);
+          const res = await saveArchive(data, newAssessment, newSchedule, followUps, analysis, { completeProfileOnSave: true });
           
           if (res.success) {
               setHealthRecord(data);
@@ -306,7 +312,7 @@ export const App: React.FC = () => {
           const models = evaluateRiskModels(recordToSave);
           const newAnalysis = { portraits, models };
           const newSchedule = generateFollowUpSchedule(newAssessment);
-          const res = await saveArchive(recordToSave, newAssessment, newSchedule, previousFollowUps, newAnalysis);
+          const res = await saveArchive(recordToSave, newAssessment, newSchedule, previousFollowUps, newAnalysis, { completeProfileOnSave: true });
           if (res.success) {
               setHealthRecord(recordToSave);
               setAssessment(newAssessment);
@@ -417,7 +423,12 @@ export const App: React.FC = () => {
                             <h3 className="text-lg font-bold text-green-900">职工健康登录</h3>
                             <button onClick={() => setShowUserEntry(false)} className="text-slate-400 hover:text-slate-600 text-sm">取消</button>
                         </div>
-                        <input autoFocus type="text" placeholder="输入体检编号或手机号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-3 bg-green-50/50" onKeyDown={(e) => { if(e.key === 'Enter') handleUserLogin(e.currentTarget.value); }} />
+                        <label className="block text-xs font-bold text-green-900 mb-1">预留手机号</label>
+                        <input autoFocus type="tel" autoComplete="username" placeholder="预留手机号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPhone} onChange={(e) => setUserLoginPhone(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
+                        <label className="block text-xs font-bold text-green-900 mb-1">密码（默认：体检编号）</label>
+                        <input type="password" autoComplete="current-password" placeholder="默认密码为体检编号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPassword} onChange={(e) => setUserLoginPassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
+                        <p className="text-[11px] text-green-800/80 mb-3">首次登录请使用预留手机号，密码填写本人体检编号；登录后可在「我的」中修改密码。</p>
+                        <button type="button" onClick={() => handleUserLogin()} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg text-sm hover:bg-green-700 mb-2">登录</button>
                         <button className="text-xs text-green-700 font-bold self-start hover:underline" onClick={() => setActiveTab('external_survey')}>📝 还没有档案？填写健康问卷</button>
                     </div>
                 ) : (

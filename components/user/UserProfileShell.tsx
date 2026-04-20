@@ -1,33 +1,35 @@
 import React, { useState } from 'react';
-import { findArchiveByCheckupId, findArchiveByPhone, type HealthArchive } from '../../services/dataService';
+import { authenticateUserByPhone, type HealthArchive } from '../../services/dataService';
 
 interface Props {
   onLoginSuccess: (archive: HealthArchive) => void;
 }
 
 export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
-  const [input, setInput] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const raw = input.trim();
-    if (!raw) {
-      setError('请输入体检编号或预留手机号');
+    const p = phone.trim();
+    if (!p) {
+      setError('请输入预留手机号');
+      return;
+    }
+    if (!password) {
+      setError('请输入密码（默认与体检编号相同）');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      let archive = await findArchiveByCheckupId(raw);
-      if (!archive) {
-        archive = await findArchiveByPhone(raw);
-      }
+      const archive = await authenticateUserByPhone(p, password);
       if (archive) {
         onLoginSuccess(archive);
       } else {
-        setError('未找到档案，请核对体检编号或预留手机号');
+        setError('登录失败：请核对预留手机号与密码（默认密码为体检编号）');
       }
     } catch (err) {
       console.error(err);
@@ -46,20 +48,32 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
           </div>
           <h1 className="text-xl font-black text-slate-800">登录后使用个人服务</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            登录后可查看健康档案、随访与计划，以及签约、预约等记录
+            请使用预留手机号登录；默认密码为体检编号，登录后可在「我的」中修改密码。
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-bold text-slate-700">体检编号或手机号</label>
+            <label className="mb-1 block text-sm font-bold text-slate-700">预留手机号</label>
             <input
-              type="text"
+              type="tel"
               autoComplete="username"
               className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-teal-500"
-              placeholder="请输入体检编号或预留手机号"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
+              placeholder="请输入预留手机号"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-bold text-slate-700">密码</label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-teal-500"
+              placeholder="默认密码为体检编号"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
             />
           </div>

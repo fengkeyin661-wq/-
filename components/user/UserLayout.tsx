@@ -6,9 +6,17 @@ interface Props {
   onTabChange: (tab: string) => void;
   children: React.ReactNode;
   unreadCount?: number;
+  /** 档案未完善时顶部提示 */
+  profileIncompleteBanner?: string | null;
 }
 
-export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, unreadCount = 0 }) => {
+export const UserLayout: React.FC<Props> = ({
+  activeTab,
+  onTabChange,
+  children,
+  unreadCount = 0,
+  profileIncompleteBanner,
+}) => {
   const navItems = [
     { id: 'habits', label: '问诊', icon: '🤖' }, // 智能问诊（虚拟健康助手）
     { id: 'resources', label: '推荐', icon: '✨' }, // AI健康资源推荐
@@ -21,6 +29,14 @@ export const UserLayout: React.FC<Props> = ({ activeTab, onTabChange, children, 
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-slate-50 font-sans text-slate-800 md:shadow-2xl">
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto scrollbar-hide overscroll-y-contain pb-[calc(84px+env(safe-area-inset-bottom)+16px)]">
+        {profileIncompleteBanner ? (
+          <div
+            className="sticky top-0 z-40 border-b border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm font-bold text-amber-900"
+            role="status"
+          >
+            {profileIncompleteBanner}
+          </div>
+        ) : null}
         {children}
       </main>
 

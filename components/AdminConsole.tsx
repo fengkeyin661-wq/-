@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive, findArchiveByCheckupId } from '../services/dataService';
+import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive, findArchiveByCheckupId, updateArchiveMeta, normalizePhone } from '../services/dataService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
@@ -47,6 +47,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [editingArchive, setEditingArchive] = useState<HealthArchive | null>(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editForm, setEditForm] = useState<HealthProfile | null>(null);
+    const [editProfileComplete, setEditProfileComplete] = useState(true);
 
     // Critical Modal State
     const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
@@ -285,7 +286,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     const newSchedule = generateFollowUpSchedule(newAssessment);
                     const portraits = generateSystemPortraits(updatedRecord);
                     const models = evaluateRiskModels(updatedRecord);
-                    await saveArchive(updatedRecord, newAssessment, newSchedule, existingArchive.follow_ups, { portraits, models });
+                    await saveArchive(updatedRecord, newAssessment, newSchedule, existingArchive.follow_ups, { portraits, models }, { completeProfileOnSave: true });
                     setSmartBatchLogs(prev => [...prev, `✅ 更新成功: ${existingArchive.name} (风险:${newAssessment.riskLevel})`]);
                     successCount++;
                 } catch (err: any) {
@@ -339,8 +340,27 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     };
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => setSelectedIds(e.target.checked ? new Set(filteredArchives.map(a => a.id)) : new Set());
     const handleSelectRow = (id: string) => { const newSet = new Set(selectedIds); if (newSet.has(id)) newSet.delete(id); else newSet.add(id); setSelectedIds(newSet); };
-    const handleEditClick = (archive: HealthArchive) => { setEditingArchive(archive); setEditForm(archive.health_record.profile); setIsEditModalOpen(true); };
-    const handleSaveProfile = async () => { if (!editingArchive || !editForm) return; const result = await updateArchiveProfile(editingArchive.id, editForm); if (result.success) { setIsEditModalOpen(false); setEditingArchive(null); loadData(); if (onDataUpdate) onDataUpdate(); } else alert(result.message); };
+    const handleEditClick = (archive: HealthArchive) => {
+        setEditingArchive(archive);
+        setEditForm(archive.health_record.profile);
+        setEditProfileComplete(archive.profile_complete !== false);
+        setIsEditModalOpen(true);
+    };
+    const handleSaveProfile = async () => {
+        if (!editingArchive || !editForm) return;
+        const profileToSave = { ...editForm, phone: editForm.phone ? normalizePhone(editForm.phone) : editForm.phone };
+        const result = await updateArchiveProfile(editingArchive.id, profileToSave);
+        if (result.success) {
+            const meta = await updateArchiveMeta(profileToSave.checkupId || editingArchive.checkup_id, {
+                profile_complete: editProfileComplete,
+            });
+            if (!meta.success) console.warn(meta.message);
+            setIsEditModalOpen(false);
+            setEditingArchive(null);
+            loadData();
+            if (onDataUpdate) onDataUpdate();
+        } else alert(result.message);
+    };
     const handleCriticalSave = async (record: CriticalTrackRecord) => { if (!criticalModalArchive) return; const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record); if (res.success) { setCriticalModalArchive(null); loadData(); if (onDataUpdate) onDataUpdate(); } };
     
     const handleSmartBatchFiles = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) { setSmartBatchFiles(Array.from(e.target.files)); setSmartBatchLogs([]); } };
@@ -381,7 +401,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 const schedule = generateFollowUpSchedule(assessment);
                 const portraits = generateSystemPortraits(parsedRecord);
                 const models = evaluateRiskModels(parsedRecord);
-                const saveRes = await saveArchive(parsedRecord, assessment, schedule, [], { portraits, models });
+                const saveRes = await saveArchive(parsedRecord, assessment, schedule, [], { portraits, models }, { completeProfileOnSave: true });
                 if (saveRes.success) setSmartBatchLogs(prev => [...prev, `✅ 成功: ${parsedRecord.profile.name}`]);
                 else setSmartBatchLogs(prev => [...prev, `❌ 失败: ${saveRes.message}`]);
             } catch (e: any) {
@@ -511,6 +531,10 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                             </div>
                             <div><label className="block text-xs font-bold text-slate-500 mb-1">部门</label><input className="w-full border p-2 rounded" value={editForm.department} onChange={e => setEditForm({...editForm!, department: e.target.value})} /></div>
                             <div><label className="block text-xs font-bold text-slate-500 mb-1">电话</label><input className="w-full border p-2 rounded" value={editForm.phone || ''} onChange={e => setEditForm({...editForm!, phone: e.target.value})} /></div>
+                            <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                                <input type="checkbox" className="mt-1" checked={editProfileComplete} onChange={(e) => setEditProfileComplete(e.target.checked)} />
+                                <span>健康档案已完善（取消勾选后，用户登录端将提示联系健康管家完成建档）</span>
+                            </label>
                         </div>
                         <div className="flex justify-end gap-3 mt-6">
                             <button onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">取消</button>

@@ -16,6 +16,13 @@ export interface ContentItem {
   updatedAt: string;
 }
 
+/** 资源运营台「医生」条目中标记为健康管家，供医生站指派、用户端展示 */
+export const isHealthManagerContent = (item: ContentItem): boolean => {
+  if (item.type !== 'doctor') return false;
+  if (item.details?.role === 'health_manager') return true;
+  return (item.tags || []).some((t) => String(t).includes('健康管家'));
+};
+
 export interface InteractionItem {
     id: string;
     // Updated types: 

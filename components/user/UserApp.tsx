@@ -28,6 +28,11 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   const resolvedUserName =
     userArchive?.name?.trim() || userArchive?.health_record?.profile?.name?.trim() || '用户';
 
+  const profileIncompleteBanner =
+    userArchive && userArchive.profile_complete === false
+      ? '您的个人健康档案尚未完善，请联系健康管家完成健康档案建档。'
+      : null;
+
   const persistSessionCheckupId = (checkupId: string) => {
     try {
       sessionStorage.setItem(USER_SESSION_CHECKUP_KEY, checkupId);
@@ -148,7 +153,12 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   }
 
   return (
-    <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
+    <UserLayout
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      unreadCount={unreadCount}
+      profileIncompleteBanner={profileIncompleteBanner}
+    >
       {activeTab === 'habits' && (
         <UserHabits
           assessment={userArchive?.assessment_data}
@@ -193,6 +203,9 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
             onUpdateRecord={handleUpdateRecord}
             onLogout={handleProfileLogout}
             onNavigate={setActiveTab}
+            onArchiveRefresh={() =>
+              userArchive && loadArchiveById(userArchive.checkup_id, true)
+            }
           />
         ) : (
           <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />

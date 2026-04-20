@@ -1,8 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { HealthRecord, HealthAssessment, FollowUpRecord, RiskLevel } from '../../types';
-import { DailyHealthPlan, HealthArchive } from '../../services/dataService';
-import { fetchInteractions, InteractionItem, updateInteractionStatus } from '../../services/contentService';
+import { DailyHealthPlan, HealthArchive, updatePortalPassword } from '../../services/dataService';
+import {
+    fetchInteractions,
+    InteractionItem,
+    updateInteractionStatus,
+    fetchContent,
+    ContentItem,
+} from '../../services/contentService';
 
 interface Props {
   record: HealthRecord;
@@ -12,13 +18,32 @@ interface Props {
   archive: HealthArchive;
   onUpdateRecord: (updatedData: any) => void;
   onLogout: () => void;
-  onNavigate: (tab: string) => void; 
+  onNavigate: (tab: string) => void;
+  onArchiveRefresh?: () => void;
 }
 
-export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, userId, archive, onUpdateRecord, onLogout, onNavigate }) => {
-    const [subView, setSubView] = useState<'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps'>('menu');
+export const UserProfile: React.FC<Props> = ({
+    record,
+    assessment,
+    dailyPlan,
+    userId,
+    archive,
+    onUpdateRecord,
+    onLogout,
+    onNavigate,
+    onArchiveRefresh,
+}) => {
+    const [subView, setSubView] = useState<
+        'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager'
+    >('menu');
     // ... (keep existing state/effects) ...
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
+    const [healthManager, setHealthManager] = useState<ContentItem | null>(null);
+    const [pwdOld, setPwdOld] = useState('');
+    const [pwdNew, setPwdNew] = useState('');
+    const [pwdConfirm, setPwdConfirm] = useState('');
+    const [pwdSaving, setPwdSaving] = useState(false);
+    const [pwdMsg, setPwdMsg] = useState('');
     
     // ... (keep existing methods: loadInteractions, handleSaveRecord, handleCancelInteraction) ...
     const [isEditing, setIsEditing] = useState(false);
@@ -30,9 +55,55 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
         glucose: record.checkup.labBasic.glucose?.fasting || '0'
     });
 
-    useEffect(() => { loadInteractions(); }, [userId]);
+    useEffect(() => {
+        loadInteractions();
+    }, [userId]);
+
+    useEffect(() => {
+        const id = archive.health_manager_content_id;
+        if (!id) {
+            setHealthManager(null);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const doctors = await fetchContent('doctor', 'active');
+                const found = doctors.find((d) => d.id === id) || null;
+                if (!cancelled) setHealthManager(found);
+            } catch {
+                if (!cancelled) setHealthManager(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [archive.health_manager_content_id]);
     const loadInteractions = async () => { const all = await fetchInteractions(); setInteractions(all.filter(i => i.userId === userId)); };
     const handleSaveRecord = () => { onUpdateRecord(editForm); setIsEditing(false); };
+    const handleChangePassword = async () => {
+        setPwdMsg('');
+        if (pwdNew !== pwdConfirm) {
+            setPwdMsg('两次输入的新密码不一致');
+            return;
+        }
+        setPwdSaving(true);
+        try {
+            const res = await updatePortalPassword(userId, pwdOld, pwdNew);
+            if (res.success) {
+                setPwdMsg('密码已更新');
+                setPwdOld('');
+                setPwdNew('');
+                setPwdConfirm('');
+                onArchiveRefresh?.();
+            } else {
+                setPwdMsg(res.message || '修改失败');
+            }
+        } finally {
+            setPwdSaving(false);
+        }
+    };
+
     const handleCancelInteraction = async (id: string, type: string) => { 
         const label = type === 'doctor_signing' ? '签约' : '预约';
         if (confirm(`确定要取消此${label}吗？`)) {
@@ -431,6 +502,108 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
         );
     };
 
+    const renderManagerView = () => (
+        <div className="space-y-4 p-4 pb-24 animate-slideInRight">
+            <h2 className="text-lg font-bold text-slate-800">我的健康管家</h2>
+            {healthManager ? (
+                <div className="rounded-2xl border border-teal-100 bg-white p-5 shadow-sm">
+                    <div className="flex items-center gap-3 mb-3">
+                        {healthManager.image && /^https?:\/\//i.test(healthManager.image) ? (
+                            <img
+                                src={healthManager.image}
+                                alt=""
+                                className="h-14 w-14 rounded-full border border-slate-100 object-cover"
+                            />
+                        ) : (
+                            <div className="text-3xl">{healthManager.image || '🧑‍⚕️'}</div>
+                        )}
+                        <div>
+                            <div className="font-black text-slate-800 text-lg">{healthManager.title}</div>
+                            {healthManager.details?.dept && (
+                                <div className="text-xs text-slate-500">{healthManager.details.dept}</div>
+                            )}
+                        </div>
+                    </div>
+                    {healthManager.description && (
+                        <p className="text-sm text-slate-600 leading-relaxed mb-3">{healthManager.description}</p>
+                    )}
+                    {(healthManager.details?.phone || healthManager.details?.mobile) && (
+                        <p className="text-sm font-bold text-teal-700">
+                            联系电话：{healthManager.details?.phone || healthManager.details?.mobile}
+                        </p>
+                    )}
+                    {!healthManager.details?.phone && !healthManager.details?.mobile && (
+                        <p className="text-xs text-slate-400">联系方式请咨询健康管理中心</p>
+                    )}
+                </div>
+            ) : (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-500 text-sm">
+                    暂未分配健康管家。请等待签约医生或健康管理中心为您指定，或联系健康管家完成建档。
+                </div>
+            )}
+        </div>
+    );
+
+    const renderSecurityView = () => (
+        <div className="space-y-4 p-4 pb-24 animate-slideInRight">
+            <h2 className="text-lg font-bold text-slate-800">修改密码</h2>
+            <p className="text-xs text-slate-500">
+                若从未修改过密码，「当前密码」请填写体检编号；修改成功后请使用新密码登录。
+            </p>
+            <div className="space-y-3 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div>
+                    <label className="text-xs font-bold text-slate-600">当前密码</label>
+                    <input
+                        type="password"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        value={pwdOld}
+                        onChange={(e) => setPwdOld(e.target.value)}
+                        autoComplete="current-password"
+                    />
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-slate-600">新密码（至少 6 位）</label>
+                    <input
+                        type="password"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        value={pwdNew}
+                        onChange={(e) => setPwdNew(e.target.value)}
+                        autoComplete="new-password"
+                    />
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-slate-600">确认新密码</label>
+                    <input
+                        type="password"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        value={pwdConfirm}
+                        onChange={(e) => setPwdConfirm(e.target.value)}
+                        autoComplete="new-password"
+                    />
+                </div>
+                {pwdMsg ? (
+                    <p
+                        className={`text-center text-xs font-bold ${
+                            pwdMsg.includes('失败') || pwdMsg.includes('不正确') || pwdMsg.includes('不一致')
+                                ? 'text-red-600'
+                                : 'text-teal-600'
+                        }`}
+                    >
+                        {pwdMsg}
+                    </p>
+                ) : null}
+                <button
+                    type="button"
+                    disabled={pwdSaving}
+                    onClick={handleChangePassword}
+                    className="w-full rounded-xl bg-teal-600 py-3 text-sm font-bold text-white shadow-md hover:bg-teal-700 disabled:opacity-50"
+                >
+                    {pwdSaving ? '保存中...' : '保存新密码'}
+                </button>
+            </div>
+        </div>
+    );
+
     return (
         <div className="bg-slate-50 min-h-full">
             {/* Header / ID Card */}
@@ -468,6 +641,8 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
                         <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
                         <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与开药历史" onClick={() => setSubView('apps')} />
+                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="健康管家联系方式与服务说明" onClick={() => setSubView('manager')} />
+                        <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
                     </div>
                 )}
 
@@ -476,6 +651,8 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                 {subView === 'plan' && renderPlanView()}
                 {subView === 'events' && renderEventsView()}
                 {subView === 'apps' && renderAppsView()}
+                {subView === 'manager' && renderManagerView()}
+                {subView === 'security' && renderSecurityView()}
 
                 {/* Logout Button (Only on Menu) */}
                 {subView === 'menu' && (

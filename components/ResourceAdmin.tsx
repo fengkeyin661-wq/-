@@ -1217,6 +1217,44 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="登录密码" placeholder="设置初始密码" type="text" value={editItem.details?.password} onChange={(v:any) => updateDetail('password', v)} />
                                     </FormSection>
 
+                                    <FormSection title="健康管家">
+                                        <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+                                            <input
+                                                type="checkbox"
+                                                className="mt-1"
+                                                checked={
+                                                    editItem.details?.role === 'health_manager' ||
+                                                    (editItem.tags || []).some((t: string) => String(t).includes('健康管家'))
+                                                }
+                                                onChange={(e) => {
+                                                    const on = e.target.checked;
+                                                    const tags = [...(editItem.tags || [])];
+                                                    const hasTag = tags.some((t) => String(t).includes('健康管家'));
+                                                    let nextTags = tags;
+                                                    if (on && !hasTag) nextTags = [...tags, '健康管家'];
+                                                    if (!on) nextTags = tags.filter((t) => !String(t).includes('健康管家'));
+                                                    setEditItem({
+                                                        ...editItem,
+                                                        tags: nextTags,
+                                                        details: {
+                                                            ...editItem.details,
+                                                            role: on ? 'health_manager' : undefined,
+                                                        },
+                                                    });
+                                                }}
+                                            />
+                                            <span>
+                                                标记为「健康管家」（医生工作站可指派给签约用户；用户端「我的」—「我的健康管家」中展示）
+                                            </span>
+                                        </label>
+                                        <InputField
+                                            label="对外联系电话（用户端展示）"
+                                            placeholder="手机号或座机"
+                                            value={editItem.details?.phone}
+                                            onChange={(v: any) => updateDetail('phone', v)}
+                                        />
+                                    </FormSection>
+
                                     <FormSection title="专业能力">
                                         <TextAreaField label="擅长领域 (标签请逗号分隔)" value={editItem.tags?.join(',')} onChange={(v:string) => setEditItem({...editItem, tags: v.split(/[,，]/)})} placeholder="如：高血压, 糖尿病, 小儿推拿" />
                                         <TextAreaField label="个人简介" placeholder="毕业院校、从业年限、学术成就..." value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />

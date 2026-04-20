@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessage, fetchMessages, sendMessage, getUnreadCount, markAsRead, fetchContent, saveContent } from '../services/contentService';
-import { findArchiveByCheckupId, HealthArchive } from '../services/dataService';
+import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessage, fetchMessages, sendMessage, getUnreadCount, markAsRead, fetchContent, saveContent, ContentItem, isHealthManagerContent } from '../services/contentService';
+import { findArchiveByCheckupId, HealthArchive, updateArchiveMeta } from '../services/dataService';
 
 interface Props {
     doctorId: string; 
@@ -38,6 +38,10 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
     const [chatInput, setChatInput] = useState('');
     const chatEndRef = useRef<HTMLDivElement>(null);
 
+    const [healthManagers, setHealthManagers] = useState<ContentItem[]>([]);
+    const [managerPick, setManagerPick] = useState<Record<string, string>>({});
+    const [savingManagerFor, setSavingManagerFor] = useState<string | null>(null);
+
     const totalUnread = signedPatients.reduce((acc, curr) => acc + (curr.unread || 0), 0);
 
     const matchesCurrentDoctor = (interaction: InteractionItem) => {
@@ -49,7 +53,26 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
     useEffect(() => {
         loadData();
         loadDoctorProfile();
+        (async () => {
+            try {
+                const docs = await fetchContent('doctor', 'active');
+                setHealthManagers(docs.filter(isHealthManagerContent));
+            } catch {
+                setHealthManagers([]);
+            }
+        })();
     }, [doctorId]);
+
+    useEffect(() => {
+        setManagerPick((prev) => {
+            const next = { ...prev };
+            for (const p of signedPatients) {
+                const uid = p.interaction.userId;
+                if (!(uid in next)) next[uid] = p.archive?.health_manager_content_id || '';
+            }
+            return next;
+        });
+    }, [signedPatients]);
 
     useEffect(() => {
         let interval: any;
@@ -371,6 +394,54 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                     <div className="font-black text-slate-800 text-lg leading-tight">{item.interaction.userName}</div>
                                                     <div className="text-xs text-slate-400 mt-1">{item.archive?.age || '?'}岁 · {item.archive?.department || '部门未录入'}</div>
                                                 </div>
+                                            </div>
+                                            <div className="mb-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                                                <div className="text-[10px] font-black uppercase tracking-wide text-slate-400 mb-1.5">指定健康管家</div>
+                                                <select
+                                                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700"
+                                                    value={managerPick[item.interaction.userId] ?? item.archive?.health_manager_content_id ?? ''}
+                                                    onChange={(e) =>
+                                                        setManagerPick((m) => ({
+                                                            ...m,
+                                                            [item.interaction.userId]: e.target.value,
+                                                        }))
+                                                    }
+                                                    disabled={!item.archive}
+                                                >
+                                                    <option value="">未指定</option>
+                                                    {healthManagers.map((m) => (
+                                                        <option key={m.id} value={m.id}>
+                                                            {m.title}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <button
+                                                    type="button"
+                                                    disabled={!item.archive || savingManagerFor === item.interaction.userId}
+                                                    onClick={async () => {
+                                                        if (!item.archive) return;
+                                                        const uid = item.interaction.userId;
+                                                        const v = managerPick[uid] ?? '';
+                                                        setSavingManagerFor(uid);
+                                                        try {
+                                                            const res = await updateArchiveMeta(uid, {
+                                                                health_manager_content_id: v || null,
+                                                            });
+                                                            if (res.success) await loadData();
+                                                            else alert(res.message || '保存失败');
+                                                        } finally {
+                                                            setSavingManagerFor(null);
+                                                        }
+                                                    }}
+                                                    className="mt-2 w-full rounded-lg bg-amber-600 py-2 text-[11px] font-black text-white hover:bg-amber-700 disabled:opacity-50"
+                                                >
+                                                    {savingManagerFor === item.interaction.userId ? '保存中…' : '保存健康管家'}
+                                                </button>
+                                                {healthManagers.length === 0 && (
+                                                    <p className="mt-1 text-[10px] text-amber-700">
+                                                        请先在资源运营台「医生管理」中维护带「健康管家」标签或角色的医生条目。
+                                                    </p>
+                                                )}
                                             </div>
                                             <div className="grid grid-cols-2 gap-2 pt-2">
                                                 <button onClick={() => item.archive && onSelectPatient(item.archive, 'assessment')} className="py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">查看评估</button>

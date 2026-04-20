@@ -1,4 +1,5 @@
 
+import bcrypt from 'bcryptjs';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
 
@@ -92,9 +93,162 @@ export interface HealthArchive {
     }[];
     created_at: string;
     updated_at?: string;
+
+    /** bcrypt hash after user changes password; empty = login with default (体检编号) */
+    password_hash?: string | null;
+    /** false: prompt user to contact health manager to finish 建档 */
+    profile_complete?: boolean;
+    /** app_content.id for doctor resource (健康管家) */
+    health_manager_content_id?: string | null;
 }
 
 const ARCHIVE_STORAGE_KEY = 'HEALTH_ARCHIVES_V1_LOCAL';
+
+/** Normalize phone for lookup (strip spaces/dashes). */
+export const normalizePhone = (phone: string): string =>
+    phone.replace(/[\s\-]/g, '').trim();
+
+const phoneMatches = (stored: string | undefined | null, input: string): boolean => {
+    if (!stored || !input) return false;
+    return normalizePhone(stored) === normalizePhone(input);
+};
+
+async function verifyArchivePassword(archive: HealthArchive, password: string): Promise<boolean> {
+    const hash = archive.password_hash;
+    if (hash && hash.length > 0) {
+        try {
+            return await bcrypt.compare(password, hash);
+        } catch {
+            return false;
+        }
+    }
+    return password === archive.checkup_id;
+}
+
+/** Login: reserved phone + password (default = 体检编号). Returns archive on success. */
+export const authenticateUserByPhone = async (
+    phone: string,
+    password: string
+): Promise<HealthArchive | null> => {
+    const archive = await findArchiveByPhone(phone);
+    if (!archive) return null;
+    const ok = await verifyArchivePassword(archive, password);
+    if (!ok) return null;
+    syncArchiveToLocal(archive);
+    return archive;
+};
+
+export const updatePortalPassword = async (
+    checkupId: string,
+    oldPassword: string,
+    newPassword: string
+): Promise<{ success: boolean; message?: string }> => {
+    if (!newPassword || newPassword.length < 6) {
+        return { success: false, message: '新密码至少 6 位' };
+    }
+    let archive = await findArchiveByCheckupId(checkupId);
+    if (!archive) {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            archive = all.find((a) => a.checkup_id === checkupId) || null;
+        }
+    }
+    if (!archive) return { success: false, message: '未找到档案' };
+    const oldOk = await verifyArchivePassword(archive, oldPassword);
+    if (!oldOk) return { success: false, message: '原密码不正确' };
+
+    const password_hash = await bcrypt.hash(newPassword, 10);
+    const next = { ...archive, password_hash, updated_at: new Date().toISOString() };
+
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx] = { ...all[idx], password_hash, updated_at: next.updated_at };
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+
+    if (isSupabaseConfigured()) {
+        try {
+            const { error } = await supabase
+                .from('health_archives')
+                .update({ password_hash, updated_at: next.updated_at })
+                .eq('checkup_id', checkupId);
+            if (error) {
+                if (error.message.includes('Could not find') || error.code === '42703') {
+                    return {
+                        success: false,
+                        message: '数据库缺少 password_hash 列，请在 Supabase 执行 supabase/migrations/001_health_archive_portal.sql',
+                    };
+                }
+                return { success: false, message: error.message };
+            }
+        } catch (e: any) {
+            return { success: false, message: e.message };
+        }
+    }
+    syncArchiveToLocal(next);
+    return { success: true };
+};
+
+export type ArchivePortalMetaPatch = Partial<{
+    profile_complete: boolean;
+    health_manager_content_id: string | null;
+}>;
+
+export const updateArchiveMeta = async (
+    checkupId: string,
+    patch: ArchivePortalMetaPatch
+): Promise<{ success: boolean; message?: string }> => {
+    const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if ('profile_complete' in patch) payload.profile_complete = patch.profile_complete;
+    if ('health_manager_content_id' in patch)
+        payload.health_manager_content_id = patch.health_manager_content_id;
+
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                if ('profile_complete' in patch) all[idx].profile_complete = patch.profile_complete;
+                if ('health_manager_content_id' in patch)
+                    (all[idx] as any).health_manager_content_id = patch.health_manager_content_id;
+                all[idx].updated_at = payload.updated_at as string;
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+
+    if (!isSupabaseConfigured()) return { success: true };
+
+    try {
+        const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
+        if (error) {
+            if (error.message.includes('Could not find') || error.code === '42703') {
+                return {
+                    success: false,
+                    message: '数据库缺少 profile_complete 或 health_manager_content_id 列，请执行迁移 SQL',
+                };
+            }
+            return { success: false, message: error.message };
+        }
+        const updated = await findArchiveByCheckupId(checkupId);
+        if (updated) syncArchiveToLocal(updated);
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, message: e.message };
+    }
+};
 
 // Helper to generate UUID
 const generateUUID = () => {
@@ -155,11 +309,21 @@ export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthA
 };
 
 export const findArchiveByPhone = async (phone: string): Promise<HealthArchive | null> => {
+    const n = normalizePhone(phone);
+    if (!n) return null;
+
     const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
     if (localRaw) {
         const localArchives: HealthArchive[] = JSON.parse(localRaw);
-        const match = localArchives.find(a => a.phone === phone);
-        if (match) return match;
+        const matches = localArchives.filter((a) => phoneMatches(a.phone, n));
+        if (matches.length) {
+            matches.sort((a, b) => {
+                const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+                const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+                return tb - ta;
+            });
+            return matches[0];
+        }
     }
 
     if (!isSupabaseConfigured()) return null;
@@ -167,11 +331,22 @@ export const findArchiveByPhone = async (phone: string): Promise<HealthArchive |
         const { data, error } = await supabase
             .from('health_archives')
             .select('*')
-            .eq('phone', phone)
-            .maybeSingle();
-        
+            .eq('phone', n)
+            .order('updated_at', { ascending: false })
+            .limit(1);
+
         if (error) return null;
-        return data;
+        if (data && data.length > 0) return data[0] as HealthArchive;
+
+        const { data: data2 } = await supabase
+            .from('health_archives')
+            .select('*')
+            .eq('phone', phone.trim())
+            .order('updated_at', { ascending: false })
+            .limit(1);
+        if (data2 && data2.length > 0) return data2[0] as HealthArchive;
+
+        return null;
     } catch (e) {
         return null;
     }
@@ -182,7 +357,8 @@ export const saveArchive = async (
     assessment: HealthAssessment, 
     schedule: ScheduledFollowUp[],
     existingFollowUps: FollowUpRecord[] = [],
-    riskAnalysis?: RiskAnalysisData
+    riskAnalysis?: RiskAnalysisData,
+    saveOptions?: { completeProfileOnSave?: boolean }
 ): Promise<{ success: boolean; message?: string }> => {
     // Ensure checkupId is a string, default to UNKNOWN if missing (Logic for Business Key)
     const checkupId = record.profile.checkupId || `UNKNOWN_${Date.now()}`;
@@ -194,6 +370,9 @@ export const saveArchive = async (
     let existingDailyPlan = null;
     let existingHabits = null;
     let existingGamification = null;
+    let existingPasswordHash: string | null | undefined = undefined;
+    let existingProfileComplete: boolean | undefined = undefined;
+    let existingHealthManagerId: string | null | undefined = undefined;
     
     // Determine UUID (Primary Key)
     // 1. Try to find existing ID from DB or Local to maintain consistency
@@ -215,6 +394,9 @@ export const saveArchive = async (
                 existingHabits = match.habit_tracker;
                 existingGamification = match.gamification;
                 if (!existingRiskAnalysis && match.risk_analysis) existingRiskAnalysis = match.risk_analysis;
+                existingPasswordHash = match.password_hash;
+                existingProfileComplete = match.profile_complete;
+                existingHealthManagerId = match.health_manager_content_id;
             }
         }
     } catch(e) {}
@@ -232,6 +414,13 @@ export const saveArchive = async (
                 existingHabits = (existing as any).habit_tracker;
                 existingGamification = (existing as any).gamification;
                 if (!existingRiskAnalysis && existing.risk_analysis) existingRiskAnalysis = existing.risk_analysis;
+                existingPasswordHash = (existing as any).password_hash ?? existingPasswordHash;
+                existingProfileComplete =
+                    (existing as any).profile_complete !== undefined
+                        ? (existing as any).profile_complete
+                        : existingProfileComplete;
+                existingHealthManagerId =
+                    (existing as any).health_manager_content_id ?? existingHealthManagerId;
 
                 if (historyVersions.length > 5) historyVersions = historyVersions.slice(historyVersions.length - 5);
                 historyVersions.push({ date: new Date().toISOString(), health_record: existing.health_record, assessment_data: existing.assessment_data });
@@ -242,11 +431,18 @@ export const saveArchive = async (
     // C. If no ID found anywhere, generate new UUID
     if (!finalId) finalId = generateUUID();
 
+    let profileCompleteOut = true;
+    if (saveOptions?.completeProfileOnSave) {
+        profileCompleteOut = true;
+    } else if (existingProfileComplete === false) {
+        profileCompleteOut = false;
+    }
+
     const basePayload: any = {
         id: finalId, // Use valid UUID
         checkup_id: checkupId, // Business Key (can be UNKNOWN_...)
         name: record.profile.name || '未命名',
-        phone: record.profile.phone || null,
+        phone: record.profile.phone ? normalizePhone(record.profile.phone) : null,
         department: record.profile.department,
         gender: record.profile.gender,
         age: record.profile.age || 0,
@@ -258,8 +454,16 @@ export const saveArchive = async (
         history_versions: historyVersions,
         critical_track: existingCriticalTrack, 
         updated_at: new Date().toISOString(),
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        profile_complete: profileCompleteOut,
     };
+
+    if (existingPasswordHash !== undefined && existingPasswordHash !== null) {
+        basePayload.password_hash = existingPasswordHash;
+    }
+    if (existingHealthManagerId !== undefined) {
+        basePayload.health_manager_content_id = existingHealthManagerId;
+    }
 
     const fullPayload = {
         ...basePayload,
@@ -305,6 +509,9 @@ export const saveArchive = async (
                 delete basicPayload.custom_daily_plan;
                 delete basicPayload.habit_tracker;
                 delete basicPayload.gamification;
+                delete basicPayload.password_hash;
+                delete basicPayload.profile_complete;
+                delete basicPayload.health_manager_content_id;
                 
                 const { error: retryError } = await supabase.from('health_archives').upsert(basicPayload, { onConflict: 'checkup_id' });
                 if (retryError) throw retryError;
