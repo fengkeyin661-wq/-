@@ -10,6 +10,7 @@ interface Props {
     archive?: HealthArchive;
     assessment?: HealthAssessment;
     onMessageRead?: () => void;
+    onOpenDoctors?: () => void;
 }
 
 interface DoctorWithUnread {
@@ -64,8 +65,8 @@ const scoreDoctor = (doc: ContentItem, risks: string[]) => {
     return score + Math.random();
 };
 
-export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead }) => {
-    const [viewMode, setViewMode] = useState<ViewMode>('doctors');
+export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead, onOpenDoctors }) => {
+    const [viewMode, setViewMode] = useState<ViewMode>('chat_list');
     
     // Doctor List State
     const [allDoctors, setAllDoctors] = useState<ContentItem[]>([]);
@@ -309,19 +310,11 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                 <p className="mt-1 text-sm text-slate-500">医生资源 · 在线咨询</p>
             </div>
 
-            {/* Tabs */}
-            <div className="sticky top-[72px] z-10 flex gap-2 border-b border-slate-100 bg-white px-4 py-3">
-                <button
-                    onClick={() => setViewMode('doctors')}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                        viewMode === 'doctors' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600'
-                    }`}
-                >
-                    👨‍⚕️ 医生资源
-                </button>
+            {/* Header actions */}
+            <div className="sticky top-[72px] z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-3">
                 <button
                     onClick={() => setViewMode('chat_list')}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all relative ${
+                    className={`px-4 py-2 rounded-xl text-sm font-bold transition-all relative ${
                         viewMode === 'chat_list' ? 'bg-teal-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600'
                     }`}
                 >
@@ -331,6 +324,12 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                             {totalUnread > 9 ? '9+' : totalUnread}
                         </span>
                     )}
+                </button>
+                <button
+                    onClick={() => onOpenDoctors ? onOpenDoctors() : setViewMode('doctors')}
+                    className="px-4 py-2 rounded-xl text-sm font-bold bg-blue-50 text-blue-700 border border-blue-100"
+                >
+                    去医生页
                 </button>
             </div>
 

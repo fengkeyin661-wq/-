@@ -415,7 +415,7 @@ export const UserProfile: React.FC<Props> = ({
                             <div className="text-4xl opacity-30 mb-2">👨‍⚕️</div>
                             <p className="opacity-60 text-sm mb-3">您尚未签约家庭医生</p>
                             <button 
-                                onClick={() => onNavigate('medical')}
+                                onClick={() => onNavigate('doctors')}
                                 className="bg-teal-600 text-white hover:bg-teal-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm"
                             >
                                 前往签约

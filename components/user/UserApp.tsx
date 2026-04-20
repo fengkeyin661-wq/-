@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
-import { UserHealthResources } from './UserHealthResources';
 import { UserHabits } from './UserHabits';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserProfileShell } from './UserProfileShell';
 import { UserCommunity } from './UserCommunity';
+import { UserDoctors } from './UserDoctors';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
 
@@ -168,19 +168,21 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           onRefresh={() => userArchive && loadArchiveById(userArchive.checkup_id, true)}
         />
       )}
-      {activeTab === 'resources' && (
-        <UserHealthResources
-          assessment={userArchive?.assessment_data}
-          userCheckupId={userArchive?.checkup_id}
-          userName={userArchive ? resolvedUserName : undefined}
-          record={userArchive?.health_record}
-        />
-      )}
       {activeTab === 'community' && (
         <UserCommunity
           userId={userArchive?.checkup_id}
           userName={userArchive ? resolvedUserName : undefined}
           assessment={userArchive?.assessment_data}
+        />
+      )}
+      {activeTab === 'doctors' && (
+        <UserDoctors
+          userId={userArchive?.checkup_id}
+          userName={userArchive ? resolvedUserName : undefined}
+          archive={userArchive ?? undefined}
+          onOpenMessage={(_doctorId) => {
+            setActiveTab('interaction');
+          }}
         />
       )}
       {activeTab === 'interaction' && (
@@ -190,6 +192,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           archive={userArchive ?? undefined}
           assessment={userArchive?.assessment_data}
           onMessageRead={() => setUnreadCount(0)}
+          onOpenDoctors={() => setActiveTab('doctors')}
         />
       )}
       {activeTab === 'profile' &&

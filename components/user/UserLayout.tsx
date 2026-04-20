@@ -19,9 +19,9 @@ export const UserLayout: React.FC<Props> = ({
 }) => {
   const navItems = [
     { id: 'habits', label: '问诊', icon: '🤖' }, // 智能问诊（虚拟健康助手）
-    { id: 'resources', label: '推荐', icon: '✨' }, // AI健康资源推荐
     { id: 'community', label: '发现', icon: '🎯' }, // 社区+医疗+饮食资源
-    { id: 'interaction', label: '消息', icon: '💬' }, // 咨询+医生资源
+    { id: 'doctors', label: '医生', icon: '🩺' }, // 签约/预约/医生资源
+    { id: 'interaction', label: '消息', icon: '💬' }, // 互动消息
     { id: 'profile', label: '我的', icon: '👤' },
   ];
 
