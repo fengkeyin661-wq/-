@@ -18,7 +18,8 @@ import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly, authenticateUserByPhone } from './services/dataService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
+import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
@@ -140,7 +141,7 @@ export const App: React.FC = () => {
           alert('请输入预留手机号与密码（默认密码为体检编号）');
           return;
       }
-      const result = await authenticateUserByPhone(phone, password);
+      const result = await loginUserDualPath(phone, password);
       if (result.success) {
           setUserCheckupId(result.archive.checkup_id);
           setCurrentUserRole('user');
@@ -153,6 +154,10 @@ export const App: React.FC = () => {
               alert('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
           } else if (result.reason === 'permission_denied') {
               alert('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+          } else if (result.reason === 'auth_failed') {
+              alert(result.message);
+          } else if (result.reason === 'auth_archive_missing') {
+              alert('登录成功但未找到健康档案，请联系健康管家核对建档信息。');
           } else {
               alert(`登录失败：${result.message || '查询异常，请稍后重试。'}`);
           }

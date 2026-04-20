@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { authenticateUserByPhone, type HealthArchive } from '../../services/dataService';
+import { type HealthArchive } from '../../services/dataService';
+import { loginUserDualPath } from '../../services/userLoginService';
 
 interface Props {
   onLoginSuccess: (archive: HealthArchive) => void;
@@ -25,7 +26,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true);
     setError('');
     try {
-      const result = await authenticateUserByPhone(p, password);
+      const result = await loginUserDualPath(p, password);
       if (result.success) {
         onLoginSuccess(result.archive);
       } else {
@@ -35,6 +36,10 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
           setError('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
         } else if (result.reason === 'permission_denied') {
           setError('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+        } else if (result.reason === 'auth_failed') {
+          setError(result.message);
+        } else if (result.reason === 'auth_archive_missing') {
+          setError('登录成功但未找到健康档案，请联系健康管家核对建档信息。');
         } else {
           setError(`登录失败：${result.message || '查询异常，请稍后重试'}`);
         }
