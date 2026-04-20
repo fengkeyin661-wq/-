@@ -29,11 +29,11 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
       if (archive) {
         onLoginSuccess(archive);
       } else {
-        setError('登录失败：请核对预留手机号与密码（默认密码为体检编号）');
+        setError('未查询到可登录档案。请联系健康管家（电话、微信号或在线消息）先完成健康建档注册后再登录。');
       }
     } catch (err) {
       console.error(err);
-      setError('登录失败，请稍后重试');
+      setError('登录失败，请稍后重试；如尚未建档，请联系健康管家（电话、微信号或在线消息）完成建档注册。');
     } finally {
       setLoading(false);
     }
@@ -48,8 +48,11 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
           </div>
           <h1 className="text-xl font-black text-slate-800">登录后使用个人服务</h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            请使用预留手机号登录；默认密码为体检编号，登录后可在「我的」中修改密码。
+            仅已完成健康建档注册的用户可登录。请使用预留手机号登录；默认密码为体检编号，登录后可在「我的」中修改密码。
           </p>
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs leading-relaxed text-amber-800">
+            未建档用户请先联系健康管家完成建档注册，可通过电话、微信号或在线消息联系。
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">

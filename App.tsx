@@ -147,7 +147,7 @@ export const App: React.FC = () => {
           setIsAuthenticated(true);
           setUserLoginPassword('');
       } else {
-          alert('登录失败：请核对预留手机号与密码（默认密码为体检编号）');
+          alert('未查询到可登录档案。请先联系健康管家（电话、微信号或在线消息）完成健康建档注册后再登录。');
       }
   };
 
@@ -427,7 +427,8 @@ export const App: React.FC = () => {
                         <input autoFocus type="tel" autoComplete="username" placeholder="预留手机号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPhone} onChange={(e) => setUserLoginPhone(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
                         <label className="block text-xs font-bold text-green-900 mb-1">密码（默认：体检编号）</label>
                         <input type="password" autoComplete="current-password" placeholder="默认密码为体检编号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPassword} onChange={(e) => setUserLoginPassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
-                        <p className="text-[11px] text-green-800/80 mb-3">首次登录请使用预留手机号，密码填写本人体检编号；登录后可在「我的」中修改密码。</p>
+                        <p className="text-[11px] text-green-800/80 mb-2">首次登录请使用预留手机号，密码填写本人体检编号；登录后可在「我的」中修改密码。</p>
+                        <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">仅已完成健康建档注册用户可登录。未建档请联系健康管家（电话、微信号或在线消息）完成建档后再登录。</p>
                         <button type="button" onClick={() => handleUserLogin()} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg text-sm hover:bg-green-700 mb-2">登录</button>
                         <button className="text-xs text-green-700 font-bold self-start hover:underline" onClick={() => setActiveTab('external_survey')}>📝 还没有档案？填写健康问卷</button>
                     </div>
