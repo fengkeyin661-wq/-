@@ -13,6 +13,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [managers, setManagers] = useState<ContentItem[]>([]);
+  const [previewQr, setPreviewQr] = useState<string | null>(null);
 
   React.useEffect(() => {
     let cancel = false;
@@ -95,7 +96,16 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
                     <div className="font-bold text-slate-800">{m.title}</div>
                     <div>电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
                     {m.details?.wechat_qr && (/^https?:\/\//i.test(String(m.details.wechat_qr)) || String(m.details.wechat_qr).startsWith('data:image')) && (
-                      <img src={String(m.details.wechat_qr)} alt="微信二维码" className="mt-2 h-20 w-20 rounded border border-slate-200 object-cover" />
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          className="rounded border border-slate-200 bg-white p-1"
+                          onClick={() => setPreviewQr(String(m.details?.wechat_qr))}
+                          title="点击放大二维码"
+                        >
+                          <img src={String(m.details.wechat_qr)} alt="微信二维码" className="h-20 w-20 rounded object-cover" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -139,6 +149,16 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
           </button>
         </form>
       </div>
+      {previewQr && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4"
+          onClick={() => setPreviewQr(null)}
+        >
+          <div className="rounded-xl bg-white p-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <img src={previewQr} alt="微信二维码预览" className="max-h-[80vh] max-w-[80vw] rounded" />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -57,6 +57,7 @@ export const App: React.FC = () => {
   // Doctor State
   const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); 
   const [healthManagerContacts, setHealthManagerContacts] = useState<ContentItem[]>([]);
+  const [previewQr, setPreviewQr] = useState<string | null>(null);
 
   // Medical Data State
   const [archives, setArchives] = useState<HealthArchive[]>([]);
@@ -473,7 +474,16 @@ export const App: React.FC = () => {
                                             {m.details?.wechat_qr &&
                                                 (/^https?:\/\//i.test(String(m.details.wechat_qr)) ||
                                                     String(m.details.wechat_qr).startsWith('data:image')) && (
-                                                <img src={String(m.details.wechat_qr)} alt="微信二维码" className="mt-1 h-16 w-16 rounded border border-slate-200 object-cover" />
+                                                <div className="mt-1 flex justify-end">
+                                                    <button
+                                                        type="button"
+                                                        className="rounded border border-slate-200 bg-white p-1"
+                                                        onClick={() => setPreviewQr(String(m.details?.wechat_qr))}
+                                                        title="点击放大二维码"
+                                                    >
+                                                        <img src={String(m.details.wechat_qr)} alt="微信二维码" className="h-16 w-16 rounded object-cover" />
+                                                    </button>
+                                                </div>
                                             )}
                                         </div>
                                     ))}
@@ -502,6 +512,16 @@ export const App: React.FC = () => {
                 <span>联系支持: 0371-67739261</span>
             </div>
             <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={handleLoginSuccess} roleContext={loginRoleContext} />
+            {previewQr && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4"
+                    onClick={() => setPreviewQr(null)}
+                >
+                    <div className="rounded-xl bg-white p-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <img src={previewQr} alt="微信二维码预览" className="max-h-[80vh] max-w-[80vw] rounded" />
+                    </div>
+                </div>
+            )}
         </div>
       );
   }
