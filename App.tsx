@@ -18,8 +18,7 @@ import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
-import { signInWithPhonePassword } from './services/authService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly, authenticateUserByPhone } from './services/dataService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
@@ -141,26 +140,22 @@ export const App: React.FC = () => {
           alert('请输入预留手机号与密码（默认密码为体检编号）');
           return;
       }
-      const auth = await signInWithPhonePassword(phone, password);
-      if (!auth.success) {
-          if (
-              auth.message.toLowerCase().includes('invalid') ||
-              auth.message.toLowerCase().includes('credentials')
-          ) {
-              alert('账号或密码错误，请核对后重试。');
-          } else {
-              alert(`登录失败：${auth.message}`);
-          }
-          return;
-      }
-      const archive = await findArchiveByCheckupId(auth.checkupId);
-      if (archive) {
-          setUserCheckupId(archive.checkup_id);
+      const result = await authenticateUserByPhone(phone, password);
+      if (result.success) {
+          setUserCheckupId(result.archive.checkup_id);
           setCurrentUserRole('user');
           setIsAuthenticated(true);
           setUserLoginPassword('');
       } else {
-          alert('登录成功但未找到健康档案，请联系健康管家核对建档信息。');
+          if (result.reason === 'archive_not_found') {
+              alert('未查询到可登录档案。请先联系健康管家（电话、微信号或在线消息）完成健康建档注册后再登录。');
+          } else if (result.reason === 'invalid_password') {
+              alert('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
+          } else if (result.reason === 'permission_denied') {
+              alert('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+          } else {
+              alert(`登录失败：${result.message || '查询异常，请稍后重试。'}`);
+          }
       }
   };
 
@@ -390,7 +385,7 @@ export const App: React.FC = () => {
   }
 
   if (currentUserRole === 'user') {
-      return <UserApp initialCheckupId={userCheckupId} onLogout={() => { setIsAuthenticated(false); setCurrentUserRole(null); setUserCheckupId(''); }} />;
+      return <UserApp initialCheckupId={userCheckupId} onLogout={() => { setCurrentUserRole(null); setUserCheckupId(''); }} />;
   }
 
   if (!isAuthenticated && activeTab === 'dashboard') {
