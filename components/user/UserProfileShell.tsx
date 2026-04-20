@@ -25,11 +25,19 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true);
     setError('');
     try {
-      const archive = await authenticateUserByPhone(p, password);
-      if (archive) {
-        onLoginSuccess(archive);
+      const result = await authenticateUserByPhone(p, password);
+      if (result.success) {
+        onLoginSuccess(result.archive);
       } else {
-        setError('未查询到可登录档案。请联系健康管家（电话、微信号或在线消息）先完成健康建档注册后再登录。');
+        if (result.reason === 'archive_not_found') {
+          setError('未查询到可登录档案。请联系健康管家（电话、微信号或在线消息）先完成健康建档注册后再登录。');
+        } else if (result.reason === 'invalid_password') {
+          setError('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
+        } else if (result.reason === 'permission_denied') {
+          setError('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+        } else {
+          setError(`登录失败：${result.message || '查询异常，请稍后重试'}`);
+        }
       }
     } catch (err) {
       console.error(err);

@@ -140,14 +140,22 @@ export const App: React.FC = () => {
           alert('请输入预留手机号与密码（默认密码为体检编号）');
           return;
       }
-      const archive = await authenticateUserByPhone(phone, password);
-      if (archive) {
-          setUserCheckupId(archive.checkup_id);
+      const result = await authenticateUserByPhone(phone, password);
+      if (result.success) {
+          setUserCheckupId(result.archive.checkup_id);
           setCurrentUserRole('user');
           setIsAuthenticated(true);
           setUserLoginPassword('');
       } else {
-          alert('未查询到可登录档案。请先联系健康管家（电话、微信号或在线消息）完成健康建档注册后再登录。');
+          if (result.reason === 'archive_not_found') {
+              alert('未查询到可登录档案。请先联系健康管家（电话、微信号或在线消息）完成健康建档注册后再登录。');
+          } else if (result.reason === 'invalid_password') {
+              alert('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
+          } else if (result.reason === 'permission_denied') {
+              alert('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+          } else {
+              alert(`登录失败：${result.message || '查询异常，请稍后重试。'}`);
+          }
       }
   };
 

@@ -125,17 +125,104 @@ async function verifyArchivePassword(archive: HealthArchive, password: string): 
     return password === archive.checkup_id;
 }
 
-/** Login: reserved phone + password (default = 体检编号). Returns archive on success. */
+export type UserLoginFailureReason =
+    | 'archive_not_found'
+    | 'invalid_password'
+    | 'permission_denied'
+    | 'query_error';
+
+export type UserLoginResult =
+    | { success: true; archive: HealthArchive }
+    | { success: false; reason: UserLoginFailureReason; message: string };
+
+const findArchiveByPhoneWithStatus = async (
+    phone: string
+): Promise<{ archive: HealthArchive | null; reason?: UserLoginFailureReason; message?: string }> => {
+    const n = normalizePhone(phone);
+    if (!n) return { archive: null, reason: 'archive_not_found', message: '手机号不能为空' };
+
+    const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+    if (localRaw) {
+        const localArchives: HealthArchive[] = JSON.parse(localRaw);
+        const matches = localArchives.filter((a) => phoneMatches(a.phone, n));
+        if (matches.length) {
+            matches.sort((a, b) => {
+                const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+                const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+                return tb - ta;
+            });
+            return { archive: matches[0] };
+        }
+    }
+
+    if (!isSupabaseConfigured()) return { archive: null, reason: 'archive_not_found', message: '未配置云数据库' };
+
+    try {
+        const { data, error } = await supabase
+            .from('health_archives')
+            .select('*')
+            .eq('phone', n)
+            .order('updated_at', { ascending: false })
+            .limit(1);
+
+        if (error) {
+            const msg = `${error.code || ''} ${error.message || ''}`.toLowerCase();
+            if (
+                msg.includes('permission denied') ||
+                msg.includes('not allowed') ||
+                msg.includes('rls') ||
+                msg.includes('42501')
+            ) {
+                return {
+                    archive: null,
+                    reason: 'permission_denied',
+                    message: 'RLS/权限策略阻止了档案查询',
+                };
+            }
+            return { archive: null, reason: 'query_error', message: error.message || '查询失败' };
+        }
+        if (data && data.length > 0) return { archive: data[0] as HealthArchive };
+
+        const { data: data2, error: error2 } = await supabase
+            .from('health_archives')
+            .select('*')
+            .eq('phone', phone.trim())
+            .order('updated_at', { ascending: false })
+            .limit(1);
+
+        if (error2) {
+            return { archive: null, reason: 'query_error', message: error2.message || '查询失败' };
+        }
+        if (data2 && data2.length > 0) return { archive: data2[0] as HealthArchive };
+        return { archive: null, reason: 'archive_not_found', message: '手机号未匹配到档案' };
+    } catch (e: any) {
+        return { archive: null, reason: 'query_error', message: e?.message || '查询异常' };
+    }
+};
+
+/** Login: reserved phone + password (default = 体检编号). Returns reason-aware result. */
 export const authenticateUserByPhone = async (
     phone: string,
     password: string
-): Promise<HealthArchive | null> => {
-    const archive = await findArchiveByPhone(phone);
-    if (!archive) return null;
-    const ok = await verifyArchivePassword(archive, password);
-    if (!ok) return null;
-    syncArchiveToLocal(archive);
-    return archive;
+): Promise<UserLoginResult> => {
+    const found = await findArchiveByPhoneWithStatus(phone);
+    if (!found.archive) {
+        return {
+            success: false,
+            reason: found.reason || 'archive_not_found',
+            message: found.message || '未查询到档案',
+        };
+    }
+    const ok = await verifyArchivePassword(found.archive, password);
+    if (!ok) {
+        return {
+            success: false,
+            reason: 'invalid_password',
+            message: '密码错误或已修改过默认密码',
+        };
+    }
+    syncArchiveToLocal(found.archive);
+    return { success: true, archive: found.archive };
 };
 
 export const updatePortalPassword = async (
