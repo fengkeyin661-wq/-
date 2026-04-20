@@ -5,8 +5,10 @@ import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSche
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, RiskLevel, RiskAnalysisData, QuestionnaireData } from '../types';
-import { fetchContent, fetchInteractions } from '../services/contentService'; // Interconnection
+import { fetchContent, fetchInteractions, saveInteraction } from '../services/contentService'; // Interconnection
 import { CriticalHandleModal } from './CriticalHandleModal';
+import { extractTextFromFile } from '../services/fileParseService';
+import { generateDraftFromText } from '../services/healthDraftService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -60,6 +62,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     // Questionnaire Update Import (Excel Only)
     const questionnaireImportRef = useRef<HTMLInputElement>(null);
+    const checkUploadRef = useRef<HTMLInputElement>(null);
 
     const configured = isSupabaseConfigured();
 
@@ -136,6 +139,52 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             for (const id of Array.from(selectedIds)) await deleteArchive(id as string);
             loadData(); if (onDataUpdate) onDataUpdate();
             setLoading(false);
+        }
+    };
+
+    const handleManagerUploadClick = () => {
+        if (selectedIds.size !== 1) {
+            alert('请先勾选 1 位用户档案后再上传检查结果。');
+            return;
+        }
+        checkUploadRef.current?.click();
+    };
+
+    const handleManagerUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.currentTarget.value = '';
+        if (!file) return;
+        const selected = archives.find((a) => selectedIds.has(a.id));
+        if (!selected) {
+            alert('未找到选中档案');
+            return;
+        }
+        try {
+            const text = await extractTextFromFile(file);
+            const draft = await generateDraftFromText(
+                selected.checkup_id,
+                text,
+                'upload',
+                `健康管家后台上传: ${file.name}`
+            );
+            if (!draft.success) {
+                alert(draft.message || '草案生成失败');
+                return;
+            }
+            await saveInteraction({
+                id: `check_result_upload_${Date.now()}`,
+                type: 'check_result_upload',
+                userId: selected.checkup_id,
+                userName: selected.name,
+                targetId: selected.health_manager_content_id || 'doctor-review',
+                targetName: '签约医生审核',
+                status: 'pending',
+                date: new Date().toISOString().split('T')[0],
+                details: `后台上传检查结果: ${file.name}`,
+            });
+            alert('上传成功：已生成AI草案并提交医生审核。');
+        } catch (err: any) {
+            alert(`上传失败: ${err.message || err}`);
         }
     };
 
@@ -456,6 +505,13 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     </label>
 
                     <input type="file" ref={questionnaireImportRef} className="hidden" accept=".xlsx, .xls" onChange={handleBatchQuestionnaireImport} />
+                    <input
+                        type="file"
+                        ref={checkUploadRef}
+                        className="hidden"
+                        accept=".pdf,.docx,.doc,.txt,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
+                        onChange={handleManagerUploadFile}
+                    />
                     
                     <button onClick={handleExportList} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1 shadow-sm" title="导出当前列表为Excel">
                         <span>📥</span> 导出人员列表
@@ -463,6 +519,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
                     <button onClick={() => questionnaireImportRef.current?.click()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1" title="批量AI识别问卷并更新">
                         📝 导入问卷更新
+                    </button>
+                    <button onClick={handleManagerUploadClick} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm flex items-center gap-1" title="上传检查结果并生成草案">
+                        🧾 上传检查结果
                     </button>
 
                     {selectedIds.size > 0 && <button onClick={handleBatchDelete} className="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-200">🗑️ 删除选中</button>}

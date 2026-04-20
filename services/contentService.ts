@@ -28,7 +28,14 @@ export interface InteractionItem {
     // Updated types: 
     // doctor_signing (签约), doctor_booking (挂号), drug_order (药品) -> 医生审核
     // event_signup (活动), circle_join (圈子), service_booking (服务) -> 管理员审核
-    type: 'doctor_signing' | 'doctor_booking' | 'drug_order' | 'event_signup' | 'circle_join' | 'service_booking';
+    type:
+        | 'doctor_signing'
+        | 'doctor_booking'
+        | 'drug_order'
+        | 'event_signup'
+        | 'circle_join'
+        | 'service_booking'
+        | 'check_result_upload';
     userId: string;
     userName: string;
     targetId: string;

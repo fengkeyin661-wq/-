@@ -49,6 +49,28 @@ export interface UserGamification {
     badges: string[]; // IDs of unlocked badges
 }
 
+export interface HomeMonitoringLog {
+    id: string;
+    timestamp: string;
+    source: 'user' | 'doctor' | 'manager' | 'upload';
+    type: 'bp' | 'weight' | 'fbg' | 'other';
+    value: string;
+    unit?: string;
+    context?: string;
+    attachments?: { name: string; mime?: string }[];
+    status: 'draft' | 'pending' | 'confirmed' | 'rejected';
+}
+
+export interface HealthDraftData {
+    generatedAt: string;
+    source: 'annual_checkup' | 'upload' | 'home_monitoring' | 'manual_review';
+    note?: string;
+    assessment: HealthAssessment;
+    follow_up_schedule: ScheduledFollowUp[];
+    management_plan: HealthAssessment['managementPlan'];
+    merged_record?: HealthRecord;
+}
+
 export interface DailyHealthPlan {
     generatedAt: string;
     diet: { breakfast: string, lunch: string, dinner: string, snack: string };
@@ -85,6 +107,8 @@ export interface HealthArchive {
     custom_daily_plan?: DailyHealthPlan; 
     habit_tracker?: HabitRecord[]; 
     gamification?: UserGamification; // [NEW]
+    home_monitoring_logs?: HomeMonitoringLog[];
+    draft_data?: HealthDraftData;
 
     history_versions: {
         date: string;
@@ -785,6 +809,126 @@ export const updateArchiveData = async (checkupId: string, followUps: FollowUpRe
                 updated_at: new Date().toISOString()
             }).eq('checkup_id', checkupId);
             if (error) throw error;
+        }
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, message: e.message };
+    }
+};
+
+export const appendHomeMonitoringLog = async (
+    checkupId: string,
+    log: HomeMonitoringLog
+): Promise<boolean> => {
+    try {
+        let nextLogs: HomeMonitoringLog[] = [log];
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (localRaw) {
+            const all: HealthArchive[] = JSON.parse(localRaw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                const current = all[idx].home_monitoring_logs || [];
+                nextLogs = [...current, log].sort((a, b) =>
+                    a.timestamp < b.timestamp ? 1 : -1
+                );
+                all[idx].home_monitoring_logs = nextLogs;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+        if (isSupabaseConfigured()) {
+            const { data: current } = await supabase
+                .from('health_archives')
+                .select('home_monitoring_logs')
+                .eq('checkup_id', checkupId)
+                .maybeSingle();
+            const dbLogs: HomeMonitoringLog[] = (current as any)?.home_monitoring_logs || [];
+            const merged = [...dbLogs, log].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+            await supabase
+                .from('health_archives')
+                .update({ home_monitoring_logs: merged, updated_at: new Date().toISOString() })
+                .eq('checkup_id', checkupId);
+        }
+        return true;
+    } catch (e) {
+        console.error(e);
+        return false;
+    }
+};
+
+export const saveHealthDraft = async (
+    checkupId: string,
+    draft: HealthDraftData
+): Promise<boolean> => {
+    try {
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (localRaw) {
+            const all: HealthArchive[] = JSON.parse(localRaw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].draft_data = draft;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+        if (isSupabaseConfigured()) {
+            await supabase
+                .from('health_archives')
+                .update({ draft_data: draft, updated_at: new Date().toISOString() })
+                .eq('checkup_id', checkupId);
+        }
+        return true;
+    } catch (e) {
+        console.error(e);
+        return false;
+    }
+};
+
+export const publishHealthDraft = async (
+    checkupId: string,
+    reviewer?: string
+): Promise<{ success: boolean; message?: string }> => {
+    try {
+        const archive = await findArchiveByCheckupId(checkupId);
+        if (!archive) return { success: false, message: '未找到档案' };
+        if (!archive.draft_data) return { success: false, message: '没有待发布草案' };
+        const d = archive.draft_data;
+        const mergedFollowUps = archive.follow_ups || [];
+        const mergedRecord = d.merged_record || archive.health_record;
+        const saveRes = await saveArchive(
+            mergedRecord,
+            d.assessment,
+            d.follow_up_schedule,
+            mergedFollowUps,
+            archive.risk_analysis,
+            { completeProfileOnSave: true }
+        );
+        if (!saveRes.success) return saveRes;
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (localRaw) {
+            const all: HealthArchive[] = JSON.parse(localRaw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].draft_data = undefined as any;
+                all[idx].updated_at = new Date().toISOString();
+                all[idx].history_versions = [
+                    ...(all[idx].history_versions || []),
+                    {
+                        date: new Date().toISOString(),
+                        health_record: mergedRecord,
+                        assessment_data: d.assessment,
+                        source: 'manual_review',
+                        reviewer: reviewer || '',
+                    } as any,
+                ];
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+        if (isSupabaseConfigured()) {
+            await supabase
+                .from('health_archives')
+                .update({ draft_data: null, updated_at: new Date().toISOString() })
+                .eq('checkup_id', checkupId);
         }
         return { success: true };
     } catch (e: any) {

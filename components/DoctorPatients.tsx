@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessage, fetchMessages, sendMessage, getUnreadCount, markAsRead, fetchContent, saveContent, ContentItem, isHealthManagerContent } from '../services/contentService';
-import { findArchiveByCheckupId, HealthArchive, updateArchiveMeta } from '../services/dataService';
+import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessage, fetchMessages, sendMessage, getUnreadCount, markAsRead, fetchContent, saveContent, ContentItem, isHealthManagerContent, saveInteraction } from '../services/contentService';
+import { findArchiveByCheckupId, HealthArchive, updateArchiveMeta, publishHealthDraft } from '../services/dataService';
+import { extractTextFromFile } from '../services/fileParseService';
+import { generateDraftFromText } from '../services/healthDraftService';
 
 interface Props {
     doctorId: string; 
@@ -41,6 +43,8 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
     const [healthManagers, setHealthManagers] = useState<ContentItem[]>([]);
     const [managerPick, setManagerPick] = useState<Record<string, string>>({});
     const [savingManagerFor, setSavingManagerFor] = useState<string | null>(null);
+    const uploadInputRef = useRef<HTMLInputElement>(null);
+    const [uploadPatientId, setUploadPatientId] = useState<string>('');
 
     const totalUnread = signedPatients.reduce((acc, curr) => acc + (curr.unread || 0), 0);
 
@@ -132,7 +136,9 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                 // 自己的挂号预约
                 (i.type === 'doctor_booking' && matchesCurrentDoctor(i)) ||
                 // 签约用户的药品订单（由签约医生负责审核处方合理性）
-                (i.type === 'drug_order' && seenUserIds.has(i.userId))
+                (i.type === 'drug_order' && seenUserIds.has(i.userId)) ||
+                // 检查结果上传（由目标医生审核发布草案）
+                (i.type === 'check_result_upload' && matchesCurrentDoctor(i))
             )
         );
         setPendingRequests(requests);
@@ -191,6 +197,14 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
 
     const handleAudit = async (id: string, pass: boolean) => {
         if (confirm(`确定要${pass ? '通过' : '拒绝'}此申请吗？`)) {
+            const req = pendingRequests.find(r => r.id === id);
+            if (req?.type === 'check_result_upload' && pass) {
+                const pub = await publishHealthDraft(req.userId, doctorName || doctorId);
+                if (!pub.success) {
+                    alert(pub.message || '草案发布失败');
+                    return;
+                }
+            }
             await updateInteractionStatus(id, pass ? 'confirmed' : 'cancelled');
             loadData();
         }
@@ -200,7 +214,39 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
     const taskStats = {
         signing: pendingRequests.filter(r => r.type === 'doctor_signing').length,
         booking: pendingRequests.filter(r => r.type === 'doctor_booking').length,
-        drug: pendingRequests.filter(r => r.type === 'drug_order').length
+        drug: pendingRequests.filter(r => r.type === 'drug_order').length,
+        upload: pendingRequests.filter(r => r.type === 'check_result_upload').length
+    };
+
+    const handleUploadCheckResult = async (checkupId: string, file: File) => {
+        try {
+            const text = await extractTextFromFile(file);
+            const draftRes = await generateDraftFromText(
+                checkupId,
+                text,
+                'upload',
+                `医生端上传: ${file.name}`
+            );
+            if (!draftRes.success) {
+                alert(draftRes.message || '草案生成失败');
+                return;
+            }
+            await saveInteraction({
+                id: `check_result_upload_${Date.now()}`,
+                type: 'check_result_upload',
+                userId: checkupId,
+                userName: signedPatients.find((p) => p.interaction.userId === checkupId)?.interaction.userName || '用户',
+                targetId: doctorId,
+                targetName: doctorName || '签约医生',
+                status: 'pending',
+                date: new Date().toISOString().split('T')[0],
+                details: `检查结果上传: ${file.name}`,
+            });
+            alert('检查结果上传成功，AI草案已生成并进入待审核。');
+            await loadData();
+        } catch (e: any) {
+            alert(`上传失败: ${e.message || e}`);
+        }
     };
 
     return (
@@ -247,7 +293,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                         {mainTab === 'tasks' && (
                             <div className="space-y-6 max-w-5xl mx-auto">
                                 {/* 统计面板 */}
-                                <div className="grid grid-cols-3 gap-4">
+                                <div className="grid grid-cols-4 gap-4">
                                     <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm">
                                         <div className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">待处理签约</div>
                                         <div className="text-2xl font-black text-blue-600">{taskStats.signing} <span className="text-xs font-normal text-slate-400">人</span></div>
@@ -259,6 +305,10 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                     <div className="bg-white p-4 rounded-2xl border border-orange-100 shadow-sm">
                                         <div className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1">待配药申请</div>
                                         <div className="text-2xl font-black text-orange-600">{taskStats.drug} <span className="text-xs font-normal text-slate-400">件</span></div>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-2xl border border-purple-100 shadow-sm">
+                                        <div className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-1">待审检查上传</div>
+                                        <div className="text-2xl font-black text-purple-600">{taskStats.upload} <span className="text-xs font-normal text-slate-400">份</span></div>
                                     </div>
                                 </div>
 
@@ -275,7 +325,8 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                 {/* 类型色标 */}
                                                 <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
                                                     req.type === 'doctor_signing' ? 'bg-blue-500' : 
-                                                    req.type === 'doctor_booking' ? 'bg-teal-500' : 'bg-orange-500'
+                                                    req.type === 'doctor_booking' ? 'bg-teal-500' :
+                                                    req.type === 'drug_order' ? 'bg-orange-500' : 'bg-purple-500'
                                                 }`}></div>
 
                                                 <div className="flex-1 min-w-0">
@@ -283,15 +334,16 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                         <span className={`text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-tight ${
                                                             req.type === 'doctor_signing' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 
                                                             req.type === 'doctor_booking' ? 'bg-teal-50 text-teal-600 border border-teal-100' : 
-                                                            'bg-orange-50 text-orange-600 border border-orange-100'
+                                                            req.type === 'drug_order' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
+                                                            'bg-purple-50 text-purple-600 border border-purple-100'
                                                         }`}>
-                                                            {req.type === 'doctor_signing' ? '签约申请' : req.type === 'doctor_booking' ? '挂号预约' : '药品预订'}
+                                                            {req.type === 'doctor_signing' ? '签约申请' : req.type === 'doctor_booking' ? '挂号预约' : req.type === 'drug_order' ? '药品预订' : '检查上传'}
                                                         </span>
                                                         <span className="text-[10px] text-slate-400 font-mono">提交时间: {req.date}</span>
                                                     </div>
                                                     <div className="flex items-center gap-4">
                                                         <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-xl shadow-inner border border-slate-100">
-                                                            {req.type === 'doctor_signing' ? '🤝' : req.type === 'doctor_booking' ? '📅' : '💊'}
+                                                            {req.type === 'doctor_signing' ? '🤝' : req.type === 'doctor_booking' ? '📅' : req.type === 'drug_order' ? '💊' : '🧾'}
                                                         </div>
                                                         <div>
                                                             <div className="font-black text-slate-800 text-lg leading-tight">{req.userName}</div>
@@ -316,9 +368,10 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                     <button onClick={() => handleAudit(req.id, true)} className={`px-6 py-2 rounded-xl text-xs font-black text-white shadow-lg shadow-opacity-20 active:scale-95 transition-transform ${
                                                         req.type === 'doctor_signing' ? 'bg-blue-600 shadow-blue-200' : 
                                                         req.type === 'doctor_booking' ? 'bg-teal-600 shadow-teal-200' : 
-                                                        'bg-orange-500 shadow-orange-200'
+                                                        req.type === 'drug_order' ? 'bg-orange-500 shadow-orange-200' :
+                                                        'bg-purple-600 shadow-purple-200'
                                                     }`}>
-                                                        通过并处理
+                                                        {req.type === 'check_result_upload' ? '通过并发布草案' : '通过并处理'}
                                                     </button>
                                                 </div>
                                             </div>
@@ -393,6 +446,9 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                 <div>
                                                     <div className="font-black text-slate-800 text-lg leading-tight">{item.interaction.userName}</div>
                                                     <div className="text-xs text-slate-400 mt-1">{item.archive?.age || '?'}岁 · {item.archive?.department || '部门未录入'}</div>
+                                                    <div className="text-[11px] text-purple-600 mt-1">
+                                                        居家监测记录：{item.archive?.home_monitoring_logs?.length || 0} 条
+                                                    </div>
                                                 </div>
                                             </div>
                                             <div className="mb-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
@@ -446,6 +502,15 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                             <div className="grid grid-cols-2 gap-2 pt-2">
                                                 <button onClick={() => item.archive && onSelectPatient(item.archive, 'assessment')} className="py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors">查看评估</button>
                                                 <button onClick={() => item.archive && onSelectPatient(item.archive, 'followup')} className="py-2 bg-teal-50 text-teal-600 rounded-xl text-xs font-bold hover:bg-teal-100 transition-colors">随访监测</button>
+                                                <button
+                                                    onClick={() => {
+                                                        setUploadPatientId(item.interaction.userId);
+                                                        uploadInputRef.current?.click();
+                                                    }}
+                                                    className="col-span-2 py-2.5 bg-purple-600 text-white rounded-xl text-xs font-black hover:bg-purple-700 transition-all shadow-md active:scale-95"
+                                                >
+                                                    上传检查结果并生成草案
+                                                </button>
                                                 <button onClick={() => setChatPatient(item)} className="col-span-2 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-all shadow-md active:scale-95 flex items-center justify-center gap-2">
                                                     <span>💬</span> 咨询交流
                                                 </button>
@@ -534,6 +599,18 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                     </>
                 )}
             </div>
+
+            <input
+                ref={uploadInputRef}
+                type="file"
+                accept=".pdf,.docx,.doc,.txt,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
+                className="hidden"
+                onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f && uploadPatientId) handleUploadCheckResult(uploadPatientId, f);
+                    e.currentTarget.value = '';
+                }}
+            />
 
             {/* Chat Modal */}
             {chatPatient && (

@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { HealthRecord, HealthAssessment, FollowUpRecord, RiskLevel } from '../../types';
-import { DailyHealthPlan, HealthArchive, updatePortalPassword } from '../../services/dataService';
+import { DailyHealthPlan, HealthArchive, updatePortalPassword, appendHomeMonitoringLog } from '../../services/dataService';
+import { generateDraftFromMonitoring } from '../../services/healthDraftService';
 import {
     fetchInteractions,
     InteractionItem,
@@ -34,7 +35,7 @@ export const UserProfile: React.FC<Props> = ({
     onArchiveRefresh,
 }) => {
     const [subView, setSubView] = useState<
-        'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager'
+        'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager' | 'monitor'
     >('menu');
     // ... (keep existing state/effects) ...
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
@@ -44,6 +45,12 @@ export const UserProfile: React.FC<Props> = ({
     const [pwdConfirm, setPwdConfirm] = useState('');
     const [pwdSaving, setPwdSaving] = useState(false);
     const [pwdMsg, setPwdMsg] = useState('');
+    const [monitorType, setMonitorType] = useState<'weight' | 'bp' | 'fbg'>('weight');
+    const [monitorValue, setMonitorValue] = useState('');
+    const [monitorContext, setMonitorContext] = useState('');
+    const [monitorFiles, setMonitorFiles] = useState<File[]>([]);
+    const [monitorSaving, setMonitorSaving] = useState(false);
+    const [monitorMsg, setMonitorMsg] = useState('');
     
     // ... (keep existing methods: loadInteractions, handleSaveRecord, handleCancelInteraction) ...
     const [isEditing, setIsEditing] = useState(false);
@@ -544,6 +551,102 @@ export const UserProfile: React.FC<Props> = ({
         </div>
     );
 
+    const handleSubmitMonitoring = async () => {
+        if (!monitorValue.trim()) {
+            setMonitorMsg('请填写监测值');
+            return;
+        }
+        setMonitorSaving(true);
+        setMonitorMsg('');
+        const unit = monitorType === 'weight' ? 'kg' : monitorType === 'bp' ? 'mmHg' : 'mmol/L';
+        const log = {
+            id: `hm_${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            source: 'user' as const,
+            type: monitorType,
+            value: monitorValue.trim(),
+            unit,
+            context: monitorContext.trim(),
+            attachments: monitorFiles.map((f) => ({ name: f.name, mime: f.type })),
+            status: 'pending' as const,
+        };
+        try {
+            const ok = await appendHomeMonitoringLog(userId, log);
+            if (!ok) {
+                setMonitorMsg('监测数据保存失败，请稍后重试');
+                return;
+            }
+            const nextLogs = [log, ...(archive.home_monitoring_logs || [])];
+            await generateDraftFromMonitoring(userId, nextLogs, '用户居家监测触发');
+            setMonitorMsg('已上报监测数据，AI草案已更新待医生审核');
+            setMonitorValue('');
+            setMonitorContext('');
+            setMonitorFiles([]);
+            onArchiveRefresh?.();
+        } finally {
+            setMonitorSaving(false);
+        }
+    };
+
+    const renderMonitoringView = () => (
+        <div className="space-y-4 p-4 pb-24 animate-slideInRight">
+            <h2 className="text-lg font-bold text-slate-800">居家监测上报</h2>
+            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm space-y-3">
+                <div>
+                    <label className="text-xs font-bold text-slate-600">监测类型</label>
+                    <select
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        value={monitorType}
+                        onChange={(e) => setMonitorType(e.target.value as any)}
+                    >
+                        <option value="weight">体重 (kg)</option>
+                        <option value="bp">血压 (示例: 128/82)</option>
+                        <option value="fbg">空腹血糖 (mmol/L)</option>
+                    </select>
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-slate-600">监测值</label>
+                    <input
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        value={monitorValue}
+                        onChange={(e) => setMonitorValue(e.target.value)}
+                        placeholder={monitorType === 'bp' ? '例如 128/82' : '请输入数值'}
+                    />
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-slate-600">说明（可选）</label>
+                    <textarea
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm min-h-[72px]"
+                        value={monitorContext}
+                        onChange={(e) => setMonitorContext(e.target.value)}
+                        placeholder="例如：晨起空腹、饭后2小时、运动后等"
+                    />
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-slate-600">附件（可选）</label>
+                    <input
+                        type="file"
+                        multiple
+                        onChange={(e) => setMonitorFiles(Array.from(e.target.files || []))}
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs"
+                    />
+                    {monitorFiles.length > 0 && (
+                        <p className="mt-1 text-xs text-slate-500">已选择 {monitorFiles.length} 个附件</p>
+                    )}
+                </div>
+                {monitorMsg && <p className="text-xs font-bold text-teal-600">{monitorMsg}</p>}
+                <button
+                    type="button"
+                    disabled={monitorSaving}
+                    onClick={handleSubmitMonitoring}
+                    className="w-full rounded-xl bg-purple-600 py-3 text-sm font-bold text-white shadow-md hover:bg-purple-700 disabled:opacity-50"
+                >
+                    {monitorSaving ? '提交中...' : '提交监测并更新草案'}
+                </button>
+            </div>
+        </div>
+    );
+
     const renderSecurityView = () => (
         <div className="space-y-4 p-4 pb-24 animate-slideInRight">
             <h2 className="text-lg font-bold text-slate-800">修改密码</h2>
@@ -641,6 +744,7 @@ export const UserProfile: React.FC<Props> = ({
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
                         <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
                         <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与开药历史" onClick={() => setSubView('apps')} />
+                        <MenuButton icon="📈" label="居家监测上报" desc="体重/血压/血糖上报并触发连续评估" onClick={() => setSubView('monitor')} />
                         <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="健康管家联系方式与服务说明" onClick={() => setSubView('manager')} />
                         <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
                     </div>
@@ -651,6 +755,7 @@ export const UserProfile: React.FC<Props> = ({
                 {subView === 'plan' && renderPlanView()}
                 {subView === 'events' && renderEventsView()}
                 {subView === 'apps' && renderAppsView()}
+                {subView === 'monitor' && renderMonitoringView()}
                 {subView === 'manager' && renderManagerView()}
                 {subView === 'security' && renderSecurityView()}
 
