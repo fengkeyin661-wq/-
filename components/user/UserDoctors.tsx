@@ -7,7 +7,7 @@ import {
   saveInteraction,
 } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
-import { DAY_MAP, SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
+import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
 
 interface Props {
   userId?: string;
