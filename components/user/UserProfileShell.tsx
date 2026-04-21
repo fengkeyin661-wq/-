@@ -72,38 +72,48 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-full bg-slate-50 px-5 py-8 pb-28">
-      <div className="max-w-md mx-auto">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-teal-600 rounded-2xl flex items-center justify-center text-3xl text-white font-bold mx-auto mb-4 shadow-lg">
-            👤
+    <div className="min-h-full bg-gradient-to-b from-teal-50/80 via-white to-slate-50 px-4 py-6 pb-24">
+      <div className="mx-auto max-w-md">
+        <div className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-lg shadow-teal-100/40 backdrop-blur-sm">
+          <div className="text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 text-3xl text-white shadow-md">
+              👤
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-slate-800">个人服务登录</h1>
+            <p className="mt-2 text-sm leading-relaxed text-slate-500">
+              请使用建档时预留的手机号登录。默认密码为体检编号，登录后可在「我的 - 账户与安全」中修改。
+            </p>
           </div>
-          <h1 className="text-xl font-black text-slate-800">登录后使用个人服务</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            仅已完成健康建档注册的用户可登录。请使用预留手机号登录；默认密码为体检编号，登录后可在「我的」中修改密码。
-          </p>
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs leading-relaxed text-amber-800">
-            未建档用户请先联系健康管家完成建档注册，建档后才可登录。
+
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left">
+            <p className="text-xs font-bold text-amber-800">温馨提示</p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-700">
+              未完成健康建档注册的用户暂无法登录，请先联系健康管家完成建档。
+            </p>
           </div>
-          <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-3 text-left">
-            <p className="text-xs font-bold text-teal-800 mb-2">健康管家联系方式</p>
+
+          <div className="mt-4 rounded-2xl border border-teal-100 bg-teal-50/70 p-4 text-left">
+            <p className="mb-3 text-xs font-black tracking-wide text-teal-800">健康管家联系方式</p>
             {managers.length === 0 ? (
-              <p className="text-xs text-teal-700">请联系健康管理中心获取健康管家电话与微信。</p>
+              <p className="rounded-xl border border-dashed border-teal-200 bg-white/70 px-3 py-3 text-xs text-teal-700">
+                请联系健康管理中心获取健康管家电话与微信。
+              </p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {managers.slice(0, 3).map((m) => (
-                  <div key={m.id} className="rounded-lg bg-white/80 border border-teal-100 px-2 py-2 text-xs text-slate-700">
-                    <div className="font-bold text-slate-800">{m.title}</div>
-                    <div>电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
+                  <div key={m.id} className="rounded-xl border border-teal-100 bg-white p-3 text-xs shadow-sm">
+                    <div className="font-black text-slate-800">{m.title}</div>
+                    <div className="mt-1 text-slate-600">电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
                     {m.details?.wechat_qr && (/^https?:\/\//i.test(String(m.details.wechat_qr)) || String(m.details.wechat_qr).startsWith('data:image')) && (
-                      <div className="mt-2 flex justify-end">
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500">微信二维码（点击放大）</span>
                         <button
                           type="button"
-                          className="rounded border border-slate-200 bg-white p-1"
+                          className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors hover:bg-slate-50"
                           onClick={() => setPreviewQr(String(m.details?.wechat_qr))}
                           title="点击放大二维码"
                         >
-                          <img src={String(m.details.wechat_qr)} alt="微信二维码" className="h-20 w-20 rounded object-cover" />
+                          <img src={String(m.details.wechat_qr)} alt="微信二维码" className="h-16 w-16 rounded object-cover" />
                         </button>
                       </div>
                     )}
@@ -114,13 +124,13 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
           <div>
-            <label className="mb-1 block text-sm font-bold text-slate-700">预留手机号</label>
+            <label className="mb-1.5 block text-sm font-bold text-slate-700">预留手机号</label>
             <input
               type="tel"
               autoComplete="username"
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               placeholder="请输入预留手机号"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -128,22 +138,27 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-bold text-slate-700">密码</label>
+            <label className="mb-1.5 block text-sm font-bold text-slate-700">密码</label>
             <input
               type="password"
               autoComplete="current-password"
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               placeholder="默认密码为体检编号"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
             />
+            <p className="mt-1.5 text-[11px] text-slate-400">若您已修改密码，请输入新密码登录。</p>
           </div>
-          {error ? <p className="text-sm text-center font-bold text-red-600">{error}</p> : null}
+          {error ? (
+            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-center text-sm font-bold text-red-600">
+              {error}
+            </p>
+          ) : null}
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl bg-teal-600 py-3.5 text-base font-bold text-white shadow-md transition-colors hover:bg-teal-700 disabled:opacity-50"
+            className="w-full rounded-xl bg-teal-600 py-3.5 text-base font-bold text-white shadow-md transition-all hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? '验证中...' : '登录'}
           </button>
