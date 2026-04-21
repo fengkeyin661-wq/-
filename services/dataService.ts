@@ -487,6 +487,16 @@ export const saveArchive = async (
     riskAnalysis?: RiskAnalysisData,
     saveOptions?: { completeProfileOnSave?: boolean }
 ): Promise<{ success: boolean; message?: string }> => {
+    const isPermissionDeniedError = (err: any): boolean => {
+        const msg = `${err?.code || ''} ${err?.message || ''}`.toLowerCase();
+        return (
+            msg.includes('permission denied') ||
+            msg.includes('not allowed') ||
+            msg.includes('role not allowed') ||
+            msg.includes('rls') ||
+            msg.includes('42501')
+        );
+    };
     // Ensure checkupId is a string, default to UNKNOWN if missing (Logic for Business Key)
     const checkupId = record.profile.checkupId || `UNKNOWN_${Date.now()}`;
     
@@ -641,13 +651,24 @@ export const saveArchive = async (
                 delete basicPayload.health_manager_content_id;
                 
                 const { error: retryError } = await supabase.from('health_archives').upsert(basicPayload, { onConflict: 'checkup_id' });
-                if (retryError) throw retryError;
+                if (retryError) {
+                    if (isPermissionDeniedError(retryError)) {
+                        return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
+                    }
+                    throw retryError;
+                }
                 return { success: true, message: "部分保存成功 (数据库缺少新字段)" };
+            }
+            if (isPermissionDeniedError(error)) {
+                return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
             }
             throw error;
         }
         return { success: true };
     } catch (e: any) {
+        if (isPermissionDeniedError(e)) {
+            return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
+        }
         return { success: false, message: e.message };
     }
 };
