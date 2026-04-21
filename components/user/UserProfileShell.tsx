@@ -72,11 +72,11 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-full bg-gradient-to-b from-teal-50/80 via-white to-slate-50 px-4 py-6 pb-24">
+    <div className="min-h-full bg-slate-50 px-4 py-6 pb-24">
       <div className="mx-auto max-w-md">
-        <div className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-lg shadow-teal-100/40 backdrop-blur-sm">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-emerald-600 text-3xl text-white shadow-md">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-3xl text-white shadow-sm">
               👤
             </div>
             <h1 className="text-2xl font-black tracking-tight text-slate-800">个人服务登录</h1>
@@ -85,23 +85,23 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             </p>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left">
-            <p className="text-xs font-bold text-amber-800">温馨提示</p>
-            <p className="mt-1 text-xs leading-relaxed text-amber-700">
+          <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left">
+            <p className="text-xs font-bold text-blue-800">登录须知</p>
+            <p className="mt-1 text-xs leading-relaxed text-blue-700">
               未完成健康建档注册的用户暂无法登录，请先联系健康管家完成建档。
             </p>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-teal-100 bg-teal-50/70 p-4 text-left">
-            <p className="mb-3 text-xs font-black tracking-wide text-teal-800">健康管家联系方式</p>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
+            <p className="mb-3 text-xs font-black tracking-wide text-slate-700">健康管家联系方式</p>
             {managers.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-teal-200 bg-white/70 px-3 py-3 text-xs text-teal-700">
+              <p className="rounded-xl border border-dashed border-slate-300 bg-white px-3 py-3 text-xs text-slate-600">
                 请联系健康管理中心获取健康管家电话与微信。
               </p>
             ) : (
               <div className="space-y-3">
                 {managers.slice(0, 3).map((m) => (
-                  <div key={m.id} className="rounded-xl border border-teal-100 bg-white p-3 text-xs shadow-sm">
+                  <div key={m.id} className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
                     <div className="font-black text-slate-800">{m.title}</div>
                     <div className="mt-1 text-slate-600">电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
                     {m.details?.wechat_qr && (/^https?:\/\//i.test(String(m.details.wechat_qr)) || String(m.details.wechat_qr).startsWith('data:image')) && (
@@ -130,7 +130,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             <input
               type="tel"
               autoComplete="username"
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="请输入预留手机号"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -142,7 +142,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             <input
               type="password"
               autoComplete="current-password"
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="默认密码为体检编号"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -158,7 +158,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl bg-teal-600 py-3.5 text-base font-bold text-white shadow-md transition-all hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white shadow-sm transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? '验证中...' : '登录'}
           </button>
