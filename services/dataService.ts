@@ -1011,11 +1011,15 @@ export const deleteArchive = async (id: string): Promise<boolean> => {
 
 export const fetchArchives = async (): Promise<HealthArchive[]> => {
     let archives: HealthArchive[] = [];
+    let localArchives: HealthArchive[] = [];
     
     // Local
     try {
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
-        if (raw) archives = JSON.parse(raw);
+        if (raw) {
+            localArchives = JSON.parse(raw);
+            archives = localArchives;
+        }
     } catch (e) {}
 
     // Cloud
@@ -1023,7 +1027,12 @@ export const fetchArchives = async (): Promise<HealthArchive[]> => {
         try {
             const { data, error } = await supabase.from('health_archives').select('*');
             if (!error && data) {
-                archives = data;
+                const map = new Map<string, HealthArchive>();
+                // 先放本地，保证本地新增不会因云端空集被覆盖
+                localArchives.forEach((a) => map.set(a.checkup_id, a));
+                // 云端同 checkup_id 覆盖本地（以云端为准）
+                (data as HealthArchive[]).forEach((a) => map.set(a.checkup_id, a));
+                archives = Array.from(map.values());
             }
         } catch (e) {
             console.error("Fetch DB error", e);
