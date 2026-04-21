@@ -23,6 +23,7 @@ import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions, fetchContent, isHealthManagerContent } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
+import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 
 type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
 
@@ -69,6 +70,26 @@ export const App: React.FC = () => {
   
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingElderly, setIsSavingElderly] = useState(false);
+
+  const ensureSupabaseSessionForStaff = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
+    if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
+    try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) return { ok: false, message: sessionErr.message };
+      if (sessionData.session) return { ok: true };
+
+      const { error: anonErr } = await supabase.auth.signInAnonymously();
+      if (anonErr) {
+        return {
+          ok: false,
+          message: `无法创建 Supabase 会话：${anonErr.message}。请在 Supabase Auth 开启 Anonymous sign-ins，或改用真实账号登录。`,
+        };
+      }
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, message: e?.message || '创建 Supabase 会话失败' };
+    }
+  }, []);
 
   const canShowAdminEntry = portalMode === 'all' || portalMode === 'admin';
   const canShowOpsEntry = portalMode === 'all' || portalMode === 'ops';
@@ -123,7 +144,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleLoginSuccess = (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
+  const handleLoginSuccess = async (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
     if (portalMode === 'admin' && !['admin', 'home'].includes(role)) {
         alert('当前子域仅允许管理控制台登录');
         return;
@@ -144,6 +165,16 @@ export const App: React.FC = () => {
     setIsAuthenticated(true);
     setCurrentUserRole(role);
     setShowLoginModal(false);
+
+    // 后台/医生登录后，确保持有 Supabase authenticated 会话，避免 RLS 将请求判为 anon
+    if (['admin', 'home', 'resource_admin', 'doctor'].includes(role)) {
+      const authRes = await ensureSupabaseSessionForStaff();
+      if (!authRes.ok) {
+        alert(
+          `当前已进入系统，但云端写入可能被 RLS 拒绝。\n原因：${authRes.message || '未建立 Supabase 会话'}`
+        );
+      }
+    }
     
     if (role === 'admin') {
         setActiveTab('admin');
