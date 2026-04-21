@@ -322,6 +322,7 @@ export const updateArchiveMeta = async (
     if ('profile_complete' in patch) payload.profile_complete = patch.profile_complete;
     if ('health_manager_content_id' in patch)
         payload.health_manager_content_id = patch.health_manager_content_id;
+    let localPatched = false;
 
     try {
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
@@ -334,6 +335,7 @@ export const updateArchiveMeta = async (
                     (all[idx] as any).health_manager_content_id = patch.health_manager_content_id;
                 all[idx].updated_at = payload.updated_at as string;
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+                localPatched = true;
             }
         }
     } catch (e) {
@@ -345,6 +347,20 @@ export const updateArchiveMeta = async (
     try {
         const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
         if (error) {
+            const msg = `${error.code || ''} ${error.message || ''}`.toLowerCase();
+            if (
+                localPatched &&
+                (msg.includes('permission denied') ||
+                    msg.includes('not allowed') ||
+                    msg.includes('role not allowed') ||
+                    msg.includes('rls') ||
+                    msg.includes('42501'))
+            ) {
+                return {
+                    success: true,
+                    message: '云端权限限制，已改为本地保存（当前端可见）。请联系管理员配置 health_archives 更新权限。',
+                };
+            }
             if (error.message.includes('Could not find') || error.code === '42703') {
                 return {
                     success: false,

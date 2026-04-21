@@ -501,7 +501,10 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                             const res = await updateArchiveMeta(uid, {
                                                                 health_manager_content_id: v || null,
                                                             });
-                                                            if (res.success) await loadData();
+                                                            if (res.success) {
+                                                                if (res.message) alert(res.message);
+                                                                await loadData();
+                                                            }
                                                             else alert(res.message || '保存失败');
                                                         } finally {
                                                             setSavingManagerFor(null);
