@@ -4,6 +4,7 @@ import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessag
 import { findArchiveByCheckupId, HealthArchive, updateArchiveMeta, publishHealthDraft } from '../services/dataService';
 import { extractTextFromFile } from '../services/fileParseService';
 import { generateDraftFromText } from '../services/healthDraftService';
+import { parseScheduleClosedDates } from '../services/doctorScheduleUtils';
 
 interface Props {
     doctorId: string; 
@@ -32,6 +33,8 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
     // Schedule State
     const [weeklySchedule, setWeeklySchedule] = useState<Record<string, string[]>>({});
     const [slotQuotas, setSlotQuotas] = useState<Record<string, Record<string, number>>>({});
+    const [closedDates, setClosedDates] = useState<string[]>([]);
+    const [closedDateInput, setClosedDateInput] = useState('');
     const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
     // Chat State
@@ -100,6 +103,8 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
         if (me) {
             if (me.details?.weeklySchedule) setWeeklySchedule(me.details.weeklySchedule);
             if (me.details?.slotQuotas) setSlotQuotas(me.details.slotQuotas);
+            const closed = parseScheduleClosedDates(me.details);
+            setClosedDates([...closed].sort());
         }
     };
 
@@ -175,6 +180,18 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
         }));
     };
 
+    const addClosedDate = () => {
+        const v = closedDateInput.trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+        if (closedDates.includes(v)) return;
+        setClosedDates([...closedDates, v].sort());
+        setClosedDateInput('');
+    };
+
+    const removeClosedDate = (d: string) => {
+        setClosedDates(closedDates.filter((x) => x !== d));
+    };
+
     const saveSchedule = async () => {
         setIsSavingSchedule(true);
         try {
@@ -182,9 +199,10 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
             const me = allDocs.find(d => d.id === doctorId);
             if (!me) throw new Error("未找到医生信息");
 
+            const scheduleClosedDates = [...new Set(closedDates)].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
             const updatedMe = {
                 ...me,
-                details: { ...me.details, weeklySchedule, slotQuotas }
+                details: { ...me.details, weeklySchedule, slotQuotas, scheduleClosedDates }
             };
             await saveContent(updatedMe);
             alert("设置已保存！");
@@ -529,7 +547,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                     <h3 className="text-xl font-bold flex items-center gap-3 relative z-10">
                                         <span>🗓️</span> 出诊计划与号源限额
                                     </h3>
-                                    <p className="text-sm opacity-60 mt-2 max-w-2xl relative z-10">设置每周常规出诊时段。用户在预约时，系统会根据您的限号量自动判断是否约满。</p>
+                                    <p className="text-sm opacity-60 mt-2 max-w-2xl relative z-10">设置每周常规出诊时段；可在下方添加「例外不出诊日期」（如国定假日、调休休息日）。用户在预约时，系统会根据限号量判断是否约满，且不会展示例外日期。</p>
                                 </div>
 
                                 <div className="bg-white border border-slate-200 rounded-[2rem] overflow-x-auto shadow-sm">
@@ -583,6 +601,51 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                             ))}
                                         </tbody>
                                     </table>
+                                </div>
+
+                                <div className="mt-8 bg-white border border-slate-200 rounded-[2rem] p-6 shadow-sm">
+                                    <h4 className="text-sm font-black text-slate-800 mb-1">例外不出诊日期</h4>
+                                    <p className="text-xs text-slate-500 mb-4">已添加的公历日期全天不出诊（上下午均不可约），用于长假、调休休息日等；与上方周计划同时生效。</p>
+                                    <div className="flex flex-wrap items-end gap-3 mb-4">
+                                        <div className="flex flex-col gap-1">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">选择日期</label>
+                                            <input
+                                                type="date"
+                                                value={closedDateInput}
+                                                onChange={(e) => setClosedDateInput(e.target.value)}
+                                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-800 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-200"
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={addClosedDate}
+                                            className="rounded-xl bg-teal-600 text-white px-5 py-2 text-sm font-black hover:bg-teal-700 transition-colors"
+                                        >
+                                            添加
+                                        </button>
+                                    </div>
+                                    {closedDates.length === 0 ? (
+                                        <p className="text-xs text-slate-400 py-2">暂无例外日期</p>
+                                    ) : (
+                                        <ul className="flex flex-wrap gap-2">
+                                            {closedDates.map((d) => (
+                                                <li
+                                                    key={d}
+                                                    className="inline-flex items-center gap-2 rounded-full bg-slate-100 border border-slate-200 pl-3 pr-1 py-1 text-xs font-bold text-slate-700"
+                                                >
+                                                    {d}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeClosedDate(d)}
+                                                        className="h-7 w-7 rounded-full hover:bg-slate-200 text-slate-500 font-black leading-none"
+                                                        aria-label={`删除 ${d}`}
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </div>
 
                                 <div className="mt-10 flex justify-center">

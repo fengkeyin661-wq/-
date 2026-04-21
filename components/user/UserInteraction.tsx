@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
 import { HealthAssessment } from '../../types';
+import { DAY_MAP, SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
 
 interface Props {
     userId?: string;
@@ -19,20 +20,6 @@ interface DoctorWithUnread {
 }
 
 type ViewMode = 'doctors' | 'chat_list' | 'chat';
-
-const DAY_MAP: Record<string, string> = {
-    'Mon': '周一', 'Tue': '周二', 'Wed': '周三', 'Thu': '周四', 'Fri': '周五', 'Sat': '周六', 'Sun': '周日'
-};
-const SLOT_MAP: Record<string, string> = { 'AM': '上午', 'PM': '下午' };
-const DAY_INDEX_TO_KEY: Record<number, string> = {
-    0: 'Sun',
-    1: 'Mon',
-    2: 'Tue',
-    3: 'Wed',
-    4: 'Thu',
-    5: 'Fri',
-    6: 'Sat',
-};
 
 const getMedicalIcon = (item: ContentItem): string => {
     const t = (item.title + (item.details?.dept || '')).toLowerCase();
@@ -232,35 +219,16 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         }
     };
 
-    const getSlotUsage = (docId: string, dayKey: string, slotId: string) => {
-        const slotText = `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`;
+    const getSlotUsage = (docId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
+        const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
         const count = allInteractions.filter(i => 
             i.type === 'doctor_booking' && 
             i.targetId === docId && 
             i.status !== 'cancelled' && 
-            i.details?.includes(slotText)
+            i.details?.includes(fragment)
         ).length;
-        const quota = bookingDoctor?.details?.slotQuotas?.[dayKey]?.[slotId] || 10;
+        const quota = bookingDoctor?.details?.slotQuotas?.[slot.dayKey]?.[slot.slotId] || 10;
         return { count, quota, full: count >= quota };
-    };
-
-    const getNextMonthSlots = (doctor: ContentItem) => {
-        const slots: { dateKey: string; displayDate: string; dayKey: string; slotId: string }[] = [];
-        const weekly = doctor.details?.weeklySchedule || {};
-        const today = new Date();
-        for (let i = 0; i < 30; i++) {
-            const d = new Date(today);
-            d.setDate(today.getDate() + i);
-            const dayKey = DAY_INDEX_TO_KEY[d.getDay()];
-            const daySlots: string[] = weekly[dayKey] || [];
-            if (!daySlots.length) continue;
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            const dd = String(d.getDate()).padStart(2, '0');
-            const dateKey = d.toISOString().split('T')[0];
-            const displayDate = `${mm}-${dd} ${DAY_MAP[dayKey]}`;
-            daySlots.forEach((slotId) => slots.push({ dateKey, displayDate, dayKey, slotId }));
-        }
-        return slots;
     };
 
     // AI 排序医生
@@ -520,14 +488,14 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                         
                         <div className="flex-1 overflow-y-auto space-y-6 pb-6">
                             {(() => {
-                                const monthSlots = getNextMonthSlots(bookingDoctor);
+                                const monthSlots = getNextMonthSlotsForDoctor(bookingDoctor);
                                 if (!monthSlots.length) {
                                     return <div className="text-center text-slate-400 text-sm py-8">未来30天暂无可预约号源</div>;
                                 }
                                 return (
                                     <div className="grid grid-cols-1 gap-3">
                                         {monthSlots.map((slot) => {
-                                            const { count, quota, full } = getSlotUsage(bookingDoctor.id, slot.dayKey, slot.slotId);
+                                            const { count, quota, full } = getSlotUsage(bookingDoctor.id, slot);
                                             return (
                                                 <button
                                                     key={`${slot.dateKey}-${slot.slotId}`}

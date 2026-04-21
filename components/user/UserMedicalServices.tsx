@@ -3,20 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { fetchContent, ContentItem, saveInteraction, InteractionItem, fetchInteractions } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
+import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
 
 interface Props {
     userId: string;
     userName: string;
     assessment?: HealthAssessment; 
 }
-
-const DAY_MAP: Record<string, string> = {
-    'Mon': '周一', 'Tue': '周二', 'Wed': '周三', 'Thu': '周四', 'Fri': '周五', 'Sat': '周六', 'Sun': '周日'
-};
-
-const SLOT_MAP: Record<string, string> = {
-    'AM': '上午', 'PM': '下午'
-};
 
 const getMedicalIcon = (item: ContentItem): string => {
     const t = (item.title + (item.details?.dept || '') + (item.details?.deptCode || '')).toLowerCase();
@@ -139,16 +132,16 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
         }
     };
 
-    const getSlotUsage = (docId: string, dayKey: string, slotId: string) => {
-        const slotText = `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`;
+    const getSlotUsage = (docId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
+        const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
         const count = allInteractions.filter(i => 
             i.type === 'doctor_booking' && 
             i.targetId === docId && 
             i.status !== 'cancelled' && 
-            i.details?.includes(slotText)
+            i.details?.includes(fragment)
         ).length;
         
-        const quota = bookingDoctor?.details?.slotQuotas?.[dayKey]?.[slotId] || 10;
+        const quota = bookingDoctor?.details?.slotQuotas?.[slot.dayKey]?.[slot.slotId] || 10;
         return { count, quota, full: count >= quota };
     };
 
@@ -284,48 +277,50 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                         <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择就诊时间</h3>
                         <p className="text-xs text-slate-400 text-center mb-6">预约专家：{bookingDoctor.title}</p>
                         
-                        <div className="flex-1 overflow-y-auto space-y-6 pb-6">
-                            {Object.keys(DAY_MAP).map(dayKey => {
-                                const activeSlots = bookingDoctor.details?.weeklySchedule?.[dayKey] || [];
-                                if (activeSlots.length === 0) return null;
-                                return (
-                                    <div key={dayKey}>
-                                        <h4 className="font-black text-xs text-slate-400 uppercase tracking-widest mb-3 px-1">{DAY_MAP[dayKey]}</h4>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {activeSlots.map((slotId: string) => {
-                                                const { count, quota, full } = getSlotUsage(bookingDoctor.id, dayKey, slotId);
-                                                return (
-                                                    <button 
-                                                        key={slotId}
-                                                        disabled={full}
-                                                        onClick={() => handleInteract('booking', bookingDoctor, `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`)}
-                                                        className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center transition-all group relative ${
-                                                            full 
-                                                            ? 'opacity-50 cursor-not-allowed border-slate-100 grayscale' 
-                                                            : 'border-slate-100 hover:bg-blue-50 hover:border-blue-200'
-                                                        }`}
-                                                    >
-                                                        <span className="font-bold text-slate-700">{SLOT_MAP[slotId]}</span>
-                                                        <span className={`text-[10px] mt-1 font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
-                                                            {full ? '约满' : `余 ${quota - count} 位`}
-                                                        </span>
-                                                        {!full && (
-                                                            <div className="absolute inset-0 bg-blue-600/0 group-active:bg-blue-600/5 rounded-2xl transition-colors"></div>
-                                                        )}
-                                                    </button>
-                                                );
-                                            })}
+                        <div className="flex-1 overflow-y-auto space-y-3 pb-6">
+                            {(() => {
+                                const monthSlots = getNextMonthSlotsForDoctor(bookingDoctor);
+                                if (!monthSlots.length) {
+                                    return (
+                                        <div className="text-center py-10">
+                                            <div className="text-4xl mb-3 opacity-20">📅</div>
+                                            <p className="text-sm text-slate-400">未来30天暂无可预约号源<br/>请通过电话或现场咨询</p>
                                         </div>
+                                    );
+                                }
+                                return (
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {monthSlots.map((slot) => {
+                                            const { count, quota, full } = getSlotUsage(bookingDoctor.id, slot);
+                                            return (
+                                                <button
+                                                    key={`${slot.dateKey}-${slot.slotId}`}
+                                                    disabled={full}
+                                                    onClick={() =>
+                                                        handleInteract(
+                                                            'booking',
+                                                            bookingDoctor,
+                                                            `${slot.displayDate}${SLOT_MAP[slot.slotId]}`
+                                                        )
+                                                    }
+                                                    className={`border p-4 rounded-2xl flex items-center justify-between transition-all text-left ${
+                                                        full
+                                                            ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50 grayscale'
+                                                            : 'border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200'
+                                                    }`}
+                                                >
+                                                    <span className="font-bold text-slate-700">
+                                                        {slot.displayDate} · {SLOT_MAP[slot.slotId]}
+                                                    </span>
+                                                    <span className={`text-xs font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                        {full ? '约满' : `余 ${quota - count} 位`}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 );
-                            })}
-                            
-                            {(!bookingDoctor.details?.weeklySchedule || Object.values(bookingDoctor.details.weeklySchedule).every((v: any) => v.length === 0)) && (
-                                <div className="text-center py-10">
-                                    <div className="text-4xl mb-3 opacity-20">📅</div>
-                                    <p className="text-sm text-slate-400">该专家暂未设置在线排班<br/>请通过电话或现场咨询</p>
-                                </div>
-                            )}
+                            })()}
                         </div>
                         
                         <button onClick={() => setShowBookingModal(false)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm active:scale-95 transition-transform">取消</button>
