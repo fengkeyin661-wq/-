@@ -21,6 +21,16 @@ export const HealthManagerWorkspace: React.FC = () => {
     const [imageUrl, setImageUrl] = useState('');
     const [selectedResourceId, setSelectedResourceId] = useState('');
 
+    const resolvePrimaryManager = (doctors: ContentItem[]): ContentItem | null => {
+        if (!doctors.length) return null;
+        return (
+            doctors.find((d) => d.title.includes('小郑')) ||
+            doctors.find((d) => isHealthManagerContent(d)) ||
+            doctors[0] ||
+            null
+        );
+    };
+
     const selectedArchive = useMemo(
         () => archives.find((a) => a.checkup_id === selectedArchiveId) || null,
         [archives, selectedArchiveId]
@@ -34,17 +44,16 @@ export const HealthManagerWorkspace: React.FC = () => {
         setLoading(true);
         try {
             const [docs, allArchives, svc, drug] = await Promise.all([
-                fetchContent('doctor', 'active'),
+                fetchContent('doctor'),
                 fetchArchives(),
                 fetchContent('service', 'active'),
                 fetchContent('drug', 'active'),
             ]);
-            const managerRows = docs.filter(isHealthManagerContent);
-            const uniqueManager = managerRows.find((m) => m.title.includes('小郑')) || managerRows[0] || null;
+            const uniqueManager = resolvePrimaryManager(docs);
             setPrimaryManager(uniqueManager);
             setArchives(allArchives);
             setResources([
-                ...docs.filter((d) => d.type === 'doctor'),
+                ...docs.filter((d) => d.type === 'doctor' && d.status === 'active'),
                 ...svc,
                 ...drug,
             ]);
@@ -70,7 +79,15 @@ export const HealthManagerWorkspace: React.FC = () => {
     }, [selectedArchive?.checkup_id, primaryManager?.id]);
 
     const sendText = async () => {
-        if (!selectedArchive || !primaryManager || !chatInput.trim()) return;
+        if (!selectedArchive) {
+            alert('请先在左侧选择用户');
+            return;
+        }
+        if (!primaryManager) {
+            alert('未识别到健康管家小郑，请先在医生资源中确认“小郑”条目存在');
+            return;
+        }
+        if (!chatInput.trim()) return;
         await sendMessage({
             senderId: primaryManager.id,
             senderRole: 'manager',
@@ -84,7 +101,15 @@ export const HealthManagerWorkspace: React.FC = () => {
     };
 
     const sendImage = async () => {
-        if (!selectedArchive || !primaryManager || !imageUrl.trim()) return;
+        if (!selectedArchive) {
+            alert('请先在左侧选择用户');
+            return;
+        }
+        if (!primaryManager) {
+            alert('未识别到健康管家小郑，请先在医生资源中确认“小郑”条目存在');
+            return;
+        }
+        if (!imageUrl.trim()) return;
         await sendMessage({
             senderId: primaryManager.id,
             senderRole: 'manager',
@@ -99,7 +124,15 @@ export const HealthManagerWorkspace: React.FC = () => {
     };
 
     const sendRecommendation = async () => {
-        if (!selectedArchive || !primaryManager || !selectedResource) return;
+        if (!selectedArchive) {
+            alert('请先在左侧选择用户');
+            return;
+        }
+        if (!primaryManager) {
+            alert('未识别到健康管家小郑，请先在医生资源中确认“小郑”条目存在');
+            return;
+        }
+        if (!selectedResource) return;
         const isDoctor = selectedResource.type === 'doctor';
         await sendMessage({
             senderId: primaryManager.id,

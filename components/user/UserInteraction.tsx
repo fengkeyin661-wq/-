@@ -66,13 +66,17 @@ const scoreDoctor = (doc: ContentItem, risks: string[]) => {
 };
 
 const pickPrimaryManager = (doctors: ContentItem[], archive?: HealthArchive): ContentItem | null => {
-    const managers = doctors.filter(isHealthManagerContent);
-    if (!managers.length) return null;
+    if (!doctors.length) return null;
     if (archive?.health_manager_content_id) {
-        const assigned = managers.find((m) => m.id === archive.health_manager_content_id);
+        const assigned = doctors.find((m) => m.id === archive.health_manager_content_id);
         if (assigned) return assigned;
     }
-    return managers.find((m) => m.title.includes('小郑')) || managers[0];
+    return (
+        doctors.find((m) => m.title.includes('小郑')) ||
+        doctors.find((m) => isHealthManagerContent(m)) ||
+        doctors[0] ||
+        null
+    );
 };
 
 export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead, onOpenDoctors, onOpenCommunity }) => {
