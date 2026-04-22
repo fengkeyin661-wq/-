@@ -65,6 +65,16 @@ const scoreDoctor = (doc: ContentItem, risks: string[]) => {
     return score + Math.random();
 };
 
+const pickPrimaryManager = (doctors: ContentItem[], archive?: HealthArchive): ContentItem | null => {
+    const managers = doctors.filter(isHealthManagerContent);
+    if (!managers.length) return null;
+    if (archive?.health_manager_content_id) {
+        const assigned = managers.find((m) => m.id === archive.health_manager_content_id);
+        if (assigned) return assigned;
+    }
+    return managers.find((m) => m.title.includes('小郑')) || managers[0];
+};
+
 export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead, onOpenDoctors, onOpenCommunity }) => {
     const [viewMode, setViewMode] = useState<ViewMode>('chat_list');
     
@@ -133,19 +143,17 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                     const count = await getUnreadCount(userId, sign.targetId);
                     listWithCount.push({ interaction: sign, unread: count });
                 }
-                const managerId = archive?.health_manager_content_id || '';
-                if (managerId && !listWithCount.some((x) => x.interaction.targetId === managerId)) {
-                    const managerDoc = docs.find((d) => d.id === managerId);
-                    if (managerDoc) {
-                        const count = await getUnreadCount(userId, managerId);
+                const primaryManager = pickPrimaryManager(docs, archive);
+                if (primaryManager && !listWithCount.some((x) => x.interaction.targetId === primaryManager.id)) {
+                    const count = await getUnreadCount(userId, primaryManager.id);
                         listWithCount.unshift({
                             interaction: {
-                                id: `manager_link_${userId}_${managerId}`,
+                                id: `manager_link_${userId}_${primaryManager.id}`,
                                 type: 'doctor_signing',
                                 userId,
                                 userName: userName?.trim() || archive?.name?.trim() || '用户',
-                                targetId: managerId,
-                                targetName: managerDoc.title,
+                                targetId: primaryManager.id,
+                                targetName: primaryManager.title,
                                 status: 'confirmed',
                                 date: new Date().toISOString().split('T')[0],
                                 details: '健康管家会话',
@@ -153,7 +161,6 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                             unread: count,
                             isManager: true,
                         });
-                    }
                 }
                 setDoctorList(listWithCount);
             }
@@ -177,19 +184,17 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
             const count = await getUnreadCount(userId, sign.targetId);
             listWithCount.push({ interaction: sign, unread: count });
         }
-        const managerId = archive?.health_manager_content_id || '';
-        if (managerId && !listWithCount.some((x) => x.interaction.targetId === managerId)) {
-            const managerDoc = allDoctors.find((d) => d.id === managerId);
-            if (managerDoc) {
-                const count = await getUnreadCount(userId, managerId);
+        const primaryManager = pickPrimaryManager(allDoctors, archive);
+        if (primaryManager && !listWithCount.some((x) => x.interaction.targetId === primaryManager.id)) {
+                const count = await getUnreadCount(userId, primaryManager.id);
                 listWithCount.unshift({
                     interaction: {
-                        id: `manager_link_${userId}_${managerId}`,
+                        id: `manager_link_${userId}_${primaryManager.id}`,
                         type: 'doctor_signing',
                         userId,
                         userName: userName?.trim() || archive?.name?.trim() || '用户',
-                        targetId: managerId,
-                        targetName: managerDoc.title,
+                        targetId: primaryManager.id,
+                        targetName: primaryManager.title,
                         status: 'confirmed',
                         date: new Date().toISOString().split('T')[0],
                         details: '健康管家会话',
@@ -197,7 +202,6 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                     unread: count,
                     isManager: true,
                 });
-            }
         }
         setDoctorList(listWithCount);
     };
