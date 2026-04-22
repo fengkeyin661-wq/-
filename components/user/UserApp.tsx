@@ -20,7 +20,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits');
+  const [activeTab, setActiveTab] = useState('interaction');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -193,6 +193,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           assessment={userArchive?.assessment_data}
           onMessageRead={() => setUnreadCount(0)}
           onOpenDoctors={() => setActiveTab('doctors')}
+          onOpenCommunity={() => setActiveTab('community')}
         />
       )}
       {activeTab === 'profile' &&

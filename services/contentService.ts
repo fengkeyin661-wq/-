@@ -31,6 +31,8 @@ export interface InteractionItem {
     type:
         | 'doctor_signing'
         | 'doctor_booking'
+        | 'manager_recommend_doctor'
+        | 'manager_recommend_resource'
         | 'drug_order'
         | 'event_signup'
         | 'circle_join'
@@ -48,17 +50,62 @@ export interface InteractionItem {
 export interface ChatMessage {
     id: string;
     senderId: string;
-    senderRole: 'user' | 'doctor';
+    senderRole: 'user' | 'doctor' | 'manager';
     receiverId: string;
     content: string;
     timestamp: string;
     read: boolean;
+    messageType?: 'text' | 'image' | 'card_recommend';
+    mediaUrl?: string;
+    thumbUrl?: string;
+    metadata?: { [key: string]: any };
 }
 
 const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V4';
 const INTERACTION_KEY = 'HEALTH_GUARD_INTERACTIONS_V1';
 const CHAT_KEY = 'HEALTH_GUARD_CHATS_V1';
 const CHAT_TABLE = 'app_chat_messages';
+const CHAT_RETENTION_DAYS = 90;
+const CHAT_CLEANUP_STAMP_KEY = 'HEALTH_GUARD_CHAT_CLEANUP_TS';
+
+const getRetentionCutoffIso = (): string => {
+    const d = new Date();
+    d.setDate(d.getDate() - CHAT_RETENTION_DAYS);
+    return d.toISOString();
+};
+
+const shouldRunCleanupNow = (): boolean => {
+    const raw = localStorage.getItem(CHAT_CLEANUP_STAMP_KEY);
+    if (!raw) return true;
+    const ts = Number(raw);
+    if (!ts) return true;
+    return Date.now() - ts > 24 * 60 * 60 * 1000;
+};
+
+export const pruneOldMessages = async (): Promise<void> => {
+    if (!shouldRunCleanupNow()) return;
+    const cutoffIso = getRetentionCutoffIso();
+    try {
+        const raw = localStorage.getItem(CHAT_KEY);
+        if (raw) {
+            const all: ChatMessage[] = JSON.parse(raw);
+            const kept = all.filter((m) => new Date(m.timestamp).toISOString() >= cutoffIso);
+            if (kept.length !== all.length) {
+                localStorage.setItem(CHAT_KEY, JSON.stringify(kept));
+            }
+        }
+    } catch (e) {
+        console.warn('Local chat cleanup failed', e);
+    }
+    if (isSupabaseConfigured()) {
+        try {
+            await supabase.from(CHAT_TABLE).delete().lt('timestamp', cutoffIso);
+        } catch (e) {
+            console.warn('Cloud chat cleanup failed', e);
+        }
+    }
+    localStorage.setItem(CHAT_CLEANUP_STAMP_KEY, String(Date.now()));
+};
 
 // --- Diagnostic Tool ---
 export const checkDbConnection = async (): Promise<{
@@ -350,11 +397,12 @@ export const updateInteractionStatus = async (id: string, status: InteractionIte
 
 // 3. Chat Messages
 export const fetchMessages = async (userId: string, doctorId: string): Promise<ChatMessage[]> => {
+    await pruneOldMessages();
     if (isSupabaseConfigured()) {
         try {
             const { data, error } = await supabase
                 .from(CHAT_TABLE)
-                .select('id, sender_id, sender_role, receiver_id, content, timestamp, read')
+                .select('id, sender_id, sender_role, receiver_id, content, timestamp, read, message_type, media_url, thumb_url, metadata')
                 .or(
                     `and(sender_id.eq.${userId},receiver_id.eq.${doctorId}),and(sender_id.eq.${doctorId},receiver_id.eq.${userId})`
                 )
@@ -369,6 +417,10 @@ export const fetchMessages = async (userId: string, doctorId: string): Promise<C
                     content: row.content,
                     timestamp: row.timestamp,
                     read: !!row.read,
+                    messageType: row.message_type || 'text',
+                    mediaUrl: row.media_url || undefined,
+                    thumbUrl: row.thumb_url || undefined,
+                    metadata: row.metadata || undefined,
                 }));
                 // Keep local cache warm for offline fallback.
                 localStorage.setItem(CHAT_KEY, JSON.stringify(cloudMsgs));
@@ -385,7 +437,14 @@ export const fetchMessages = async (userId: string, doctorId: string): Promise<C
     return all.filter(m => (m.senderId === userId && m.receiverId === doctorId) || (m.senderId === doctorId && m.receiverId === userId)).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'read'>): Promise<ChatMessage> => {
-    const newMsg: ChatMessage = { ...msg, id: `msg_${Date.now()}`, timestamp: new Date().toISOString(), read: false };
+    await pruneOldMessages();
+    const newMsg: ChatMessage = {
+        ...msg,
+        id: `msg_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        messageType: msg.messageType || 'text',
+    };
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
     all.push(newMsg);
@@ -401,6 +460,10 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
                 content: newMsg.content,
                 timestamp: newMsg.timestamp,
                 read: newMsg.read,
+                message_type: newMsg.messageType || 'text',
+                media_url: newMsg.mediaUrl || null,
+                thumb_url: newMsg.thumbUrl || null,
+                metadata: newMsg.metadata || null,
             };
             const { error } = await supabase.from(CHAT_TABLE).upsert(payload);
             if (error) {

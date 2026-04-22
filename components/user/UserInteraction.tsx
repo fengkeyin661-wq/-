@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction } from '../../services/contentService';
+import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction, isHealthManagerContent } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
@@ -12,14 +12,18 @@ interface Props {
     assessment?: HealthAssessment;
     onMessageRead?: () => void;
     onOpenDoctors?: () => void;
+    onOpenCommunity?: () => void;
 }
 
 interface DoctorWithUnread {
     interaction: InteractionItem;
     unread: number;
+    isManager?: boolean;
 }
 
 type ViewMode = 'doctors' | 'chat_list' | 'chat';
+const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
+const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
 const getMedicalIcon = (item: ContentItem): string => {
     const t = (item.title + (item.details?.dept || '')).toLowerCase();
@@ -61,7 +65,7 @@ const scoreDoctor = (doc: ContentItem, risks: string[]) => {
     return score + Math.random();
 };
 
-export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead, onOpenDoctors }) => {
+export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead, onOpenDoctors, onOpenCommunity }) => {
     const [viewMode, setViewMode] = useState<ViewMode>('chat_list');
     
     // Doctor List State
@@ -129,6 +133,28 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                     const count = await getUnreadCount(userId, sign.targetId);
                     listWithCount.push({ interaction: sign, unread: count });
                 }
+                const managerId = archive?.health_manager_content_id || '';
+                if (managerId && !listWithCount.some((x) => x.interaction.targetId === managerId)) {
+                    const managerDoc = docs.find((d) => d.id === managerId);
+                    if (managerDoc) {
+                        const count = await getUnreadCount(userId, managerId);
+                        listWithCount.unshift({
+                            interaction: {
+                                id: `manager_link_${userId}_${managerId}`,
+                                type: 'doctor_signing',
+                                userId,
+                                userName: userName?.trim() || archive?.name?.trim() || '用户',
+                                targetId: managerId,
+                                targetName: managerDoc.title,
+                                status: 'confirmed',
+                                date: new Date().toISOString().split('T')[0],
+                                details: '健康管家会话',
+                            },
+                            unread: count,
+                            isManager: true,
+                        });
+                    }
+                }
                 setDoctorList(listWithCount);
             }
         } catch (e) {
@@ -150,6 +176,28 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         for (const sign of signings) {
             const count = await getUnreadCount(userId, sign.targetId);
             listWithCount.push({ interaction: sign, unread: count });
+        }
+        const managerId = archive?.health_manager_content_id || '';
+        if (managerId && !listWithCount.some((x) => x.interaction.targetId === managerId)) {
+            const managerDoc = allDoctors.find((d) => d.id === managerId);
+            if (managerDoc) {
+                const count = await getUnreadCount(userId, managerId);
+                listWithCount.unshift({
+                    interaction: {
+                        id: `manager_link_${userId}_${managerId}`,
+                        type: 'doctor_signing',
+                        userId,
+                        userName: userName?.trim() || archive?.name?.trim() || '用户',
+                        targetId: managerId,
+                        targetName: managerDoc.title,
+                        status: 'confirmed',
+                        date: new Date().toISOString().split('T')[0],
+                        details: '健康管家会话',
+                    },
+                    unread: count,
+                    isManager: true,
+                });
+            }
         }
         setDoctorList(listWithCount);
     };
@@ -239,15 +287,45 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
 
     const totalUnread = doctorList.reduce((sum, d) => sum + d.unread, 0);
 
+    const openFromRecommendCard = (msg: ChatMessage) => {
+        const type = String(msg.metadata?.resourceType || '');
+        const resourceId = String(msg.metadata?.resourceId || '');
+        if (resourceId) {
+            try {
+                sessionStorage.setItem(
+                    MANAGER_DEEP_LINK_KEY,
+                    JSON.stringify({
+                        resourceId,
+                        resourceType: type,
+                        at: Date.now(),
+                        ttlMs: MANAGER_DEEP_LINK_TTL_MS,
+                    })
+                );
+            } catch {
+                // ignore
+            }
+        }
+        if (type === 'doctor') {
+            if (onOpenDoctors) onOpenDoctors();
+            else setViewMode('doctors');
+            return;
+        }
+        if (onOpenCommunity) onOpenCommunity();
+    };
+
     // ======== RENDER: CHAT VIEW ========
     if (viewMode === 'chat' && activeDoctor) {
+        const activeProvider = allDoctors.find((d) => d.id === activeDoctor.targetId);
+        const isManagerChat = !!activeProvider && isHealthManagerContent(activeProvider);
         return (
             <div className="relative flex h-full flex-col bg-[#F0F2F5]">
                 <div className="z-10 flex items-center gap-3 border-b border-slate-100 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-md">
                     <button onClick={() => { setViewMode('chat_list'); setActiveDoctor(null); }} className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">←</button>
                     <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-lg shadow-inner">👨‍⚕️</div>
                     <div>
-                        <h1 className="text-base font-bold text-slate-800">{activeDoctor.targetName} 医生</h1>
+                        <h1 className="text-base font-bold text-slate-800">
+                            {activeDoctor.targetName} {isManagerChat ? '健康管家' : '医生'}
+                        </h1>
                         <p className="text-xs font-medium text-green-600">在线</p>
                     </div>
                 </div>
@@ -267,7 +345,28 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                     <div className={`max-w-[75%] px-4 py-3 text-sm shadow-sm ${
                                         isMe ? 'bg-teal-600 text-white rounded-2xl rounded-tr-sm' : 'bg-white text-slate-800 rounded-2xl rounded-tl-sm border border-slate-100'
                                     }`}>
-                                        <p className="leading-relaxed">{msg.content}</p>
+                                        {msg.messageType === 'image' && msg.mediaUrl ? (
+                                            <div className="space-y-2">
+                                                <img src={msg.mediaUrl} alt="chat" className="max-h-64 rounded-lg border border-slate-200" />
+                                                <p className="leading-relaxed">{msg.content}</p>
+                                            </div>
+                                        ) : msg.messageType === 'card_recommend' ? (
+                                            <div>
+                                                <p className="font-bold">{msg.metadata?.title || '推荐资源'}</p>
+                                                <p className="leading-relaxed mt-1 text-xs opacity-90">{msg.metadata?.description || msg.content}</p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openFromRecommendCard(msg)}
+                                                    className={`mt-2 rounded-lg px-2.5 py-1 text-[11px] font-bold ${
+                                                        isMe ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-700 border border-blue-100'
+                                                    }`}
+                                                >
+                                                    去查看
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <p className="leading-relaxed">{msg.content}</p>
+                                        )}
                                         <div className={`mt-1 text-right text-xs ${isMe ? 'text-teal-200' : 'text-slate-400'}`}>
                                             {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                         </div>
@@ -376,20 +475,20 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                 </h3>
                                 <p className="text-sm text-slate-400 mb-4 px-4">
                                     {!userId
-                                        ? '请先在底部「我的」登录，签约家庭医生后即可在此咨询'
-                                        : '签约家庭医生后，可在此进行咨询'}
+                                        ? '请先在底部「我的」登录后使用健康管家与医生咨询'
+                                        : '当前未分配健康管家，或暂无会话记录'}
                                 </p>
                                 <button
                                     onClick={() =>
                                         userId
                                             ? setViewMode('doctors')
-                                            : alert('请切换到底部「我的」完成登录后再签约医生')
+                                            : alert('请切换到底部「我的」完成登录后再使用咨询')
                                     }
                                     className={`px-6 py-2 rounded-xl text-sm font-bold ${
                                         userId ? 'bg-blue-600 text-white' : 'bg-teal-600 text-white'
                                     }`}
                                 >
-                                    {userId ? '去签约医生' : '我知道了'}
+                                    {userId ? '浏览医生资源' : '我知道了'}
                                 </button>
                             </div>
                         ) : (
@@ -411,7 +510,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                     </div>
                                     <div className="flex-1">
                                         <h3 className="font-bold text-slate-800">{item.interaction.targetName}</h3>
-                                        <p className="text-xs text-slate-500">点击进入咨询...</p>
+                                        <p className="text-xs text-slate-500">{item.isManager ? '健康管家在线服务' : '点击进入咨询...'}</p>
                                     </div>
                                     <div className="text-slate-300 text-lg">›</div>
                                 </div>

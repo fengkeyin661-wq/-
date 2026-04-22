@@ -1,6 +1,7 @@
 
 import bcrypt from 'bcryptjs';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { fetchContent, isHealthManagerContent } from './contentService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
 
 export interface ExercisePlanData {
@@ -127,6 +128,21 @@ export interface HealthArchive {
 }
 
 const ARCHIVE_STORAGE_KEY = 'HEALTH_ARCHIVES_V1_LOCAL';
+
+const pickDefaultHealthManagerId = async (): Promise<string | null> => {
+    try {
+        const doctors = await fetchContent('doctor', 'active');
+        const managers = doctors.filter(isHealthManagerContent);
+        if (!managers.length) return null;
+        // 简单轮询：按更新时间排序后取第一位
+        const sorted = [...managers].sort((a, b) =>
+            new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+        );
+        return sorted[0].id;
+    } catch {
+        return null;
+    }
+};
 
 /** Normalize phone for lookup (strip spaces/dashes). */
 export const normalizePhone = (phone: string): string =>
@@ -598,8 +614,11 @@ export const saveArchive = async (
     if (existingPasswordHash !== undefined && existingPasswordHash !== null) {
         basePayload.password_hash = existingPasswordHash;
     }
-    if (existingHealthManagerId !== undefined) {
+    if (existingHealthManagerId !== undefined && existingHealthManagerId !== null) {
         basePayload.health_manager_content_id = existingHealthManagerId;
+    } else {
+        const defaultManagerId = await pickDefaultHealthManagerId();
+        if (defaultManagerId) basePayload.health_manager_content_id = defaultManagerId;
     }
 
     const fullPayload = {

@@ -17,6 +17,8 @@ interface EventWithStatus extends ContentItem {
 }
 
 type TabType = 'events' | 'meals' | 'services';
+const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
+const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
 const getCommunityIcon = (title: string, type: string): string => {
     const t = title.toLowerCase();
@@ -86,6 +88,55 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
     useEffect(() => {
         loadData();
     }, [userId]);
+
+    useEffect(() => {
+        if (loading) return;
+        try {
+            const raw = sessionStorage.getItem(MANAGER_DEEP_LINK_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw || '{}');
+            const resourceId = String(parsed.resourceId || '');
+            const resourceType = String(parsed.resourceType || '');
+            const at = Number(parsed.at || 0);
+            const ttl = Number(parsed.ttlMs || MANAGER_DEEP_LINK_TTL_MS);
+            if (!at || Date.now() - at > ttl) {
+                sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                return;
+            }
+            if (!resourceId) return;
+
+            if (resourceType === 'service') {
+                const item = allServices.find((x) => x.id === resourceId);
+                if (item) {
+                    setActiveTab('services');
+                    setSelectedItem(item);
+                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                    return;
+                }
+            }
+            if (resourceType === 'meal') {
+                const item = allMeals.find((x) => x.id === resourceId);
+                if (item) {
+                    setActiveTab('meals');
+                    setSelectedItem(item);
+                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                    return;
+                }
+            }
+            if (resourceType === 'event' || resourceType === 'circle') {
+                const pool = resourceType === 'circle' ? allCircles : allEvents;
+                const item = pool.find((x) => x.id === resourceId);
+                if (item) {
+                    setActiveTab('events');
+                    setSelectedItem(item);
+                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                    return;
+                }
+            }
+        } catch {
+            // ignore
+        }
+    }, [loading, allServices, allMeals, allEvents, allCircles]);
 
     const loadData = async () => {
         setLoading(true);

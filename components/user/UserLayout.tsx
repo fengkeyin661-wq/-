@@ -20,8 +20,8 @@ export const UserLayout: React.FC<Props> = ({
   const navItems = [
     { id: 'habits', label: '问诊', icon: '🤖' }, // 智能问诊（虚拟健康助手）
     { id: 'community', label: '发现', icon: '🎯' }, // 社区+医疗+饮食资源
-    { id: 'doctors', label: '医生', icon: '🩺' }, // 签约/预约/医生资源
-    { id: 'interaction', label: '消息', icon: '💬' }, // 互动消息
+    { id: 'doctors', label: '资源', icon: '🩺' }, // 医生/医疗资源
+    { id: 'interaction', label: '管家', icon: '💬' }, // 健康管家互动
     { id: 'profile', label: '我的', icon: '👤' },
   ];
 

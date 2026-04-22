@@ -696,11 +696,23 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                         </div>
                         <div className="flex-1 overflow-y-auto p-6 space-y-4">
                             {chatMessages.map(msg => {
-                                const isMe = msg.senderRole === 'doctor';
+                                const isMe = msg.senderRole === 'doctor' || msg.senderRole === 'manager';
                                 return (
                                     <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`max-w-[70%] p-3 rounded-2xl shadow-sm text-sm ${isMe ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white text-slate-800 rounded-tl-sm'}`}>
-                                            {msg.content}
+                                            {msg.messageType === 'image' && msg.mediaUrl ? (
+                                                <div className="space-y-2">
+                                                    <img src={msg.mediaUrl} alt="chat" className="max-h-64 rounded-lg border border-slate-200" />
+                                                    <div>{msg.content}</div>
+                                                </div>
+                                            ) : msg.messageType === 'card_recommend' ? (
+                                                <div>
+                                                    <div className="font-bold mb-1">{msg.metadata?.title || '推荐内容'}</div>
+                                                    <div className="text-xs opacity-90">{msg.metadata?.description || msg.content}</div>
+                                                </div>
+                                            ) : (
+                                                msg.content
+                                            )}
                                         </div>
                                     </div>
                                 );

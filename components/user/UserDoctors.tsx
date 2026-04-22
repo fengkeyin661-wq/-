@@ -15,6 +15,8 @@ interface Props {
   archive?: HealthArchive;
   onOpenMessage?: (doctorId: string) => void;
 }
+const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
+const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
 const avatar = (doctor: ContentItem) => {
   if (doctor.image && /^https?:\/\//i.test(doctor.image)) {
@@ -48,6 +50,28 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
   useEffect(() => {
     refresh();
   }, [userId]);
+
+  useEffect(() => {
+    if (!doctors.length) return;
+    try {
+      const raw = sessionStorage.getItem(MANAGER_DEEP_LINK_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw || '{}');
+      const at = Number(parsed.at || 0);
+      const ttl = Number(parsed.ttlMs || MANAGER_DEEP_LINK_TTL_MS);
+      if (!at || Date.now() - at > ttl) {
+        sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+        return;
+      }
+      if (parsed.resourceType !== 'doctor') return;
+      const doc = doctors.find((d) => d.id === parsed.resourceId);
+      if (!doc) return;
+      setSelectedDoctor(doc);
+      sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+    } catch {
+      // ignore
+    }
+  }, [doctors]);
 
   const doctorMap = useMemo(() => {
     const m = new Map<string, ContentItem>();
