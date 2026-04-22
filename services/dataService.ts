@@ -146,7 +146,11 @@ const pickDefaultHealthManagerId = async (): Promise<string | null> => {
 
 /** Normalize phone for lookup (strip spaces/dashes). */
 export const normalizePhone = (phone: string): string =>
-    phone.replace(/[\s\-]/g, '').trim();
+    phone
+        .replace(/^\+86/i, '')
+        .replace(/[^\d]/g, '')
+        .replace(/^86(?=\d{11}$)/, '')
+        .trim();
 
 const phoneMatches = (stored: string | undefined | null, input: string): boolean => {
     if (!stored || !input) return false;
@@ -234,6 +238,21 @@ const findArchiveByPhoneWithStatus = async (
             return { archive: null, reason: 'query_error', message: error2.message || '查询失败' };
         }
         if (data2 && data2.length > 0) return { archive: data2[0] as HealthArchive };
+
+        // 兜底：若手机号未维护，允许用体检编号输入登录（便于新建档案首登）
+        const checkupInput = String(phone || '').trim();
+        if (checkupInput) {
+            const { data: byCheckup, error: checkupErr } = await supabase
+                .from('health_archives')
+                .select('*')
+                .eq('checkup_id', checkupInput)
+                .order('updated_at', { ascending: false })
+                .limit(1);
+            if (checkupErr) {
+                return { archive: null, reason: 'query_error', message: checkupErr.message || '查询失败' };
+            }
+            if (byCheckup && byCheckup.length > 0) return { archive: byCheckup[0] as HealthArchive };
+        }
         return { archive: null, reason: 'archive_not_found', message: '手机号未匹配到档案' };
     } catch (e: any) {
         return { archive: null, reason: 'query_error', message: e?.message || '查询异常' };
