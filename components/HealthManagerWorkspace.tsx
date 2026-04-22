@@ -35,6 +35,10 @@ export const HealthManagerWorkspace: React.FC = () => {
         () => resources.find((r) => r.id === selectedResourceId) || null,
         [resources, selectedResourceId]
     );
+    const isConversationAligned = useMemo(() => {
+        if (!selectedArchive || !selectedManager) return false;
+        return selectedArchive.health_manager_content_id === selectedManager.id;
+    }, [selectedArchive, selectedManager]);
 
     const filteredArchives = useMemo(() => {
         if (!selectedManagerId) return archives;
@@ -96,6 +100,10 @@ export const HealthManagerWorkspace: React.FC = () => {
 
     const sendText = async () => {
         if (!selectedArchive || !selectedManager || !chatInput.trim()) return;
+        if (!isConversationAligned) {
+            alert('当前发送身份与该用户绑定的健康管家不一致，请先切换到已绑定管家或先改派后再发送。');
+            return;
+        }
         await sendMessage({
             senderId: selectedManager.id,
             senderRole: 'manager',
@@ -110,6 +118,10 @@ export const HealthManagerWorkspace: React.FC = () => {
 
     const sendImage = async () => {
         if (!selectedArchive || !selectedManager || !imageUrl.trim()) return;
+        if (!isConversationAligned) {
+            alert('当前发送身份与该用户绑定的健康管家不一致，请先切换到已绑定管家或先改派后再发送。');
+            return;
+        }
         await sendMessage({
             senderId: selectedManager.id,
             senderRole: 'manager',
@@ -125,6 +137,10 @@ export const HealthManagerWorkspace: React.FC = () => {
 
     const sendRecommendation = async () => {
         if (!selectedArchive || !selectedManager || !selectedResource) return;
+        if (!isConversationAligned) {
+            alert('当前发送身份与该用户绑定的健康管家不一致，请先切换到已绑定管家或先改派后再发送。');
+            return;
+        }
         const isDoctor = selectedResource.type === 'doctor';
         await sendMessage({
             senderId: selectedManager.id,
@@ -181,7 +197,12 @@ export const HealthManagerWorkspace: React.FC = () => {
                                 className={`rounded-lg border p-2 cursor-pointer ${
                                     selectedArchiveId === a.checkup_id ? 'border-teal-400 bg-teal-50' : 'border-slate-200'
                                 }`}
-                                onClick={() => setSelectedArchiveId(a.checkup_id)}
+                                onClick={() => {
+                                    setSelectedArchiveId(a.checkup_id);
+                                    if (a.health_manager_content_id) {
+                                        setSelectedManagerId(a.health_manager_content_id);
+                                    }
+                                }}
                             >
                                 <div className="text-sm font-bold text-slate-800">{a.name}</div>
                                 <div className="text-[11px] text-slate-500">{a.department} · {a.risk_level}</div>
@@ -217,6 +238,11 @@ export const HealthManagerWorkspace: React.FC = () => {
                                 <div className="text-xs text-slate-500">
                                     健康管家：{selectedManager.title} · {selectedArchive.phone || '无电话'}
                                 </div>
+                                {!isConversationAligned && (
+                                    <div className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
+                                        当前身份与用户已绑定管家不一致，发送后用户端可能不可见。请切换到已绑定管家或先改派。
+                                    </div>
+                                )}
                             </div>
                             <div className="flex-1 overflow-y-auto py-3 space-y-2">
                                 {messages.map((m) => {

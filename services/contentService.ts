@@ -400,13 +400,24 @@ export const fetchMessages = async (userId: string, doctorId: string): Promise<C
     await pruneOldMessages();
     if (isSupabaseConfigured()) {
         try {
-            const { data, error } = await supabase
+            const conversationFilter = `and(sender_id.eq.${userId},receiver_id.eq.${doctorId}),and(sender_id.eq.${doctorId},receiver_id.eq.${userId})`;
+            const fullColumns = 'id, sender_id, sender_role, receiver_id, content, timestamp, read, message_type, media_url, thumb_url, metadata';
+            let { data, error } = await supabase
                 .from(CHAT_TABLE)
-                .select('id, sender_id, sender_role, receiver_id, content, timestamp, read, message_type, media_url, thumb_url, metadata')
-                .or(
-                    `and(sender_id.eq.${userId},receiver_id.eq.${doctorId}),and(sender_id.eq.${doctorId},receiver_id.eq.${userId})`
-                )
+                .select(fullColumns)
+                .or(conversationFilter)
                 .order('timestamp', { ascending: true });
+
+            // Backward compatibility: some environments may not have all extended columns.
+            if (error) {
+                const fallback = await supabase
+                    .from(CHAT_TABLE)
+                    .select('id, sender_id, sender_role, receiver_id, content, timestamp, read')
+                    .or(conversationFilter)
+                    .order('timestamp', { ascending: true });
+                data = fallback.data as any;
+                error = fallback.error as any;
+            }
 
             if (!error && data) {
                 const cloudMsgs: ChatMessage[] = data.map((row: any) => ({
@@ -438,9 +449,13 @@ export const fetchMessages = async (userId: string, doctorId: string): Promise<C
 };
 export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'read'>): Promise<ChatMessage> => {
     await pruneOldMessages();
+    const messageId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const newMsg: ChatMessage = {
         ...msg,
-        id: `msg_${Date.now()}`,
+        id: messageId,
         timestamp: new Date().toISOString(),
         read: false,
         messageType: msg.messageType || 'text',
@@ -452,7 +467,7 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
 
     if (isSupabaseConfigured()) {
         try {
-            const payload = {
+            const fullPayload = {
                 id: newMsg.id,
                 sender_id: newMsg.senderId,
                 sender_role: newMsg.senderRole,
@@ -465,9 +480,22 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
                 thumb_url: newMsg.thumbUrl || null,
                 metadata: newMsg.metadata || null,
             };
-            const { error } = await supabase.from(CHAT_TABLE).upsert(payload);
+            let { error } = await supabase.from(CHAT_TABLE).upsert(fullPayload);
             if (error) {
-                console.error('Cloud sendMessage failed, message kept locally:', error.message);
+                const basicPayload = {
+                    id: newMsg.id,
+                    sender_id: newMsg.senderId,
+                    sender_role: newMsg.senderRole,
+                    receiver_id: newMsg.receiverId,
+                    content: newMsg.content,
+                    timestamp: newMsg.timestamp,
+                    read: newMsg.read,
+                };
+                const fallback = await supabase.from(CHAT_TABLE).upsert(basicPayload);
+                error = fallback.error as any;
+            }
+            if (error) {
+                console.error('Cloud sendMessage failed, message kept locally:', error.message || error);
             }
         } catch (e) {
             console.error('Cloud sendMessage exception, message kept locally:', e);
