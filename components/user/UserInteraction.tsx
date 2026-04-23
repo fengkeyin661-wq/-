@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction, isHealthManagerContent } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
 import { HealthAssessment } from '../../types';
@@ -56,16 +56,7 @@ const DoctorAvatar: React.FC<{ doctor: ContentItem; className?: string; fallback
     return <div className={`${className} ${fallbackClassName} shrink-0`}>{getMedicalIcon(doctor)}</div>;
 };
 
-const scoreDoctor = (doc: ContentItem, risks: string[]) => {
-    let score = 0;
-    const text = (doc.title + (doc.tags?.join(' ') || '') + (doc.description || '') + (doc.details?.dept || '')).toLowerCase();
-    risks.forEach(r => {
-        if (text.includes(r.replace('风险',''))) score += 2;
-    });
-    return score + Math.random();
-};
-
-export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead, onOpenDoctors, onOpenCommunity }) => {
+export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, onMessageRead, onOpenDoctors, onOpenCommunity }) => {
     const [viewMode, setViewMode] = useState<ViewMode>('chat_list');
     
     // Doctor List State
@@ -241,29 +232,6 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         return { count, quota, full: count >= quota };
     };
 
-    // AI 排序医生
-    const risks = assessment ? [...assessment.risks.red, ...assessment.risks.yellow] : [];
-    const sortedDoctors = useMemo(() => {
-        return [...allDoctors].sort((a, b) => scoreDoctor(b, risks) - scoreDoctor(a, risks)).slice(0, 20);
-    }, [allDoctors, risks]);
-    const healthManager = useMemo(() => {
-        const id = archive?.health_manager_content_id;
-        if (!id) return null;
-        return allDoctors.find((d) => d.id === id) || null;
-    }, [archive?.health_manager_content_id, allDoctors]);
-    const multidisciplinaryCards = useMemo(() => {
-        const managers = sortedDoctors.filter(isHealthManagerContent).slice(0, 1);
-        const nutrition = sortedDoctors.filter((d) => (d.title + (d.details?.title || '') + d.tags.join('')).includes('营养')).slice(0, 1);
-        const sport = sortedDoctors.filter((d) => (d.title + (d.description || '') + d.tags.join('')).includes('运动')).slice(0, 1);
-        const clinician = sortedDoctors.filter((d) => !isHealthManagerContent(d)).slice(0, 1);
-        return [
-            { role: '健康管家', item: managers[0] || healthManager || null, color: 'bg-amber-50 border-amber-200 text-amber-700' },
-            { role: '营养师', item: nutrition[0] || null, color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-            { role: '运动教练', item: sport[0] || null, color: 'bg-orange-50 border-orange-200 text-orange-700' },
-            { role: '临床医生', item: clinician[0] || null, color: 'bg-blue-50 border-blue-200 text-blue-700' },
-        ];
-    }, [sortedDoctors, healthManager]);
-
     const totalUnread = doctorList.reduce((sum, d) => sum + d.unread, 0);
 
     const openFromRecommendCard = (msg: ChatMessage) => {
@@ -380,7 +348,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
             {/* Header */}
             <div className="sticky top-0 z-10 border-b border-slate-100 bg-white px-5 py-4">
                 <h1 className="text-2xl font-black text-slate-800 tracking-tight">消息中心</h1>
-                <p className="mt-1 text-sm text-slate-500">健康管家主导 · 多学科联合干预</p>
+                <p className="mt-1 text-sm text-slate-500">医生与健康管理团队在线沟通</p>
             </div>
 
             {/* Header actions */}
@@ -407,49 +375,6 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                 ) : (
                     // ======== CHAT LIST + CARE WORKFLOW ========
                     <div className="space-y-4">
-                        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
-                            <div className="text-xs font-bold text-amber-700">健康管家主导</div>
-                            {healthManager ? (
-                                <div className="mt-2 flex items-center gap-3">
-                                    <DoctorAvatar doctor={healthManager} className="w-11 h-11" />
-                                    <div className="min-w-0 flex-1">
-                                        <div className="font-bold text-slate-800 truncate">{healthManager.title}</div>
-                                        <div className="text-xs text-slate-500 truncate">
-                                            {healthManager.details?.dept || '健康管理中心'} · 负责统筹医生/营养/运动方案
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <p className="mt-1 text-xs text-slate-500">暂未匹配专属健康管家，可先前往医生页发起签约申请。</p>
-                            )}
-                        </div>
-                        <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                            <div className="flex items-center justify-between">
-                                <h2 className="font-bold text-slate-800">联合干预建议</h2>
-                                <button
-                                    type="button"
-                                    onClick={() => onOpenDoctors?.()}
-                                    className="text-xs font-bold text-blue-600"
-                                >
-                                    查看全部医生
-                                </button>
-                            </div>
-                            <div className="mt-3 grid grid-cols-2 gap-2">
-                                {multidisciplinaryCards.map((card) => (
-                                    <button
-                                        type="button"
-                                        key={card.role}
-                                        onClick={() => card.item ? setSelectedDoctor(card.item) : onOpenDoctors?.()}
-                                        className={`rounded-xl border p-3 text-left ${card.color}`}
-                                    >
-                                        <div className="text-[11px] font-black">{card.role}</div>
-                                        <div className="mt-1 text-sm font-bold truncate text-slate-800">
-                                            {card.item?.title || '待匹配'}
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
                         <div className="rounded-2xl border border-slate-100 bg-white p-4">
                             <h2 className="font-bold text-slate-800">社区支持</h2>
                             <div className="mt-3 grid grid-cols-3 gap-2">

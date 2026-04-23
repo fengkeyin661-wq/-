@@ -106,8 +106,26 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       .map((i) => doctorMap.get(i.targetId))
       .filter(Boolean) as ContentItem[];
   }, [signedInteractions, doctorMap]);
+  const signedDoctorIdSet = useMemo(() => new Set(signedInteractions.map((i) => i.targetId)), [signedInteractions]);
 
   const managerResources = useMemo(() => doctors.filter(isHealthManagerContent), [doctors]);
+  const teamCards = useMemo(() => {
+    const pickByKeywords = (keywords: string[]) =>
+      doctors.find((d) => {
+        const text = `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
+        return keywords.some((k) => text.includes(k));
+      }) || null;
+    const manager = managerResources[0] || null;
+    const nutrition = pickByKeywords(['营养']);
+    const sport = pickByKeywords(['运动', '康复']);
+    const clinician = doctors.find((d) => !isHealthManagerContent(d)) || null;
+    return [
+      { role: '健康管家', item: manager, tone: 'bg-amber-50 border-amber-200 text-amber-700' },
+      { role: '营养师', item: nutrition, tone: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+      { role: '运动教练', item: sport, tone: 'bg-orange-50 border-orange-200 text-orange-700' },
+      { role: '临床医生', item: clinician, tone: 'bg-blue-50 border-blue-200 text-blue-700' },
+    ];
+  }, [doctors, managerResources]);
 
   const filteredResources = useMemo(() => {
     const q = search.trim();
@@ -168,6 +186,28 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       </div>
 
       <section className="space-y-3">
+        <div className="rounded-2xl border border-slate-100 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-black text-slate-700">健康管理团队</h2>
+            <span className="text-[11px] font-bold text-slate-400">联合干预</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {teamCards.map((card) => (
+              <button
+                type="button"
+                key={card.role}
+                onClick={() => card.item && setSelectedDoctor(card.item)}
+                className={`rounded-xl border p-3 text-left ${card.tone} ${card.item ? '' : 'opacity-70'}`}
+              >
+                <div className="text-[11px] font-black">{card.role}</div>
+                <div className="mt-1 truncate text-sm font-bold text-slate-800">{card.item?.title || '待匹配'}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
         <h2 className="text-sm font-black text-slate-700">健康管理师（主导协同）</h2>
         {managerResources.length === 0 ? (
           <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
@@ -185,10 +225,11 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
                 </div>
               </div>
               <button
-                className="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white font-bold"
+                className={`text-xs px-3 py-1.5 rounded-lg font-bold ${signedDoctorIdSet.has(mgr.id) ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-teal-600 text-white'}`}
+                disabled={signedDoctorIdSet.has(mgr.id)}
                 onClick={() => submitInteraction('doctor_signing', mgr, '申请健康管理师签约')}
               >
-                签约
+                {signedDoctorIdSet.has(mgr.id) ? '已签约' : '签约'}
               </button>
             </div>
           ))
@@ -296,11 +337,14 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
               </button>
               <button
                 className="rounded-xl bg-teal-600 py-3 text-sm font-bold text-white"
+                disabled={signedDoctorIdSet.has(selectedDoctor.id)}
                 onClick={() =>
-                  submitInteraction('doctor_signing', selectedDoctor, '申请家庭医生签约')
+                  signedDoctorIdSet.has(selectedDoctor.id)
+                    ? undefined
+                    : submitInteraction('doctor_signing', selectedDoctor, '申请家庭医生签约')
                 }
               >
-                签约医生
+                {signedDoctorIdSet.has(selectedDoctor.id) ? '已签约' : '签约医生'}
               </button>
             </div>
           </div>
