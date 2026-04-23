@@ -21,7 +21,6 @@ interface PatientData {
 const DAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SLOTS = [{id: 'AM', label: '上午'}, {id: 'PM', label: '下午'}];
-type SlotRange = { start?: string; end?: string };
 
 export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelectPatient }) => {
     // 将默认 Tab 设为 'tasks'
@@ -34,7 +33,6 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
     // Schedule State
     const [weeklySchedule, setWeeklySchedule] = useState<Record<string, string[]>>({});
     const [slotQuotas, setSlotQuotas] = useState<Record<string, Record<string, number>>>({});
-    const [slotTimeRanges, setSlotTimeRanges] = useState<Record<string, Record<string, SlotRange>>>({});
     const [closedDates, setClosedDates] = useState<string[]>([]);
     const [closedDateInput, setClosedDateInput] = useState('');
     const [isSavingSchedule, setIsSavingSchedule] = useState(false);
@@ -83,7 +81,6 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
         if (me) {
             if (me.details?.weeklySchedule) setWeeklySchedule(me.details.weeklySchedule);
             if (me.details?.slotQuotas) setSlotQuotas(me.details.slotQuotas);
-            if (me.details?.slotTimeRanges) setSlotTimeRanges(me.details.slotTimeRanges);
             const closed = parseScheduleClosedDates(me.details);
             setClosedDates([...closed].sort());
         }
@@ -150,15 +147,6 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                     [dayKey]: { ...(prev[dayKey] || {}), [slotId]: 10 } 
                 }));
             }
-            if (!slotTimeRanges[dayKey]?.[slotId]) {
-                setSlotTimeRanges(prev => ({
-                    ...prev,
-                    [dayKey]: {
-                        ...(prev[dayKey] || {}),
-                        [slotId]: slotId === 'AM' ? { start: '08:30', end: '12:00' } : { start: '14:00', end: '17:30' },
-                    },
-                }));
-            }
         }
         setWeeklySchedule({ ...weeklySchedule, [dayKey]: updated });
     };
@@ -167,19 +155,6 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
         setSlotQuotas(prev => ({
             ...prev,
             [dayKey]: { ...(prev[dayKey] || {}), [slotId]: Math.max(1, value) }
-        }));
-    };
-
-    const handleTimeRangeChange = (dayKey: string, slotId: string, key: 'start' | 'end', value: string) => {
-        setSlotTimeRanges(prev => ({
-            ...prev,
-            [dayKey]: {
-                ...(prev[dayKey] || {}),
-                [slotId]: {
-                    ...((prev[dayKey] || {})[slotId] || {}),
-                    [key]: value,
-                },
-            },
         }));
     };
 
@@ -205,7 +180,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
             const scheduleClosedDates = [...new Set(closedDates)].filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
             const updatedMe = {
                 ...me,
-                details: { ...me.details, weeklySchedule, slotQuotas, slotTimeRanges, scheduleClosedDates }
+                details: { ...me.details, weeklySchedule, slotQuotas, scheduleClosedDates }
             };
             await saveContent(updatedMe);
             alert("设置已保存！");
@@ -423,7 +398,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                     <tr key={bk.id} className="hover:bg-blue-50/20 transition-colors">
                                                         <td className="p-4">
                                                             <div className="font-black text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg inline-block">
-                                                                {bk.details?.match(/预约挂号：([^，]+)/)?.[1] || bk.details?.match(/周[一二三四五六日][上下]午/)?.[0] || '常规时段'}
+                                                                {bk.details?.match(/周[一二三四五六日][上下]午/)?.[0] || '常规时段'}
                                                             </div>
                                                         </td>
                                                         <td className="p-4">
@@ -502,7 +477,7 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                     <h3 className="text-xl font-bold flex items-center gap-3 relative z-10">
                                         <span>🗓️</span> 出诊计划与号源限额
                                     </h3>
-                                    <p className="text-sm opacity-60 mt-2 max-w-2xl relative z-10">设置每周常规出诊时段，精确到每天几点到几点；可在下方添加「例外不出诊日期」。用户预约时会展示具体时间段。</p>
+                                    <p className="text-sm opacity-60 mt-2 max-w-2xl relative z-10">设置每周常规出诊时段；可在下方添加「例外不出诊日期」（如国定假日、调休休息日）。用户在预约时，系统会根据限号量判断是否约满，且不会展示例外日期。</p>
                                 </div>
 
                                 <div className="bg-white border border-slate-200 rounded-[2rem] overflow-x-auto shadow-sm">
@@ -538,22 +513,6 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                                     
                                                                     {isActive && (
                                                                         <div className="flex flex-col gap-1.5 items-center mt-1">
-                                                                            <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">时间范围</span>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <input
-                                                                                    type="time"
-                                                                                    value={slotTimeRanges[dayKey]?.[slot.id]?.start || ''}
-                                                                                    onChange={(e) => handleTimeRangeChange(dayKey, slot.id, 'start', e.target.value)}
-                                                                                    className="w-20 bg-slate-50 border border-slate-200 rounded-lg py-1 text-[11px] text-center font-black text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-200"
-                                                                                />
-                                                                                <span className="text-[10px] text-slate-400">-</span>
-                                                                                <input
-                                                                                    type="time"
-                                                                                    value={slotTimeRanges[dayKey]?.[slot.id]?.end || ''}
-                                                                                    onChange={(e) => handleTimeRangeChange(dayKey, slot.id, 'end', e.target.value)}
-                                                                                    className="w-20 bg-slate-50 border border-slate-200 rounded-lg py-1 text-[11px] text-center font-black text-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-200"
-                                                                                />
-                                                                            </div>
                                                                             <span className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">号源限额</span>
                                                                             <input 
                                                                                 type="number" 

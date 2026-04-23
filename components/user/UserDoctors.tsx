@@ -8,7 +8,7 @@ import {
   saveInteraction,
 } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
-import { getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
+import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
 
 interface Props {
   userId?: string;
@@ -23,7 +23,7 @@ const avatar = (doctor: ContentItem) => {
   if (doctor.image && /^https?:\/\//i.test(doctor.image)) {
     return <img src={doctor.image} alt={doctor.title} className="h-12 w-12 rounded-xl object-cover" />;
   }
-  return <div className="h-12 w-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl">馃懆鈥嶁殨锔?/div>;
+  return <div className="h-12 w-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl">👨‍⚕️</div>;
 };
 
 export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpenMessage }) => {
@@ -113,8 +113,8 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
   const teamCards = useMemo(() => {
     const textOf = (d: ContentItem) =>
       `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
-    const isNutrition = (d: ContentItem) => textOf(d).includes('钀ュ吇');
-    const isSport = (d: ContentItem) => textOf(d).includes('杩愬姩') || textOf(d).includes('搴峰');
+    const isNutrition = (d: ContentItem) => textOf(d).includes('营养');
+    const isSport = (d: ContentItem) => textOf(d).includes('运动') || textOf(d).includes('康复');
     const manager = managerResources[0] || null;
     const nutrition = doctors.find((d) => !isHealthManagerContent(d) && isNutrition(d)) || null;
     const sport = doctors.find(
@@ -124,31 +124,31 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       (d) => !isHealthManagerContent(d) && !isNutrition(d) && !isSport(d)
     ) || null;
     return [
-      { role: '鍋ュ悍绠″', item: manager, tone: 'bg-amber-50 border-amber-200 text-amber-700' },
-      { role: '钀ュ吇甯?, item: nutrition, tone: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-      { role: '杩愬姩鏁欑粌', item: sport, tone: 'bg-orange-50 border-orange-200 text-orange-700' },
-      { role: '涓村簥鍖荤敓', item: clinician, tone: 'bg-blue-50 border-blue-200 text-blue-700' },
+      { role: '健康管家', item: manager, tone: 'bg-amber-50 border-amber-200 text-amber-700' },
+      { role: '营养师', item: nutrition, tone: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+      { role: '运动教练', item: sport, tone: 'bg-orange-50 border-orange-200 text-orange-700' },
+      { role: '临床医生', item: clinician, tone: 'bg-blue-50 border-blue-200 text-blue-700' },
     ];
   }, [doctors, managerResources]);
   const recommendByRole = (role: string): ContentItem[] => {
     const textOf = (d: ContentItem) =>
       `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
-    const isNutrition = (d: ContentItem) => textOf(d).includes('钀ュ吇');
-    const isSport = (d: ContentItem) => textOf(d).includes('杩愬姩') || textOf(d).includes('搴峰');
-    if (role === '鍋ュ悍绠″') {
+    const isNutrition = (d: ContentItem) => textOf(d).includes('营养');
+    const isSport = (d: ContentItem) => textOf(d).includes('运动') || textOf(d).includes('康复');
+    if (role === '健康管家') {
       return managerResources.length ? managerResources : doctors.slice(0, 8);
     }
-    if (role === '钀ュ吇甯?) {
+    if (role === '营养师') {
       const list = doctors.filter((d) => !isHealthManagerContent(d) && isNutrition(d));
       return list.length ? list : doctors.slice(0, 8);
     }
-    if (role === '杩愬姩鏁欑粌') {
+    if (role === '运动教练') {
       const list = doctors.filter(
         (d) => !isHealthManagerContent(d) && !isNutrition(d) && isSport(d)
       );
       return list.length ? list : doctors.slice(0, 8);
     }
-    if (role === '涓村簥鍖荤敓') {
+    if (role === '临床医生') {
       const list = doctors.filter(
         (d) => !isHealthManagerContent(d) && !isNutrition(d) && !isSport(d)
       );
@@ -170,7 +170,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
   }, [doctors, search]);
 
   const slotUsage = (docId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
-    const fragment = `${slot.displayDate}${slot.slotLabel}`;
+    const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
     const count = interactions.filter(
       (i) =>
         i.type === 'doctor_booking' &&
@@ -188,21 +188,21 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
     details: string
   ) => {
     if (!userId) {
-      alert('璇峰厛鍒扳€滄垜鐨勨€濆畬鎴愮櫥褰?);
+      alert('请先到“我的”完成登录');
       return;
     }
     await saveInteraction({
       id: `${type}_${Date.now()}`,
       type,
       userId,
-      userName: userName?.trim() || archive?.name?.trim() || '鐢ㄦ埛',
+      userName: userName?.trim() || archive?.name?.trim() || '用户',
       targetId: target.id,
       targetName: target.title,
       status: 'pending',
       date: new Date().toISOString().split('T')[0],
       details,
     });
-    alert('鐢宠宸叉彁浜わ紝璇风瓑寰呭鏍搞€?);
+    alert('申请已提交，请等待审核。');
     setSelectedDoctor(null);
     setBookingDoctor(null);
     refresh();
@@ -211,15 +211,15 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
   return (
     <div className="min-h-full bg-slate-50 p-4 pb-24 space-y-5">
       <div className="rounded-2xl bg-white border border-slate-100 p-4">
-        <h1 className="text-xl font-black text-slate-800">鍖荤敓</h1>
-        <p className="text-xs text-slate-500 mt-1">绛剧害銆侀绾︿笌鑱斿悎骞查璧勬簮锛涘挩璇㈢粺涓€鍦ㄣ€屾秷鎭€嶅鐞?/p>
+        <h1 className="text-xl font-black text-slate-800">医生</h1>
+        <p className="text-xs text-slate-500 mt-1">签约、预约与联合干预资源；咨询统一在「消息」处理</p>
       </div>
 
       <section className="space-y-3">
         <div className="rounded-2xl border border-slate-100 bg-white p-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-black text-slate-700">鍋ュ悍绠＄悊鍥㈤槦</h2>
-            <span className="text-[11px] font-bold text-slate-400">鑱斿悎骞查</span>
+            <h2 className="text-sm font-black text-slate-700">健康管理团队</h2>
+            <span className="text-[11px] font-bold text-slate-400">联合干预</span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             {teamCards.map((card) => (
@@ -233,7 +233,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
                 className={`rounded-xl border p-3 text-left ${card.tone} ${card.item ? '' : 'opacity-70'}`}
               >
                 <div className="text-[11px] font-black">{card.role}</div>
-                <div className="mt-1 truncate text-sm font-bold text-slate-800">{card.item?.title || '寰呭尮閰?}</div>
+                <div className="mt-1 truncate text-sm font-bold text-slate-800">{card.item?.title || '待匹配'}</div>
               </button>
             ))}
           </div>
@@ -241,10 +241,10 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">鍋ュ悍绠＄悊甯堬紙涓诲鍗忓悓锛?/h2>
+        <h2 className="text-sm font-black text-slate-700">健康管理师（主导协同）</h2>
         {managerResources.length === 0 ? (
           <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
-            鏆傛棤鍋ュ悍绠＄悊甯堣祫婧愶紝璇疯仈绯诲尰闄㈢淮鎶ゅ尰鐢熻祫婧愭爣绛?
+            暂无健康管理师资源，请联系医院维护医生资源标签
           </div>
         ) : (
           managerResources.map((mgr) => (
@@ -253,16 +253,16 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-slate-800">{mgr.title}</div>
                 <div className="text-xs text-slate-600">
-                  {mgr.details?.dept || '鍋ュ悍绠＄悊涓績'}
-                  {mgr.details?.phone ? ` 路 ${mgr.details.phone}` : ''}
+                  {mgr.details?.dept || '健康管理中心'}
+                  {mgr.details?.phone ? ` · ${mgr.details.phone}` : ''}
                 </div>
               </div>
               <button
                 className={`text-xs px-3 py-1.5 rounded-lg font-bold ${signedDoctorIdSet.has(mgr.id) ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-teal-600 text-white'}`}
                 disabled={signedDoctorIdSet.has(mgr.id)}
-                onClick={() => submitInteraction('doctor_signing', mgr, '鐢宠鍋ュ悍绠＄悊甯堢绾?)}
+                onClick={() => submitInteraction('doctor_signing', mgr, '申请健康管理师签约')}
               >
-                {signedDoctorIdSet.has(mgr.id) ? '宸茬绾? : '绛剧害'}
+                {signedDoctorIdSet.has(mgr.id) ? '已签约' : '签约'}
               </button>
             </div>
           ))
@@ -270,10 +270,10 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">鎴戠绾︾殑鍖荤敓</h2>
+        <h2 className="text-sm font-black text-slate-700">我签约的医生</h2>
         {signedDoctors.length === 0 ? (
           <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
-            鏆傛棤宸茬绾﹀尰鐢?
+            暂无已签约医生
           </div>
         ) : (
           signedDoctors.map((doc) => (
@@ -281,13 +281,13 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
               {avatar(doc)}
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-slate-800">{doc.title}</div>
-                <div className="text-xs text-slate-500">{doc.details?.dept} 路 {doc.details?.title}</div>
+                <div className="text-xs text-slate-500">{doc.details?.dept} · {doc.details?.title}</div>
               </div>
               <button
                 className="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white font-bold"
                 onClick={() => onOpenMessage?.(doc.id)}
               >
-                鍘绘秷鎭?
+                去消息
               </button>
             </div>
           ))
@@ -295,17 +295,17 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">鎴戦绾︾殑鍖荤敓</h2>
+        <h2 className="text-sm font-black text-slate-700">我预约的医生</h2>
         {bookedInteractions.length === 0 ? (
           <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
-            鏆傛棤棰勭害璁板綍
+            暂无预约记录
           </div>
         ) : (
           bookedInteractions.map((item) => (
             <div key={item.id} className="rounded-xl bg-white border border-slate-100 p-3 flex items-center justify-between gap-3">
               <div>
                 <div className="font-bold text-slate-800">{item.targetName}</div>
-                <div className="text-xs text-slate-500">{item.details || '棰勭害鎸傚彿'}</div>
+                <div className="text-xs text-slate-500">{item.details || '预约挂号'}</div>
                 <div className="text-xs text-slate-400 mt-1">{item.date}</div>
               </div>
               <span className={`text-xs px-2 py-1 rounded font-bold ${
@@ -315,7 +315,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
                   ? 'bg-yellow-100 text-yellow-700'
                   : 'bg-slate-100 text-slate-600'
               }`}>
-                {item.status === 'confirmed' ? '宸茬‘璁? : item.status === 'pending' ? '寰呭鏍? : '宸插畬鎴?}
+                {item.status === 'confirmed' ? '已确认' : item.status === 'pending' ? '待审核' : '已完成'}
               </span>
             </div>
           ))
@@ -323,15 +323,15 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">鍖婚櫌鍖荤敓璧勬簮</h2>
+        <h2 className="text-sm font-black text-slate-700">医院医生资源</h2>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="鎼滅储绉戝/鍖荤敓鍚嶇О"
+          placeholder="搜索科室/医生名称"
           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500"
         />
         {loading ? (
-          <div className="rounded-xl bg-white border border-slate-100 p-6 text-center text-slate-400">鍔犺浇涓?..</div>
+          <div className="rounded-xl bg-white border border-slate-100 p-6 text-center text-slate-400">加载中...</div>
         ) : (
           filteredResources.map((doc) => (
             <div
@@ -342,9 +342,9 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
               {avatar(doc)}
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-slate-800">{doc.title}</div>
-                <div className="text-xs text-slate-500">{doc.details?.dept} 路 {doc.details?.title}</div>
+                <div className="text-xs text-slate-500">{doc.details?.dept} · {doc.details?.title}</div>
               </div>
-              <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 font-bold">璇︽儏</span>
+              <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 font-bold">详情</span>
             </div>
           ))
         )}
@@ -357,16 +357,16 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
               {avatar(selectedDoctor)}
               <div>
                 <div className="font-black text-slate-800">{selectedDoctor.title}</div>
-                <div className="text-xs text-slate-500">{selectedDoctor.details?.dept} 路 {selectedDoctor.details?.title}</div>
+                <div className="text-xs text-slate-500">{selectedDoctor.details?.dept} · {selectedDoctor.details?.title}</div>
               </div>
             </div>
-            <p className="text-sm text-slate-600 leading-relaxed">{selectedDoctor.description || '鏆傛棤绠€浠?}</p>
+            <p className="text-sm text-slate-600 leading-relaxed">{selectedDoctor.description || '暂无简介'}</p>
             <div className="grid grid-cols-2 gap-3">
               <button
                 className="rounded-xl border border-blue-200 bg-blue-50 py-3 text-sm font-bold text-blue-700"
                 onClick={() => setBookingDoctor(selectedDoctor)}
               >
-                棰勭害鎸傚彿
+                预约挂号
               </button>
               <button
                 className="rounded-xl bg-teal-600 py-3 text-sm font-bold text-white"
@@ -374,10 +374,10 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
                 onClick={() =>
                   signedDoctorIdSet.has(selectedDoctor.id)
                     ? undefined
-                    : submitInteraction('doctor_signing', selectedDoctor, '鐢宠瀹跺涵鍖荤敓绛剧害')
+                    : submitInteraction('doctor_signing', selectedDoctor, '申请家庭医生签约')
                 }
               >
-                {signedDoctorIdSet.has(selectedDoctor.id) ? '宸茬绾? : '绛剧害鍖荤敓'}
+                {signedDoctorIdSet.has(selectedDoctor.id) ? '已签约' : '签约医生'}
               </button>
             </div>
           </div>
@@ -394,16 +394,16 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black text-slate-800">{teamRecommendRole}鎺ㄨ崘绛剧害瀵硅薄</h3>
+              <h3 className="text-lg font-black text-slate-800">{teamRecommendRole}推荐签约对象</h3>
               <button
                 type="button"
                 onClick={() => setTeamRecommendRole(null)}
                 className="h-8 w-8 rounded-full bg-slate-100 text-slate-500 font-black"
               >
-                脳
+                ×
               </button>
             </div>
-            <p className="text-xs text-slate-500">鐐瑰嚮鍒楄〃鍙煡鐪嬭鎯呭苟鍙戣捣绛剧害銆?/p>
+            <p className="text-xs text-slate-500">点击列表可查看详情并发起签约。</p>
             <div className="space-y-2">
               {recommendByRole(teamRecommendRole).map((doc) => (
                 <button
@@ -419,10 +419,10 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
                   <div className="min-w-0 flex-1">
                     <div className="font-bold text-slate-800 truncate">{doc.title}</div>
                     <div className="text-xs text-slate-500 truncate">
-                      {doc.details?.dept || '鍋ュ悍绠＄悊涓績'} 路 {doc.details?.title || '鍋ュ悍绠＄悊鏈嶅姟'}
+                      {doc.details?.dept || '健康管理中心'} · {doc.details?.title || '健康管理服务'}
                     </div>
                   </div>
-                  <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 font-bold">鏌ョ湅</span>
+                  <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 font-bold">查看</span>
                 </button>
               ))}
             </div>
@@ -433,12 +433,12 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       {bookingDoctor && (
         <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center" onClick={() => setBookingDoctor(null)}>
           <div className="w-full max-w-md rounded-t-3xl bg-white p-5 space-y-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-black text-slate-800">閫夋嫨棰勭害鏃舵</h3>
+            <h3 className="text-lg font-black text-slate-800">选择预约时段</h3>
             <p className="text-xs text-slate-500">{bookingDoctor.title}</p>
             {(() => {
               const monthSlots = getNextMonthSlotsForDoctor(bookingDoctor);
               if (!monthSlots.length) {
-                return <div className="text-center text-slate-400 text-sm py-8">鏈潵30澶╂殏鏃犲彲棰勭害鍙锋簮</div>;
+                return <div className="text-center text-slate-400 text-sm py-8">未来30天暂无可预约号源</div>;
               }
               return (
                 <div className="grid grid-cols-1 gap-2">
@@ -455,12 +455,12 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
                           submitInteraction(
                             'doctor_booking',
                             bookingDoctor,
-                            `棰勭害鎸傚彿锛?{slot.displayDate}${slot.slotLabel}锛岃垂鐢? ${bookingDoctor.details?.fee || 0}鍏僠
+                            `预约挂号：${slot.displayDate}${SLOT_MAP[slot.slotId]}，费用: ${bookingDoctor.details?.fee || 0}元`
                           )
                         }
                       >
-                        <span>{slot.displayDate} 路 {slot.slotLabel}</span>
-                        <span>{full ? '绾︽弧' : `浣?{quota - count}`}</span>
+                        <span>{slot.displayDate} · {SLOT_MAP[slot.slotId]}</span>
+                        <span>{full ? '约满' : `余${quota - count}`}</span>
                       </button>
                     );
                   })}
@@ -473,4 +473,3 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
     </div>
   );
 };
-

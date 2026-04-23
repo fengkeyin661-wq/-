@@ -10,6 +10,10 @@ import {
     ContentItem,
 } from '../../services/contentService';
 
+const MANAGER_RESOURCE_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
+const MANAGER_CHAT_DEEP_LINK_KEY = 'user_manager_chat_deeplink';
+const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
+
 interface Props {
   record: HealthRecord;
   assessment?: HealthAssessment;
@@ -134,6 +138,46 @@ export const UserProfile: React.FC<Props> = ({
             await updateInteractionStatus(id, 'cancelled');
             loadInteractions();
         }
+    };
+
+    const handleManagerQuickEntry = () => {
+        const managerId = archive.health_manager_content_id || healthManager?.id || '';
+        const signedManager = managerId
+            ? interactions.some(
+                  (i) =>
+                      i.type === 'doctor_signing' &&
+                      i.status === 'confirmed' &&
+                      i.targetId === managerId
+              )
+            : false;
+        if (signedManager && managerId) {
+            try {
+                sessionStorage.setItem(
+                    MANAGER_CHAT_DEEP_LINK_KEY,
+                    JSON.stringify({ managerId, at: Date.now(), ttlMs: MANAGER_DEEP_LINK_TTL_MS })
+                );
+            } catch {
+                // ignore
+            }
+            onNavigate('message');
+            return;
+        }
+        if (managerId) {
+            try {
+                sessionStorage.setItem(
+                    MANAGER_RESOURCE_DEEP_LINK_KEY,
+                    JSON.stringify({
+                        resourceId: managerId,
+                        resourceType: 'doctor',
+                        at: Date.now(),
+                        ttlMs: MANAGER_DEEP_LINK_TTL_MS,
+                    })
+                );
+            } catch {
+                // ignore
+            }
+        }
+        onNavigate('doctor');
     };
 
     const historyRecords = [
@@ -749,7 +793,7 @@ export const UserProfile: React.FC<Props> = ({
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
                         <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
                         <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请历史" onClick={() => setSubView('apps')} />
-                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="主导协同与联系方式" onClick={() => setSubView('manager')} />
+                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="未签约直达签约，已签约直达消息" onClick={handleManagerQuickEntry} />
                         <MenuButton icon="💬" label="我的消息" desc="进入消息中心与医生/管家沟通" onClick={() => onNavigate('message')} />
                         <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
                     </div>

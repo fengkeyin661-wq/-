@@ -467,7 +467,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         // ... (Keep existing template logic)
         switch(activeTab) {
             case 'event': return { name: '社区活动导入模板', data: [{ "活动ID（系统生成）": "", "活动名称": "秋季教职工颈椎健康讲座", "活动类型": "健康讲座", "主办科室/部门": "康复医学科", "主讲/负责人": "王主任", "活动时间": "2023-10-15 14:00", "活动地点": "校医院三楼报告厅", "封面图URL": "", "活动简介（列表页）": "特邀康复科主任讲解颈椎病预防...", "活动详情": "1.颈椎病成因\n2.预防手段\n3.现场体验", "适宜人群": "长期伏案工作者", "报名方式": "小程序在线报名", "报名开始时间": "2023-10-01 08:00", "报名截止时间": "2023-10-14 18:00", "活动人数上限": 50, "活动频率(单次/每周/每月)": "单次", "循环规则": "", "状态": "报名中", "排序值": 10, "关联服务项目": "" }] };
-            case 'doctor': return { name: '医生信息库导入模板', data: [{ "医生ID（系统生成）": "", "医生工号": "YS1001", "医生姓名": "张伟", "所属科室编码": "REHAB001", "职称": "主任医师", "专长/简介": "擅长颈椎病、腰椎间盘突出...", "详细履历": "医学博士，毕业于...", "头像URL": "", "出诊地点": "校医院门诊二楼内科诊区", "是否可在线咨询": "是", "咨询费用（元）": 20, "状态": "在职", "排序值": 1 }] };
+            case 'doctor': return { name: '医生信息库导入模板', data: [{ "医生ID（系统生成）": "", "医生工号": "YS1001", "医生姓名": "张伟", "所属科室编码": "REHAB001", "职称": "主任医师", "专长/简介": "擅长颈椎病、腰椎间盘突出...", "详细履历": "医学博士，毕业于...", "头像URL": "", "出诊安排": "周一上午专家门诊", "是否可在线咨询": "是", "咨询费用（元）": 20, "状态": "在职", "排序值": 1 }] };
             case 'drug': return { name: '药品信息库导入模板', data: [{ "药品ID（系统生成）": "", "药品通用名": "阿司匹林肠溶片", "商品名": "拜阿司匹灵", "规格": "100mg*30片", "剂型": "片剂", "生产厂家": "拜耳医药保健有限公司", "药品分类": "心血管系统用药", "医保类型": "甲类", "参考单价（元）": 15.80, "库存单位": "盒", "用法用量": "口服，一次1片，一日1次", "主要功效": "抗血小板聚集", "重要注意事项": "活动性溃疡禁用", "说明书URL": "", "是否处方药": "是", "状态": "在售" }] };
             case 'exercise': return { name: '运动方案库导入模板', data: [{ "方案ID（系统生成）": "", "运动方案名称": "办公室颈椎保健操", "运动类型": "综合保健操", "适用人群/场景": "久坐办公族", "禁忌人群": "急性损伤期", "单次时长": "10分钟", "建议频率": "每日1-2次", "核心动作与流程": "热身→米字操→肩部绕环→放松", "强度提示": "低强度", "所需器材": "无", "教学视频/图解URL": "", "注意事项": "动作宜慢不宜快", "关联疾病/标签": "颈椎病,亚健康", "状态": "启用" }] };
             case 'service': return { name: '医院服务项目', data: [{ "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架" }] };
@@ -563,7 +563,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 deptCode: row['所属科室编码'],
                                 title: row['职称'],
                                 resume: row['详细履历'],
-                                clinicLocation: row['出诊地点'] || row['出诊安排'] || '',
+                                schedule: row['出诊安排'],
                                 onlineConsult: row['是否可在线咨询'] === '是',
                                 fee: row['咨询费用（元）'],
                                 docStatus: row['状态'],
@@ -1041,7 +1041,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'meal' && `难度:${item.details?.difficulty} • ${item.details?.cal}`}
                                                     {item.type === 'event' && `📅 ${recurrenceTypeLabel(item.details?.recurrenceType)}${item.details?.recurrenceRule ? `·${item.details?.recurrenceRule}` : ` ${(item.details?.date || '').toString().replace('T',' ')}`} • 📍${item.details?.loc || ''}`}
                                                     {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人 • 负责人:${item.details?.leader || '-'}`}
-                                                    {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title} • ${item.details?.clinicLocation || '地点待维护'}`}
+                                                    {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
                                                     {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
                                                     {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
                                                     {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
@@ -1337,7 +1337,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     <FormSection title="专业能力">
                                         <TextAreaField label="擅长领域 (标签请逗号分隔)" value={editItem.tags?.join(',')} onChange={(v:string) => setEditItem({...editItem, tags: v.split(/[,，]/)})} placeholder="如：高血压, 糖尿病, 小儿推拿" />
                                         <TextAreaField label="个人简介" placeholder="毕业院校、从业年限、学术成就..." value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
-                                        <InputField label="出诊地点" full placeholder="如：校医院门诊二楼内科诊区" value={editItem.details?.clinicLocation} onChange={(v:any) => updateDetail('clinicLocation', v)} />
+                                        <InputField label="出诊时间表" full placeholder="如：周一上午、周三下午" value={editItem.details?.schedule} onChange={(v:any) => updateDetail('schedule', v)} />
                                     </FormSection>
                                 </>
                             )}
