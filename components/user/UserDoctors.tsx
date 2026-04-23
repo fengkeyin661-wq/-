@@ -20,10 +20,36 @@ const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
 const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
 const avatar = (doctor: ContentItem) => {
-  if (doctor.image && /^https?:\/\//i.test(doctor.image)) {
+  if (doctor.image && (/^https?:\/\//i.test(doctor.image) || doctor.image.startsWith('data:image'))) {
     return <img src={doctor.image} alt={doctor.title} className="h-12 w-12 rounded-xl object-cover" />;
   }
   return <div className="h-12 w-12 rounded-xl bg-blue-50 flex items-center justify-center text-2xl">👨‍⚕️</div>;
+};
+
+const DAY_LABEL: Record<string, string> = {
+  Mon: '周一',
+  Tue: '周二',
+  Wed: '周三',
+  Thu: '周四',
+  Fri: '周五',
+  Sat: '周六',
+  Sun: '周日',
+};
+
+const buildWeeklyScheduleSummary = (doctor: ContentItem): string[] => {
+  const weekly = (doctor.details?.weeklySchedule || {}) as Record<string, string[]>;
+  const ranges = (doctor.details?.slotTimeRanges || {}) as Record<string, Record<string, { start?: string; end?: string }>>;
+  const keys = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return keys
+    .filter((k) => (weekly[k] || []).length > 0)
+    .map((k) => {
+      const slots = (weekly[k] || []).map((slotId) => {
+        const start = ranges[k]?.[slotId]?.start;
+        const end = ranges[k]?.[slotId]?.end;
+        return start && end ? `${start}-${end}` : SLOT_MAP[slotId] || slotId;
+      });
+      return `${DAY_LABEL[k]} ${slots.join(' / ')}`;
+    });
 };
 
 export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpenMessage }) => {
@@ -361,6 +387,24 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
               </div>
             </div>
             <p className="text-sm text-slate-600 leading-relaxed">{selectedDoctor.description || '暂无简介'}</p>
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 space-y-2">
+              <div className="text-xs text-slate-500">
+                <span className="font-bold text-slate-700">出诊地点：</span>
+                {selectedDoctor.details?.clinicLocation || '暂未维护'}
+              </div>
+              <div>
+                <div className="text-xs font-bold text-slate-700 mb-1">每周出诊时间</div>
+                {buildWeeklyScheduleSummary(selectedDoctor).length > 0 ? (
+                  <div className="space-y-1">
+                    {buildWeeklyScheduleSummary(selectedDoctor).map((line) => (
+                      <div key={line} className="text-xs text-slate-600">{line}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400">请以医生后台出诊设置为准</div>
+                )}
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <button
                 className="rounded-xl border border-blue-200 bg-blue-50 py-3 text-sm font-bold text-blue-700"
