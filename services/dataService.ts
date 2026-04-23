@@ -444,14 +444,13 @@ export const syncArchiveToLocal = (archive: HealthArchive) => {
 };
 
 export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthArchive | null> => {
+    let localMatch: HealthArchive | null = null;
     const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
     if (localRaw) {
         const localArchives: HealthArchive[] = JSON.parse(localRaw);
-        const match = localArchives.find(a => a.checkup_id === checkupId);
-        if (match) return match;
+        localMatch = localArchives.find(a => a.checkup_id === checkupId) || null;
     }
-
-    if (!isSupabaseConfigured()) return null;
+    if (!isSupabaseConfigured()) return localMatch;
     try {
         const { data, error } = await supabase
             .from('health_archives')
@@ -461,12 +460,16 @@ export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthA
         
         if (error) {
             console.error("Find archive error:", error);
-            return null;
+            return localMatch;
         }
-        return data;
+        if (data) {
+            syncArchiveToLocal(data as HealthArchive);
+            return data as HealthArchive;
+        }
+        return localMatch;
     } catch (e) {
         console.error("Find archive exception:", e);
-        return null;
+        return localMatch;
     }
 };
 
@@ -1013,21 +1016,28 @@ export const publishHealthDraft = async (
 
 export const updateHealthRecordOnly = async (checkupId: string, healthRecord: HealthRecord): Promise<boolean> => {
     try {
+        const updatedAt = new Date().toISOString();
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
         if (raw) {
             const all: HealthArchive[] = JSON.parse(raw);
             const idx = all.findIndex(a => a.checkup_id === checkupId);
             if (idx >= 0) {
                 all[idx].health_record = healthRecord;
-                all[idx].updated_at = new Date().toISOString();
+                all[idx].updated_at = updatedAt;
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
             }
         }
         if (isSupabaseConfigured()) {
-            await supabase.from('health_archives').update({ 
+            const { error } = await supabase.from('health_archives').update({
                 health_record: healthRecord,
-                updated_at: new Date().toISOString()
+                updated_at: updatedAt
             }).eq('checkup_id', checkupId);
+            if (error) {
+                console.error('updateHealthRecordOnly cloud error:', error);
+                return false;
+            }
+            const latest = await findArchiveByCheckupId(checkupId);
+            if (latest) syncArchiveToLocal(latest);
         }
         return true;
     } catch { return false; }

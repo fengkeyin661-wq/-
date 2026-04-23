@@ -108,16 +108,42 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     }
   }, [userArchive?.checkup_id, refreshUnreadCount]);
 
+  useEffect(() => {
+    if (!userArchive?.checkup_id) return;
+    const interval = setInterval(() => {
+      loadArchiveById(userArchive.checkup_id, true);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [userArchive?.checkup_id, loadArchiveById]);
+
   const handleUpdateRecord = async (updatedData: any) => {
     if (!userArchive) return;
 
     const newCheckup = {
       ...userArchive.health_record.checkup,
       basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
-      labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic },
+      labBasic: {
+        ...userArchive.health_record.checkup.labBasic,
+        ...updatedData.labBasic,
+        lipids: {
+          ...userArchive.health_record.checkup.labBasic.lipids,
+          ...(updatedData.labBasic?.lipids || {}),
+        },
+        glucose: {
+          ...userArchive.health_record.checkup.labBasic.glucose,
+          ...(updatedData.labBasic?.glucose || {}),
+        },
+      },
     };
 
-    const newRecord = { ...userArchive.health_record, checkup: newCheckup };
+    const newRecord = {
+      ...userArchive.health_record,
+      checkup: newCheckup,
+      riskModelExtras: {
+        ...(userArchive.health_record.riskModelExtras || {}),
+        ...(updatedData.riskModelExtras || {}),
+      },
+    };
     setUserArchive({ ...userArchive, health_record: newRecord });
 
     try {

@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HealthRecord, HealthAssessment, FollowUpRecord, RiskLevel } from '../../types';
-import { DailyHealthPlan, HealthArchive, updatePortalPassword, appendHomeMonitoringLog } from '../../services/dataService';
-import { generateDraftFromMonitoring } from '../../services/healthDraftService';
+import { DailyHealthPlan, HealthArchive, updatePortalPassword } from '../../services/dataService';
 import {
     fetchInteractions,
     InteractionItem,
@@ -35,7 +34,7 @@ export const UserProfile: React.FC<Props> = ({
     onArchiveRefresh,
 }) => {
     const [subView, setSubView] = useState<
-        'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager' | 'monitor'
+        'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager'
     >('menu');
     // ... (keep existing state/effects) ...
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
@@ -45,21 +44,17 @@ export const UserProfile: React.FC<Props> = ({
     const [pwdConfirm, setPwdConfirm] = useState('');
     const [pwdSaving, setPwdSaving] = useState(false);
     const [pwdMsg, setPwdMsg] = useState('');
-    const [monitorType, setMonitorType] = useState<'weight' | 'bp' | 'fbg'>('weight');
-    const [monitorValue, setMonitorValue] = useState('');
-    const [monitorContext, setMonitorContext] = useState('');
-    const [monitorFiles, setMonitorFiles] = useState<File[]>([]);
-    const [monitorSaving, setMonitorSaving] = useState(false);
-    const [monitorMsg, setMonitorMsg] = useState('');
-    
     // ... (keep existing methods: loadInteractions, handleSaveRecord, handleCancelInteraction) ...
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState({
         height: record.checkup.basics.height || 0,
         weight: record.checkup.basics.weight || 0,
+        waist: record.checkup.basics.waist || 0,
+        bodyFatRate: Number(record.riskModelExtras?.bodyFatRate || 0),
         sbp: record.checkup.basics.sbp || 0,
         dbp: record.checkup.basics.dbp || 0,
-        glucose: record.checkup.labBasic.glucose?.fasting || '0'
+        glucose: record.checkup.labBasic.glucose?.fasting || '0',
+        tc: record.checkup.labBasic.lipids?.tc || '0',
     });
 
     useEffect(() => {
@@ -87,7 +82,29 @@ export const UserProfile: React.FC<Props> = ({
         };
     }, [archive.health_manager_content_id]);
     const loadInteractions = async () => { const all = await fetchInteractions(); setInteractions(all.filter(i => i.userId === userId)); };
-    const handleSaveRecord = () => { onUpdateRecord(editForm); setIsEditing(false); };
+    const handleSaveRecord = () => {
+        onUpdateRecord({
+            basics: {
+                height: editForm.height,
+                weight: editForm.weight,
+                waist: editForm.waist,
+                sbp: editForm.sbp,
+                dbp: editForm.dbp,
+            },
+            labBasic: {
+                glucose: { fasting: String(editForm.glucose || '0') },
+                lipids: {
+                    ...(record.checkup.labBasic.lipids || {}),
+                    tc: String(editForm.tc || '0'),
+                },
+            },
+            riskModelExtras: {
+                ...(record.riskModelExtras || {}),
+                bodyFatRate: Number(editForm.bodyFatRate || 0),
+            },
+        });
+        setIsEditing(false);
+    };
     const handleChangePassword = async () => {
         setPwdMsg('');
         if (pwdNew !== pwdConfirm) {
@@ -118,6 +135,22 @@ export const UserProfile: React.FC<Props> = ({
             loadInteractions();
         }
     };
+
+    const historyRecords = [
+        ...(archive.history_versions || []).map((v) => v.health_record),
+        record,
+    ];
+    const trendRows = historyRecords.map((r, idx) => ({
+        label: `#${idx + 1}`,
+        weight: Number(r.checkup.basics.weight || 0),
+        bmi: Number(r.checkup.basics.bmi || 0),
+        waist: Number(r.checkup.basics.waist || 0),
+        bodyFatRate: Number(r.riskModelExtras?.bodyFatRate || 0),
+        sbp: Number(r.checkup.basics.sbp || 0),
+        dbp: Number(r.checkup.basics.dbp || 0),
+        tc: Number(r.checkup.labBasic.lipids?.tc || 0),
+        glucose: Number(r.checkup.labBasic.glucose?.fasting || 0),
+    }));
 
     // ... (keep renderRecordView, renderFollowupView) ...
     const renderRecordView = () => (
@@ -159,8 +192,12 @@ export const UserProfile: React.FC<Props> = ({
                     <div className="grid grid-cols-2 gap-4 text-sm mb-4">
                         <div><label className="text-xs text-slate-400">身高(cm)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.height} onChange={e => setEditForm({...editForm, height: Number(e.target.value)})} /></div>
                         <div><label className="text-xs text-slate-400">体重(kg)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.weight} onChange={e => setEditForm({...editForm, weight: Number(e.target.value)})} /></div>
+                        <div><label className="text-xs text-slate-400">腰围(cm)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.waist} onChange={e => setEditForm({...editForm, waist: Number(e.target.value)})} /></div>
+                        <div><label className="text-xs text-slate-400">体脂率(%)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.bodyFatRate} onChange={e => setEditForm({...editForm, bodyFatRate: Number(e.target.value)})} /></div>
                         <div><label className="text-xs text-slate-400">收缩压</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.sbp} onChange={e => setEditForm({...editForm, sbp: Number(e.target.value)})} /></div>
                         <div><label className="text-xs text-slate-400">舒张压</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.dbp} onChange={e => setEditForm({...editForm, dbp: Number(e.target.value)})} /></div>
+                        <div><label className="text-xs text-slate-400">总胆固醇 TC(mmol/L)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.tc} onChange={e => setEditForm({...editForm, tc: e.target.value})} /></div>
+                        <div><label className="text-xs text-slate-400">空腹血糖(mmol/L)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.glucose} onChange={e => setEditForm({...editForm, glucose: e.target.value})} /></div>
                         <div className="col-span-2"><button onClick={handleSaveRecord} className="w-full bg-teal-600 text-white py-3 rounded-lg font-bold shadow-md">保存修改</button></div>
                     </div>
                 ) : (
@@ -177,8 +214,37 @@ export const UserProfile: React.FC<Props> = ({
                             <div className="text-xs text-slate-400 mb-1">血糖</div>
                             <div className="font-bold text-lg text-slate-700">{record.checkup.labBasic.glucose?.fasting || '-'}</div>
                         </div>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                            <div className="text-xs text-slate-400 mb-1">腰围</div>
+                            <div className="font-bold text-lg text-slate-700">{record.checkup.basics.waist || '-'} cm</div>
+                        </div>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                            <div className="text-xs text-slate-400 mb-1">体脂率</div>
+                            <div className="font-bold text-lg text-slate-700">{record.riskModelExtras?.bodyFatRate || '-'}%</div>
+                        </div>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                            <div className="text-xs text-slate-400 mb-1">总胆固醇</div>
+                            <div className="font-bold text-lg text-slate-700">{record.checkup.labBasic.lipids?.tc || '-'} mmol/L</div>
+                        </div>
                     </div>
                 )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
+                <div className="mb-3 flex items-center justify-between">
+                    <h3 className="font-bold text-slate-800">关键指标动态曲线</h3>
+                    <span className="text-xs text-slate-400">按历史记录自动生成</span>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                    <MiniTrendChart title="体重(kg)" values={trendRows.map(r => r.weight)} color="#0ea5e9" />
+                    <MiniTrendChart title="BMI" values={trendRows.map(r => r.bmi)} color="#6366f1" />
+                    <MiniTrendChart title="腰围(cm)" values={trendRows.map(r => r.waist)} color="#f59e0b" />
+                    <MiniTrendChart title="体脂率(%)" values={trendRows.map(r => r.bodyFatRate)} color="#ec4899" />
+                    <MiniTrendChart title="血压收缩压(mmHg)" values={trendRows.map(r => r.sbp)} color="#ef4444" />
+                    <MiniTrendChart title="血压舒张压(mmHg)" values={trendRows.map(r => r.dbp)} color="#f97316" />
+                    <MiniTrendChart title="总胆固醇TC(mmol/L)" values={trendRows.map(r => r.tc)} color="#22c55e" />
+                    <MiniTrendChart title="空腹血糖(mmol/L)" values={trendRows.map(r => r.glucose)} color="#14b8a6" />
+                </div>
             </div>
             
             {/* 3. Detailed Risk Factors (Synced) */}
@@ -551,102 +617,6 @@ export const UserProfile: React.FC<Props> = ({
         </div>
     );
 
-    const handleSubmitMonitoring = async () => {
-        if (!monitorValue.trim()) {
-            setMonitorMsg('请填写监测值');
-            return;
-        }
-        setMonitorSaving(true);
-        setMonitorMsg('');
-        const unit = monitorType === 'weight' ? 'kg' : monitorType === 'bp' ? 'mmHg' : 'mmol/L';
-        const log = {
-            id: `hm_${Date.now()}`,
-            timestamp: new Date().toISOString(),
-            source: 'user' as const,
-            type: monitorType,
-            value: monitorValue.trim(),
-            unit,
-            context: monitorContext.trim(),
-            attachments: monitorFiles.map((f) => ({ name: f.name, mime: f.type })),
-            status: 'pending' as const,
-        };
-        try {
-            const ok = await appendHomeMonitoringLog(userId, log);
-            if (!ok) {
-                setMonitorMsg('监测数据保存失败，请稍后重试');
-                return;
-            }
-            const nextLogs = [log, ...(archive.home_monitoring_logs || [])];
-            await generateDraftFromMonitoring(userId, nextLogs, '用户居家监测触发');
-            setMonitorMsg('已上报监测数据，AI草案已更新待医生审核');
-            setMonitorValue('');
-            setMonitorContext('');
-            setMonitorFiles([]);
-            onArchiveRefresh?.();
-        } finally {
-            setMonitorSaving(false);
-        }
-    };
-
-    const renderMonitoringView = () => (
-        <div className="space-y-4 p-4 pb-24 animate-slideInRight">
-            <h2 className="text-lg font-bold text-slate-800">居家监测上报</h2>
-            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm space-y-3">
-                <div>
-                    <label className="text-xs font-bold text-slate-600">监测类型</label>
-                    <select
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                        value={monitorType}
-                        onChange={(e) => setMonitorType(e.target.value as any)}
-                    >
-                        <option value="weight">体重 (kg)</option>
-                        <option value="bp">血压 (示例: 128/82)</option>
-                        <option value="fbg">空腹血糖 (mmol/L)</option>
-                    </select>
-                </div>
-                <div>
-                    <label className="text-xs font-bold text-slate-600">监测值</label>
-                    <input
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                        value={monitorValue}
-                        onChange={(e) => setMonitorValue(e.target.value)}
-                        placeholder={monitorType === 'bp' ? '例如 128/82' : '请输入数值'}
-                    />
-                </div>
-                <div>
-                    <label className="text-xs font-bold text-slate-600">说明（可选）</label>
-                    <textarea
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm min-h-[72px]"
-                        value={monitorContext}
-                        onChange={(e) => setMonitorContext(e.target.value)}
-                        placeholder="例如：晨起空腹、饭后2小时、运动后等"
-                    />
-                </div>
-                <div>
-                    <label className="text-xs font-bold text-slate-600">附件（可选）</label>
-                    <input
-                        type="file"
-                        multiple
-                        onChange={(e) => setMonitorFiles(Array.from(e.target.files || []))}
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs"
-                    />
-                    {monitorFiles.length > 0 && (
-                        <p className="mt-1 text-xs text-slate-500">已选择 {monitorFiles.length} 个附件</p>
-                    )}
-                </div>
-                {monitorMsg && <p className="text-xs font-bold text-teal-600">{monitorMsg}</p>}
-                <button
-                    type="button"
-                    disabled={monitorSaving}
-                    onClick={handleSubmitMonitoring}
-                    className="w-full rounded-xl bg-purple-600 py-3 text-sm font-bold text-white shadow-md hover:bg-purple-700 disabled:opacity-50"
-                >
-                    {monitorSaving ? '提交中...' : '提交监测并更新草案'}
-                </button>
-            </div>
-        </div>
-    );
-
     const renderSecurityView = () => (
         <div className="space-y-4 p-4 pb-24 animate-slideInRight">
             <h2 className="text-lg font-bold text-slate-800">修改密码</h2>
@@ -779,7 +749,6 @@ export const UserProfile: React.FC<Props> = ({
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
                         <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
                         <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请历史" onClick={() => setSubView('apps')} />
-                        <MenuButton icon="📈" label="居家监测上报" desc="体重/血压/血糖上报并触发连续评估" onClick={() => setSubView('monitor')} />
                         <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="主导协同与联系方式" onClick={() => setSubView('manager')} />
                         <MenuButton icon="💬" label="我的消息" desc="进入消息中心与医生/管家沟通" onClick={() => onNavigate('message')} />
                         <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
@@ -791,7 +760,6 @@ export const UserProfile: React.FC<Props> = ({
                 {subView === 'plan' && renderPlanView()}
                 {subView === 'events' && renderEventsView()}
                 {subView === 'apps' && renderAppsView()}
-                {subView === 'monitor' && renderMonitoringView()}
                 {subView === 'manager' && renderManagerView()}
                 {subView === 'security' && renderSecurityView()}
 
@@ -826,6 +794,36 @@ const MenuButton: React.FC<{icon: string, label: string, desc: string, onClick: 
         <span className="text-slate-300">›</span>
     </button>
 );
+
+const MiniTrendChart: React.FC<{ title: string; values: number[]; color: string }> = ({ title, values, color }) => {
+    const normalized = values.filter((v) => Number.isFinite(v) && v > 0);
+    if (normalized.length === 0) {
+        return (
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="text-xs font-bold text-slate-600">{title}</div>
+                <div className="mt-1 text-xs text-slate-400">暂无有效历史数据</div>
+            </div>
+        );
+    }
+    const min = Math.min(...normalized);
+    const max = Math.max(...normalized);
+    const points = normalized.map((v, i) => {
+        const x = normalized.length === 1 ? 0 : (i / (normalized.length - 1)) * 100;
+        const y = max === min ? 50 : 100 - ((v - min) / (max - min)) * 100;
+        return `${x},${y}`;
+    }).join(' ');
+    return (
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <div className="flex items-center justify-between">
+                <div className="text-xs font-bold text-slate-600">{title}</div>
+                <div className="text-xs text-slate-400">最新: {normalized[normalized.length - 1]}</div>
+            </div>
+            <svg viewBox="0 0 100 100" className="mt-2 h-16 w-full">
+                <polyline fill="none" stroke={color} strokeWidth="3" points={points} />
+            </svg>
+        </div>
+    );
+};
 
 const PlanItem: React.FC<{ icon: string, title: string, items?: string[] }> = ({ icon, title, items }) => (
     <div className="p-4 flex gap-4">
