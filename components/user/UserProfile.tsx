@@ -739,6 +739,41 @@ export const UserProfile: React.FC<Props> = ({
 
                 {subView === 'menu' && (
                     <div className="flex-1 space-y-3 p-4">
+                        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="font-bold text-slate-800">基础身体指标</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setSubView('record')}
+                                    className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700"
+                                >
+                                    更新数据
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">BMI</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {record.checkup.basics.bmi || '-'}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">血压</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {record.checkup.basics.sbp}/{record.checkup.basics.dbp}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">血糖</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {record.checkup.labBasic.glucose?.fasting || '-'}
+                                    </div>
+                                </div>
+                            </div>
+                            <p className="mt-3 text-xs text-slate-500">
+                                建议每周至少更新一次基础指标，便于健康管理团队动态调整干预方案。
+                            </p>
+                        </div>
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
                         <MenuButton icon="📅" label="我的随访记录" desc="执行单与历史随访" onClick={() => setSubView('followup')} />
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
