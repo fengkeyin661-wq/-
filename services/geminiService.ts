@@ -348,7 +348,70 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
     }];
 };
 
-export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
+export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
+    const fallback = {
+        riskLevel: (last?.assessment?.riskLevel || ass?.riskLevel || RiskLevel.GREEN) as RiskLevel,
+        riskJustification: '本次随访已记录。系统暂未完成自动分析，请医生结合临床情况复核。',
+        doctorMessage: '请按执行单持续管理，若出现不适请及时复诊。',
+        majorIssues: (last?.assessment?.majorIssues || ass?.summary || '').toString(),
+        nextCheckPlan: (last?.assessment?.nextCheckPlan || ass?.followUpPlan?.nextCheckItems?.join('、') || '常规复查').toString(),
+        lifestyleGoals: Array.isArray(last?.assessment?.lifestyleGoals)
+            ? last.assessment.lifestyleGoals
+            : [],
+    };
+
+    const prompt = `
+你是慢病管理随访助手。请根据随访记录，输出“下一阶段执行单”关键字段。
+
+输入数据：
+1) 本次随访表单：${JSON.stringify(form || {})}
+2) 当前综合评估：${JSON.stringify(ass || {})}
+3) 上一次随访：${JSON.stringify(last || {})}
+
+请严格返回 JSON（不要附加解释文本）：
+{
+  "riskLevel": "GREEN" | "YELLOW" | "RED",
+  "riskJustification": "风险判定依据，80字内",
+  "doctorMessage": "给患者的简短医嘱，80字内",
+  "majorIssues": "本次主要问题，120字内",
+  "nextCheckPlan": "下次复查项目与重点，120字内",
+  "lifestyleGoals": ["可执行目标1", "可执行目标2", "可执行目标3"]
+}
+
+要求：
+- 结合本次指标变化（血压、血糖、体重、血脂等）判断风险级别；
+- 目标要具体可执行，避免空话；
+- lifestyleGoals 最多 5 条；
+- nextCheckPlan 必须是可落地的检查/随访要点。
+`;
+
+    try {
+        const jsonText = await callDeepSeek("你是严谨的全科随访管理AI。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const riskLevelRaw = String(parsed?.riskLevel || '').toUpperCase();
+        const riskLevel: RiskLevel =
+            riskLevelRaw === 'RED'
+                ? RiskLevel.RED
+                : riskLevelRaw === 'YELLOW'
+                ? RiskLevel.YELLOW
+                : RiskLevel.GREEN;
+        const lifestyleGoals = Array.isArray(parsed?.lifestyleGoals)
+            ? parsed.lifestyleGoals.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 5)
+            : fallback.lifestyleGoals;
+
+        return {
+            riskLevel,
+            riskJustification: String(parsed?.riskJustification || fallback.riskJustification),
+            doctorMessage: String(parsed?.doctorMessage || fallback.doctorMessage),
+            majorIssues: String(parsed?.majorIssues || fallback.majorIssues),
+            nextCheckPlan: String(parsed?.nextCheckPlan || fallback.nextCheckPlan),
+            lifestyleGoals,
+        };
+    } catch (e) {
+        console.error('Follow-up analyze failed, fallback applied:', e);
+        return fallback;
+    }
+};
 export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
 
 // --- ROBUST LOCAL FALLBACK FOR HEATMAP (Comprehensive 10+ Departments) ---
