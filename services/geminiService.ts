@@ -358,6 +358,8 @@ export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
         lifestyleGoals: Array.isArray(last?.assessment?.lifestyleGoals)
             ? last.assessment.lifestyleGoals
             : [],
+        analysisSource: 'fallback',
+        analysisError: '',
     };
 
     const prompt = `
@@ -406,13 +408,38 @@ export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
             majorIssues: String(parsed?.majorIssues || fallback.majorIssues),
             nextCheckPlan: String(parsed?.nextCheckPlan || fallback.nextCheckPlan),
             lifestyleGoals,
+            analysisSource: 'ai',
+            analysisError: '',
         };
     } catch (e) {
         console.error('Follow-up analyze failed, fallback applied:', e);
-        return fallback;
+        return {
+            ...fallback,
+            analysisError: e instanceof Error ? e.message : '未知错误',
+        };
     }
 };
-export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
+export const generateFollowUpSMS = async (n: string) => {
+    const prompt = `
+你是健康管理中心护士助手。请为“${n || '受检者'}”生成一条随访短信。
+
+要求：
+- 语气专业、温和；
+- 包含复查提醒与一句生活方式建议；
+- 80字以内；
+- 仅返回 JSON：
+{"smsContent":"..."}
+`;
+    try {
+        const jsonText = await callDeepSeek("你是医疗随访沟通助手。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const smsContent = String(parsed?.smsContent || '').trim();
+        if (smsContent) return { smsContent };
+    } catch (e) {
+        console.error('generateFollowUpSMS failed:', e);
+    }
+    return { smsContent: `【健康管理中心】${n || '您'}您好，请按计划复查并坚持清淡饮食、规律运动。如有不适请及时就医。` };
+};
 
 // --- ROBUST LOCAL FALLBACK FOR HEATMAP (Comprehensive 10+ Departments) ---
 const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnalytics[] => {
@@ -552,7 +579,29 @@ export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: 
     }
 };
 
-export const generateAnnualReportSummary = async (b: any, c: any) => { return {summary:''} };
+export const generateAnnualReportSummary = async (b: any, c: any) => {
+    const prompt = `
+请根据以下年度对比数据生成一段简要总结，突出“改善点、待改进点、下一步建议”。
+
+基线数据：${JSON.stringify(b || {})}
+本次数据：${JSON.stringify(c || {})}
+
+输出要求：
+- 120字以内；
+- 语气客观、可执行；
+- 仅返回 JSON：
+{"summary":"..."}
+`;
+    try {
+        const jsonText = await callDeepSeek("你是全科健康管理医生。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const summary = String(parsed?.summary || '').trim();
+        if (summary) return { summary };
+    } catch (e) {
+        console.error('generateAnnualReportSummary failed:', e);
+    }
+    return { summary: '年度评估已完成：部分指标较前改善，仍需持续监测血压/血糖/血脂并按计划复查。' };
+};
 export const generateDietAssessment = async (i: string) => { return {reply: 'Diet AI Placeholder'} };
 export const generateExercisePlan = async (i: string) => { return {plan:[]} };
 

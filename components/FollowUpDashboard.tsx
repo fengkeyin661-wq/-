@@ -329,7 +329,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
         };
         onAddRecord(finalData);
         autoFillForm();
-        alert('随访记录已保存');
+        if (result?.analysisSource === 'ai') {
+            alert('随访记录已保存，并已生成AI分析执行单。');
+        } else {
+            alert(`随访记录已保存，但AI分析未成功，当前为回退建议。原因：${result?.analysisError || '未获取到模型返回'}`);
+        }
     } catch (e) {
         alert(`自动分析失败: ${e instanceof Error ? e.message : '未知错误'}。`);
     } finally {
