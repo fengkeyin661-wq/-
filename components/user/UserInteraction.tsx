@@ -21,7 +21,7 @@ interface DoctorWithUnread {
     isManager?: boolean;
 }
 
-type ViewMode = 'doctors' | 'chat_list' | 'chat';
+type ViewMode = 'chat_list' | 'chat';
 const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
 const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
@@ -246,6 +246,23 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     const sortedDoctors = useMemo(() => {
         return [...allDoctors].sort((a, b) => scoreDoctor(b, risks) - scoreDoctor(a, risks)).slice(0, 20);
     }, [allDoctors, risks]);
+    const healthManager = useMemo(() => {
+        const id = archive?.health_manager_content_id;
+        if (!id) return null;
+        return allDoctors.find((d) => d.id === id) || null;
+    }, [archive?.health_manager_content_id, allDoctors]);
+    const multidisciplinaryCards = useMemo(() => {
+        const managers = sortedDoctors.filter(isHealthManagerContent).slice(0, 1);
+        const nutrition = sortedDoctors.filter((d) => (d.title + (d.details?.title || '') + d.tags.join('')).includes('营养')).slice(0, 1);
+        const sport = sortedDoctors.filter((d) => (d.title + (d.description || '') + d.tags.join('')).includes('运动')).slice(0, 1);
+        const clinician = sortedDoctors.filter((d) => !isHealthManagerContent(d)).slice(0, 1);
+        return [
+            { role: '健康管家', item: managers[0] || healthManager || null, color: 'bg-amber-50 border-amber-200 text-amber-700' },
+            { role: '营养师', item: nutrition[0] || null, color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+            { role: '运动教练', item: sport[0] || null, color: 'bg-orange-50 border-orange-200 text-orange-700' },
+            { role: '临床医生', item: clinician[0] || null, color: 'bg-blue-50 border-blue-200 text-blue-700' },
+        ];
+    }, [sortedDoctors, healthManager]);
 
     const totalUnread = doctorList.reduce((sum, d) => sum + d.unread, 0);
 
@@ -269,7 +286,6 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         }
         if (type === 'doctor') {
             if (onOpenDoctors) onOpenDoctors();
-            else setViewMode('doctors');
             return;
         }
         if (onOpenCommunity) onOpenCommunity();
@@ -358,24 +374,19 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         );
     }
 
-    // ======== RENDER: MAIN VIEW (Doctors + Chat List Tabs) ========
+    // ======== RENDER: MAIN VIEW (Care workflow + Chat List) ========
     return (
         <div className="min-h-full bg-slate-50 pb-28">
             {/* Header */}
             <div className="sticky top-0 z-10 border-b border-slate-100 bg-white px-5 py-4">
                 <h1 className="text-2xl font-black text-slate-800 tracking-tight">消息中心</h1>
-                <p className="mt-1 text-sm text-slate-500">医生资源 · 在线咨询</p>
+                <p className="mt-1 text-sm text-slate-500">健康管家主导 · 多学科联合干预</p>
             </div>
 
             {/* Header actions */}
             <div className="sticky top-[72px] z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-3">
-                <button
-                    onClick={() => setViewMode('chat_list')}
-                    className={`px-4 py-2 rounded-xl text-sm font-bold transition-all relative ${
-                        viewMode === 'chat_list' ? 'bg-teal-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600'
-                    }`}
-                >
-                    💬 我的咨询
+                <button className="px-4 py-2 rounded-xl text-sm font-bold bg-teal-600 text-white shadow-lg relative">
+                    💬 我的消息
                     {totalUnread > 0 && (
                         <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse">
                             {totalUnread > 9 ? '9+' : totalUnread}
@@ -383,52 +394,73 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                     )}
                 </button>
                 <button
-                    onClick={() => onOpenDoctors ? onOpenDoctors() : setViewMode('doctors')}
+                    onClick={() => onOpenDoctors?.()}
                     className="px-4 py-2 rounded-xl text-sm font-bold bg-blue-50 text-blue-700 border border-blue-100"
                 >
-                    去医生页
+                    去医生签约
                 </button>
             </div>
 
             <div className="p-4">
                 {loading ? (
                     <div className="text-center py-16 text-slate-400">加载中...</div>
-                ) : viewMode === 'doctors' ? (
-                    // ======== DOCTORS LIST ========
+                ) : (
+                    // ======== CHAT LIST + CARE WORKFLOW ========
                     <div className="space-y-4">
-                        <div className="flex justify-between items-center px-1">
-                            <h2 className="font-bold text-slate-800">名医推荐</h2>
-                            <span className="text-xs text-teal-600 font-bold">AI匹配</span>
-                        </div>
-                        {sortedDoctors.length === 0 ? (
-                            <div className="text-center py-16 text-slate-400 bg-white rounded-2xl">暂无医生资源</div>
-                        ) : (
-                            sortedDoctors.map(doc => (
-                                <div 
-                                    key={doc.id}
-                                    onClick={() => setSelectedDoctor(doc)}
-                                    className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
-                                >
-                                    <DoctorAvatar doctor={doc} />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-start mb-1">
-                                            <h3 className="font-bold text-slate-800">{doc.title}</h3>
-                                            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold shrink-0">详情</span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 mb-2">{doc.details?.dept} · {doc.details?.title}</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {doc.tags.slice(0, 3).map(t => (
-                                                <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{t}</span>
-                                            ))}
+                        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                            <div className="text-xs font-bold text-amber-700">健康管家主导</div>
+                            {healthManager ? (
+                                <div className="mt-2 flex items-center gap-3">
+                                    <DoctorAvatar doctor={healthManager} className="w-11 h-11" />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="font-bold text-slate-800 truncate">{healthManager.title}</div>
+                                        <div className="text-xs text-slate-500 truncate">
+                                            {healthManager.details?.dept || '健康管理中心'} · 负责统筹医生/营养/运动方案
                                         </div>
                                     </div>
                                 </div>
-                            ))
-                        )}
-                    </div>
-                ) : (
-                    // ======== CHAT LIST ========
-                    <div className="space-y-3">
+                            ) : (
+                                <p className="mt-1 text-xs text-slate-500">暂未匹配专属健康管家，可先前往医生页发起签约申请。</p>
+                            )}
+                        </div>
+                        <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                            <div className="flex items-center justify-between">
+                                <h2 className="font-bold text-slate-800">联合干预建议</h2>
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenDoctors?.()}
+                                    className="text-xs font-bold text-blue-600"
+                                >
+                                    查看全部医生
+                                </button>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                                {multidisciplinaryCards.map((card) => (
+                                    <button
+                                        type="button"
+                                        key={card.role}
+                                        onClick={() => card.item ? setSelectedDoctor(card.item) : onOpenDoctors?.()}
+                                        className={`rounded-xl border p-3 text-left ${card.color}`}
+                                    >
+                                        <div className="text-[11px] font-black">{card.role}</div>
+                                        <div className="mt-1 text-sm font-bold truncate text-slate-800">
+                                            {card.item?.title || '待匹配'}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                            <h2 className="font-bold text-slate-800">社区支持</h2>
+                            <div className="mt-3 grid grid-cols-3 gap-2">
+                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-blue-50 px-2 py-2 text-xs font-bold text-blue-700">活动</button>
+                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-emerald-50 px-2 py-2 text-xs font-bold text-emerald-700">饮食</button>
+                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-purple-50 px-2 py-2 text-xs font-bold text-purple-700">服务</button>
+                            </div>
+                        </div>
+                        <div className="pt-1">
+                            <h2 className="mb-2 text-sm font-black text-slate-700">我的咨询会话</h2>
+                        </div>
                         {doctorList.length === 0 ? (
                             <div className="text-center py-16 bg-white rounded-2xl">
                                 <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 opacity-50">👨‍⚕️</div>
@@ -443,14 +475,14 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                 <button
                                     onClick={() =>
                                         userId
-                                            ? setViewMode('doctors')
+                                            ? onOpenDoctors?.()
                                             : alert('请切换到底部「我的」完成登录后再使用咨询')
                                     }
                                     className={`px-6 py-2 rounded-xl text-sm font-bold ${
                                         userId ? 'bg-blue-600 text-white' : 'bg-teal-600 text-white'
                                     }`}
                                 >
-                                    {userId ? '浏览医生资源' : '我知道了'}
+                                    {userId ? '去医生签约' : '我知道了'}
                                 </button>
                             </div>
                         ) : (

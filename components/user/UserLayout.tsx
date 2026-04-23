@@ -20,8 +20,8 @@ export const UserLayout: React.FC<Props> = ({
   const navItems = [
     { id: 'habits', label: '问诊', icon: '🤖' }, // 智能问诊（虚拟健康助手）
     { id: 'community', label: '发现', icon: '🎯' }, // 社区+医疗+饮食资源
-    { id: 'doctors', label: '资源', icon: '🩺' }, // 医生/医疗资源
-    { id: 'interaction', label: '管家', icon: '💬' }, // 健康管家互动
+    { id: 'doctor', label: '医生', icon: '🩺' }, // 医生/医疗资源
+    { id: 'message', label: '消息', icon: '💬' }, // 健康管家主导互动
     { id: 'profile', label: '我的', icon: '👤' },
   ];
 
@@ -58,7 +58,7 @@ export const UserLayout: React.FC<Props> = ({
                 {item.icon}
                 
                 {/* Notification Badge */}
-                {item.id === 'interaction' && unreadCount > 0 && (
+                {item.id === 'message' && unreadCount > 0 && (
                     <span className="absolute -right-2 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-xs font-bold text-white ring-2 ring-white">
                         {unreadCount > 9 ? '9+' : unreadCount}
                     </span>

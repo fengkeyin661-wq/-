@@ -20,7 +20,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('interaction');
+  const [activeTab, setActiveTab] = useState('message');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -174,24 +174,24 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           assessment={userArchive?.assessment_data}
         />
       )}
-      {activeTab === 'doctors' && (
+      {activeTab === 'doctor' && (
         <UserDoctors
           userId={userArchive?.checkup_id}
           userName={userArchive ? resolvedUserName : undefined}
           archive={userArchive ?? undefined}
           onOpenMessage={(_doctorId) => {
-            setActiveTab('interaction');
+            setActiveTab('message');
           }}
         />
       )}
-      {activeTab === 'interaction' && (
+      {activeTab === 'message' && (
         <UserInteraction
           userId={userArchive?.checkup_id}
           userName={userArchive ? resolvedUserName : undefined}
           archive={userArchive ?? undefined}
           assessment={userArchive?.assessment_data}
           onMessageRead={refreshUnreadCount}
-          onOpenDoctors={() => setActiveTab('doctors')}
+          onOpenDoctors={() => setActiveTab('doctor')}
           onOpenCommunity={() => setActiveTab('community')}
         />
       )}

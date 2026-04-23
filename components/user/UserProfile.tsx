@@ -408,11 +408,11 @@ export const UserProfile: React.FC<Props> = ({
                                 </div>
                                 <div className="relative z-10 mt-2">
                                     <button 
-                                        onClick={() => onNavigate('interaction')}
+                                        onClick={() => onNavigate('message')}
                                         className="w-full bg-white text-blue-700 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
                                     >
                                         <span className="text-lg">💬</span> 
-                                        <span>去咨询</span>
+                                        <span>去消息</span>
                                     </button>
                                 </div>
                             </div>
@@ -422,7 +422,7 @@ export const UserProfile: React.FC<Props> = ({
                             <div className="text-4xl opacity-30 mb-2">👨‍⚕️</div>
                             <p className="opacity-60 text-sm mb-3">您尚未签约家庭医生</p>
                             <button 
-                                onClick={() => onNavigate('doctors')}
+                                onClick={() => onNavigate('doctor')}
                                 className="bg-teal-600 text-white hover:bg-teal-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm"
                             >
                                 前往签约
@@ -743,9 +743,10 @@ export const UserProfile: React.FC<Props> = ({
                         <MenuButton icon="📅" label="我的随访记录" desc="执行单与历史随访" onClick={() => setSubView('followup')} />
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
                         <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
-                        <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与开药历史" onClick={() => setSubView('apps')} />
+                        <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请历史" onClick={() => setSubView('apps')} />
                         <MenuButton icon="📈" label="居家监测上报" desc="体重/血压/血糖上报并触发连续评估" onClick={() => setSubView('monitor')} />
-                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="健康管家联系方式与服务说明" onClick={() => setSubView('manager')} />
+                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="主导协同与联系方式" onClick={() => setSubView('manager')} />
+                        <MenuButton icon="💬" label="我的消息" desc="进入消息中心与医生/管家沟通" onClick={() => onNavigate('message')} />
                         <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
                     </div>
                 )}

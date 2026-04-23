@@ -164,11 +164,11 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
     <div className="min-h-full bg-slate-50 p-4 pb-24 space-y-5">
       <div className="rounded-2xl bg-white border border-slate-100 p-4">
         <h1 className="text-xl font-black text-slate-800">医生</h1>
-        <p className="text-xs text-slate-500 mt-1">签约、预约与医院医生资源</p>
+        <p className="text-xs text-slate-500 mt-1">签约、预约与联合干预资源；咨询统一在「消息」处理</p>
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">健康管理师</h2>
+        <h2 className="text-sm font-black text-slate-700">健康管理师（主导协同）</h2>
         {managerResources.length === 0 ? (
           <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
             暂无健康管理师资源，请联系医院维护医生资源标签
@@ -213,7 +213,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
                 className="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white font-bold"
                 onClick={() => onOpenMessage?.(doc.id)}
               >
-                咨询
+                去消息
               </button>
             </div>
           ))
