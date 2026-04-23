@@ -28,6 +28,19 @@ export type DoctorMonthSlot = {
   displayDate: string;
   dayKey: string;
   slotId: string;
+  slotLabel: string;
+};
+
+type SlotRange = { start?: string; end?: string };
+
+const getSlotRangeLabel = (details: any, dayKey: string, slotId: string): string => {
+  const ranges = (details?.slotTimeRanges || {}) as Record<string, Record<string, SlotRange>>;
+  const dayRanges = ranges[dayKey] || {};
+  const slotRange = dayRanges[slotId] || {};
+  const start = String(slotRange.start || '').trim();
+  const end = String(slotRange.end || '').trim();
+  if (start && end) return `${start}-${end}`;
+  return SLOT_MAP[slotId] || slotId;
 };
 
 function formatLocalDateKey(d: Date): string {
@@ -77,7 +90,15 @@ export function getNextMonthSlotsForDoctor(
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     const displayDate = `${mm}-${dd} ${DAY_MAP[dayKey]}`;
-    daySlots.forEach((slotId) => slots.push({ dateKey, displayDate, dayKey, slotId }));
+    daySlots.forEach((slotId) =>
+      slots.push({
+        dateKey,
+        displayDate,
+        dayKey,
+        slotId,
+        slotLabel: getSlotRangeLabel(doctor.details, dayKey, slotId),
+      })
+    );
   }
   return slots;
 }
