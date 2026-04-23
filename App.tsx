@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
@@ -13,6 +13,7 @@ import { HomeAdmin } from './components/HomeAdmin';
 import { ResourceAdmin } from './components/ResourceAdmin'; 
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
 import { DoctorPatients } from './components/DoctorPatients';
+import { DoctorMessageCenter } from './components/DoctorMessageCenter';
 import { CriticalFollowUpManager } from './components/CriticalFollowUpManager'; // New Import
 import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 
@@ -21,7 +22,7 @@ import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFrom
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
 import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
-import { ContentItem, fetchInteractions, fetchContent, isHealthManagerContent } from './services/contentService';
+import { ContentItem, fetchInteractions, fetchContent, isHealthManagerContent, getDoctorSigningUnreadTotal } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
 import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 
@@ -57,6 +58,10 @@ export const App: React.FC = () => {
   
   // Doctor State
   const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); 
+  /** 医生侧栏「消息」角标：全部签约用户未读之和 */
+  const [doctorMessageUnread, setDoctorMessageUnread] = useState(0);
+  const baseTitleRef = useRef<string>(typeof document !== 'undefined' ? document.title : '健康管理系统');
+  const prevDoctorUnreadRef = useRef<number>(0);
   const [healthManagerContacts, setHealthManagerContacts] = useState<ContentItem[]>([]);
   const [previewQr, setPreviewQr] = useState<string | null>(null);
 
@@ -119,6 +124,84 @@ export const App: React.FC = () => {
       cancelled = true;
     };
   }, [canShowUserEntry]);
+
+  useEffect(() => {
+    if (currentUserRole !== 'doctor' || !currentDoctor) {
+      setDoctorMessageUnread(0);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const n = await getDoctorSigningUnreadTotal(currentDoctor.id, currentDoctor.title);
+        if (!cancelled) setDoctorMessageUnread(n);
+      } catch {
+        if (!cancelled) setDoctorMessageUnread(0);
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 12000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [currentUserRole, currentDoctor?.id, currentDoctor?.title]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const baseTitle = baseTitleRef.current || '健康管理系统';
+    if (currentUserRole === 'doctor' && doctorMessageUnread > 0) {
+      document.title = `(${doctorMessageUnread}) 条未读消息 - ${baseTitle}`;
+    } else {
+      document.title = baseTitle;
+    }
+  }, [currentUserRole, doctorMessageUnread]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (currentUserRole !== 'doctor') {
+      prevDoctorUnreadRef.current = 0;
+      return;
+    }
+    if (!('Notification' in window)) return;
+
+    const maybeRequestPermission = async () => {
+      if (Notification.permission === 'default') {
+        try {
+          await Notification.requestPermission();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    maybeRequestPermission();
+  }, [currentUserRole]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (currentUserRole !== 'doctor') {
+      prevDoctorUnreadRef.current = 0;
+      return;
+    }
+    if (!('Notification' in window)) return;
+
+    const prev = prevDoctorUnreadRef.current;
+    prevDoctorUnreadRef.current = doctorMessageUnread;
+
+    const hasNewUnread = doctorMessageUnread > prev;
+    const shouldNotify = hasNewUnread && Notification.permission === 'granted' && document.hidden;
+    if (!shouldNotify) return;
+
+    const notification = new Notification('医生工作站新消息', {
+      body: `您有 ${doctorMessageUnread} 条未读消息，点击前往处理。`,
+      tag: 'doctor-unread',
+    });
+    notification.onclick = () => {
+      window.focus();
+      setActiveTab('doctor_messages');
+      notification.close();
+    };
+  }, [currentUserRole, doctorMessageUnread]);
 
   const refreshArchives = async () => {
     const allArchives = await fetchArchives();
@@ -565,7 +648,8 @@ export const App: React.FC = () => {
             isAuthenticated={isAuthenticated}
             currentUserRole={currentUserRole}
             onLoginClick={() => setShowLoginModal(true)} 
-            onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setCurrentDoctor(null); setActiveTab('dashboard'); setShowUserEntry(false); setArchives([]); }}
+            onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setCurrentDoctor(null); setDoctorMessageUnread(0); setActiveTab('dashboard'); setShowUserEntry(false); setArchives([]); }}
+            navBadges={currentUserRole === 'doctor' ? { doctor_messages: doctorMessageUnread } : undefined}
         >
             {activeTab === 'dashboard' && (
                 <div className="h-full flex flex-col items-center justify-center text-center space-y-6 opacity-60">
@@ -598,6 +682,13 @@ export const App: React.FC = () => {
             {activeTab === 'followup' && <FollowUpDashboard records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp} onUpdateData={handleManualDataUpdate} allArchives={archives} onPatientChange={(arch) => handleSelectPatient(arch, 'followup')} currentPatientId={healthRecord?.profile.checkupId} isAuthenticated={isAuthenticated} healthRecord={healthRecord} onRefresh={refreshArchives} />}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
             {activeTab === 'admin' && currentUserRole === 'admin' && <AdminConsole onSelectPatient={handleSelectPatient} onDataUpdate={refreshArchives} isAuthenticated={isAuthenticated} onTabChange={setActiveTab} />}
+            {activeTab === 'doctor_messages' && currentUserRole === 'doctor' && currentDoctor && (
+                <DoctorMessageCenter
+                    doctorId={currentDoctor.id}
+                    doctorName={currentDoctor.title}
+                    onUnreadTotalChange={setDoctorMessageUnread}
+                />
+            )}
             {activeTab === 'my_patients' && currentUserRole === 'doctor' && currentDoctor && <DoctorPatients doctorId={currentDoctor.id} doctorName={currentDoctor.title} onSelectPatient={handleSelectPatient} />}
         </Layout>
         <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={handleLoginSuccess} roleContext={loginRoleContext} />

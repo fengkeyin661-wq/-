@@ -550,6 +550,34 @@ export const getUnreadCount = async (receiverId: string, senderId?: string): Pro
     }).length;
 };
 
+/** 医生站侧栏角标：当前医生下所有已签约用户发来的未读消息总数 */
+export const getDoctorSigningUnreadTotal = async (doctorId: string, doctorName?: string): Promise<number> => {
+    let interactions: InteractionItem[];
+    try {
+        interactions = await fetchInteractions();
+    } catch {
+        return 0;
+    }
+    const signings = interactions.filter(
+        (i) =>
+            i.type === 'doctor_signing' &&
+            i.status === 'confirmed' &&
+            (i.targetId === doctorId || (!!doctorName && i.targetName === doctorName))
+    );
+    const seen = new Set<string>();
+    let total = 0;
+    for (const s of signings) {
+        if (seen.has(s.userId)) continue;
+        seen.add(s.userId);
+        try {
+            total += await getUnreadCount(doctorId, s.userId);
+        } catch {
+            /* ignore single user */
+        }
+    }
+    return total;
+};
+
 export const markAsRead = async (receiverId: string, senderId: string): Promise<void> => {
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
