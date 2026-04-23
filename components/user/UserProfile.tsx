@@ -282,94 +282,71 @@ export const UserProfile: React.FC<Props> = ({
         </div>
     );
 
-    const renderPlanView = () => (
-        <div className="p-4 space-y-4 animate-slideInRight">
-            {dailyPlan ? (
-                <>
-                    <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-slate-800">今日 AI 方案</h3>
-                            <span className="text-xs text-slate-400">{new Date(dailyPlan.generatedAt).toLocaleDateString()}</span>
-                        </div>
-                        <div className="space-y-4">
-                            {/* Text Plan */}
-                            <div className="bg-slate-50 p-4 rounded-lg text-sm space-y-2">
-                                <div className="flex gap-2"><span className="font-bold text-teal-600">早</span> {dailyPlan.diet.breakfast}</div>
-                                <div className="flex gap-2"><span className="font-bold text-teal-600">午</span> {dailyPlan.diet.lunch}</div>
-                                <div className="flex gap-2"><span className="font-bold text-teal-600">晚</span> {dailyPlan.diet.dinner}</div>
-                                <div className="pt-2 border-t border-slate-200 text-xs opacity-70">💡 {dailyPlan.tips}</div>
-                            </div>
-                        </div>
-                    </div>
+    const renderPlanView = () => {
+        const planFromAssessment = assessment?.managementPlan;
+        const dietaryList = planFromAssessment?.dietary || [];
+        const exerciseList = planFromAssessment?.exercise || [];
+        const monitoringList = planFromAssessment?.monitoring || [];
+        const hasPlan = dietaryList.length || exerciseList.length || monitoringList.length;
 
-                    {/* Recommendations Display */}
-                    {(dailyPlan.recommendations?.meals?.length || dailyPlan.recommendations?.exercises?.length) ? (
-                        <div className="bg-white rounded-xl shadow-sm p-5 border border-teal-100">
-                            <h3 className="font-bold text-teal-800 mb-4 flex items-center gap-2">
-                                <span>✨</span> 推荐执行项目
-                            </h3>
-                            <div className="space-y-3">
-                                {dailyPlan.recommendations.meals.map((item, i) => (
-                                    <div key={`rm-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                                        <div>
-                                            <span className="mr-2">🥗</span>
-                                            <span className="font-bold text-slate-700">{item.name}</span>
-                                        </div>
-                                        <div className="text-slate-500 font-mono text-xs">{item.calories} kcal</div>
-                                    </div>
-                                ))}
-                                {dailyPlan.recommendations.exercises.map((item, i) => (
-                                    <div key={`re-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                                        <div>
-                                            <span className="mr-2">🏃</span>
-                                            <span className="font-bold text-slate-700">{item.name}</span>
-                                            <span className="text-xs text-slate-400 ml-2">({item.duration}min)</span>
-                                        </div>
-                                        <div className="text-slate-500 font-mono text-xs">{item.calories} kcal</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ) : null}
-
-                    {/* Structured Logs Display */}
-                    {(dailyPlan.dietLogs?.length || dailyPlan.exerciseLogs?.length) ? (
+        return (
+            <div className="p-4 space-y-4 animate-slideInRight">
+                {hasPlan ? (
+                    <>
                         <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
-                            <h3 className="font-bold text-slate-800 mb-4">执行记录详情</h3>
-                            <div className="space-y-3">
-                                {dailyPlan.dietLogs?.map((log, i) => (
-                                    <div key={`d-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                                        <div>
-                                            <span className="mr-2">🥗</span>
-                                            <span className="font-bold text-slate-700">{log.name}</span>
-                                        </div>
-                                        <div className="text-teal-600 font-mono">+{log.calories} kcal</div>
-                                    </div>
-                                ))}
-                                {dailyPlan.exerciseLogs?.map((log, i) => (
-                                    <div key={`e-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                                        <div>
-                                            <span className="mr-2">🏃</span>
-                                            <span className="font-bold text-slate-700">{log.name}</span>
-                                            <span className="text-xs text-slate-400 ml-2">({log.duration}min)</span>
-                                        </div>
-                                        <div className="text-orange-500 font-mono">-{log.calories} kcal</div>
-                                    </div>
-                                ))}
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="font-bold text-slate-800">我的健康管理方案（饮食与运动）</h3>
+                                <span className="text-xs text-slate-400">与健康管理方案保持一致</span>
+                            </div>
+                            <div className="space-y-4">
+                                <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                                    <h4 className="mb-2 text-sm font-bold text-emerald-800">🥗 饮食干预</h4>
+                                    {dietaryList.length ? (
+                                        <ul className="list-disc space-y-1 pl-5 text-sm text-emerald-900">
+                                            {dietaryList.map((item, i) => (
+                                                <li key={`diet-${i}`}>{item}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <div className="text-xs text-emerald-700/80">暂无饮食建议</div>
+                                    )}
+                                </div>
+                                <div className="rounded-lg border border-sky-100 bg-sky-50 p-4">
+                                    <h4 className="mb-2 text-sm font-bold text-sky-800">🏃 运动干预</h4>
+                                    {exerciseList.length ? (
+                                        <ul className="list-disc space-y-1 pl-5 text-sm text-sky-900">
+                                            {exerciseList.map((item, i) => (
+                                                <li key={`exercise-${i}`}>{item}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <div className="text-xs text-sky-700/80">暂无运动建议</div>
+                                    )}
+                                </div>
+                                <div className="rounded-lg border border-violet-100 bg-violet-50 p-4">
+                                    <h4 className="mb-2 text-sm font-bold text-violet-800">🔍 监测随访</h4>
+                                    {monitoringList.length ? (
+                                        <ul className="list-disc space-y-1 pl-5 text-sm text-violet-900">
+                                            {monitoringList.map((item, i) => (
+                                                <li key={`monitor-${i}`}>{item}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <div className="text-xs text-violet-700/80">暂无监测建议</div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    ) : (
-                        <div className="text-center text-slate-400 text-sm py-4">暂无打卡记录</div>
-                    )}
-                </>
-            ) : (
-                <div className="text-center text-slate-400 mt-10">
-                    <p>暂无今日方案</p>
-                    <button onClick={() => onNavigate('diet_motion')} className="text-teal-600 font-bold mt-2">去生成</button>
-                </div>
-            )}
-        </div>
-    );
+                    </>
+                ) : (
+                    <div className="text-center text-slate-400 mt-10">
+                        <p>暂无健康管理方案</p>
+                        <p className="mt-2 text-xs">请先由医生端提交评估后查看</p>
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     const renderEventsView = () => {
         const myEvents = interactions.filter(i => i.type === 'event_signup');
