@@ -33,6 +33,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
   const [bookingDoctor, setBookingDoctor] = useState<ContentItem | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [teamRecommendRole, setTeamRecommendRole] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -126,6 +127,29 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       { role: '临床医生', item: clinician, tone: 'bg-blue-50 border-blue-200 text-blue-700' },
     ];
   }, [doctors, managerResources]);
+  const recommendByRole = (role: string): ContentItem[] => {
+    const byKeyword = (keywords: string[]) =>
+      doctors.filter((d) => {
+        const text = `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
+        return keywords.some((k) => text.includes(k));
+      });
+    if (role === '健康管家') {
+      return managerResources.length ? managerResources : doctors.slice(0, 8);
+    }
+    if (role === '营养师') {
+      const list = byKeyword(['营养']);
+      return list.length ? list : doctors.slice(0, 8);
+    }
+    if (role === '运动教练') {
+      const list = byKeyword(['运动', '康复']);
+      return list.length ? list : doctors.slice(0, 8);
+    }
+    if (role === '临床医生') {
+      const list = doctors.filter((d) => !isHealthManagerContent(d));
+      return list.length ? list : doctors.slice(0, 8);
+    }
+    return doctors.slice(0, 8);
+  };
 
   const filteredResources = useMemo(() => {
     const q = search.trim();
@@ -196,7 +220,10 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
               <button
                 type="button"
                 key={card.role}
-                onClick={() => card.item && setSelectedDoctor(card.item)}
+                onClick={() => {
+                  if (card.item) setSelectedDoctor(card.item);
+                  else setTeamRecommendRole(card.role);
+                }}
                 className={`rounded-xl border p-3 text-left ${card.tone} ${card.item ? '' : 'opacity-70'}`}
               >
                 <div className="text-[11px] font-black">{card.role}</div>
@@ -346,6 +373,52 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
               >
                 {signedDoctorIdSet.has(selectedDoctor.id) ? '已签约' : '签约医生'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {teamRecommendRole && (
+        <div
+          className="fixed inset-0 z-[75] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center"
+          onClick={() => setTeamRecommendRole(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white p-5 space-y-4 max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-slate-800">{teamRecommendRole}推荐签约对象</h3>
+              <button
+                type="button"
+                onClick={() => setTeamRecommendRole(null)}
+                className="h-8 w-8 rounded-full bg-slate-100 text-slate-500 font-black"
+              >
+                ×
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">点击列表可查看详情并发起签约。</p>
+            <div className="space-y-2">
+              {recommendByRole(teamRecommendRole).map((doc) => (
+                <button
+                  type="button"
+                  key={`team-pick-${teamRecommendRole}-${doc.id}`}
+                  onClick={() => {
+                    setTeamRecommendRole(null);
+                    setSelectedDoctor(doc);
+                  }}
+                  className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 flex items-center gap-3 text-left"
+                >
+                  {avatar(doc)}
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-slate-800 truncate">{doc.title}</div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {doc.details?.dept || '健康管理中心'} · {doc.details?.title || '健康管理服务'}
+                    </div>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 font-bold">查看</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
