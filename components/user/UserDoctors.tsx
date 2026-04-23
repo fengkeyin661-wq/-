@@ -4,6 +4,7 @@ import {
   InteractionItem,
   fetchContent,
   fetchInteractions,
+  isHealthManagerContent,
   saveInteraction,
 } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
@@ -106,10 +107,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
       .filter(Boolean) as ContentItem[];
   }, [signedInteractions, doctorMap]);
 
-  const healthManager = useMemo(() => {
-    if (!archive?.health_manager_content_id) return null;
-    return doctorMap.get(archive.health_manager_content_id) || null;
-  }, [archive?.health_manager_content_id, doctorMap]);
+  const managerResources = useMemo(() => doctors.filter(isHealthManagerContent), [doctors]);
 
   const filteredResources = useMemo(() => {
     const q = search.trim();
@@ -169,27 +167,33 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
         <p className="text-xs text-slate-500 mt-1">签约、预约与医院医生资源</p>
       </div>
 
-      {healthManager && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <div className="text-xs font-black text-amber-700 mb-2">我的健康管家</div>
-          <div className="flex items-center gap-3">
-            {avatar(healthManager)}
-            <div className="flex-1">
-              <div className="font-bold text-slate-800">{healthManager.title}</div>
-              <div className="text-xs text-slate-600">
-                {healthManager.details?.dept || '健康管理中心'}
-                {healthManager.details?.phone ? ` · ${healthManager.details.phone}` : ''}
-              </div>
-            </div>
-            <button
-              className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold"
-              onClick={() => onOpenMessage?.(healthManager.id)}
-            >
-              去咨询
-            </button>
+      <section className="space-y-3">
+        <h2 className="text-sm font-black text-slate-700">健康管理师</h2>
+        {managerResources.length === 0 ? (
+          <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
+            暂无健康管理师资源，请联系医院维护医生资源标签
           </div>
-        </div>
-      )}
+        ) : (
+          managerResources.map((mgr) => (
+            <div key={`mgr-${mgr.id}`} className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-center gap-3">
+              {avatar(mgr)}
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-slate-800">{mgr.title}</div>
+                <div className="text-xs text-slate-600">
+                  {mgr.details?.dept || '健康管理中心'}
+                  {mgr.details?.phone ? ` · ${mgr.details.phone}` : ''}
+                </div>
+              </div>
+              <button
+                className="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white font-bold"
+                onClick={() => submitInteraction('doctor_signing', mgr, '申请健康管理师签约')}
+              >
+                签约
+              </button>
+            </div>
+          ))
+        )}
+      </section>
 
       <section className="space-y-3">
         <h2 className="text-sm font-black text-slate-700">我签约的医生</h2>

@@ -18,7 +18,6 @@ import {
 } from '../services/resourcePresetStore';
 // @ts-ignore
 import * as XLSX from 'xlsx';
-import { HealthManagerWorkspace } from './HealthManagerWorkspace';
 
 interface Props {
     onLogout: () => void;
@@ -137,7 +136,7 @@ const PresetListEditor: React.FC<{
 
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // Added 'audit' tab
-    const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise' | 'audit' | 'manager'>('event');
+    const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise' | 'audit'>('event');
     // Sub-tab for Event (Community) section
     const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
     
@@ -196,7 +195,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 case 'drug': contentType = 'drug'; break;
                 case 'doctor': contentType = 'doctor'; break;
                 case 'audit': contentType = ''; break; // No content needed, just interactions
-                case 'manager': contentType = ''; break;
             }
 
             if (contentType) {
@@ -929,7 +927,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
                     <nav className="p-4 space-y-2">
                         <NavButton id="audit" icon="🛡️" label="审核中心" active={activeTab} onClick={setActiveTab} />
-                        <NavButton id="manager" icon="🧑‍⚕️" label="健康管家后台" active={activeTab} onClick={setActiveTab} />
                         <div className="h-px bg-slate-200 my-2"></div>
                         <NavButton id="event" icon="✨" label="社区活动" active={activeTab} onClick={setActiveTab} />
                         <NavButton id="service" icon="🏥" label="医院服务" active={activeTab} onClick={setActiveTab} />
@@ -949,8 +946,6 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             </h3>
                             {renderInteractionTable(interactions)}
                         </section>
-                    ) : activeTab === 'manager' ? (
-                        <HealthManagerWorkspace />
                     ) : (
                         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                             <div className="flex flex-col gap-4 mb-4">
