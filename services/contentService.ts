@@ -90,6 +90,21 @@ const CHAT_KEY = 'HEALTH_GUARD_CHATS_V1';
 const CHAT_TABLE = 'app_chat_messages';
 const CHAT_RETENTION_DAYS = 90;
 const CHAT_CLEANUP_STAMP_KEY = 'HEALTH_GUARD_CHAT_CLEANUP_TS';
+const CLOUD_QUERY_TIMEOUT_MS = 6000;
+
+const withTimeout = async <T>(promiseLike: PromiseLike<T> | Promise<T>, timeoutMs = CLOUD_QUERY_TIMEOUT_MS): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+        return await Promise.race([
+            Promise.resolve(promiseLike),
+            new Promise<T>((_, reject) => {
+                timer = setTimeout(() => reject(new Error('cloud_query_timeout')), timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+};
 
 const getRetentionCutoffIso = (): string => {
     const d = new Date();
@@ -183,7 +198,7 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
               else query = query.eq('type', type);
           }
           if (status) query = query.eq('status', status);
-          const { data, error } = await query.order('updated_at', { ascending: false });
+          const { data, error } = await withTimeout(query.order('updated_at', { ascending: false }));
           
           if (!error && data) {
               dbData = data.map((d:any) => ({ 
@@ -287,7 +302,7 @@ export const fetchInteractions = async (type?: string): Promise<InteractionItem[
             let query = supabase.from('app_interactions').select('*');
             if (type) query = query.eq('type', type);
             
-            const { data, error } = await query;
+            const { data, error } = await withTimeout(query);
             if (!error && data) {
                 // Map DB snake_case to camelCase
                 dbData = data.map((d: any) => ({
