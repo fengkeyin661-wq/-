@@ -2,10 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ContentItem,
     ChatMessage,
-    DeskInboxSummary,
     fetchContent,
     fetchMessages,
-    getDeskInboxSummaries,
+    getUnreadCount,
     markAsRead,
     pickDeskManager,
     saveInteraction,
@@ -23,13 +22,13 @@ export const HealthManagerWorkspace: React.FC = () => {
     const [chatInput, setChatInput] = useState('');
     const [imageUrl, setImageUrl] = useState('');
     const [selectedResourceId, setSelectedResourceId] = useState('');
-    const [inboxByUser, setInboxByUser] = useState<Record<string, DeskInboxSummary>>({});
+    const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
     const [toast, setToast] = useState<string>('');
-    const inboxByUserRef = useRef(inboxByUser);
+    const unreadMapRef = useRef(unreadMap);
     const archivesRef = useRef(archives);
     useEffect(() => {
-        inboxByUserRef.current = inboxByUser;
-    }, [inboxByUser]);
+        unreadMapRef.current = unreadMap;
+    }, [unreadMap]);
     useEffect(() => {
         archivesRef.current = archives;
     }, [archives]);
@@ -44,36 +43,36 @@ export const HealthManagerWorkspace: React.FC = () => {
     );
     const sortedArchives = useMemo(() => {
         return [...archives].sort((a, b) => {
-            const sa = inboxByUser[a.checkup_id];
-            const sb = inboxByUser[b.checkup_id];
-            if ((sb?.unread || 0) !== (sa?.unread || 0)) return (sb?.unread || 0) - (sa?.unread || 0);
-            const ta = sa?.lastMessage ? new Date(sa.lastMessage.timestamp).getTime() : 0;
-            const tb = sb?.lastMessage ? new Date(sb.lastMessage.timestamp).getTime() : 0;
-            return tb - ta;
+            const ua = unreadMap[a.checkup_id] || 0;
+            const ub = unreadMap[b.checkup_id] || 0;
+            if (ub !== ua) return ub - ua;
+            return 0;
         });
-    }, [archives, inboxByUser]);
+    }, [archives, unreadMap]);
 
-    const loadInboxSummaries = async (
+    const loadUnreadMap = async (
         manager: ContentItem | null,
         users: HealthArchive[],
-        previous?: Record<string, DeskInboxSummary>
+        previous?: Record<string, number>
     ) => {
         if (!manager || !users.length) {
-            setInboxByUser({});
+            setUnreadMap({});
             return;
         }
-        const summaries = await getDeskInboxSummaries(manager.id, users.map((u) => u.checkup_id));
-        const nextMap: Record<string, DeskInboxSummary> = {};
+        const pairs = await Promise.all(
+            users.map(async (u) => ({ userId: u.checkup_id, unread: await getUnreadCount(manager.id, u.checkup_id) }))
+        );
+        const nextMap: Record<string, number> = {};
         let raisedToast = '';
-        summaries.forEach((s) => {
-            nextMap[s.userId] = s;
-            const prevUnread = previous?.[s.userId]?.unread || 0;
+        pairs.forEach((s) => {
+            nextMap[s.userId] = s.unread;
+            const prevUnread = previous?.[s.userId] || 0;
             if (!raisedToast && s.unread > prevUnread) {
                 const matchedUser = users.find((u) => u.checkup_id === s.userId);
-                raisedToast = `${matchedUser?.name || s.userId} 发来新消息（${s.unread}）`;
+                raisedToast = `${matchedUser?.name || s.userId} 发来新消息`;
             }
         });
-        setInboxByUser(nextMap);
+        setUnreadMap(nextMap);
         if (raisedToast) {
             setToast(raisedToast);
             window.setTimeout(() => setToast(''), 2500);
@@ -97,7 +96,7 @@ export const HealthManagerWorkspace: React.FC = () => {
                 ...svc,
                 ...drug,
             ]);
-            await loadInboxSummaries(uniqueManager, allArchives, inboxByUserRef.current);
+            await loadUnreadMap(uniqueManager, allArchives, unreadMapRef.current);
         } finally {
             setLoading(false);
         }
@@ -116,7 +115,7 @@ export const HealthManagerWorkspace: React.FC = () => {
             await markAsRead(primaryManager.id, selectedArchive.checkup_id);
             const rows = await fetchMessages(selectedArchive.checkup_id, primaryManager.id);
             setMessages(rows);
-            await loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
+            await loadUnreadMap(primaryManager, archivesRef.current, unreadMapRef.current);
         };
         loadMsgs();
     }, [selectedArchive?.checkup_id, primaryManager?.id]);
@@ -124,7 +123,7 @@ export const HealthManagerWorkspace: React.FC = () => {
     useEffect(() => {
         if (!primaryManager || !archives.length) return;
         const id = window.setInterval(() => {
-            loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
+            loadUnreadMap(primaryManager, archivesRef.current, unreadMapRef.current);
         }, 3000);
         return () => window.clearInterval(id);
     }, [primaryManager?.id, archives.length]);
@@ -149,7 +148,7 @@ export const HealthManagerWorkspace: React.FC = () => {
         setChatInput('');
         const rows = await fetchMessages(selectedArchive.checkup_id, primaryManager.id);
         setMessages(rows);
-        await loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
+        await loadUnreadMap(primaryManager, archivesRef.current, unreadMapRef.current);
     };
 
     const sendImage = async () => {
@@ -173,7 +172,7 @@ export const HealthManagerWorkspace: React.FC = () => {
         setImageUrl('');
         const rows = await fetchMessages(selectedArchive.checkup_id, primaryManager.id);
         setMessages(rows);
-        await loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
+        await loadUnreadMap(primaryManager, archivesRef.current, unreadMapRef.current);
     };
 
     const sendRecommendation = async () => {
@@ -214,7 +213,7 @@ export const HealthManagerWorkspace: React.FC = () => {
         setSelectedResourceId('');
         const rows = await fetchMessages(selectedArchive.checkup_id, primaryManager.id);
         setMessages(rows);
-        await loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
+        await loadUnreadMap(primaryManager, archivesRef.current, unreadMapRef.current);
     };
 
     return (
@@ -243,18 +242,13 @@ export const HealthManagerWorkspace: React.FC = () => {
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="text-sm font-bold text-slate-800">{a.name}</div>
-                                    {(inboxByUser[a.checkup_id]?.unread || 0) > 0 && (
+                                    {(unreadMap[a.checkup_id] || 0) > 0 && (
                                         <span className="min-w-5 rounded-full bg-red-500 px-1.5 text-center text-[10px] font-bold text-white">
-                                            {inboxByUser[a.checkup_id].unread}
+                                            {unreadMap[a.checkup_id]}
                                         </span>
                                     )}
                                 </div>
                                 <div className="text-[11px] text-slate-500">{a.department} · {a.risk_level}</div>
-                                {inboxByUser[a.checkup_id]?.lastMessage && (
-                                    <div className="mt-1 truncate text-[11px] text-slate-400">
-                                        {inboxByUser[a.checkup_id].lastMessage?.content || '图片/推荐消息'}
-                                    </div>
-                                )}
                             </div>
                         ))}
                         {!archives.length && (

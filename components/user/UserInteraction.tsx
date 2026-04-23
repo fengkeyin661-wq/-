@@ -93,20 +93,19 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     useEffect(() => {
         if (!userId) return;
         let interval: ReturnType<typeof setInterval>;
-        const poll = () => {
+        const poll = async () => {
             if (activeDoctor) {
-                loadMessages();
-                markAsRead(userId, activeDoctor.targetId).then(() => {
-                    if (onMessageRead) onMessageRead();
-                });
+                await loadMessages();
+                await markAsRead(userId, activeDoctor.targetId);
+                if (onMessageRead) onMessageRead();
             } else {
-                loadSignedDoctors();
+                await refreshUnreadOnly();
             }
         };
         poll();
         interval = setInterval(poll, 3000);
         return () => clearInterval(interval);
-    }, [activeDoctor, userId]);
+    }, [activeDoctor, userId, doctorList.length]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -115,10 +114,13 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     const loadAllData = async () => {
         setLoading(true);
         try {
-            const [docs, inters] = await Promise.all([
-                fetchContent('doctor', 'active'),
-                fetchInteractions()
-            ]);
+            const docs = await fetchContent('doctor', 'active');
+            let inters: InteractionItem[] = [];
+            try {
+                inters = await fetchInteractions();
+            } catch {
+                inters = [];
+            }
             setAllDoctors(docs);
             setAllInteractions(inters);
 
@@ -170,42 +172,17 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         }
     };
 
-    const loadSignedDoctors = async () => {
-        if (!userId) {
-            setDoctorList([]);
-            return;
-        }
-        const inters = await fetchInteractions();
-        setAllInteractions(inters);
-        const signings = inters.filter((i) => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
-        const listWithCount: DoctorWithUnread[] = [];
-        for (const sign of signings) {
-            const count = await getUnreadCount(userId, sign.targetId);
-            listWithCount.push({ interaction: sign, unread: count });
-        }
-        const deskManager = pickDeskManager(allDoctors, archive?.health_manager_content_id);
-        const managerRows: DoctorWithUnread[] = [];
-        if (deskManager) {
-            const count = await getUnreadCount(userId, deskManager.id);
-            managerRows.push({
-                interaction: {
-                    id: `desk_link_${userId}_${deskManager.id}`,
-                    type: 'doctor_signing',
-                    userId,
-                    userName: userName?.trim() || archive?.name?.trim() || '用户',
-                    targetId: deskManager.id,
-                    targetName: '医院总台',
-                    status: 'confirmed',
-                    date: new Date().toISOString().split('T')[0],
-                    details: '医院总台会话',
-                },
-                unread: count,
-                isManager: true,
-            });
-        }
-        const doctorRows = listWithCount
+    const refreshUnreadOnly = async () => {
+        if (!userId || doctorList.length === 0) return;
+        const next = await Promise.all(
+            doctorList.map(async (item) => ({
+                ...item,
+                unread: await getUnreadCount(userId, item.interaction.targetId),
+            }))
+        );
+        const managerRows = next.filter((x) => x.isManager);
+        const doctorRows = next
             .filter((x) => !x.isManager)
-            .filter((x) => !deskManager || x.interaction.targetId !== deskManager.id)
             .sort((a, b) => {
                 if (b.unread !== a.unread) return b.unread - a.unread;
                 return new Date(b.interaction.date).getTime() - new Date(a.interaction.date).getTime();
