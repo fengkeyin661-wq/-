@@ -50,6 +50,7 @@ export const UserProfile: React.FC<Props> = ({
     const [pwdMsg, setPwdMsg] = useState('');
     // ... (keep existing methods: loadInteractions, handleSaveRecord, handleCancelInteraction) ...
     const [isBasicEditOpen, setIsBasicEditOpen] = useState(false);
+    const [isBasicCardExpanded, setIsBasicCardExpanded] = useState(false);
     const [editForm, setEditForm] = useState({
         height: record.checkup.basics.height || 0,
         weight: record.checkup.basics.weight || 0,
@@ -223,23 +224,6 @@ export const UserProfile: React.FC<Props> = ({
                 </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
-                <div className="mb-3 flex items-center justify-between">
-                    <h3 className="font-bold text-slate-800">关键指标动态曲线</h3>
-                    <span className="text-xs text-slate-400">按历史记录自动生成</span>
-                </div>
-                <div className="grid grid-cols-1 gap-3">
-                    <MiniTrendChart title="体重(kg)" values={trendRows.map(r => r.weight)} color="#0ea5e9" />
-                    <MiniTrendChart title="BMI" values={trendRows.map(r => r.bmi)} color="#6366f1" />
-                    <MiniTrendChart title="腰围(cm)" values={trendRows.map(r => r.waist)} color="#f59e0b" />
-                    <MiniTrendChart title="体脂率(%)" values={trendRows.map(r => r.bodyFatRate)} color="#ec4899" />
-                    <MiniTrendChart title="血压收缩压(mmHg)" values={trendRows.map(r => r.sbp)} color="#ef4444" />
-                    <MiniTrendChart title="血压舒张压(mmHg)" values={trendRows.map(r => r.dbp)} color="#f97316" />
-                    <MiniTrendChart title="总胆固醇TC(mmol/L)" values={trendRows.map(r => r.tc)} color="#22c55e" />
-                    <MiniTrendChart title="空腹血糖(mmol/L)" values={trendRows.map(r => r.glucose)} color="#14b8a6" />
-                </div>
-            </div>
-            
             {/* 3. Detailed Risk Factors (Synced) */}
             <div className="space-y-4">
                 <div className="bg-red-50 p-4 rounded-xl border border-red-100">
@@ -705,13 +689,22 @@ export const UserProfile: React.FC<Props> = ({
                         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
                             <div className="mb-3 flex items-center justify-between">
                                 <h3 className="font-bold text-slate-800">基础身体指标</h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsBasicEditOpen(true)}
-                                    className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700"
-                                >
-                                    更新数据
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsBasicCardExpanded((v) => !v)}
+                                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700"
+                                    >
+                                        {isBasicCardExpanded ? '收起详情' : '查看详情'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsBasicEditOpen(true)}
+                                        className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700"
+                                    >
+                                        更新数据
+                                    </button>
+                                </div>
                             </div>
                             <div className="grid grid-cols-3 gap-2 text-center">
                                 <div className="rounded-lg bg-slate-50 p-3">
@@ -733,6 +726,24 @@ export const UserProfile: React.FC<Props> = ({
                                     </div>
                                 </div>
                             </div>
+                            {isBasicCardExpanded && (
+                                <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                    <div className="mb-2 flex items-center justify-between">
+                                        <h4 className="text-sm font-bold text-slate-700">关键指标动态曲线</h4>
+                                        <span className="text-[11px] text-slate-400">按历史记录自动生成</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        <MiniTrendChart title="体重(kg)" values={trendRows.map(r => r.weight)} color="#0ea5e9" />
+                                        <MiniTrendChart title="BMI" values={trendRows.map(r => r.bmi)} color="#6366f1" />
+                                        <MiniTrendChart title="腰围(cm)" values={trendRows.map(r => r.waist)} color="#f59e0b" />
+                                        <MiniTrendChart title="体脂率(%)" values={trendRows.map(r => r.bodyFatRate)} color="#ec4899" />
+                                        <MiniTrendChart title="血压收缩压(mmHg)" values={trendRows.map(r => r.sbp)} color="#ef4444" />
+                                        <MiniTrendChart title="血压舒张压(mmHg)" values={trendRows.map(r => r.dbp)} color="#f97316" />
+                                        <MiniTrendChart title="总胆固醇TC(mmol/L)" values={trendRows.map(r => r.tc)} color="#22c55e" />
+                                        <MiniTrendChart title="空腹血糖(mmol/L)" values={trendRows.map(r => r.glucose)} color="#14b8a6" />
+                                    </div>
+                                </div>
+                            )}
                             <p className="mt-3 text-xs text-slate-500">
                                 建议每周至少更新一次基础指标，便于健康管理团队动态调整干预方案。
                             </p>
