@@ -111,15 +111,18 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
 
   const managerResources = useMemo(() => doctors.filter(isHealthManagerContent), [doctors]);
   const teamCards = useMemo(() => {
-    const pickByKeywords = (keywords: string[]) =>
-      doctors.find((d) => {
-        const text = `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
-        return keywords.some((k) => text.includes(k));
-      }) || null;
+    const textOf = (d: ContentItem) =>
+      `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
+    const isNutrition = (d: ContentItem) => textOf(d).includes('营养');
+    const isSport = (d: ContentItem) => textOf(d).includes('运动') || textOf(d).includes('康复');
     const manager = managerResources[0] || null;
-    const nutrition = pickByKeywords(['营养']);
-    const sport = pickByKeywords(['运动', '康复']);
-    const clinician = doctors.find((d) => !isHealthManagerContent(d)) || null;
+    const nutrition = doctors.find((d) => !isHealthManagerContent(d) && isNutrition(d)) || null;
+    const sport = doctors.find(
+      (d) => !isHealthManagerContent(d) && !isNutrition(d) && isSport(d)
+    ) || null;
+    const clinician = doctors.find(
+      (d) => !isHealthManagerContent(d) && !isNutrition(d) && !isSport(d)
+    ) || null;
     return [
       { role: '健康管家', item: manager, tone: 'bg-amber-50 border-amber-200 text-amber-700' },
       { role: '营养师', item: nutrition, tone: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
@@ -128,24 +131,27 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
     ];
   }, [doctors, managerResources]);
   const recommendByRole = (role: string): ContentItem[] => {
-    const byKeyword = (keywords: string[]) =>
-      doctors.filter((d) => {
-        const text = `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
-        return keywords.some((k) => text.includes(k));
-      });
+    const textOf = (d: ContentItem) =>
+      `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
+    const isNutrition = (d: ContentItem) => textOf(d).includes('营养');
+    const isSport = (d: ContentItem) => textOf(d).includes('运动') || textOf(d).includes('康复');
     if (role === '健康管家') {
       return managerResources.length ? managerResources : doctors.slice(0, 8);
     }
     if (role === '营养师') {
-      const list = byKeyword(['营养']);
+      const list = doctors.filter((d) => !isHealthManagerContent(d) && isNutrition(d));
       return list.length ? list : doctors.slice(0, 8);
     }
     if (role === '运动教练') {
-      const list = byKeyword(['运动', '康复']);
+      const list = doctors.filter(
+        (d) => !isHealthManagerContent(d) && !isNutrition(d) && isSport(d)
+      );
       return list.length ? list : doctors.slice(0, 8);
     }
     if (role === '临床医生') {
-      const list = doctors.filter((d) => !isHealthManagerContent(d));
+      const list = doctors.filter(
+        (d) => !isHealthManagerContent(d) && !isNutrition(d) && !isSport(d)
+      );
       return list.length ? list : doctors.slice(0, 8);
     }
     return doctors.slice(0, 8);
