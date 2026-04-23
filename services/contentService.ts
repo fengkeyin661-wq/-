@@ -23,6 +23,23 @@ export const isHealthManagerContent = (item: ContentItem): boolean => {
   return (item.tags || []).some((t) => String(t).includes('健康管家'));
 };
 
+/** 统一解析「医院总台」账号（唯一会话对象） */
+export const pickDeskManager = (doctors: ContentItem[], preferredId?: string | null): ContentItem | null => {
+    if (!doctors.length) return null;
+    const doctorRows = doctors.filter((d) => d.type === 'doctor');
+    if (!doctorRows.length) return null;
+    if (preferredId) {
+        const matched = doctorRows.find((d) => d.id === preferredId);
+        if (matched) return matched;
+    }
+    return (
+        doctorRows.find((d) => d.title.includes('小郑')) ||
+        doctorRows.find((d) => isHealthManagerContent(d)) ||
+        doctorRows[0] ||
+        null
+    );
+};
+
 export interface InteractionItem {
     id: string;
     // Updated types: 
@@ -59,6 +76,12 @@ export interface ChatMessage {
     mediaUrl?: string;
     thumbUrl?: string;
     metadata?: { [key: string]: any };
+}
+
+export interface DeskInboxSummary {
+    userId: string;
+    unread: number;
+    lastMessage?: ChatMessage;
 }
 
 const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V4';
@@ -565,6 +588,30 @@ export const markAsRead = async (receiverId: string, senderId: string): Promise<
             console.warn('Cloud markAsRead exception, local updated only:', e);
         }
     }
+};
+
+/** 运营台总台收件箱：聚合每个用户对总台的未读与最新消息 */
+export const getDeskInboxSummaries = async (deskManagerId: string, userIds: string[]): Promise<DeskInboxSummary[]> => {
+    if (!deskManagerId || !userIds.length) return [];
+    const summaries = await Promise.all(
+        userIds.map(async (userId) => {
+            const [unread, messages] = await Promise.all([
+                getUnreadCount(deskManagerId, userId),
+                fetchMessages(userId, deskManagerId),
+            ]);
+            return {
+                userId,
+                unread,
+                lastMessage: messages[messages.length - 1],
+            } as DeskInboxSummary;
+        })
+    );
+    return summaries.sort((a, b) => {
+        const ta = a.lastMessage ? new Date(a.lastMessage.timestamp).getTime() : 0;
+        const tb = b.lastMessage ? new Date(b.lastMessage.timestamp).getTime() : 0;
+        if (tb !== ta) return tb - ta;
+        return b.unread - a.unread;
+    });
 };
 
 // --- Seed Data ---

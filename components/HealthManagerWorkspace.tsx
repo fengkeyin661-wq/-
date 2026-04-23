@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ContentItem,
     ChatMessage,
+    DeskInboxSummary,
     fetchContent,
     fetchMessages,
-    isHealthManagerContent,
+    getDeskInboxSummaries,
+    markAsRead,
+    pickDeskManager,
     saveInteraction,
     sendMessage,
 } from '../services/contentService';
@@ -20,16 +23,16 @@ export const HealthManagerWorkspace: React.FC = () => {
     const [chatInput, setChatInput] = useState('');
     const [imageUrl, setImageUrl] = useState('');
     const [selectedResourceId, setSelectedResourceId] = useState('');
-
-    const resolvePrimaryManager = (doctors: ContentItem[]): ContentItem | null => {
-        if (!doctors.length) return null;
-        return (
-            doctors.find((d) => d.title.includes('小郑')) ||
-            doctors.find((d) => isHealthManagerContent(d)) ||
-            doctors[0] ||
-            null
-        );
-    };
+    const [inboxByUser, setInboxByUser] = useState<Record<string, DeskInboxSummary>>({});
+    const [toast, setToast] = useState<string>('');
+    const inboxByUserRef = useRef(inboxByUser);
+    const archivesRef = useRef(archives);
+    useEffect(() => {
+        inboxByUserRef.current = inboxByUser;
+    }, [inboxByUser]);
+    useEffect(() => {
+        archivesRef.current = archives;
+    }, [archives]);
 
     const selectedArchive = useMemo(
         () => archives.find((a) => a.checkup_id === selectedArchiveId) || null,
@@ -39,6 +42,43 @@ export const HealthManagerWorkspace: React.FC = () => {
         () => resources.find((r) => r.id === selectedResourceId) || null,
         [resources, selectedResourceId]
     );
+    const sortedArchives = useMemo(() => {
+        return [...archives].sort((a, b) => {
+            const sa = inboxByUser[a.checkup_id];
+            const sb = inboxByUser[b.checkup_id];
+            if ((sb?.unread || 0) !== (sa?.unread || 0)) return (sb?.unread || 0) - (sa?.unread || 0);
+            const ta = sa?.lastMessage ? new Date(sa.lastMessage.timestamp).getTime() : 0;
+            const tb = sb?.lastMessage ? new Date(sb.lastMessage.timestamp).getTime() : 0;
+            return tb - ta;
+        });
+    }, [archives, inboxByUser]);
+
+    const loadInboxSummaries = async (
+        manager: ContentItem | null,
+        users: HealthArchive[],
+        previous?: Record<string, DeskInboxSummary>
+    ) => {
+        if (!manager || !users.length) {
+            setInboxByUser({});
+            return;
+        }
+        const summaries = await getDeskInboxSummaries(manager.id, users.map((u) => u.checkup_id));
+        const nextMap: Record<string, DeskInboxSummary> = {};
+        let raisedToast = '';
+        summaries.forEach((s) => {
+            nextMap[s.userId] = s;
+            const prevUnread = previous?.[s.userId]?.unread || 0;
+            if (!raisedToast && s.unread > prevUnread) {
+                const matchedUser = users.find((u) => u.checkup_id === s.userId);
+                raisedToast = `${matchedUser?.name || s.userId} 发来新消息（${s.unread}）`;
+            }
+        });
+        setInboxByUser(nextMap);
+        if (raisedToast) {
+            setToast(raisedToast);
+            window.setTimeout(() => setToast(''), 2500);
+        }
+    };
 
     const loadAll = async () => {
         setLoading(true);
@@ -49,7 +89,7 @@ export const HealthManagerWorkspace: React.FC = () => {
                 fetchContent('service', 'active'),
                 fetchContent('drug', 'active'),
             ]);
-            const uniqueManager = resolvePrimaryManager(docs);
+            const uniqueManager = pickDeskManager(docs);
             setPrimaryManager(uniqueManager);
             setArchives(allArchives);
             setResources([
@@ -57,6 +97,7 @@ export const HealthManagerWorkspace: React.FC = () => {
                 ...svc,
                 ...drug,
             ]);
+            await loadInboxSummaries(uniqueManager, allArchives, inboxByUserRef.current);
         } finally {
             setLoading(false);
         }
@@ -72,11 +113,21 @@ export const HealthManagerWorkspace: React.FC = () => {
                 setMessages([]);
                 return;
             }
+            await markAsRead(primaryManager.id, selectedArchive.checkup_id);
             const rows = await fetchMessages(selectedArchive.checkup_id, primaryManager.id);
             setMessages(rows);
+            await loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
         };
         loadMsgs();
     }, [selectedArchive?.checkup_id, primaryManager?.id]);
+
+    useEffect(() => {
+        if (!primaryManager || !archives.length) return;
+        const id = window.setInterval(() => {
+            loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
+        }, 3000);
+        return () => window.clearInterval(id);
+    }, [primaryManager?.id, archives.length]);
 
     const sendText = async () => {
         if (!selectedArchive) {
@@ -98,6 +149,7 @@ export const HealthManagerWorkspace: React.FC = () => {
         setChatInput('');
         const rows = await fetchMessages(selectedArchive.checkup_id, primaryManager.id);
         setMessages(rows);
+        await loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
     };
 
     const sendImage = async () => {
@@ -121,6 +173,7 @@ export const HealthManagerWorkspace: React.FC = () => {
         setImageUrl('');
         const rows = await fetchMessages(selectedArchive.checkup_id, primaryManager.id);
         setMessages(rows);
+        await loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
     };
 
     const sendRecommendation = async () => {
@@ -161,20 +214,26 @@ export const HealthManagerWorkspace: React.FC = () => {
         setSelectedResourceId('');
         const rows = await fetchMessages(selectedArchive.checkup_id, primaryManager.id);
         setMessages(rows);
+        await loadInboxSummaries(primaryManager, archivesRef.current, inboxByUserRef.current);
     };
 
     return (
         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 h-[calc(100vh-210px)] min-h-[560px]">
-            <h3 className="text-lg font-bold text-slate-800 mb-3">健康管家工作台</h3>
+            <h3 className="text-lg font-bold text-slate-800 mb-3">医院总台收件箱</h3>
+            {toast && (
+                <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    {toast}
+                </div>
+            )}
             <div className="grid grid-cols-12 gap-4 h-[calc(100%-36px)]">
                 <div className="col-span-3 border border-slate-200 rounded-xl p-3 flex flex-col min-h-0">
-                    <label className="text-xs font-bold text-slate-600 mb-1">健康管家（唯一）</label>
+                    <label className="text-xs font-bold text-slate-600 mb-1">医院总台账号</label>
                     <div className="border border-teal-200 bg-teal-50 rounded-lg p-2 text-sm mb-3 text-teal-800 font-bold">
-                        {primaryManager?.title || '健康管家小郑'}
+                        {primaryManager?.title || '未配置（请在医生资源中添加小郑）'}
                     </div>
-                    <div className="text-xs text-slate-500 mb-2">用户池</div>
+                    <div className="text-xs text-slate-500 mb-2">用户列表</div>
                     <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                        {archives.map((a) => (
+                        {sortedArchives.map((a) => (
                             <div
                                 key={a.checkup_id}
                                 className={`rounded-lg border p-2 cursor-pointer ${
@@ -182,8 +241,20 @@ export const HealthManagerWorkspace: React.FC = () => {
                                 }`}
                                 onClick={() => setSelectedArchiveId(a.checkup_id)}
                             >
-                                <div className="text-sm font-bold text-slate-800">{a.name}</div>
+                                <div className="flex items-center justify-between">
+                                    <div className="text-sm font-bold text-slate-800">{a.name}</div>
+                                    {(inboxByUser[a.checkup_id]?.unread || 0) > 0 && (
+                                        <span className="min-w-5 rounded-full bg-red-500 px-1.5 text-center text-[10px] font-bold text-white">
+                                            {inboxByUser[a.checkup_id].unread}
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="text-[11px] text-slate-500">{a.department} · {a.risk_level}</div>
+                                {inboxByUser[a.checkup_id]?.lastMessage && (
+                                    <div className="mt-1 truncate text-[11px] text-slate-400">
+                                        {inboxByUser[a.checkup_id].lastMessage?.content || '图片/推荐消息'}
+                                    </div>
+                                )}
                             </div>
                         ))}
                         {!archives.length && (
@@ -193,13 +264,13 @@ export const HealthManagerWorkspace: React.FC = () => {
                 </div>
                 <div className="col-span-9 border border-slate-200 rounded-xl p-3 flex flex-col min-h-0">
                     {!selectedArchive || !primaryManager ? (
-                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">请选择管家和用户</div>
+                        <div className="h-full flex items-center justify-center text-slate-400 text-sm">请选择用户</div>
                     ) : (
                         <>
                             <div className="pb-2 border-b border-slate-100">
                                 <div className="font-bold text-slate-800">{selectedArchive.name}</div>
                                 <div className="text-xs text-slate-500">
-                                    健康管家：{primaryManager.title} · {selectedArchive.phone || '无电话'}
+                                    医院总台：{primaryManager.title} · {selectedArchive.phone || '无电话'}
                                 </div>
                             </div>
                             <div className="flex-1 overflow-y-auto py-3 space-y-2">

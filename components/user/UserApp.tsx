@@ -24,6 +24,11 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const refreshUnreadCount = useCallback(async () => {
+    if (!userArchive) return;
+    const count = await getUnreadCount(userArchive.checkup_id);
+    setUnreadCount(count);
+  }, [userArchive?.checkup_id]);
 
   const resolvedUserName =
     userArchive?.name?.trim() || userArchive?.health_record?.profile?.name?.trim() || '用户';
@@ -96,18 +101,12 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   }, [initialCheckupId, loadArchiveById]);
 
   useEffect(() => {
-    const checkUnread = async () => {
-      if (!userArchive) return;
-      const count = await getUnreadCount(userArchive.checkup_id);
-      setUnreadCount(count);
-    };
-
     if (userArchive) {
-      checkUnread();
-      const interval = setInterval(checkUnread, 5000);
+      refreshUnreadCount();
+      const interval = setInterval(refreshUnreadCount, 5000);
       return () => clearInterval(interval);
     }
-  }, [userArchive?.checkup_id]);
+  }, [userArchive?.checkup_id, refreshUnreadCount]);
 
   const handleUpdateRecord = async (updatedData: any) => {
     if (!userArchive) return;
@@ -191,7 +190,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           userName={userArchive ? resolvedUserName : undefined}
           archive={userArchive ?? undefined}
           assessment={userArchive?.assessment_data}
-          onMessageRead={() => setUnreadCount(0)}
+          onMessageRead={refreshUnreadCount}
           onOpenDoctors={() => setActiveTab('doctors')}
           onOpenCommunity={() => setActiveTab('community')}
         />

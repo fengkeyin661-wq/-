@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction, isHealthManagerContent } from '../../services/contentService';
+import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction, isHealthManagerContent, pickDeskManager } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
@@ -63,20 +63,6 @@ const scoreDoctor = (doc: ContentItem, risks: string[]) => {
         if (text.includes(r.replace('风险',''))) score += 2;
     });
     return score + Math.random();
-};
-
-const pickPrimaryManager = (doctors: ContentItem[], archive?: HealthArchive): ContentItem | null => {
-    if (!doctors.length) return null;
-    if (archive?.health_manager_content_id) {
-        const assigned = doctors.find((m) => m.id === archive.health_manager_content_id);
-        if (assigned) return assigned;
-    }
-    return (
-        doctors.find((m) => m.title.includes('小郑')) ||
-        doctors.find((m) => isHealthManagerContent(m)) ||
-        doctors[0] ||
-        null
-    );
 };
 
 export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead, onOpenDoctors, onOpenCommunity }) => {
@@ -147,26 +133,35 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                     const count = await getUnreadCount(userId, sign.targetId);
                     listWithCount.push({ interaction: sign, unread: count });
                 }
-                const primaryManager = pickPrimaryManager(docs, archive);
-                if (primaryManager && !listWithCount.some((x) => x.interaction.targetId === primaryManager.id)) {
-                    const count = await getUnreadCount(userId, primaryManager.id);
-                        listWithCount.unshift({
-                            interaction: {
-                                id: `manager_link_${userId}_${primaryManager.id}`,
-                                type: 'doctor_signing',
-                                userId,
-                                userName: userName?.trim() || archive?.name?.trim() || '用户',
-                                targetId: primaryManager.id,
-                                targetName: primaryManager.title,
-                                status: 'confirmed',
-                                date: new Date().toISOString().split('T')[0],
-                                details: '健康管家会话',
-                            },
-                            unread: count,
-                            isManager: true,
-                        });
+                const deskManager = pickDeskManager(docs, archive?.health_manager_content_id);
+                if (deskManager) {
+                    const count = await getUnreadCount(userId, deskManager.id);
+                    const managerRow: DoctorWithUnread = {
+                        interaction: {
+                            id: `desk_link_${userId}_${deskManager.id}`,
+                            type: 'doctor_signing',
+                            userId,
+                            userName: userName?.trim() || archive?.name?.trim() || '用户',
+                            targetId: deskManager.id,
+                            targetName: '医院总台',
+                            status: 'confirmed',
+                            date: new Date().toISOString().split('T')[0],
+                            details: '医院总台会话',
+                        },
+                        unread: count,
+                        isManager: true,
+                    };
+                    listWithCount.splice(0, 0, managerRow);
                 }
-                setDoctorList(listWithCount);
+                const doctorRows = listWithCount
+                    .filter((x) => !x.isManager)
+                    .filter((x) => !deskManager || x.interaction.targetId !== deskManager.id)
+                    .sort((a, b) => {
+                        if (b.unread !== a.unread) return b.unread - a.unread;
+                        return new Date(b.interaction.date).getTime() - new Date(a.interaction.date).getTime();
+                    });
+                const managerRows = listWithCount.filter((x) => x.isManager);
+                setDoctorList([...managerRows, ...doctorRows]);
             }
         } catch (e) {
             console.error(e);
@@ -188,26 +183,34 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
             const count = await getUnreadCount(userId, sign.targetId);
             listWithCount.push({ interaction: sign, unread: count });
         }
-        const primaryManager = pickPrimaryManager(allDoctors, archive);
-        if (primaryManager && !listWithCount.some((x) => x.interaction.targetId === primaryManager.id)) {
-                const count = await getUnreadCount(userId, primaryManager.id);
-                listWithCount.unshift({
-                    interaction: {
-                        id: `manager_link_${userId}_${primaryManager.id}`,
-                        type: 'doctor_signing',
-                        userId,
-                        userName: userName?.trim() || archive?.name?.trim() || '用户',
-                        targetId: primaryManager.id,
-                        targetName: primaryManager.title,
-                        status: 'confirmed',
-                        date: new Date().toISOString().split('T')[0],
-                        details: '健康管家会话',
-                    },
-                    unread: count,
-                    isManager: true,
-                });
+        const deskManager = pickDeskManager(allDoctors, archive?.health_manager_content_id);
+        const managerRows: DoctorWithUnread[] = [];
+        if (deskManager) {
+            const count = await getUnreadCount(userId, deskManager.id);
+            managerRows.push({
+                interaction: {
+                    id: `desk_link_${userId}_${deskManager.id}`,
+                    type: 'doctor_signing',
+                    userId,
+                    userName: userName?.trim() || archive?.name?.trim() || '用户',
+                    targetId: deskManager.id,
+                    targetName: '医院总台',
+                    status: 'confirmed',
+                    date: new Date().toISOString().split('T')[0],
+                    details: '医院总台会话',
+                },
+                unread: count,
+                isManager: true,
+            });
         }
-        setDoctorList(listWithCount);
+        const doctorRows = listWithCount
+            .filter((x) => !x.isManager)
+            .filter((x) => !deskManager || x.interaction.targetId !== deskManager.id)
+            .sort((a, b) => {
+                if (b.unread !== a.unread) return b.unread - a.unread;
+                return new Date(b.interaction.date).getTime() - new Date(a.interaction.date).getTime();
+            });
+        setDoctorList([...managerRows, ...doctorRows]);
     };
 
     const loadMessages = async () => {
@@ -332,7 +335,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                     <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-lg shadow-inner">👨‍⚕️</div>
                     <div>
                         <h1 className="text-base font-bold text-slate-800">
-                            {activeDoctor.targetName} {isManagerChat ? '健康管家' : '医生'}
+                            {isManagerChat ? '医院总台' : `${activeDoctor.targetName} 医生`}
                         </h1>
                         <p className="text-xs font-medium text-green-600">在线</p>
                     </div>
@@ -518,7 +521,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                     </div>
                                     <div className="flex-1">
                                         <h3 className="font-bold text-slate-800">{item.interaction.targetName}</h3>
-                                        <p className="text-xs text-slate-500">{item.isManager ? '健康管家在线服务' : '点击进入咨询...'}</p>
+                                        <p className="text-xs text-slate-500">{item.isManager ? '医院总台 · 在线咨询' : '点击进入咨询...'}</p>
                                     </div>
                                     <div className="text-slate-300 text-lg">›</div>
                                 </div>
