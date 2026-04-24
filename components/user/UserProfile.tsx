@@ -190,6 +190,7 @@ export const UserProfile: React.FC<Props> = ({
         ...(archive.history_versions || []).map((v) => v.health_record),
         record,
     ];
+    const nextFollowup = (archive.follow_up_schedule || []).find((x) => x.status === 'pending');
     const trendRows = historyRecords.map((r, idx) => ({
         label: `#${idx + 1}`,
         weight: Number(r.checkup.basics.weight || 0),
@@ -271,7 +272,7 @@ export const UserProfile: React.FC<Props> = ({
     const renderFollowupView = () => {
         const followups = [...(archive.follow_ups || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
         const latest = followups[0];
-        const pending = (archive.follow_up_schedule || []).find((x) => x.status === 'pending');
+        const pending = nextFollowup;
         const latestPlan = latest?.assessment?.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '待医生更新';
         const latestIssues = latest?.assessment?.majorIssues || assessment?.summary || '暂无';
         const latestGoals = latest?.assessment?.lifestyleGoals || [];
@@ -283,7 +284,9 @@ export const UserProfile: React.FC<Props> = ({
                         <h3 className="font-bold text-slate-800 flex items-center gap-2">
                             📋 下阶段健康管理执行单
                         </h3>
-                        <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">遵医嘱执行</span>
+                        <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                            下次随访：{pending?.date || '待定'}
+                        </span>
                     </div>
                     <div className="p-5 space-y-4">
                         <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
@@ -792,7 +795,12 @@ export const UserProfile: React.FC<Props> = ({
                             </p>
                         </div>
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
-                        <MenuButton icon="📅" label="我的随访记录" desc="执行单与历史随访" onClick={() => setSubView('followup')} />
+                        <MenuButton
+                            icon="📅"
+                            label={`我的随访记录${nextFollowup?.date ? `（下次 ${nextFollowup.date}）` : ''}`}
+                            desc={nextFollowup?.date ? `执行单与历史随访 · 下次随访 ${nextFollowup.date}` : '执行单与历史随访'}
+                            onClick={() => setSubView('followup')}
+                        />
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
                         <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
                         <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请历史" onClick={() => setSubView('apps')} />

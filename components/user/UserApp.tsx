@@ -193,6 +193,64 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     };
   }, [userArchive?.checkup_id, loadArchiveById]);
 
+  useEffect(() => {
+    if (!userArchive?.checkup_id) return;
+    const next = (userArchive.follow_up_schedule || []).find((x) => x.status === 'pending');
+    if (!next?.date) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(next.date);
+    due.setHours(0, 0, 0, 0);
+    const daysLeft = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysLeft < 0) return;
+    const remindStage = daysLeft === 7 ? 'd7' : daysLeft === 3 ? 'd3' : daysLeft === 0 ? 'd0' : '';
+    if (!remindStage) return;
+
+    const remindKey = `followup_remind_${userArchive.checkup_id}_${next.date}_${remindStage}`;
+    try {
+      if (localStorage.getItem(remindKey) === '1') return;
+    } catch {
+      // ignore
+    }
+
+    const remindText =
+      remindStage === 'd0'
+        ? `今天是您的随访日期（${next.date}），请主动联系健康管家完成随访。`
+        : remindStage === 'd3'
+        ? `距离下次随访（${next.date}）还有 3 天，请提前安排。`
+        : `距离下次随访（${next.date}）还有 7 天，请提前安排。`;
+
+    const notify = async () => {
+      if (typeof window === 'undefined') return;
+      if ('Notification' in window) {
+        try {
+          if (Notification.permission === 'default') {
+            await Notification.requestPermission();
+          }
+          if (Notification.permission === 'granted') {
+            new Notification('随访提醒', {
+              body: remindText,
+              tag: `followup-${userArchive.checkup_id}-${next.date}-${remindStage}`,
+            });
+          } else {
+            alert(`【随访提醒】${remindText}`);
+          }
+        } catch {
+          alert(`【随访提醒】${remindText}`);
+        }
+      } else {
+        alert(`【随访提醒】${remindText}`);
+      }
+      try {
+        localStorage.setItem(remindKey, '1');
+      } catch {
+        // ignore
+      }
+    };
+
+    notify();
+  }, [userArchive?.checkup_id, userArchive?.follow_up_schedule]);
+
   const handleUpdateRecord = async (updatedData: any) => {
     if (!userArchive) return;
     const updatedAt = new Date().toISOString();
