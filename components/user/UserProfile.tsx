@@ -268,24 +268,73 @@ export const UserProfile: React.FC<Props> = ({
         </div>
     );
 
-    const renderFollowupView = () => (
-        <div className="p-4 space-y-6 animate-slideInRight pb-20">
-            {/* ... Execution Sheet ... */}
-            <div className="bg-white rounded-xl shadow-lg border-t-4 border-blue-500 overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-blue-50/50">
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                        📋 下阶段执行单
-                    </h3>
-                    <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
-                        遵医嘱执行
-                    </span>
+    const renderFollowupView = () => {
+        const followups = [...(archive.follow_ups || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
+        const latest = followups[0];
+        const pending = (archive.follow_up_schedule || []).find((x) => x.status === 'pending');
+        const latestPlan = latest?.assessment?.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '待医生更新';
+        const latestIssues = latest?.assessment?.majorIssues || assessment?.summary || '暂无';
+        const latestGoals = latest?.assessment?.lifestyleGoals || [];
+        const latestMessage = latest?.assessment?.doctorMessage || latest?.assessment?.riskJustification || '请持续监测并按计划执行。';
+        return (
+            <div className="p-4 space-y-6 animate-slideInRight pb-20">
+                <div className="bg-white rounded-xl shadow-lg border-t-4 border-blue-500 overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-blue-50/50">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                            📋 下阶段健康管理执行单
+                        </h3>
+                        <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">遵医嘱执行</span>
+                    </div>
+                    <div className="p-5 space-y-4">
+                        <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                            <div className="text-xs text-slate-500">建议时间</div>
+                            <div className="text-lg font-black text-slate-800">{pending?.date || '待定'}</div>
+                            <div className="mt-2 text-xs text-slate-500">具体复查项目</div>
+                            <p className="text-sm text-slate-700 leading-relaxed mt-1">{latestPlan}</p>
+                        </div>
+                        <div className="rounded-lg border border-red-100 bg-red-50 p-4">
+                            <div className="text-sm font-bold text-red-800">⚠️ 风险警示与问题</div>
+                            <p className="text-sm text-slate-700 leading-relaxed mt-2">{latestIssues}</p>
+                        </div>
+                        <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                            <div className="text-sm font-bold text-emerald-800">🏃 生活方式干预目标</div>
+                            {latestGoals.length > 0 ? (
+                                <ul className="mt-2 list-disc pl-5 text-sm text-emerald-900 space-y-1">
+                                    {latestGoals.map((g, i) => <li key={`goal-${i}`}>{g}</li>)}
+                                </ul>
+                            ) : (
+                                <p className="mt-2 text-sm text-slate-600">暂无明确目标，请先完成随访录入。</p>
+                            )}
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
+                            <div className="text-sm font-bold text-slate-700">医生寄语</div>
+                            <p className="mt-2 text-sm text-slate-600 leading-relaxed">{latestMessage}</p>
+                        </div>
+                    </div>
                 </div>
-                {/* ... existing details ... */}
+                <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm">
+                    <h3 className="font-bold text-slate-800 mb-3">随访记录历史</h3>
+                    {followups.length === 0 ? (
+                        <div className="text-sm text-slate-400 text-center py-6">暂无随访记录</div>
+                    ) : (
+                        <div className="space-y-2">
+                            {followups.map((item) => (
+                                <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-bold text-slate-800">{item.date}</span>
+                                        <span className="text-xs text-slate-500">{item.method}</span>
+                                    </div>
+                                    <div className="mt-1 text-xs text-slate-500">
+                                        血压 {item.indicators.sbp}/{item.indicators.dbp} mmHg · 血糖 {item.indicators.glucose || '-'} · 体重 {item.indicators.weight || '-'}kg
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
-            
-            {/* ... History List ... */}
-        </div>
-    );
+        );
+    };
 
     const renderPlanView = () => {
         const planFromAssessment = assessment?.managementPlan;
