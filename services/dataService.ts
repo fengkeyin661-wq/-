@@ -864,8 +864,14 @@ export const updateCriticalTrack = async (checkupId: string, trackRecord: Critic
     }
 };
 
-export const updateArchiveData = async (checkupId: string, followUps: FollowUpRecord[], schedule: ScheduledFollowUp[]): Promise<{ success: boolean; message?: string }> => {
+export const updateArchiveData = async (
+    checkupId: string,
+    followUps: FollowUpRecord[],
+    schedule: ScheduledFollowUp[],
+    options?: { assessment?: HealthAssessment }
+): Promise<{ success: boolean; message?: string }> => {
     try {
+        const nextAssessment = options?.assessment;
         // Local
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
         if (raw) {
@@ -874,6 +880,10 @@ export const updateArchiveData = async (checkupId: string, followUps: FollowUpRe
             if (idx >= 0) {
                 all[idx].follow_ups = followUps;
                 all[idx].follow_up_schedule = schedule;
+                if (nextAssessment) {
+                    all[idx].assessment_data = nextAssessment;
+                    all[idx].risk_level = nextAssessment.riskLevel;
+                }
                 all[idx].updated_at = new Date().toISOString();
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
             }
@@ -881,11 +891,16 @@ export const updateArchiveData = async (checkupId: string, followUps: FollowUpRe
 
         // DB
         if (isSupabaseConfigured()) {
-            const { error } = await supabase.from('health_archives').update({ 
+            const payload: Record<string, unknown> = {
                 follow_ups: followUps,
                 follow_up_schedule: schedule,
-                updated_at: new Date().toISOString()
-            }).eq('checkup_id', checkupId);
+                updated_at: new Date().toISOString(),
+            };
+            if (nextAssessment) {
+                payload.assessment_data = nextAssessment;
+                payload.risk_level = nextAssessment.riskLevel;
+            }
+            const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
             if (error) throw error;
         }
         return { success: true };

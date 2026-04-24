@@ -28,6 +28,36 @@ import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 
 type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
 
+/** 随访提交后：把 AI 生成的复查计划与要点合并进档案 assessment，避免界面仍读旧评估 */
+const mergeAssessmentFromFollowUpRecord = (
+  base: HealthAssessment,
+  fu: FollowUpRecord['assessment']
+): HealthAssessment => {
+  const nextItems = fu.nextCheckPlan
+    ? fu.nextCheckPlan.split(/[，,、;；\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+    : [];
+  const goals = (fu.lifestyleGoals || []).filter((g) => g && String(g).trim());
+  const baseMon = base.managementPlan?.monitoring || [];
+  const stripped = baseMon.filter((m) => !String(m).startsWith('【随访】'));
+  const monitoring =
+    goals.length > 0
+      ? [...stripped, ...goals.map((g) => `【随访】${g}`)].slice(0, 25)
+      : base.managementPlan.monitoring;
+  return {
+    ...base,
+    riskLevel: fu.riskLevel,
+    summary: (fu.majorIssues && fu.majorIssues.trim()) || base.summary,
+    followUpPlan: {
+      ...base.followUpPlan,
+      nextCheckItems: nextItems.length ? nextItems : base.followUpPlan.nextCheckItems,
+    },
+    managementPlan: {
+      ...base.managementPlan,
+      monitoring,
+    },
+  };
+};
+
 const detectPortalModeFromHostname = (): PortalMode => {
   if (typeof window === 'undefined') return 'all';
   const host = window.location.hostname.toLowerCase();
@@ -385,8 +415,15 @@ export const App: React.FC = () => {
       }
   };
 
-  const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
-      if (!healthRecord || !assessment) return;
+  const handleAddFollowUp = async (
+      record: Omit<FollowUpRecord, 'id'>
+  ): Promise<{ success: boolean; message?: string }> => {
+      if (!healthRecord) {
+          return { success: false, message: '未选择健康档案' };
+      }
+      if (!assessment) {
+          return { success: false, message: '缺少综合评估数据，无法保存随访。请先完成建档评估。' };
+      }
       const newRecord: FollowUpRecord = { ...record, id: Date.now().toString() };
       const newFollowUps = [...followUps, newRecord];
       const pendingIdx = schedule.findIndex(s => s.status === 'pending');
@@ -397,12 +434,17 @@ export const App: React.FC = () => {
       const nextItem = generateNextScheduleItem(newRecord.date, newRecord.assessment.nextCheckPlan, newRecord.assessment.riskLevel);
       newSchedule.push(nextItem);
 
-      const res = await updateArchiveData(healthRecord.profile.checkupId, newFollowUps, newSchedule);
+      const mergedAssessment = mergeAssessmentFromFollowUpRecord(assessment, newRecord.assessment);
+      const res = await updateArchiveData(healthRecord.profile.checkupId, newFollowUps, newSchedule, {
+          assessment: mergedAssessment,
+      });
       if (res.success) {
           setFollowUps(newFollowUps);
           setSchedule(newSchedule);
+          setAssessment(mergedAssessment);
           refreshArchives();
       }
+      return res;
   };
 
   const handleManualDataUpdate = async (record: FollowUpRecord | null, newSchedule: ScheduledFollowUp[]) => {
