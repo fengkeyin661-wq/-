@@ -877,6 +877,25 @@ const isHealthArchivePermissionError = (message: string): boolean => {
     );
 };
 
+const ensureAuthenticatedSessionForArchiveUpdate = async (): Promise<{ ok: boolean; message?: string }> => {
+    if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
+    try {
+        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+        if (sessionErr) return { ok: false, message: sessionErr.message };
+        if (sessionData.session) return { ok: true };
+        const { error: anonErr } = await supabase.auth.signInAnonymously();
+        if (anonErr) {
+            return {
+                ok: false,
+                message: `无法建立 Supabase authenticated 会话：${anonErr.message}`,
+            };
+        }
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, message: e?.message || '建立 Supabase 会话失败' };
+    }
+};
+
 export const updateArchiveData = async (
     checkupId: string,
     followUps: FollowUpRecord[],
@@ -926,6 +945,17 @@ export const updateArchiveData = async (
             return localPatched
                 ? { success: true }
                 : { success: false, message: '本地未找到该体检档案，无法保存随访' };
+        }
+
+        const sessionRes = await ensureAuthenticatedSessionForArchiveUpdate();
+        if (!sessionRes.ok) {
+            if (localPatched) {
+                return {
+                    success: true,
+                    message: `云端会话不可用，已仅保存到本机：${sessionRes.message || 'unknown'}`,
+                };
+            }
+            return { success: false, message: sessionRes.message || '云端会话不可用' };
         }
 
         const payload: Record<string, unknown> = {
