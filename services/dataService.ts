@@ -973,7 +973,7 @@ export const updateArchiveData = async (
                 return {
                     success: true,
                     message:
-                        '云端拒绝更新 health_archives（RLS/角色权限）。随访已写入本机缓存，多设备不同步。请在 Supabase 执行迁移 005_health_archives_fix_rls_authenticated.sql 后重试。',
+                        `云端拒绝更新 health_archives。随访已写入本机缓存，多设备不同步。原始错误：${error.message}`,
                 };
             }
             return { success: false, message: error.message };
@@ -985,7 +985,7 @@ export const updateArchiveData = async (
             return {
                 success: true,
                 message:
-                    '云端写入失败（权限）。随访已保存在本机。请执行 supabase/migrations/005_health_archives_fix_rls_authenticated.sql 修复 RLS。',
+                    `云端写入失败。随访已保存在本机。原始错误：${msg}`,
             };
         }
         return { success: false, message: msg };
