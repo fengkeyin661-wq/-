@@ -9,6 +9,7 @@ import { UserCommunity } from './UserCommunity';
 import { UserDoctors } from './UserDoctors';
 import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
+import { supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 
 const USER_SESSION_CHECKUP_KEY = 'user_portal_checkup_id';
 
@@ -116,8 +117,33 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     return () => clearInterval(interval);
   }, [userArchive?.checkup_id, loadArchiveById]);
 
+  useEffect(() => {
+    if (!userArchive?.checkup_id) return;
+    if (!isSupabaseConfigured()) return;
+    const checkupId = userArchive.checkup_id;
+    const channel = supabase
+      .channel(`archive-sync-${checkupId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'health_archives',
+          filter: `checkup_id=eq.${checkupId}`,
+        },
+        () => {
+          loadArchiveById(checkupId, true);
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userArchive?.checkup_id, loadArchiveById]);
+
   const handleUpdateRecord = async (updatedData: any) => {
     if (!userArchive) return;
+    const updatedAt = new Date().toISOString();
 
     const newCheckup = {
       ...userArchive.health_record.checkup,
@@ -144,10 +170,17 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
         ...(updatedData.riskModelExtras || {}),
       },
     };
-    setUserArchive({ ...userArchive, health_record: newRecord });
+    setUserArchive({ ...userArchive, health_record: newRecord, updated_at: updatedAt });
 
     try {
       await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
+      if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.DEV) {
+        console.log('[archive-sync] user_profile_edit submitted', {
+          checkupId: userArchive.checkup_id,
+          updatedAt,
+        });
+      }
+      await loadArchiveById(userArchive.checkup_id, true);
     } catch (e) {
       console.error('Sync failed', e);
     }

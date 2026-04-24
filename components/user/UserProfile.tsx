@@ -724,6 +724,12 @@ export const UserProfile: React.FC<Props> = ({
                             <p className="mt-3 text-xs text-slate-500">
                                 建议每周至少更新一次基础指标，便于健康管理团队动态调整干预方案。
                             </p>
+                            <p className="mt-1 text-[11px] text-slate-400">
+                                最近同步：
+                                {archive.updated_at
+                                    ? new Date(archive.updated_at).toLocaleString()
+                                    : '暂无'}
+                            </p>
                         </div>
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
                         <MenuButton icon="📅" label="我的随访记录" desc="执行单与历史随访" onClick={() => setSubView('followup')} />

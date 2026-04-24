@@ -900,10 +900,17 @@ export const updateArchiveData = async (
     checkupId: string,
     followUps: FollowUpRecord[],
     schedule: ScheduledFollowUp[],
-    options?: { assessment?: HealthAssessment }
+    options?: {
+        assessment?: HealthAssessment;
+        nextHealthRecord?: HealthRecord;
+        syncSource?: 'doctor_followup' | 'user_profile_edit' | 'system' | string;
+    }
 ): Promise<{ success: boolean; message?: string }> => {
     const nextAssessment = options?.assessment;
+    const nextHealthRecord = options?.nextHealthRecord;
+    const syncSource = options?.syncSource || 'system';
     let localPatched = false;
+    const nextUpdatedAt = new Date().toISOString();
 
     try {
         const readAll = (): HealthArchive[] => {
@@ -928,11 +935,14 @@ export const updateArchiveData = async (
                 ...base,
                 follow_ups: followUps,
                 follow_up_schedule: schedule,
-                updated_at: new Date().toISOString(),
+                updated_at: nextUpdatedAt,
             };
             if (nextAssessment) {
                 patched.assessment_data = nextAssessment;
                 patched.risk_level = nextAssessment.riskLevel;
+            }
+            if (nextHealthRecord) {
+                patched.health_record = nextHealthRecord;
             }
             const idx = all.findIndex((a) => a.checkup_id === checkupId);
             if (idx >= 0) all[idx] = patched;
@@ -961,11 +971,14 @@ export const updateArchiveData = async (
         const payload: Record<string, unknown> = {
             follow_ups: followUps,
             follow_up_schedule: schedule,
-            updated_at: new Date().toISOString(),
+            updated_at: nextUpdatedAt,
         };
         if (nextAssessment) {
             payload.assessment_data = nextAssessment;
             payload.risk_level = nextAssessment.riskLevel;
+        }
+        if (nextHealthRecord) {
+            payload.health_record = nextHealthRecord;
         }
         const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
         if (error) {
@@ -977,6 +990,15 @@ export const updateArchiveData = async (
                 };
             }
             return { success: false, message: error.message };
+        }
+        if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.DEV) {
+            console.log('[archive-sync] updateArchiveData success', {
+                checkupId,
+                syncSource,
+                updatedAt: nextUpdatedAt,
+                withAssessment: !!nextAssessment,
+                withHealthRecord: !!nextHealthRecord,
+            });
         }
         return { success: true };
     } catch (e: any) {
@@ -1136,6 +1158,13 @@ export const updateHealthRecordOnly = async (checkupId: string, healthRecord: He
             }
             const latest = await findArchiveByCheckupId(checkupId);
             if (latest) syncArchiveToLocal(latest);
+        }
+        if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.DEV) {
+            console.log('[archive-sync] updateHealthRecordOnly success', {
+                checkupId,
+                syncSource: 'user_profile_edit',
+                updatedAt,
+            });
         }
         return true;
     } catch { return false; }

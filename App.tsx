@@ -58,6 +58,65 @@ const mergeAssessmentFromFollowUpRecord = (
   };
 };
 
+/** 随访提交后：把本次核心指标沉淀到 health_record，供用户端基础指标同源读取 */
+const mergeHealthRecordFromFollowUp = (
+  base: HealthRecord,
+  follow: Omit<FollowUpRecord, 'id'>
+): HealthRecord => {
+  const indicators = follow.indicators || ({} as any);
+  const basics = base.checkup?.basics || ({} as any);
+  const labBasic = base.checkup?.labBasic || ({} as any);
+  const lipids = labBasic.lipids || {};
+  const glucose = labBasic.glucose || {};
+  const nextWeight = Number(indicators.weight || basics.weight || 0);
+  const height = Number(basics.height || 0);
+  const bmi =
+    height > 0 && nextWeight > 0 ? Number((nextWeight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
+
+  return {
+    ...base,
+    checkup: {
+      ...base.checkup,
+      basics: {
+        ...basics,
+        sbp: Number(indicators.sbp || basics.sbp || 0),
+        dbp: Number(indicators.dbp || basics.dbp || 0),
+        weight: nextWeight,
+        bmi,
+      },
+      labBasic: {
+        ...labBasic,
+        glucose: {
+          ...glucose,
+          fasting:
+            indicators.glucose != null && Number.isFinite(Number(indicators.glucose))
+              ? String(indicators.glucose)
+              : glucose.fasting,
+        },
+        lipids: {
+          ...lipids,
+          tc:
+            indicators.tc != null && Number.isFinite(Number(indicators.tc))
+              ? String(indicators.tc)
+              : lipids.tc,
+          tg:
+            indicators.tg != null && Number.isFinite(Number(indicators.tg))
+              ? String(indicators.tg)
+              : lipids.tg,
+          ldl:
+            indicators.ldl != null && Number.isFinite(Number(indicators.ldl))
+              ? String(indicators.ldl)
+              : lipids.ldl,
+          hdl:
+            indicators.hdl != null && Number.isFinite(Number(indicators.hdl))
+              ? String(indicators.hdl)
+              : lipids.hdl,
+        },
+      },
+    },
+  };
+};
+
 const detectPortalModeFromHostname = (): PortalMode => {
   if (typeof window === 'undefined') return 'all';
   const host = window.location.hostname.toLowerCase();
@@ -435,10 +494,14 @@ export const App: React.FC = () => {
       newSchedule.push(nextItem);
 
       const mergedAssessment = mergeAssessmentFromFollowUpRecord(assessment, newRecord.assessment);
+      const nextHealthRecord = mergeHealthRecordFromFollowUp(healthRecord, record);
       const res = await updateArchiveData(healthRecord.profile.checkupId, newFollowUps, newSchedule, {
           assessment: mergedAssessment,
+          nextHealthRecord,
+          syncSource: 'doctor_followup',
       });
       if (res.success) {
+          setHealthRecord(nextHealthRecord);
           setFollowUps(newFollowUps);
           setSchedule(newSchedule);
           setAssessment(mergedAssessment);
