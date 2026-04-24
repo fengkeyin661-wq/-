@@ -336,10 +336,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
             return;
         }
         autoFillForm();
+        const cloudHint = saveRes?.message ? `\n\n${saveRes.message}` : '';
         if (result?.analysisSource === 'ai') {
-            alert('随访记录已保存，并已生成AI分析执行单。');
+            alert('随访记录已保存，并已生成AI分析执行单。' + cloudHint);
         } else {
-            alert(`随访记录已保存，但AI分析未成功，当前为回退建议。原因：${result?.analysisError || '未获取到模型返回'}`);
+            alert(
+                `随访记录已保存，但AI分析未成功，当前为回退建议。原因：${result?.analysisError || '未获取到模型返回'}${cloudHint}`
+            );
         }
     } catch (e) {
         alert(`自动分析失败: ${e instanceof Error ? e.message : '未知错误'}。`);

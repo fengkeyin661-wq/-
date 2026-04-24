@@ -864,48 +864,101 @@ export const updateCriticalTrack = async (checkupId: string, trackRecord: Critic
     }
 };
 
+const isHealthArchivePermissionError = (message: string): boolean => {
+    const m = `${message || ''}`.toLowerCase();
+    return (
+        m.includes('permission denied') ||
+        m.includes('not allowed') ||
+        m.includes('role not allowed') ||
+        m.includes('rls') ||
+        m.includes('42501') ||
+        m.includes('pgrst301') ||
+        m.includes('jwt')
+    );
+};
+
 export const updateArchiveData = async (
     checkupId: string,
     followUps: FollowUpRecord[],
     schedule: ScheduledFollowUp[],
     options?: { assessment?: HealthAssessment }
 ): Promise<{ success: boolean; message?: string }> => {
+    const nextAssessment = options?.assessment;
+    let localPatched = false;
+
     try {
-        const nextAssessment = options?.assessment;
-        // Local
-        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
-        if (raw) {
-            const all: HealthArchive[] = JSON.parse(raw);
-            const idx = all.findIndex(a => a.checkup_id === checkupId);
-            if (idx >= 0) {
-                all[idx].follow_ups = followUps;
-                all[idx].follow_up_schedule = schedule;
-                if (nextAssessment) {
-                    all[idx].assessment_data = nextAssessment;
-                    all[idx].risk_level = nextAssessment.riskLevel;
-                }
-                all[idx].updated_at = new Date().toISOString();
-                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+        const readAll = (): HealthArchive[] => {
+            try {
+                const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+                return raw ? JSON.parse(raw) : [];
+            } catch {
+                return [];
             }
+        };
+
+        let all = readAll();
+        let base = all.find((a) => a.checkup_id === checkupId);
+        if (!base && isSupabaseConfigured()) {
+            await findArchiveByCheckupId(checkupId);
+            all = readAll();
+            base = all.find((a) => a.checkup_id === checkupId);
         }
 
-        // DB
-        if (isSupabaseConfigured()) {
-            const payload: Record<string, unknown> = {
+        if (base) {
+            const patched: HealthArchive = {
+                ...base,
                 follow_ups: followUps,
                 follow_up_schedule: schedule,
                 updated_at: new Date().toISOString(),
             };
             if (nextAssessment) {
-                payload.assessment_data = nextAssessment;
-                payload.risk_level = nextAssessment.riskLevel;
+                patched.assessment_data = nextAssessment;
+                patched.risk_level = nextAssessment.riskLevel;
             }
-            const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
-            if (error) throw error;
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) all[idx] = patched;
+            else all.push(patched);
+            localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            localPatched = true;
+        }
+
+        if (!isSupabaseConfigured()) {
+            return localPatched
+                ? { success: true }
+                : { success: false, message: '本地未找到该体检档案，无法保存随访' };
+        }
+
+        const payload: Record<string, unknown> = {
+            follow_ups: followUps,
+            follow_up_schedule: schedule,
+            updated_at: new Date().toISOString(),
+        };
+        if (nextAssessment) {
+            payload.assessment_data = nextAssessment;
+            payload.risk_level = nextAssessment.riskLevel;
+        }
+        const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
+        if (error) {
+            if (localPatched && isHealthArchivePermissionError(error.message)) {
+                return {
+                    success: true,
+                    message:
+                        '云端拒绝更新 health_archives（RLS/角色权限）。随访已写入本机缓存，多设备不同步。请在 Supabase 执行迁移 005_health_archives_fix_rls_authenticated.sql 后重试。',
+                };
+            }
+            return { success: false, message: error.message };
         }
         return { success: true };
     } catch (e: any) {
-        return { success: false, message: e.message };
+        const msg = e?.message || String(e);
+        if (localPatched && isHealthArchivePermissionError(msg)) {
+            return {
+                success: true,
+                message:
+                    '云端写入失败（权限）。随访已保存在本机。请执行 supabase/migrations/005_health_archives_fix_rls_authenticated.sql 修复 RLS。',
+            };
+        }
+        return { success: false, message: msg };
     }
 };
 
