@@ -37,6 +37,11 @@ export const UserProfile: React.FC<Props> = ({
     onNavigate,
     onArchiveRefresh,
 }) => {
+    const syncSourceLabel: Record<string, string> = {
+        doctor_followup: '健康管家随访',
+        user_profile_edit: '用户自主更新',
+        system: '系统同步',
+    };
     const [subView, setSubView] = useState<
         'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager'
     >('menu');
@@ -731,7 +736,10 @@ export const UserProfile: React.FC<Props> = ({
                                     : '暂无'}
                             </p>
                             <p className="mt-1 text-[11px] text-slate-400">
-                                写入来源：{archive.last_sync_source || 'unknown'}
+                                写入来源：
+                                {archive.last_sync_source
+                                    ? syncSourceLabel[archive.last_sync_source] || archive.last_sync_source
+                                    : '未知来源'}
                             </p>
                         </div>
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
