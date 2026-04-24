@@ -912,6 +912,7 @@ export const updateArchiveData = async (
     const nextHealthRecord = options?.nextHealthRecord;
     const syncSource = options?.syncSource || 'system';
     let localPatched = false;
+    let resolvedHealthRecord: HealthRecord | undefined = nextHealthRecord;
     const nextUpdatedAt = new Date().toISOString();
 
     try {
@@ -933,19 +934,78 @@ export const updateArchiveData = async (
         }
 
         if (base) {
+            const deriveRecordFromFollowUps = (record: HealthRecord, fups: FollowUpRecord[]): HealthRecord => {
+                if (!fups?.length) return record;
+                const latest = [...fups].sort((a, b) => {
+                    const ta = new Date(a.date || 0).getTime() || Number(a.id || 0);
+                    const tb = new Date(b.date || 0).getTime() || Number(b.id || 0);
+                    return tb - ta;
+                })[0];
+                const ind = latest?.indicators || ({} as any);
+                const basics = record.checkup?.basics || ({} as any);
+                const labBasic = record.checkup?.labBasic || ({} as any);
+                const lipids = labBasic.lipids || {};
+                const glucose = labBasic.glucose || {};
+                const weight = Number(ind.weight || basics.weight || 0);
+                const height = Number(basics.height || 0);
+                const bmi =
+                    height > 0 && weight > 0 ? Number((weight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
+                return {
+                    ...record,
+                    checkup: {
+                        ...record.checkup,
+                        basics: {
+                            ...basics,
+                            sbp: Number(ind.sbp || basics.sbp || 0),
+                            dbp: Number(ind.dbp || basics.dbp || 0),
+                            weight,
+                            bmi,
+                        },
+                        labBasic: {
+                            ...labBasic,
+                            glucose: {
+                                ...glucose,
+                                fasting:
+                                    ind.glucose != null && Number.isFinite(Number(ind.glucose))
+                                        ? String(ind.glucose)
+                                        : glucose.fasting,
+                            },
+                            lipids: {
+                                ...lipids,
+                                tc:
+                                    ind.tc != null && Number.isFinite(Number(ind.tc))
+                                        ? String(ind.tc)
+                                        : lipids.tc,
+                                tg:
+                                    ind.tg != null && Number.isFinite(Number(ind.tg))
+                                        ? String(ind.tg)
+                                        : lipids.tg,
+                                ldl:
+                                    ind.ldl != null && Number.isFinite(Number(ind.ldl))
+                                        ? String(ind.ldl)
+                                        : lipids.ldl,
+                                hdl:
+                                    ind.hdl != null && Number.isFinite(Number(ind.hdl))
+                                        ? String(ind.hdl)
+                                        : lipids.hdl,
+                            },
+                        },
+                    },
+                };
+            };
+            const finalHealthRecord = nextHealthRecord || deriveRecordFromFollowUps(base.health_record, followUps);
+            resolvedHealthRecord = finalHealthRecord;
             const patched: HealthArchive = {
                 ...base,
                 follow_ups: followUps,
                 follow_up_schedule: schedule,
                 updated_at: nextUpdatedAt,
                 last_sync_source: syncSource,
+                health_record: finalHealthRecord,
             };
             if (nextAssessment) {
                 patched.assessment_data = nextAssessment;
                 patched.risk_level = nextAssessment.riskLevel;
-            }
-            if (nextHealthRecord) {
-                patched.health_record = nextHealthRecord;
             }
             const idx = all.findIndex((a) => a.checkup_id === checkupId);
             if (idx >= 0) all[idx] = patched;
@@ -981,8 +1041,8 @@ export const updateArchiveData = async (
             payload.assessment_data = nextAssessment;
             payload.risk_level = nextAssessment.riskLevel;
         }
-        if (nextHealthRecord) {
-            payload.health_record = nextHealthRecord;
+        if (resolvedHealthRecord) {
+            payload.health_record = resolvedHealthRecord;
         }
         const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
         if (error) {

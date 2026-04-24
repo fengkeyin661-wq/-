@@ -61,9 +61,61 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
       try {
         const archive = await findArchiveByCheckupId(checkupId);
         if (archive) {
-          setUserArchive(archive);
-          syncArchiveToLocal(archive);
-          persistSessionCheckupId(archive.checkup_id);
+          const hydrateFromLatestFollowUp = (a: HealthArchive): HealthArchive => {
+            const fups = a.follow_ups || [];
+            if (!fups.length) return a;
+            const latest = [...fups].sort((x, y) => {
+              const tx = new Date(x.date || 0).getTime() || Number(x.id || 0);
+              const ty = new Date(y.date || 0).getTime() || Number(y.id || 0);
+              return ty - tx;
+            })[0];
+            const ind = latest?.indicators || ({} as any);
+            const basics = a.health_record?.checkup?.basics || ({} as any);
+            const labBasic = a.health_record?.checkup?.labBasic || ({} as any);
+            const lipids = labBasic.lipids || {};
+            const glucose = labBasic.glucose || {};
+            if (!ind || (!ind.sbp && !ind.dbp && !ind.glucose && !ind.weight && !ind.tc && !ind.tg && !ind.ldl && !ind.hdl)) {
+              return a;
+            }
+            const weight = Number(ind.weight || basics.weight || 0);
+            const height = Number(basics.height || 0);
+            const bmi = height > 0 && weight > 0 ? Number((weight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
+            return {
+              ...a,
+              health_record: {
+                ...a.health_record,
+                checkup: {
+                  ...a.health_record.checkup,
+                  basics: {
+                    ...basics,
+                    sbp: Number(ind.sbp || basics.sbp || 0),
+                    dbp: Number(ind.dbp || basics.dbp || 0),
+                    weight,
+                    bmi,
+                  },
+                  labBasic: {
+                    ...labBasic,
+                    glucose: {
+                      ...glucose,
+                      fasting: ind.glucose != null && Number.isFinite(Number(ind.glucose)) ? String(ind.glucose) : glucose.fasting,
+                    },
+                    lipids: {
+                      ...lipids,
+                      tc: ind.tc != null && Number.isFinite(Number(ind.tc)) ? String(ind.tc) : lipids.tc,
+                      tg: ind.tg != null && Number.isFinite(Number(ind.tg)) ? String(ind.tg) : lipids.tg,
+                      ldl: ind.ldl != null && Number.isFinite(Number(ind.ldl)) ? String(ind.ldl) : lipids.ldl,
+                      hdl: ind.hdl != null && Number.isFinite(Number(ind.hdl)) ? String(ind.hdl) : lipids.hdl,
+                    },
+                  },
+                },
+              },
+              last_sync_source: a.last_sync_source || 'doctor_followup',
+            };
+          };
+          const hydrated = hydrateFromLatestFollowUp(archive);
+          setUserArchive(hydrated);
+          syncArchiveToLocal(hydrated);
+          persistSessionCheckupId(hydrated.checkup_id);
         } else {
           setUserArchive(null);
           clearSessionCheckupId();
