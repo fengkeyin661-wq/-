@@ -118,6 +118,8 @@ export interface HealthArchive {
     }[];
     created_at: string;
     updated_at?: string;
+    /** 最近一次写入来源：doctor_followup / user_profile_edit / system */
+    last_sync_source?: string;
 
     /** bcrypt hash after user changes password; empty = login with default (体检编号) */
     password_hash?: string | null;
@@ -936,6 +938,7 @@ export const updateArchiveData = async (
                 follow_ups: followUps,
                 follow_up_schedule: schedule,
                 updated_at: nextUpdatedAt,
+                last_sync_source: syncSource,
             };
             if (nextAssessment) {
                 patched.assessment_data = nextAssessment;
@@ -972,6 +975,7 @@ export const updateArchiveData = async (
             follow_ups: followUps,
             follow_up_schedule: schedule,
             updated_at: nextUpdatedAt,
+            last_sync_source: syncSource,
         };
         if (nextAssessment) {
             payload.assessment_data = nextAssessment;
@@ -1134,7 +1138,11 @@ export const publishHealthDraft = async (
     }
 };
 
-export const updateHealthRecordOnly = async (checkupId: string, healthRecord: HealthRecord): Promise<boolean> => {
+export const updateHealthRecordOnly = async (
+    checkupId: string,
+    healthRecord: HealthRecord,
+    syncSource: string = 'user_profile_edit'
+): Promise<boolean> => {
     try {
         const updatedAt = new Date().toISOString();
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
@@ -1144,13 +1152,15 @@ export const updateHealthRecordOnly = async (checkupId: string, healthRecord: He
             if (idx >= 0) {
                 all[idx].health_record = healthRecord;
                 all[idx].updated_at = updatedAt;
+                all[idx].last_sync_source = syncSource;
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
             }
         }
         if (isSupabaseConfigured()) {
             const { error } = await supabase.from('health_archives').update({
                 health_record: healthRecord,
-                updated_at: updatedAt
+                updated_at: updatedAt,
+                last_sync_source: syncSource,
             }).eq('checkup_id', checkupId);
             if (error) {
                 console.error('updateHealthRecordOnly cloud error:', error);
@@ -1162,7 +1172,7 @@ export const updateHealthRecordOnly = async (checkupId: string, healthRecord: He
         if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.DEV) {
             console.log('[archive-sync] updateHealthRecordOnly success', {
                 checkupId,
-                syncSource: 'user_profile_edit',
+                syncSource,
                 updatedAt,
             });
         }

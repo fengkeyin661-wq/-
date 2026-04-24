@@ -730,6 +730,9 @@ export const UserProfile: React.FC<Props> = ({
                                     ? new Date(archive.updated_at).toLocaleString()
                                     : '暂无'}
                             </p>
+                            <p className="mt-1 text-[11px] text-slate-400">
+                                写入来源：{archive.last_sync_source || 'unknown'}
+                            </p>
                         </div>
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
                         <MenuButton icon="📅" label="我的随访记录" desc="执行单与历史随访" onClick={() => setSubView('followup')} />
