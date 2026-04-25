@@ -295,17 +295,59 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     }
 };
 
+/** 将 AI 可能输出的 A1/A2、B1/B2 等统一为界面识别的 [A类] / [B类]，并校正 isCritical */
+export const normalizeCriticalAssessment = (ass: HealthAssessment): HealthAssessment => {
+    let w = (ass.criticalWarning || '').trim();
+    if (!w) {
+        return { ...ass, isCritical: !!ass.isCritical };
+    }
+    // 全角括号、数字统一
+    w = w
+        .replace(/【\s*A\s*[12１２]?\s*类\s*】/gi, '[A类]')
+        .replace(/【\s*B\s*[12１２]?\s*类\s*】/gi, '[B类]')
+        .replace(/\[[\s]*A\s*[12１２]?\s*类\s*\]/gi, '[A类]')
+        .replace(/\[[\s]*B\s*[12１２]?\s*类\s*\]/gi, '[B类]');
+    // 若正文仍含「A1类」等字样，再收一道（不破坏括号后的描述）
+    w = w.replace(/\bA\s*[12]\s*类\b/gi, 'A类').replace(/\bB\s*[12]\s*类\b/gi, 'B类');
+    const hasAbnormalTier = /\[A类\]|\[B类\]/.test(w);
+    const isCritical = ass.isCritical === true || hasAbnormalTier;
+    return { ...ass, criticalWarning: w, isCritical };
+};
+
 export const generateHealthAssessment = async (rec: HealthRecord): Promise<HealthAssessment> => {
     const prompt = `
-    作为资深全科医生，请根据以下健康档案生成一份风险评估报告。
+    你是资深全科医生。请根据以下体检/健康档案数据，生成风险评估报告。
     数据：${JSON.stringify(rec)}
+
+    【重要异常结果 / 危急值分层 — 仅两档，禁止再细分】
+    本系统只使用 **A类** 与 **B类** 两档（不要输出 A1、A2、B1、B2 等子类；若你认为属于原 A1/A2 一律标为 A类，原 B1/B2 一律标为 B类）。
+
+    - **A类（危急值）**：需尽快（通常当天）临床处置或紧急联系受检者，可能危及生命或重要器官功能。参考（结合年龄与临床背景综合判断，有则标 A类）：
+      · 血压：收缩压 ≥180 和/或 舒张压 ≥120 mmHg（高血压危象倾向）
+      · 空腹血糖 ≤3.0 或 ≥16.7 mmol/L；随机血糖明显极高伴症状风险
+      · 血钾 ≥6.0 或 ≤2.8 mmol/L（若报告中有电解质）
+      · 血钠 ≤120 或 ≥160 mmol/L（若有）
+      · 心肌酶/肌钙蛋白明显升高提示急性心肌损伤（若有）
+      · 血红蛋白 ≤60 g/L 或 ≥200 g/L（若有）；血小板 ≤20×10^9/L（若有）
+      · 急性脑卒中征象、严重胸痛、意识障碍等文本描述（若有）
+    - **B类（重要异常）**：不属即刻生命威胁，但需在数日～2 周内安排复查或专科随访。参考：
+      · 血压持续 ≥160/100 但未达 A 类阈值
+      · 空腹血糖 7.0～16.6 或 HbA1c 明显升高（若有）
+      · 血脂多项明显升高、肝肾功能轻中度异常、尿蛋白阳性、肿瘤标志物明显升高等需复查确认者
+      · 影像/心电图「建议进一步检查」类中度异常
+
+    【输出规则】
+    1) 若无 A/B 类重要异常：isCritical 为 false，criticalWarning 为空字符串 ""。
+    2) 若有任一项 A 或 B 类：isCritical 为 true，criticalWarning **必须以** "[A类] " 或 "[B类] " 开头（英文方括号），后接 80 字内说明（指标名 + 数值 + 建议动作）。
+    3) 若同时存在 A 与 B 类问题：以更高优先级 **A类** 作为前缀，正文中可简述 B 类异常。
+    4) riskLevel 仍填 GREEN / YELLOW / RED（综合风险），可与 isCritical 独立。
     
     请严格返回 JSON 格式:
     {
       "riskLevel": "GREEN" | "YELLOW" | "RED",
       "summary": "综合评估摘要(150字以内)",
       "isCritical": boolean,
-      "criticalWarning": "如有危急值请说明，否则为空",
+      "criticalWarning": "无异常时为空字符串；有则必须以 [A类] 或 [B类] 开头",
       "risks": { "red": ["高危因素1"], "yellow": ["中危因素1"], "green": ["良好指标"] },
       "managementPlan": {
          "dietary": ["饮食建议1", "饮食建议2"],
@@ -322,7 +364,8 @@ export const generateHealthAssessment = async (rec: HealthRecord): Promise<Healt
 
     try {
         const jsonText = await callDeepSeek("你是一个辅助医生进行健康评估的AI。", prompt);
-        return JSON.parse(jsonText || '{}') as HealthAssessment;
+        const parsed = JSON.parse(jsonText || '{}') as HealthAssessment;
+        return normalizeCriticalAssessment(parsed);
     } catch (e) {
         console.error("Assessment Gen Failed", e);
         return {
