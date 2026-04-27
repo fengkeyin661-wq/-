@@ -2,6 +2,25 @@ import { supabase } from './supabaseClient';
 
 const normalizePhone = (phone: string) => phone.replace(/[\s\-]/g, '').trim();
 
+const mapAuthErrorMessage = (message?: string): string => {
+  const msg = String(message || '').trim();
+  const lower = msg.toLowerCase();
+  if (!msg) return '认证失败，请稍后重试';
+  if (lower.includes('phone signups are disabled')) {
+    return '系统未开启手机号注册（Phone signups are disabled）。请联系管理员在 Supabase Auth > Providers 中启用 Phone。';
+  }
+  if (lower.includes('signups not allowed')) {
+    return '当前环境未开放注册，请联系管理员开启注册功能。';
+  }
+  if (lower.includes('invalid phone')) {
+    return '手机号格式不正确，请检查后重试。';
+  }
+  if (lower.includes('user already registered') || lower.includes('already been registered')) {
+    return '该手机号已注册，请直接登录。';
+  }
+  return msg;
+};
+
 export type AuthLoginResult =
   | { success: true; checkupId: string; role?: string }
   | { success: true; checkupId: ''; role?: string; needsArchiveBinding: true }
@@ -22,7 +41,7 @@ export const signInWithPhonePassword = async (
     phone: p,
     password,
   });
-  if (error) return { success: false, message: error.message || '登录失败' };
+  if (error) return { success: false, message: mapAuthErrorMessage(error.message) };
 
   const appMeta = data.user?.app_metadata || {};
   const checkupId = String(appMeta.checkup_id || '').trim();
@@ -50,7 +69,7 @@ export const signUpWithPhonePassword = async (
       },
     },
   });
-  if (error) return { success: false, message: error.message || '注册失败' };
+  if (error) return { success: false, message: mapAuthErrorMessage(error.message) };
 
   const needsConfirmation = !data.session;
   return {
