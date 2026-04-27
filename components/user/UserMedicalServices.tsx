@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { fetchContent, ContentItem, saveInteraction, InteractionItem, fetchInteractions } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
-import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
+import { SLOT_MAP, getNextMonthSlotsForDoctor, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
 
 interface Props {
     userId: string;
@@ -52,6 +52,8 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
     // Appointment Time Modal State
     const [showBookingModal, setShowBookingModal] = useState(false);
     const [bookingDoctor, setBookingDoctor] = useState<ContentItem | null>(null);
+    const [showServiceBookingModal, setShowServiceBookingModal] = useState(false);
+    const [bookingService, setBookingService] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         const load = async () => {
@@ -107,8 +109,14 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
             details = `预约药品，规格: ${target.details?.spec}`;
         } else if (type === 'booking' && target.type === 'service') {
             interactionType = 'service_booking';
+            if (!timeSlot) {
+                setBookingService(target);
+                setShowServiceBookingModal(true);
+                setSelectedItem(null);
+                return;
+            }
             confirmMsg = `确定预约服务【${target.title}】吗？`;
-            details = `服务预约，价格: ${target.details?.price || 0}`;
+            details = `服务预约：${timeSlot}，价格: ${target.details?.price || 0}`;
         }
 
         if(confirm(confirmMsg)) {
@@ -126,7 +134,9 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
             alert("申请已提交，请等待审核。");
             setSelectedItem(null);
             setShowBookingModal(false);
+            setShowServiceBookingModal(false);
             setBookingDoctor(null);
+            setBookingService(null);
             // Refresh interactions to update quotas
             fetchInteractions().then(setAllInteractions);
         }
@@ -142,6 +152,18 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
         ).length;
         
         const quota = bookingDoctor?.details?.slotQuotas?.[slot.dayKey]?.[slot.slotId] || 10;
+        return { count, quota, full: count >= quota };
+    };
+
+    const getServiceSlotUsage = (serviceId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
+        const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+        const count = allInteractions.filter(i =>
+            i.type === 'service_booking' &&
+            i.targetId === serviceId &&
+            i.status !== 'cancelled' &&
+            i.details?.includes(fragment)
+        ).length;
+        const quota = getServiceSlotQuota(bookingService?.details, slot.dayKey, slot.slotId);
         return { count, quota, full: count >= quota };
     };
 
@@ -324,6 +346,62 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                         </div>
                         
                         <button onClick={() => setShowBookingModal(false)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm active:scale-95 transition-transform">取消</button>
+                    </div>
+                </div>
+            )}
+            {showServiceBookingModal && bookingService && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setShowServiceBookingModal(false)}>
+                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择服务时间</h3>
+                        <p className="text-xs text-slate-400 text-center mb-6">预约服务：{bookingService.title}</p>
+
+                        <div className="flex-1 overflow-y-auto space-y-3 pb-6">
+                            {(() => {
+                                const monthSlots = getNextMonthSlotsForService(bookingService);
+                                if (!monthSlots.length) {
+                                    return (
+                                        <div className="text-center py-10">
+                                            <div className="text-4xl mb-3 opacity-20">📅</div>
+                                            <p className="text-sm text-slate-400">该服务暂未配置可预约时间<br/>请联系医院后续开通</p>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {monthSlots.map((slot) => {
+                                            const { count, quota, full } = getServiceSlotUsage(bookingService.id, slot);
+                                            return (
+                                                <button
+                                                    key={`${slot.dateKey}-${slot.slotId}`}
+                                                    disabled={full}
+                                                    onClick={() =>
+                                                        handleInteract(
+                                                            'booking',
+                                                            bookingService,
+                                                            `${slot.displayDate}${SLOT_MAP[slot.slotId]}`
+                                                        )
+                                                    }
+                                                    className={`border p-4 rounded-2xl flex items-center justify-between transition-all text-left ${
+                                                        full
+                                                            ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50 grayscale'
+                                                            : 'border-slate-100 bg-slate-50 hover:bg-purple-50 hover:border-purple-200'
+                                                    }`}
+                                                >
+                                                    <span className="font-bold text-slate-700">
+                                                        {slot.displayDate} · {SLOT_MAP[slot.slotId]}
+                                                    </span>
+                                                    <span className={`text-xs font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                        {full ? '约满' : `余 ${quota - count} 位`}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                        <button onClick={() => setShowServiceBookingModal(false)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm active:scale-95 transition-transform">取消</button>
                     </div>
                 </div>
             )}

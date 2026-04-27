@@ -30,6 +30,9 @@ export type DoctorMonthSlot = {
   slotId: string;
 };
 
+type WeeklyScheduleLike = Record<string, string[]>;
+type SlotQuotaLike = Record<string, Record<string, number>>;
+
 function formatLocalDateKey(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -49,6 +52,20 @@ export function parseScheduleClosedDates(details?: { [key: string]: unknown }): 
   }
   return set;
 }
+
+export function parseServiceClosedDates(details?: { [key: string]: unknown }): Set<string> {
+  const raw = details?.serviceClosedDates;
+  if (!Array.isArray(raw)) return new Set();
+  const set = new Set<string>();
+  for (const x of raw) {
+    if (typeof x !== 'string') continue;
+    const s = x.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) set.add(s);
+  }
+  return set;
+}
+
+export type ServiceMonthSlot = DoctorMonthSlot;
 
 /**
  * 从今天起若干天内，按周计划展开可预约时段；排除 scheduleClosedDates 中的日期。
@@ -80,4 +97,42 @@ export function getNextMonthSlotsForDoctor(
     daySlots.forEach((slotId) => slots.push({ dateKey, displayDate, dayKey, slotId }));
   }
   return slots;
+}
+
+export function getNextMonthSlotsForService(
+  service: Pick<ContentItem, 'details'>,
+  options?: { horizonDays?: number; from?: Date }
+): ServiceMonthSlot[] {
+  const weekly = (service.details?.serviceWeeklySchedule || {}) as WeeklyScheduleLike;
+  const closed = parseServiceClosedDates(service.details);
+  const horizon = options?.horizonDays ?? 30;
+  const today = options?.from ? new Date(options.from) : new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const slots: ServiceMonthSlot[] = [];
+  for (let i = 0; i < horizon; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const dateKey = formatLocalDateKey(d);
+    if (closed.has(dateKey)) continue;
+
+    const dayKey = DAY_INDEX_TO_KEY[d.getDay()];
+    const daySlots: string[] = weekly[dayKey] || [];
+    if (!daySlots.length) continue;
+
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const displayDate = `${mm}-${dd} ${DAY_MAP[dayKey]}`;
+    daySlots.forEach((slotId) => slots.push({ dateKey, displayDate, dayKey, slotId }));
+  }
+  return slots;
+}
+
+export function getServiceSlotQuota(
+  details: Record<string, any> | undefined,
+  dayKey: string,
+  slotId: string
+): number {
+  const quotas = (details?.serviceSlotQuotas || {}) as SlotQuotaLike;
+  return quotas?.[dayKey]?.[slotId] || 10;
 }

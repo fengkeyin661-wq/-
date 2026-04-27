@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
+import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
 
 interface Props {
     userId?: string;
@@ -84,6 +85,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
     const [searchTerm, setSearchTerm] = useState('');
     
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
+    const [bookingService, setBookingService] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         loadData();
@@ -215,10 +217,16 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         setSelectedItem(null);
     };
 
-    const handleBookService = async (service: ContentItem) => {
+    const handleBookService = async (service: ContentItem, timeSlot?: string) => {
         if (!userId || !userName) return alert("请先登录");
-        
-        if (confirm(`确定预约【${service.title}】吗？`)) {
+
+        if (!timeSlot) {
+            setBookingService(service);
+            setSelectedItem(null);
+            return;
+        }
+
+        if (confirm(`确定预约【${service.title}】在【${timeSlot}】吗？`)) {
             await saveInteraction({
                 id: `service_${Date.now()}`,
                 type: 'service_booking',
@@ -227,11 +235,25 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                 targetName: service.title,
                 status: 'pending',
                 date: new Date().toISOString().split('T')[0],
-                details: `服务预约，价格: ${service.details?.price || '免费'}`
+                details: `服务预约：${timeSlot}，价格: ${service.details?.price || '免费'}`
             });
             alert("预约申请已提交！");
             setSelectedItem(null);
+            setBookingService(null);
+            loadData();
         }
+    };
+
+    const getServiceSlotUsage = (serviceId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
+        const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+        const count = allInteractions.filter(i =>
+            i.type === 'service_booking' &&
+            i.targetId === serviceId &&
+            i.status !== 'cancelled' &&
+            i.details?.includes(fragment)
+        ).length;
+        const quota = getServiceSlotQuota(bookingService?.details, slot.dayKey, slot.slotId);
+        return { count, quota, full: count >= quota };
     };
 
     // Filter and Sort
@@ -592,6 +614,49 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                 </button>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+            {bookingService && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setBookingService(null)}>
+                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择服务时间</h3>
+                        <p className="text-xs text-slate-400 text-center mb-6">预约服务：{bookingService.title}</p>
+                        <div className="flex-1 overflow-y-auto space-y-3 pb-6">
+                            {(() => {
+                                const monthSlots = getNextMonthSlotsForService(bookingService);
+                                if (!monthSlots.length) {
+                                    return (
+                                        <div className="text-center py-10">
+                                            <div className="text-4xl mb-3 opacity-20">📅</div>
+                                            <p className="text-sm text-slate-400">该服务暂未配置可预约时间<br/>请联系医院后续开通</p>
+                                        </div>
+                                    );
+                                }
+                                return monthSlots.map((slot) => {
+                                    const { count, quota, full } = getServiceSlotUsage(bookingService.id, slot);
+                                    return (
+                                        <button
+                                            key={`${slot.dateKey}-${slot.slotId}`}
+                                            disabled={full}
+                                            onClick={() => handleBookService(bookingService, `${slot.displayDate}${SLOT_MAP[slot.slotId]}`)}
+                                            className={`w-full border p-4 rounded-2xl flex items-center justify-between transition-all text-left ${
+                                                full
+                                                    ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50 grayscale'
+                                                    : 'border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200'
+                                            }`}
+                                        >
+                                            <span className="font-bold text-slate-700">{slot.displayDate} · {SLOT_MAP[slot.slotId]}</span>
+                                            <span className={`text-xs font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                {full ? '约满' : `余 ${quota - count} 位`}
+                                            </span>
+                                        </button>
+                                    );
+                                });
+                            })()}
+                        </div>
+                        <button onClick={() => setBookingService(null)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm">取消</button>
                     </div>
                 </div>
             )}
