@@ -163,6 +163,25 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
         return result;
     }, [allResources, assessment]);
 
+    const getServiceEarliestSlotLabel = (service: ContentItem): string => {
+        const slots = getNextMonthSlotsForService(service);
+        for (const slot of slots) {
+            const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+            const count = allInteractions.filter(i =>
+                i.type === 'service_booking' &&
+                i.targetId === service.id &&
+                i.status !== 'cancelled' &&
+                i.details?.includes(fragment)
+            ).length;
+            const quota = getServiceSlotQuota(service.details, slot.dayKey, slot.slotId);
+            if (count < quota) {
+                const mmdd = slot.displayDate.split(' ')[0];
+                return `最早可约：${mmdd} ${SLOT_MAP[slot.slotId]}`;
+            }
+        }
+        return '当前无可预约时段';
+    };
+
     const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
         if (!userCheckupId || !userName) {
             return alert('请先在底部「我的」登录后再报名/预约/收藏');
@@ -315,6 +334,9 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                                 />
                                                 <h3 className="font-bold text-slate-800 text-sm mb-1 line-clamp-1">{item.title}</h3>
                                                 <p className="mb-2 line-clamp-1 text-xs font-medium text-teal-600">{reason}</p>
+                                                {item.type === 'service' && (
+                                                    <p className="mb-2 line-clamp-1 text-[11px] font-semibold text-blue-600">{getServiceEarliestSlotLabel(item)}</p>
+                                                )}
                                                 <div className="flex flex-wrap gap-1">
                                                     {item.tags.slice(0, 2).map(t => (
                                                         <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{t}</span>
@@ -356,6 +378,9 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                             )}
                                         </div>
                                         <p className="mb-2 text-xs font-medium text-teal-600">{reason}</p>
+                                        {item.type === 'service' && (
+                                            <p className="mb-2 text-[11px] font-semibold text-blue-600">{getServiceEarliestSlotLabel(item)}</p>
+                                        )}
                                         <p className="text-xs text-slate-500 line-clamp-2">{item.description || '暂无简介'}</p>
                                     </div>
                                 </div>

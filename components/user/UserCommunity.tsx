@@ -277,6 +277,25 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks)).slice(0, 12);
     }, [allServices, searchTerm, risks]);
 
+    const getServiceEarliestSlotLabel = (service: ContentItem): string => {
+        const slots = getNextMonthSlotsForService(service);
+        for (const slot of slots) {
+            const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+            const count = allInteractions.filter(i =>
+                i.type === 'service_booking' &&
+                i.targetId === service.id &&
+                i.status !== 'cancelled' &&
+                i.details?.includes(fragment)
+            ).length;
+            const quota = getServiceSlotQuota(service.details, slot.dayKey, slot.slotId);
+            if (count < quota) {
+                const mmdd = slot.displayDate.split(' ')[0];
+                return `最早可约：${mmdd} ${SLOT_MAP[slot.slotId]}`;
+            }
+        }
+        return '当前无可预约时段';
+    };
+
     const filteredCircles = useMemo(() => {
         let list = allCircles;
         if (searchTerm) list = list.filter(c => c.title.includes(searchTerm));
@@ -474,6 +493,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                         </span>
                                                         <span className="text-xs text-slate-400">{svc.details?.categoryL1 || '便民服务'}</span>
                                                     </div>
+                                                    <div className="mt-1 text-[11px] font-semibold text-blue-600 line-clamp-1">{getServiceEarliestSlotLabel(svc)}</div>
                                                 </div>
                                             </div>
                                         ))

@@ -176,6 +176,25 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
         return matchesSearch && matchesCategory;
     });
 
+    const getServiceEarliestSlotLabel = (service: ContentItem): string => {
+        const slots = getNextMonthSlotsForService(service);
+        for (const slot of slots) {
+            const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+            const count = allInteractions.filter(i =>
+                i.type === 'service_booking' &&
+                i.targetId === service.id &&
+                i.status !== 'cancelled' &&
+                i.details?.includes(fragment)
+            ).length;
+            const quota = getServiceSlotQuota(service.details, slot.dayKey, slot.slotId);
+            if (count < quota) {
+                const mmdd = slot.displayDate.split(' ')[0];
+                return `最早可约：${mmdd} ${SLOT_MAP[slot.slotId]}`;
+            }
+        }
+        return '当前无可预约时段';
+    };
+
     return (
         <div className="bg-[#F8FAFC] min-h-full pb-20">
             <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-md px-6 py-4 border-b border-slate-100">
@@ -232,6 +251,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, assessm
                                         imgClassName="h-full w-full rounded-2xl object-cover"
                                     />
                                     <div className="font-bold text-sm text-slate-800 line-clamp-1">{s.title}</div>
+                                    <div className="text-[10px] text-blue-600 font-semibold line-clamp-1">{getServiceEarliestSlotLabel(s)}</div>
                                 </div>
                                 <div className="flex justify-center"><span className="text-[10px] bg-slate-50 text-slate-500 px-2 py-1 rounded-full">{s.details?.price ? `¥${s.details.price}` : '免费'}</span></div>
                             </div>
