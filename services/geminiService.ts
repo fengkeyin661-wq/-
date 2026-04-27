@@ -129,6 +129,210 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
     }
 };
 
+const SCORE_MAP: Record<string, number> = {
+    '完全不会': 0,
+    '好几天': 1,
+    '一半以上天数': 2,
+    '一半以上': 2,
+    '几乎每一天': 3,
+    '几乎每天': 3,
+    'A.完全不会': 0,
+    'B.好几天': 1,
+    'C.一半以上天数': 2,
+    'C.一半以上': 2,
+    'D.几乎每一天': 3,
+    'D.几乎每天': 3,
+    '0': 0,
+    '1': 1,
+    '2': 2,
+    '3': 3
+};
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stripOptionPrefix = (s: string) => (s || '').replace(/^[A-DＡ-Ｄ][\.\、]\s*/, '').trim();
+
+const splitRow = (line: string, delimiter: '\t' | ','): string[] => {
+    if (delimiter === '\t') return line.split('\t').map(v => v.trim());
+    return line
+        .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+        .map(v => v.trim());
+};
+
+const unquote = (s: string) => s.replace(/^['"\s]+|['"\s]+$/g, '');
+
+const extractTabularColumns = (raw: string): Record<string, string> => {
+    const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return {};
+
+    const headerIdx = lines.findIndex(l => l.includes('1.体检编号') && l.includes('2.性别'));
+    if (headerIdx < 0 || headerIdx + 1 >= lines.length) return {};
+
+    const headerLine = lines[headerIdx];
+    const valueLine = lines[headerIdx + 1];
+    const delimiter: '\t' | ',' = headerLine.includes('\t') ? '\t' : ',';
+    const headers = splitRow(headerLine, delimiter);
+    const values = splitRow(valueLine, delimiter);
+    const map: Record<string, string> = {};
+    const n = Math.min(headers.length, values.length);
+    for (let i = 0; i < n; i++) {
+        const h = unquote(headers[i]);
+        if (!h) continue;
+        map[h] = unquote(values[i]);
+    }
+    return map;
+};
+
+const extractCheckupIdFromRaw = (raw: string): string | undefined => {
+    const labelMatch = raw.match(/(?:体检编号|编号|检号)\s*[:：]?\s*([A-Za-z0-9_-]{4,24})/);
+    if (labelMatch?.[1]) return labelMatch[1].trim();
+
+    const lines = raw.split(/\r?\n/).slice(0, 200);
+    for (const line of lines) {
+        if (!/(体检编号|编号|检号)/.test(line)) continue;
+        const tokenMatch = line.match(/([A-Za-z0-9_-]{4,24})/g);
+        if (tokenMatch?.length) {
+            const candidate = tokenMatch.find(t => !/(体检编号|编号|sheet|page)/i.test(t));
+            if (candidate) return candidate.trim();
+        }
+    }
+
+    return undefined;
+};
+
+const normalizeCheckupId = (aiId: string | undefined, raw: string): string => {
+    const cols = extractTabularColumns(raw);
+    const idFromCol = cols['1.体检编号'];
+    if (idFromCol) return idFromCol.replace(/\s+/g, '');
+
+    const cleanedAiId = (aiId || '').trim();
+    const ruleId = extractCheckupIdFromRaw(raw);
+    if (ruleId) return ruleId;
+    if (cleanedAiId && cleanedAiId.length <= 24) return cleanedAiId;
+    return '';
+};
+
+const extractMatrixScores = (raw: string, stems: string[]): Array<number | null> => {
+    return stems.map((stem) => {
+        const p1 = new RegExp(`${escapeRegex(stem)}[\\s\\S]{0,60}?(完全不会|好几天|一半以上天数|一半以上|几乎每一天|几乎每天|[0-3])`, 'i');
+        const m1 = raw.match(p1);
+        if (m1?.[1] !== undefined) {
+            const key = m1[1].trim();
+            if (SCORE_MAP[key] !== undefined) return SCORE_MAP[key];
+        }
+        return null;
+    });
+};
+
+const maybePatchMentalScalesFromRaw = (raw: string, record: HealthRecord) => {
+    const q = record.questionnaire.mentalScales || {};
+    const hasBothScores = q.phq9Score !== undefined && q.gad7Score !== undefined;
+    if (hasBothScores) return;
+
+    const phqStems = [
+        '做事时提不起劲或没有兴趣',
+        '感到心情低落、沮丧或绝望',
+        '入睡困难、睡不安稳或睡眠过多',
+        '感到疲倦或没有活力',
+        '食欲不振或吃太多',
+        '觉得自己很失败',
+        '对事物专注有困难',
+        '动作或说话速度缓慢到别人已经察觉',
+        '有不如死掉或用某种方式伤害自己的念头'
+    ];
+    const gadStems = [
+        '做事感觉神经质、焦虑或急切',
+        '不能停止或无法控制担忧',
+        '对各种各样的事情担忧过多',
+        '很难放松下来',
+        '由于坐立不安而很难坐得住',
+        '容易烦恼或急躁',
+        '感到害怕，好像有什么可怕的事情要发生'
+    ];
+
+    const cols = extractTabularColumns(raw);
+    let phqDetail: Array<number | null> = [];
+    let gadDetail: Array<number | null> = [];
+
+    if (Object.keys(cols).length > 0) {
+        phqDetail = phqStems.map((stem) => {
+            const key = Object.keys(cols).find(k => k.includes('47.情绪状态 (PHQ-9):') && k.includes(stem));
+            if (!key) return null;
+            const v = stripOptionPrefix(cols[key] || '');
+            return SCORE_MAP[v] ?? null;
+        });
+        gadDetail = gadStems.map((stem) => {
+            const key = Object.keys(cols).find(k => k.includes('48.焦虑状态 (GAD-7):') && k.includes(stem));
+            if (!key) return null;
+            const v = stripOptionPrefix(cols[key] || '');
+            return SCORE_MAP[v] ?? null;
+        });
+    } else {
+        phqDetail = extractMatrixScores(raw, phqStems).map(v => v ?? null);
+        gadDetail = extractMatrixScores(raw, gadStems).map(v => v ?? null);
+    }
+
+    const phqComplete = phqDetail.every(v => v !== null);
+    const gadComplete = gadDetail.every(v => v !== null);
+
+    if (phqComplete) {
+        const detail = phqDetail as number[];
+        record.questionnaire.mentalScales.phq9Detail = detail;
+        record.questionnaire.mentalScales.phq9Score = detail.reduce((a, b) => a + b, 0);
+        record.questionnaire.mentalScales.selfHarmIdea = detail[8] || 0;
+    }
+    if (gadComplete) {
+        const detail = gadDetail as number[];
+        record.questionnaire.mentalScales.gad7Detail = detail;
+        record.questionnaire.mentalScales.gad7Score = detail.reduce((a, b) => a + b, 0);
+    }
+};
+
+const maybePatchSmokingFromRaw = (raw: string, record: HealthRecord) => {
+    const smoking = record.questionnaire.substances.smoking;
+    const cols = extractTabularColumns(raw);
+    const statusCol = stripOptionPrefix(cols['36.吸烟情况'] || '');
+    if (!smoking.status && statusCol) smoking.status = statusCol;
+
+    const status = smoking.status || statusCol || '';
+    if (!(status.includes('吸烟') || /目前吸烟|已戒烟|从不吸烟/.test(raw))) return;
+
+    if (!smoking.status) {
+        if (/从不吸烟/.test(raw)) smoking.status = '从不吸烟';
+        else if (/已戒烟/.test(raw)) smoking.status = '已戒烟';
+        else if (/目前吸烟/.test(raw)) smoking.status = '目前吸烟';
+    }
+
+    if (!smoking.dailyAmount) {
+        const amountMap: Record<string, number> = {
+            '不到半包': 10,
+            '不到一包': 20,
+            '不到一包半': 30,
+            '不到两包': 40,
+            '两包以上': 50
+        };
+        for (const [k, v] of Object.entries(amountMap)) {
+            if (raw.includes(k) || stripOptionPrefix(cols['38.目前吸烟数量'] || '').includes(k)) {
+                smoking.dailyAmount = v;
+                break;
+            }
+        }
+    }
+
+    if (!smoking.years) {
+        const yearsFromCol = cols['39.已吸烟年数'];
+        if (yearsFromCol && /^\d{1,2}$/.test(yearsFromCol)) {
+            smoking.years = Number(yearsFromCol);
+        } else {
+            const yearsMatch = raw.match(/(?:已吸烟年数|吸烟年数)\D{0,6}([1-9]\d?)/);
+            if (yearsMatch?.[1]) smoking.years = Number(yearsMatch[1]);
+        }
+    }
+
+    if ((smoking.packYears === undefined || smoking.packYears === null) && smoking.dailyAmount && smoking.years) {
+        smoking.packYears = (smoking.dailyAmount / 20) * smoking.years;
+    }
+};
+
 export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord> => {
     if (!raw || raw.trim().length === 0) {
         throw new Error("输入文本为空，无法解析");
@@ -142,7 +346,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
     4. **关键字段识别**：
-       - **体检编号 (checkupId)**：请务必精确抓取**6位纯数字**的编号（如：801234）。报告中通常包含10位或更长的“登记流水号”、“条码号”或“样本号”，请**绝对不要**将其作为体检编号。只提取那个6位数的。
+       - **体检编号 (checkupId)**：优先提取“体检编号/编号/检号”字段对应值。可能是6位数字，也可能是字母数字组合（如 A240123、2024-0188），不要误抓条码号/流水号。
        - **问卷选项提取**：请根据文本内容提取对应选项。
        - **Q17 家族史提取**：请识别以下特定家族史，并映射到 familyHistory 字段：
          - "父亲 - 冠心病/心肌梗死" -> fatherCvdEarly (若提及)
@@ -276,15 +480,12 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
              if (nameMatch) merged.profile.name = nameMatch[1];
         }
 
-        // --- 2. Enforce 6-digit Checkup ID Rule ---
-        // If AI extracted a long ID (likely barcode/serial), try to find a 6-digit one in text
-        if (merged.profile.checkupId && merged.profile.checkupId.length > 6) {
-             // Try to find a 6-digit number in the first 800 chars of raw text
-             const shortIdMatch = raw.slice(0, 800).match(/\b(\d{6})\b/);
-             if (shortIdMatch) {
-                 merged.profile.checkupId = shortIdMatch[1];
-             }
-        }
+        // --- 2. Checkup ID normalization (supports numeric/alphanumeric IDs) ---
+        merged.profile.checkupId = normalizeCheckupId(merged.profile.checkupId, raw);
+
+        // --- 3. Rule fallback for questionnaire fields that often fail in Excel matrix exports ---
+        maybePatchMentalScalesFromRaw(raw, merged);
+        maybePatchSmokingFromRaw(raw, merged);
 
         return merged;
     } catch (e: any) {
