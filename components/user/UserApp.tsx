@@ -24,6 +24,8 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   const [activeTab, setActiveTab] = useState('message');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
+  const [needsArchiveBinding, setNeedsArchiveBinding] = useState(false);
+  const [showArchivePrompt, setShowArchivePrompt] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const refreshUnreadCount = useCallback(async () => {
     if (!userArchive) return;
@@ -38,6 +40,8 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     userArchive && userArchive.profile_complete === false
       ? '您的个人健康档案尚未完善，请联系健康管家完成健康档案建档。'
       : null;
+
+  const isArchiveLocked = !userArchive || userArchive.profile_complete === false || needsArchiveBinding;
 
   const persistSessionCheckupId = (checkupId: string) => {
     try {
@@ -299,16 +303,33 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   const handleProfileLogout = () => {
     clearSessionCheckupId();
     setUserArchive(null);
+    setNeedsArchiveBinding(false);
     setUnreadCount(0);
     setActiveTab('habits');
     onLogout?.();
   };
 
-  const handleShellLoginSuccess = async (archive: HealthArchive) => {
-    setUserArchive(archive);
-    syncArchiveToLocal(archive);
-    persistSessionCheckupId(archive.checkup_id);
+  const handleShellLoginSuccess = async (
+    archive: HealthArchive | null,
+    options?: { needsArchiveBinding?: boolean }
+  ) => {
+    setNeedsArchiveBinding(!!options?.needsArchiveBinding || !archive);
+    if (archive) {
+      setUserArchive(archive);
+      syncArchiveToLocal(archive);
+      persistSessionCheckupId(archive.checkup_id);
+    } else {
+      setUserArchive(null);
+    }
     setLoading(false);
+    setActiveTab('message');
+  };
+
+  const handleTabChange = (tab: string) => {
+    if (tab === 'profile' && isArchiveLocked) {
+      setShowArchivePrompt(true);
+    }
+    setActiveTab(tab);
   };
 
   if (loading) {
@@ -323,7 +344,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   return (
     <UserLayout
       activeTab={activeTab}
-      onTabChange={setActiveTab}
+      onTabChange={handleTabChange}
       unreadCount={unreadCount}
       profileIncompleteBanner={profileIncompleteBanner}
     >
@@ -380,8 +401,64 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
             }
           />
         ) : (
-          <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />
+          needsArchiveBinding ? (
+            <div className="min-h-full bg-slate-50 px-4 py-6 pb-24">
+              <div className="mx-auto max-w-md rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
+                <h2 className="text-xl font-black text-amber-900">您已注册，尚未建档</h2>
+                <p className="mt-2 text-sm leading-relaxed text-amber-800">
+                  医疗资源内容已开放浏览。查看我的健康档案与随访记录前，请联系健康管家完成健康建档。
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowArchivePrompt(true)}
+                    className="flex-1 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-700"
+                  >
+                    查看建档提示
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleProfileLogout}
+                    className="flex-1 rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-bold text-amber-700 hover:bg-amber-100"
+                  >
+                    退出账号
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />
+          )
         ))}
+      {showArchivePrompt && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="text-lg font-black text-slate-800">需完成健康建档</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              您可以继续浏览医疗资源。若需预约、签约、查看我的健康档案或随访记录，请先联系健康管家完成建档。
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowArchivePrompt(false);
+                  setActiveTab('doctor');
+                }}
+                className="flex-1 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-700"
+              >
+                去找医生/管家
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowArchivePrompt(false)}
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              >
+                我知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </UserLayout>
   );
 };

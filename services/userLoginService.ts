@@ -13,6 +13,7 @@ export type DualLoginFailureReason =
 
 export type DualLoginResult =
   | { success: true; archive: HealthArchive; channel: 'legacy' | 'auth' }
+  | { success: true; archive: null; channel: 'auth'; needsArchiveBinding: true }
   | { success: false; reason: DualLoginFailureReason; message: string };
 
 /**
@@ -45,6 +46,10 @@ export const loginUserDualPath = async (
       reason: 'auth_failed',
       message: `旧通道受限（${legacy.message}），Auth 通道失败：${auth.message}`,
     };
+  }
+
+  if (('needsArchiveBinding' in auth && auth.needsArchiveBinding) || !auth.checkupId) {
+    return { success: true, archive: null, channel: 'auth', needsArchiveBinding: true };
   }
 
   const archive = await findArchiveByCheckupId(auth.checkupId);
