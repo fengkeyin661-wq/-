@@ -67,8 +67,6 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
           setError('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
         } else if (result.reason === 'auth_failed') {
           setError(result.message);
-        } else if (result.reason === 'auth_archive_missing') {
-          setError('登录成功，但您尚未完成建档。可先浏览资源，查看档案和随访前请联系健康管家建档。');
         } else {
           setError(`登录失败：${result.message || '查询异常，请稍后重试'}`);
         }

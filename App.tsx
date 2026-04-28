@@ -22,7 +22,7 @@ import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFrom
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
 import { loginUserDualPath, registerPortalUser } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
-import { ContentItem, fetchInteractions, fetchContent, isHealthManagerContent, getDoctorSigningUnreadTotal } from './services/contentService';
+import { ContentItem, fetchInteractions, getDoctorSigningUnreadTotal } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
 import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 
@@ -155,9 +155,6 @@ export const App: React.FC = () => {
   const [doctorMessageUnread, setDoctorMessageUnread] = useState(0);
   const baseTitleRef = useRef<string>(typeof document !== 'undefined' ? document.title : '健康管理系统');
   const prevDoctorUnreadRef = useRef<number>(0);
-  const [healthManagerContacts, setHealthManagerContacts] = useState<ContentItem[]>([]);
-  const [previewQr, setPreviewQr] = useState<string | null>(null);
-
   // Medical Data State
   const [archives, setArchives] = useState<HealthArchive[]>([]);
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
@@ -200,23 +197,6 @@ export const App: React.FC = () => {
         refreshArchives();
     }
   }, [isAuthenticated, currentUserRole, currentDoctor]);
-
-  useEffect(() => {
-    if (!canShowUserEntry) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const doctors = await fetchContent('doctor', 'active');
-        const managers = doctors.filter(isHealthManagerContent);
-        if (!cancelled) setHealthManagerContacts(managers);
-      } catch {
-        if (!cancelled) setHealthManagerContacts([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [canShowUserEntry]);
 
   useEffect(() => {
     if (currentUserRole !== 'doctor' || !currentDoctor) {
@@ -382,8 +362,6 @@ export const App: React.FC = () => {
               alert('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
           } else if (result.reason === 'auth_failed') {
               alert(result.message);
-          } else if (result.reason === 'auth_archive_missing') {
-              alert('登录成功，但您尚未完成建档。可先浏览资源，查看档案和随访前请联系健康管家建档。');
           } else {
               alert(`登录失败：${result.message || '查询异常，请稍后重试。'}`);
           }
@@ -725,7 +703,7 @@ export const App: React.FC = () => {
                         </button>
                         {showUserRegister && (
                             <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                                <p className="text-xs font-bold text-blue-900 mb-2">用户注册（手机号 + 密码）</p>
+                                <p className="text-xs font-bold text-blue-900 mb-2">用户注册（用户名 + 密码）</p>
                                 <input type="text" placeholder="用户名（登录名）" className="w-full border border-blue-200 rounded-lg p-2.5 text-sm outline-none mb-2 bg-white" value={userRegisterUsername} onChange={(e) => setUserRegisterUsername(e.target.value)} />
                                 <input type="password" placeholder="密码（至少6位）" className="w-full border border-blue-200 rounded-lg p-2.5 text-sm outline-none mb-2 bg-white" value={userRegisterPassword} onChange={(e) => setUserRegisterPassword(e.target.value)} />
                                 <input type="password" placeholder="确认密码" className="w-full border border-blue-200 rounded-lg p-2.5 text-sm outline-none mb-2 bg-white" value={userRegisterPassword2} onChange={(e) => setUserRegisterPassword2(e.target.value)} />
@@ -753,16 +731,6 @@ export const App: React.FC = () => {
                 <span>联系支持: 0371-67739261</span>
             </div>
             <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={handleLoginSuccess} roleContext={loginRoleContext} />
-            {previewQr && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4"
-                    onClick={() => setPreviewQr(null)}
-                >
-                    <div className="rounded-xl bg-white p-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <img src={previewQr} alt="微信二维码预览" className="max-h-[80vh] max-w-[80vw] rounded" />
-                    </div>
-                </div>
-            )}
         </div>
       );
   }
