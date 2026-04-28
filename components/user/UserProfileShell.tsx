@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { type HealthArchive } from '../../services/dataService';
-import { loginUserDualPath } from '../../services/userLoginService';
-import { signUpWithPhonePassword } from '../../services/authService';
+import { loginUserDualPath, registerPortalUser } from '../../services/userLoginService';
 import { fetchContent, isHealthManagerContent, type ContentItem } from '../../services/contentService';
 
 interface Props {
@@ -9,12 +8,12 @@ interface Props {
 }
 
 export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
-  const [phone, setPhone] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState('');
-  const [registerPhone, setRegisterPhone] = useState('');
+  const [registerUsername, setRegisterUsername] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
   const [registerMessage, setRegisterMessage] = useState('');
@@ -40,9 +39,9 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const p = phone.trim();
-    if (!p) {
-      setError('请输入预留手机号');
+    const u = username.trim();
+    if (!u) {
+      setError('请输入用户名');
       return;
     }
     if (!password) {
@@ -52,7 +51,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
     setLoading(true);
     setError('');
     try {
-      const result = await loginUserDualPath(p, password);
+      const result = await loginUserDualPath(u, password);
       if (result.success) {
         if (result.archive) {
           onLoginSuccess(result.archive);
@@ -61,7 +60,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
         }
       } else {
         if (result.reason === 'archive_not_found') {
-          setError('账号未注册或手机号未匹配，请先注册；若已注册仍无法查看档案，请联系健康管家完成建档。');
+          setError('账号不存在，请先注册。');
         } else if (result.reason === 'invalid_password') {
           setError('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
         } else if (result.reason === 'permission_denied') {
@@ -84,9 +83,9 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
 
   const handleRegister = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const p = registerPhone.trim();
-    if (!p) {
-      setRegisterMessage('请输入手机号');
+    const u = registerUsername.trim();
+    if (!u) {
+      setRegisterMessage('请输入用户名');
       return;
     }
     if (!registerPassword) {
@@ -104,13 +103,13 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
     setRegistering(true);
     setRegisterMessage('');
     try {
-      const result = await signUpWithPhonePassword(p, registerPassword);
+      const result = await registerPortalUser(u, registerPassword);
       if (!result.success) {
         setRegisterMessage(result.message);
         return;
       }
       setRegisterMessage(result.message || '注册成功');
-      setPhone(p);
+      setUsername(u);
       setPassword(registerPassword);
       setShowRegister(false);
       setRegisterPassword('');
@@ -133,14 +132,14 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             </div>
             <h1 className="text-2xl font-black tracking-tight text-slate-800">个人服务登录</h1>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">
-              请使用手机号登录。若未建档，可先注册并浏览医疗资源；健康档案与随访功能需完成建档后使用。
+              请使用用户名和密码登录。若未建档，可先注册并浏览医疗资源；健康档案与随访功能需完成建档后使用。
             </p>
           </div>
 
           <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left">
             <p className="text-xs font-bold text-blue-800">登录须知</p>
             <p className="mt-1 text-xs leading-relaxed text-blue-700">
-              未建档用户可先注册并登录浏览资源；如需查看健康档案或随访记录，请联系健康管家完成建档。
+              未建档用户可先注册并登录浏览资源；如需查看健康档案或随访记录，请联系管理员完成建档。
             </p>
           </div>
 
@@ -178,14 +177,14 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
           <div>
-            <label className="mb-1.5 block text-sm font-bold text-slate-700">预留手机号</label>
+            <label className="mb-1.5 block text-sm font-bold text-slate-700">用户名</label>
             <input
-              type="tel"
+              type="text"
               autoComplete="username"
               className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="请输入预留手机号"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              placeholder="请输入用户名"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               disabled={loading}
             />
           </div>
@@ -195,7 +194,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
               type="password"
               autoComplete="current-password"
               className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="默认密码为体检编号"
+              placeholder="请输入密码"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
@@ -231,14 +230,14 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             <p className="text-sm font-bold text-blue-900">用户注册</p>
             <p className="text-xs text-blue-700">注册后可先浏览医疗资源。健康档案/随访功能需建档后开放。</p>
             <div>
-              <label className="mb-1 block text-xs font-bold text-blue-900">手机号（登录名）</label>
+              <label className="mb-1 block text-xs font-bold text-blue-900">用户名（登录名）</label>
               <input
-                type="tel"
+                type="text"
                 autoComplete="username"
                 className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="请输入手机号"
-                value={registerPhone}
-                onChange={(e) => setRegisterPhone(e.target.value)}
+                placeholder="请输入用户名"
+                value={registerUsername}
+                onChange={(e) => setRegisterUsername(e.target.value)}
                 disabled={registering}
               />
             </div>

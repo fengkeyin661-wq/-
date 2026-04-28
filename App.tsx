@@ -20,8 +20,7 @@ import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
-import { loginUserDualPath } from './services/userLoginService';
-import { signUpWithPhonePassword } from './services/authService';
+import { loginUserDualPath, registerPortalUser } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions, fetchContent, isHealthManagerContent, getDoctorSigningUnreadTotal } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
@@ -143,10 +142,10 @@ export const App: React.FC = () => {
   // User Entry State
   const [showUserEntry, setShowUserEntry] = useState(false);
   const [userCheckupId, setUserCheckupId] = useState('');
-  const [userLoginPhone, setUserLoginPhone] = useState('');
+  const [userLoginUsername, setUserLoginUsername] = useState('');
   const [userLoginPassword, setUserLoginPassword] = useState('');
   const [showUserRegister, setShowUserRegister] = useState(false);
-  const [userRegisterPhone, setUserRegisterPhone] = useState('');
+  const [userRegisterUsername, setUserRegisterUsername] = useState('');
   const [userRegisterPassword, setUserRegisterPassword] = useState('');
   const [userRegisterPassword2, setUserRegisterPassword2] = useState('');
   
@@ -362,13 +361,13 @@ export const App: React.FC = () => {
   };
 
   const handleUserLogin = async () => {
-      const phone = userLoginPhone.trim();
+      const username = userLoginUsername.trim();
       const password = userLoginPassword;
-      if (!phone || !password) {
-          alert('请输入手机号与密码');
+      if (!username || !password) {
+          alert('请输入用户名与密码');
           return;
       }
-      const result = await loginUserDualPath(phone, password);
+      const result = await loginUserDualPath(username, password);
       if (result.success) {
           setUserCheckupId(result.archive?.checkup_id || '');
           setCurrentUserRole('user');
@@ -376,7 +375,7 @@ export const App: React.FC = () => {
           setUserLoginPassword('');
       } else {
           if (result.reason === 'archive_not_found') {
-              alert('账号未注册或手机号未匹配，请先注册；若已注册仍无法查看档案，请联系健康管家完成建档。');
+              alert('账号不存在，请先注册。');
           } else if (result.reason === 'invalid_password') {
               alert('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
           } else if (result.reason === 'permission_denied') {
@@ -392,11 +391,11 @@ export const App: React.FC = () => {
   };
 
   const handleUserRegister = async () => {
-      const phone = userRegisterPhone.trim();
+      const username = userRegisterUsername.trim();
       const pwd = userRegisterPassword;
       const pwd2 = userRegisterPassword2;
-      if (!phone || !pwd || !pwd2) {
-          alert('请完整填写手机号和两次密码');
+      if (!username || !pwd || !pwd2) {
+          alert('请完整填写用户名和两次密码');
           return;
       }
       if (pwd.length < 6) {
@@ -407,13 +406,13 @@ export const App: React.FC = () => {
           alert('两次密码不一致');
           return;
       }
-      const res = await signUpWithPhonePassword(phone, pwd);
+      const res = await registerPortalUser(username, pwd);
       if (!res.success) {
           alert(`注册失败：${res.message}`);
           return;
       }
       alert(res.message || '注册成功');
-      setUserLoginPhone(phone);
+      setUserLoginUsername(username);
       setUserLoginPassword(pwd);
       setShowUserRegister(false);
       setUserRegisterPassword('');
@@ -711,40 +710,11 @@ export const App: React.FC = () => {
                             <h3 className="text-lg font-bold text-green-900">职工健康登录</h3>
                             <button onClick={() => setShowUserEntry(false)} className="text-slate-400 hover:text-slate-600 text-sm">取消</button>
                         </div>
-                        <label className="block text-xs font-bold text-green-900 mb-1">预留手机号</label>
-                        <input autoFocus type="tel" autoComplete="username" placeholder="预留手机号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPhone} onChange={(e) => setUserLoginPhone(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
+                        <label className="block text-xs font-bold text-green-900 mb-1">用户名</label>
+                        <input autoFocus type="text" autoComplete="username" placeholder="用户名" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginUsername} onChange={(e) => setUserLoginUsername(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
                         <label className="block text-xs font-bold text-green-900 mb-1">密码</label>
                         <input type="password" autoComplete="current-password" placeholder="请输入密码" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPassword} onChange={(e) => setUserLoginPassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
-                        <p className="text-[11px] text-green-800/80 mb-2">未建档用户也可先注册并登录浏览医疗资源；档案与随访功能需建档后开放。</p>
-                        <div className="mb-3 rounded-lg border border-green-200 bg-green-50 p-3">
-                            <p className="text-[11px] font-bold text-green-900 mb-2">健康管家联系方式（由资源运营台维护）</p>
-                            {healthManagerContacts.length === 0 ? (
-                                <p className="text-[11px] text-green-800/80">暂未维护健康管家联系方式，请联系健康管理中心。</p>
-                            ) : (
-                                <div className="space-y-2">
-                                    {healthManagerContacts.slice(0, 2).map((m) => (
-                                        <div key={m.id} className="rounded-md border border-green-100 bg-white px-2 py-2">
-                                            <div className="text-[11px] font-bold text-slate-800">{m.title}</div>
-                                            <div className="text-[11px] text-slate-700">电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
-                                            {m.details?.wechat_qr &&
-                                                (/^https?:\/\//i.test(String(m.details.wechat_qr)) ||
-                                                    String(m.details.wechat_qr).startsWith('data:image')) && (
-                                                <div className="mt-1 flex justify-end">
-                                                    <button
-                                                        type="button"
-                                                        className="rounded border border-slate-200 bg-white p-1"
-                                                        onClick={() => setPreviewQr(String(m.details?.wechat_qr))}
-                                                        title="点击放大二维码"
-                                                    >
-                                                        <img src={String(m.details.wechat_qr)} alt="微信二维码" className="h-16 w-16 rounded object-cover" />
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                        <p className="text-[11px] text-green-800/80 mb-2">未建档用户可先注册并登录浏览医疗资源；档案与随访功能需建档后开放。</p>
                         <button type="button" onClick={() => handleUserLogin()} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg text-sm hover:bg-green-700 mb-2">登录</button>
                         <button
                             type="button"
@@ -756,7 +726,7 @@ export const App: React.FC = () => {
                         {showUserRegister && (
                             <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
                                 <p className="text-xs font-bold text-blue-900 mb-2">用户注册（手机号 + 密码）</p>
-                                <input type="tel" placeholder="手机号（登录名）" className="w-full border border-blue-200 rounded-lg p-2.5 text-sm outline-none mb-2 bg-white" value={userRegisterPhone} onChange={(e) => setUserRegisterPhone(e.target.value)} />
+                                <input type="text" placeholder="用户名（登录名）" className="w-full border border-blue-200 rounded-lg p-2.5 text-sm outline-none mb-2 bg-white" value={userRegisterUsername} onChange={(e) => setUserRegisterUsername(e.target.value)} />
                                 <input type="password" placeholder="密码（至少6位）" className="w-full border border-blue-200 rounded-lg p-2.5 text-sm outline-none mb-2 bg-white" value={userRegisterPassword} onChange={(e) => setUserRegisterPassword(e.target.value)} />
                                 <input type="password" placeholder="确认密码" className="w-full border border-blue-200 rounded-lg p-2.5 text-sm outline-none mb-2 bg-white" value={userRegisterPassword2} onChange={(e) => setUserRegisterPassword2(e.target.value)} />
                                 <button type="button" onClick={handleUserRegister} className="w-full bg-blue-600 text-white font-bold py-2.5 rounded-lg text-sm hover:bg-blue-700">立即注册</button>

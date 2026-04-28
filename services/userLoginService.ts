@@ -1,66 +1,107 @@
 import {
   authenticateUserByPhone,
-  findArchiveByCheckupId,
   type HealthArchive,
   type UserLoginFailureReason,
 } from './dataService';
-import { signInWithPhonePassword } from './authService';
 
 export type DualLoginFailureReason =
   | UserLoginFailureReason
-  | 'auth_failed'
-  | 'auth_archive_missing';
+  | 'auth_failed';
 
 export type DualLoginResult =
   | { success: true; archive: HealthArchive; channel: 'legacy' | 'auth' }
-  | { success: true; archive: null; channel: 'auth'; needsArchiveBinding: true }
+  | { success: true; archive: null; channel: 'auth'; needsArchiveBinding: true; username: string }
   | { success: false; reason: DualLoginFailureReason; message: string };
+
+export type PortalRegisterResult =
+  | { success: true; message: string }
+  | { success: false; message: string };
+
+type PortalUserAccount = {
+  username: string;
+  password: string;
+  createdAt: string;
+};
+
+const USER_PORTAL_ACCOUNTS_KEY = 'USER_PORTAL_ACCOUNTS_V1';
+
+const normalizeUsername = (username: string) => username.trim();
+
+const loadPortalAccounts = (): PortalUserAccount[] => {
+  try {
+    const raw = localStorage.getItem(USER_PORTAL_ACCOUNTS_KEY);
+    return raw ? (JSON.parse(raw) as PortalUserAccount[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const savePortalAccounts = (accounts: PortalUserAccount[]) => {
+  localStorage.setItem(USER_PORTAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+};
+
+export const registerPortalUser = async (
+  username: string,
+  password: string
+): Promise<PortalRegisterResult> => {
+  const u = normalizeUsername(username);
+  if (!u) return { success: false, message: '请输入用户名' };
+  if (!password || password.length < 6) return { success: false, message: '密码至少 6 位' };
+
+  const all = loadPortalAccounts();
+  const exists = all.some((x) => x.username.toLowerCase() === u.toLowerCase());
+  if (exists) return { success: false, message: '该用户名已被注册，请直接登录' };
+
+  all.push({
+    username: u,
+    password,
+    createdAt: new Date().toISOString(),
+  });
+  savePortalAccounts(all);
+  return { success: true, message: '注册成功，可直接登录并浏览资源' };
+};
 
 /**
  * Dual-path login:
- * 1) Legacy path (phone -> health_archives + password check)
- * 2) Fallback to Supabase Auth when RLS/query issues occur on legacy path
+ * 1) Username local account -> visitor mode (no archive required)
+ * 2) Legacy path (phone -> health_archives + password check) for existing users
  */
 export const loginUserDualPath = async (
-  phone: string,
+  usernameOrPhone: string,
   password: string
 ): Promise<DualLoginResult> => {
-  const legacy = await authenticateUserByPhone(phone, password);
+  const username = normalizeUsername(usernameOrPhone);
+  const localAccounts = loadPortalAccounts();
+  const localUser = localAccounts.find(
+    (x) => x.username.toLowerCase() === username.toLowerCase() && x.password === password
+  );
+  if (localUser) {
+    return {
+      success: true,
+      archive: null,
+      channel: 'auth',
+      needsArchiveBinding: true,
+      username: localUser.username,
+    };
+  }
+
+  const legacy = await authenticateUserByPhone(usernameOrPhone, password);
   if (legacy.success) {
     return { success: true, archive: legacy.archive, channel: 'legacy' };
   }
 
-  // Only fallback to Auth when legacy path is blocked by policy/network query issues
-  if (!['permission_denied', 'query_error'].includes(legacy.reason)) {
-    return {
-      success: false,
-      reason: legacy.reason,
-      message: legacy.message,
-    };
-  }
-
-  const auth = await signInWithPhonePassword(phone, password);
-  if (!auth.success) {
+  // Legacy path fail -> provide friendly auth_failed for non-legacy users
+  if (legacy.reason === 'archive_not_found') {
     return {
       success: false,
       reason: 'auth_failed',
-      message: `旧通道受限（${legacy.message}），Auth 通道失败：${auth.message}`,
+      message: '未找到该用户，请先注册（用户名 + 密码）后登录',
     };
   }
-
-  if (('needsArchiveBinding' in auth && auth.needsArchiveBinding) || !auth.checkupId) {
-    return { success: true, archive: null, channel: 'auth', needsArchiveBinding: true };
-  }
-
-  const archive = await findArchiveByCheckupId(auth.checkupId);
-  if (!archive) {
-    return {
-      success: false,
-      reason: 'auth_archive_missing',
-      message: 'Auth 登录成功，但未找到 checkup_id 对应健康档案。',
-    };
-  }
-
-  return { success: true, archive, channel: 'auth' };
+  return {
+    success: false,
+    reason: legacy.reason,
+    message: legacy.message,
+  };
 };
 
