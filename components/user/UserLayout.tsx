@@ -26,9 +26,9 @@ export const UserLayout: React.FC<Props> = ({
   ];
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col bg-slate-50 font-sans text-slate-800 md:shadow-2xl">
+    <div className="mx-auto flex h-[100dvh] w-full max-w-md flex-col bg-slate-50 font-sans text-slate-800 md:shadow-2xl">
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto scrollbar-hide overscroll-y-contain pb-[calc(84px+env(safe-area-inset-bottom)+16px)]">
+      <main className="flex-1 overflow-y-auto scrollbar-hide overscroll-y-contain pb-[calc(84px+env(safe-area-inset-bottom)+16px)] [webkit-overflow-scrolling:touch]">
         {profileIncompleteBanner ? (
           <div
             className="sticky top-0 z-40 border-b border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm font-bold text-amber-900"
@@ -43,7 +43,7 @@ export const UserLayout: React.FC<Props> = ({
       </main>
 
       {/* Bottom Nav */}
-      <nav className="sticky bottom-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur-md shadow-[0_-6px_18px_rgba(15,23,42,0.06)] pb-[calc(env(safe-area-inset-bottom)+8px)]">
+      <nav className="fixed bottom-0 left-1/2 z-50 w-full max-w-md -translate-x-1/2 border-t border-slate-200 bg-white/95 backdrop-blur-md shadow-[0_-6px_18px_rgba(15,23,42,0.06)] pb-[calc(env(safe-area-inset-bottom)+8px)]">
         <div className="flex h-[78px] items-center justify-around px-2">
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
