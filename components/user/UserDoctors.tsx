@@ -142,6 +142,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
       .map((i) => doctorMap.get(i.targetId))
       .filter(Boolean) as ContentItem[];
   }, [signedInteractions, doctorMap]);
+  const hasSignedTeamMember = signedInteractions.length > 0;
   const signedDoctorIdSet = useMemo(() => new Set(signedInteractions.map((i) => i.targetId)), [signedInteractions]);
 
   const managerResources = useMemo(() => doctors.filter(isHealthManagerContent), [doctors]);
@@ -297,47 +298,55 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
                 type="button"
                 key={card.role}
                 onClick={() => {
+                  if (!hasSignedTeamMember) {
+                    setTeamRecommendRole(card.role);
+                    return;
+                  }
                   if (card.item) setSelectedDoctor(card.item);
                   else setTeamRecommendRole(card.role);
                 }}
                 className={`rounded-xl border p-3 text-left ${card.tone} ${card.item ? '' : 'opacity-70'}`}
               >
                 <div className="text-[11px] font-black">{card.role}</div>
-                <div className="mt-1 truncate text-sm font-bold text-slate-800">{card.item?.title || '待匹配'}</div>
+                <div className="mt-1 truncate text-sm font-bold text-slate-800">
+                  {hasSignedTeamMember ? card.item?.title || '待匹配' : '待签约'}
+                </div>
               </button>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">健康管理师（主导协同）</h2>
-        {managerResources.length === 0 ? (
-          <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
-            暂无健康管理师资源，请联系医院维护医生资源标签
-          </div>
-        ) : (
-          managerResources.map((mgr) => (
-            <div key={`mgr-${mgr.id}`} className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-center gap-3">
-              {avatar(mgr)}
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-slate-800">{mgr.title}</div>
-                <div className="text-xs text-slate-600">
-                  {mgr.details?.dept || '健康管理中心'}
-                  {mgr.details?.phone ? ` · ${mgr.details.phone}` : ''}
-                </div>
-              </div>
-              <button
-                className={`text-xs px-3 py-1.5 rounded-lg font-bold ${signedDoctorIdSet.has(mgr.id) ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-teal-600 text-white'}`}
-                disabled={signedDoctorIdSet.has(mgr.id)}
-                onClick={() => submitInteraction('doctor_signing', mgr, '申请健康管理师签约')}
-              >
-                {signedDoctorIdSet.has(mgr.id) ? '已签约' : '签约'}
-              </button>
+      {hasSignedTeamMember && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-black text-slate-700">健康管理师（主导协同）</h2>
+          {managerResources.length === 0 ? (
+            <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
+              暂无健康管理师资源，请联系医院维护医生资源标签
             </div>
-          ))
-        )}
-      </section>
+          ) : (
+            managerResources.map((mgr) => (
+              <div key={`mgr-${mgr.id}`} className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-center gap-3">
+                {avatar(mgr)}
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-slate-800">{mgr.title}</div>
+                  <div className="text-xs text-slate-600">
+                    {mgr.details?.dept || '健康管理中心'}
+                    {mgr.details?.phone ? ` · ${mgr.details.phone}` : ''}
+                  </div>
+                </div>
+                <button
+                  className={`text-xs px-3 py-1.5 rounded-lg font-bold ${signedDoctorIdSet.has(mgr.id) ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-teal-600 text-white'}`}
+                  disabled={signedDoctorIdSet.has(mgr.id)}
+                  onClick={() => submitInteraction('doctor_signing', mgr, '申请健康管理师签约')}
+                >
+                  {signedDoctorIdSet.has(mgr.id) ? '已签约' : '签约'}
+                </button>
+              </div>
+            ))
+          )}
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-black text-slate-700">我签约的医生</h2>
