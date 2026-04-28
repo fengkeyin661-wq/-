@@ -61,7 +61,7 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
                 'Authorization': `Bearer ${API_KEY}`
             },
             body: JSON.stringify({
-                model: "deepseek-chat",
+                model: "deepseek-v4-pro",
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userContent }
@@ -129,6 +129,210 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
     }
 };
 
+const SCORE_MAP: Record<string, number> = {
+    '完全不会': 0,
+    '好几天': 1,
+    '一半以上天数': 2,
+    '一半以上': 2,
+    '几乎每一天': 3,
+    '几乎每天': 3,
+    'A.完全不会': 0,
+    'B.好几天': 1,
+    'C.一半以上天数': 2,
+    'C.一半以上': 2,
+    'D.几乎每一天': 3,
+    'D.几乎每天': 3,
+    '0': 0,
+    '1': 1,
+    '2': 2,
+    '3': 3
+};
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stripOptionPrefix = (s: string) => (s || '').replace(/^[A-DＡ-Ｄ][\.\、]\s*/, '').trim();
+
+const splitRow = (line: string, delimiter: '\t' | ','): string[] => {
+    if (delimiter === '\t') return line.split('\t').map(v => v.trim());
+    return line
+        .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+        .map(v => v.trim());
+};
+
+const unquote = (s: string) => s.replace(/^['"\s]+|['"\s]+$/g, '');
+
+const extractTabularColumns = (raw: string): Record<string, string> => {
+    const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return {};
+
+    const headerIdx = lines.findIndex(l => l.includes('1.体检编号') && l.includes('2.性别'));
+    if (headerIdx < 0 || headerIdx + 1 >= lines.length) return {};
+
+    const headerLine = lines[headerIdx];
+    const valueLine = lines[headerIdx + 1];
+    const delimiter: '\t' | ',' = headerLine.includes('\t') ? '\t' : ',';
+    const headers = splitRow(headerLine, delimiter);
+    const values = splitRow(valueLine, delimiter);
+    const map: Record<string, string> = {};
+    const n = Math.min(headers.length, values.length);
+    for (let i = 0; i < n; i++) {
+        const h = unquote(headers[i]);
+        if (!h) continue;
+        map[h] = unquote(values[i]);
+    }
+    return map;
+};
+
+const extractCheckupIdFromRaw = (raw: string): string | undefined => {
+    const labelMatch = raw.match(/(?:体检编号|编号|检号)\s*[:：]?\s*([A-Za-z0-9_-]{4,24})/);
+    if (labelMatch?.[1]) return labelMatch[1].trim();
+
+    const lines = raw.split(/\r?\n/).slice(0, 200);
+    for (const line of lines) {
+        if (!/(体检编号|编号|检号)/.test(line)) continue;
+        const tokenMatch = line.match(/([A-Za-z0-9_-]{4,24})/g);
+        if (tokenMatch?.length) {
+            const candidate = tokenMatch.find(t => !/(体检编号|编号|sheet|page)/i.test(t));
+            if (candidate) return candidate.trim();
+        }
+    }
+
+    return undefined;
+};
+
+const normalizeCheckupId = (aiId: string | undefined, raw: string): string => {
+    const cols = extractTabularColumns(raw);
+    const idFromCol = cols['1.体检编号'];
+    if (idFromCol) return idFromCol.replace(/\s+/g, '');
+
+    const cleanedAiId = (aiId || '').trim();
+    const ruleId = extractCheckupIdFromRaw(raw);
+    if (ruleId) return ruleId;
+    if (cleanedAiId && cleanedAiId.length <= 24) return cleanedAiId;
+    return '';
+};
+
+const extractMatrixScores = (raw: string, stems: string[]): Array<number | null> => {
+    return stems.map((stem) => {
+        const p1 = new RegExp(`${escapeRegex(stem)}[\\s\\S]{0,60}?(完全不会|好几天|一半以上天数|一半以上|几乎每一天|几乎每天|[0-3])`, 'i');
+        const m1 = raw.match(p1);
+        if (m1?.[1] !== undefined) {
+            const key = m1[1].trim();
+            if (SCORE_MAP[key] !== undefined) return SCORE_MAP[key];
+        }
+        return null;
+    });
+};
+
+const maybePatchMentalScalesFromRaw = (raw: string, record: HealthRecord) => {
+    const q = record.questionnaire.mentalScales || {};
+    const hasBothScores = q.phq9Score !== undefined && q.gad7Score !== undefined;
+    if (hasBothScores) return;
+
+    const phqStems = [
+        '做事时提不起劲或没有兴趣',
+        '感到心情低落、沮丧或绝望',
+        '入睡困难、睡不安稳或睡眠过多',
+        '感到疲倦或没有活力',
+        '食欲不振或吃太多',
+        '觉得自己很失败',
+        '对事物专注有困难',
+        '动作或说话速度缓慢到别人已经察觉',
+        '有不如死掉或用某种方式伤害自己的念头'
+    ];
+    const gadStems = [
+        '做事感觉神经质、焦虑或急切',
+        '不能停止或无法控制担忧',
+        '对各种各样的事情担忧过多',
+        '很难放松下来',
+        '由于坐立不安而很难坐得住',
+        '容易烦恼或急躁',
+        '感到害怕，好像有什么可怕的事情要发生'
+    ];
+
+    const cols = extractTabularColumns(raw);
+    let phqDetail: Array<number | null> = [];
+    let gadDetail: Array<number | null> = [];
+
+    if (Object.keys(cols).length > 0) {
+        phqDetail = phqStems.map((stem) => {
+            const key = Object.keys(cols).find(k => k.includes('47.情绪状态 (PHQ-9):') && k.includes(stem));
+            if (!key) return null;
+            const v = stripOptionPrefix(cols[key] || '');
+            return SCORE_MAP[v] ?? null;
+        });
+        gadDetail = gadStems.map((stem) => {
+            const key = Object.keys(cols).find(k => k.includes('48.焦虑状态 (GAD-7):') && k.includes(stem));
+            if (!key) return null;
+            const v = stripOptionPrefix(cols[key] || '');
+            return SCORE_MAP[v] ?? null;
+        });
+    } else {
+        phqDetail = extractMatrixScores(raw, phqStems).map(v => v ?? null);
+        gadDetail = extractMatrixScores(raw, gadStems).map(v => v ?? null);
+    }
+
+    const phqComplete = phqDetail.every(v => v !== null);
+    const gadComplete = gadDetail.every(v => v !== null);
+
+    if (phqComplete) {
+        const detail = phqDetail as number[];
+        record.questionnaire.mentalScales.phq9Detail = detail;
+        record.questionnaire.mentalScales.phq9Score = detail.reduce((a, b) => a + b, 0);
+        record.questionnaire.mentalScales.selfHarmIdea = detail[8] || 0;
+    }
+    if (gadComplete) {
+        const detail = gadDetail as number[];
+        record.questionnaire.mentalScales.gad7Detail = detail;
+        record.questionnaire.mentalScales.gad7Score = detail.reduce((a, b) => a + b, 0);
+    }
+};
+
+const maybePatchSmokingFromRaw = (raw: string, record: HealthRecord) => {
+    const smoking = record.questionnaire.substances.smoking;
+    const cols = extractTabularColumns(raw);
+    const statusCol = stripOptionPrefix(cols['36.吸烟情况'] || '');
+    if (!smoking.status && statusCol) smoking.status = statusCol;
+
+    const status = smoking.status || statusCol || '';
+    if (!(status.includes('吸烟') || /目前吸烟|已戒烟|从不吸烟/.test(raw))) return;
+
+    if (!smoking.status) {
+        if (/从不吸烟/.test(raw)) smoking.status = '从不吸烟';
+        else if (/已戒烟/.test(raw)) smoking.status = '已戒烟';
+        else if (/目前吸烟/.test(raw)) smoking.status = '目前吸烟';
+    }
+
+    if (!smoking.dailyAmount) {
+        const amountMap: Record<string, number> = {
+            '不到半包': 10,
+            '不到一包': 20,
+            '不到一包半': 30,
+            '不到两包': 40,
+            '两包以上': 50
+        };
+        for (const [k, v] of Object.entries(amountMap)) {
+            if (raw.includes(k) || stripOptionPrefix(cols['38.目前吸烟数量'] || '').includes(k)) {
+                smoking.dailyAmount = v;
+                break;
+            }
+        }
+    }
+
+    if (!smoking.years) {
+        const yearsFromCol = cols['39.已吸烟年数'];
+        if (yearsFromCol && /^\d{1,2}$/.test(yearsFromCol)) {
+            smoking.years = Number(yearsFromCol);
+        } else {
+            const yearsMatch = raw.match(/(?:已吸烟年数|吸烟年数)\D{0,6}([1-9]\d?)/);
+            if (yearsMatch?.[1]) smoking.years = Number(yearsMatch[1]);
+        }
+    }
+
+    if ((smoking.packYears === undefined || smoking.packYears === null) && smoking.dailyAmount && smoking.years) {
+        smoking.packYears = (smoking.dailyAmount / 20) * smoking.years;
+    }
+};
+
 export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord> => {
     if (!raw || raw.trim().length === 0) {
         throw new Error("输入文本为空，无法解析");
@@ -142,7 +346,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
     4. **关键字段识别**：
-       - **体检编号 (checkupId)**：请务必精确抓取**6位纯数字**的编号（如：801234）。报告中通常包含10位或更长的“登记流水号”、“条码号”或“样本号”，请**绝对不要**将其作为体检编号。只提取那个6位数的。
+       - **体检编号 (checkupId)**：优先提取“体检编号/编号/检号”字段对应值。可能是6位数字，也可能是字母数字组合（如 A240123、2024-0188），不要误抓条码号/流水号。
        - **问卷选项提取**：请根据文本内容提取对应选项。
        - **Q17 家族史提取**：请识别以下特定家族史，并映射到 familyHistory 字段：
          - "父亲 - 冠心病/心肌梗死" -> fatherCvdEarly (若提及)
@@ -276,15 +480,12 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
              if (nameMatch) merged.profile.name = nameMatch[1];
         }
 
-        // --- 2. Enforce 6-digit Checkup ID Rule ---
-        // If AI extracted a long ID (likely barcode/serial), try to find a 6-digit one in text
-        if (merged.profile.checkupId && merged.profile.checkupId.length > 6) {
-             // Try to find a 6-digit number in the first 800 chars of raw text
-             const shortIdMatch = raw.slice(0, 800).match(/\b(\d{6})\b/);
-             if (shortIdMatch) {
-                 merged.profile.checkupId = shortIdMatch[1];
-             }
-        }
+        // --- 2. Checkup ID normalization (supports numeric/alphanumeric IDs) ---
+        merged.profile.checkupId = normalizeCheckupId(merged.profile.checkupId, raw);
+
+        // --- 3. Rule fallback for questionnaire fields that often fail in Excel matrix exports ---
+        maybePatchMentalScalesFromRaw(raw, merged);
+        maybePatchSmokingFromRaw(raw, merged);
 
         return merged;
     } catch (e: any) {
@@ -295,17 +496,59 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     }
 };
 
+/** 将 AI 可能输出的 A1/A2、B1/B2 等统一为界面识别的 [A类] / [B类]，并校正 isCritical */
+export const normalizeCriticalAssessment = (ass: HealthAssessment): HealthAssessment => {
+    let w = (ass.criticalWarning || '').trim();
+    if (!w) {
+        return { ...ass, isCritical: !!ass.isCritical };
+    }
+    // 全角括号、数字统一
+    w = w
+        .replace(/【\s*A\s*[12１２]?\s*类\s*】/gi, '[A类]')
+        .replace(/【\s*B\s*[12１２]?\s*类\s*】/gi, '[B类]')
+        .replace(/\[[\s]*A\s*[12１２]?\s*类\s*\]/gi, '[A类]')
+        .replace(/\[[\s]*B\s*[12１２]?\s*类\s*\]/gi, '[B类]');
+    // 若正文仍含「A1类」等字样，再收一道（不破坏括号后的描述）
+    w = w.replace(/\bA\s*[12]\s*类\b/gi, 'A类').replace(/\bB\s*[12]\s*类\b/gi, 'B类');
+    const hasAbnormalTier = /\[A类\]|\[B类\]/.test(w);
+    const isCritical = ass.isCritical === true || hasAbnormalTier;
+    return { ...ass, criticalWarning: w, isCritical };
+};
+
 export const generateHealthAssessment = async (rec: HealthRecord): Promise<HealthAssessment> => {
     const prompt = `
-    作为资深全科医生，请根据以下健康档案生成一份风险评估报告。
+    你是资深全科医生。请根据以下体检/健康档案数据，生成风险评估报告。
     数据：${JSON.stringify(rec)}
+
+    【重要异常结果 / 危急值分层 — 仅两档，禁止再细分】
+    本系统只使用 **A类** 与 **B类** 两档（不要输出 A1、A2、B1、B2 等子类；若你认为属于原 A1/A2 一律标为 A类，原 B1/B2 一律标为 B类）。
+
+    - **A类（危急值）**：需尽快（通常当天）临床处置或紧急联系受检者，可能危及生命或重要器官功能。参考（结合年龄与临床背景综合判断，有则标 A类）：
+      · 血压：收缩压 ≥180 和/或 舒张压 ≥120 mmHg（高血压危象倾向）
+      · 空腹血糖 ≤3.0 或 ≥16.7 mmol/L；随机血糖明显极高伴症状风险
+      · 血钾 ≥6.0 或 ≤2.8 mmol/L（若报告中有电解质）
+      · 血钠 ≤120 或 ≥160 mmol/L（若有）
+      · 心肌酶/肌钙蛋白明显升高提示急性心肌损伤（若有）
+      · 血红蛋白 ≤60 g/L 或 ≥200 g/L（若有）；血小板 ≤20×10^9/L（若有）
+      · 急性脑卒中征象、严重胸痛、意识障碍等文本描述（若有）
+    - **B类（重要异常）**：不属即刻生命威胁，但需在数日～2 周内安排复查或专科随访。参考：
+      · 血压持续 ≥160/100 但未达 A 类阈值
+      · 空腹血糖 7.0～16.6 或 HbA1c 明显升高（若有）
+      · 血脂多项明显升高、肝肾功能轻中度异常、尿蛋白阳性、肿瘤标志物明显升高等需复查确认者
+      · 影像/心电图「建议进一步检查」类中度异常
+
+    【输出规则】
+    1) 若无 A/B 类重要异常：isCritical 为 false，criticalWarning 为空字符串 ""。
+    2) 若有任一项 A 或 B 类：isCritical 为 true，criticalWarning **必须以** "[A类] " 或 "[B类] " 开头（英文方括号），后接 80 字内说明（指标名 + 数值 + 建议动作）。
+    3) 若同时存在 A 与 B 类问题：以更高优先级 **A类** 作为前缀，正文中可简述 B 类异常。
+    4) riskLevel 仍填 GREEN / YELLOW / RED（综合风险），可与 isCritical 独立。
     
     请严格返回 JSON 格式:
     {
       "riskLevel": "GREEN" | "YELLOW" | "RED",
       "summary": "综合评估摘要(150字以内)",
       "isCritical": boolean,
-      "criticalWarning": "如有危急值请说明，否则为空",
+      "criticalWarning": "无异常时为空字符串；有则必须以 [A类] 或 [B类] 开头",
       "risks": { "red": ["高危因素1"], "yellow": ["中危因素1"], "green": ["良好指标"] },
       "managementPlan": {
          "dietary": ["饮食建议1", "饮食建议2"],
@@ -322,7 +565,8 @@ export const generateHealthAssessment = async (rec: HealthRecord): Promise<Healt
 
     try {
         const jsonText = await callDeepSeek("你是一个辅助医生进行健康评估的AI。", prompt);
-        return JSON.parse(jsonText || '{}') as HealthAssessment;
+        const parsed = JSON.parse(jsonText || '{}') as HealthAssessment;
+        return normalizeCriticalAssessment(parsed);
     } catch (e) {
         console.error("Assessment Gen Failed", e);
         return {
@@ -348,8 +592,98 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
     }];
 };
 
-export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
-export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
+export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
+    const fallback = {
+        riskLevel: (last?.assessment?.riskLevel || ass?.riskLevel || RiskLevel.GREEN) as RiskLevel,
+        riskJustification: '本次随访已记录。系统暂未完成自动分析，请医生结合临床情况复核。',
+        doctorMessage: '请按执行单持续管理，若出现不适请及时复诊。',
+        majorIssues: (last?.assessment?.majorIssues || ass?.summary || '').toString(),
+        nextCheckPlan: (last?.assessment?.nextCheckPlan || ass?.followUpPlan?.nextCheckItems?.join('、') || '常规复查').toString(),
+        lifestyleGoals: Array.isArray(last?.assessment?.lifestyleGoals)
+            ? last.assessment.lifestyleGoals
+            : [],
+        analysisSource: 'fallback',
+        analysisError: '',
+    };
+
+    const prompt = `
+你是慢病管理随访助手。请根据随访记录，输出“下一阶段执行单”关键字段。
+
+输入数据：
+1) 本次随访表单：${JSON.stringify(form || {})}
+2) 当前综合评估：${JSON.stringify(ass || {})}
+3) 上一次随访：${JSON.stringify(last || {})}
+
+请严格返回 JSON（不要附加解释文本）：
+{
+  "riskLevel": "GREEN" | "YELLOW" | "RED",
+  "riskJustification": "风险判定依据，80字内",
+  "doctorMessage": "给患者的简短医嘱，80字内",
+  "majorIssues": "本次主要问题，120字内",
+  "nextCheckPlan": "下次复查项目与重点，120字内",
+  "lifestyleGoals": ["可执行目标1", "可执行目标2", "可执行目标3"]
+}
+
+要求：
+- 结合本次指标变化（血压、血糖、体重、血脂等）判断风险级别；
+- 目标要具体可执行，避免空话；
+- lifestyleGoals 最多 5 条；
+- nextCheckPlan 必须是可落地的检查/随访要点。
+`;
+
+    try {
+        const jsonText = await callDeepSeek("你是严谨的全科随访管理AI。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const riskLevelRaw = String(parsed?.riskLevel || '').toUpperCase();
+        const riskLevel: RiskLevel =
+            riskLevelRaw === 'RED'
+                ? RiskLevel.RED
+                : riskLevelRaw === 'YELLOW'
+                ? RiskLevel.YELLOW
+                : RiskLevel.GREEN;
+        const lifestyleGoals = Array.isArray(parsed?.lifestyleGoals)
+            ? parsed.lifestyleGoals.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 5)
+            : fallback.lifestyleGoals;
+
+        return {
+            riskLevel,
+            riskJustification: String(parsed?.riskJustification || fallback.riskJustification),
+            doctorMessage: String(parsed?.doctorMessage || fallback.doctorMessage),
+            majorIssues: String(parsed?.majorIssues || fallback.majorIssues),
+            nextCheckPlan: String(parsed?.nextCheckPlan || fallback.nextCheckPlan),
+            lifestyleGoals,
+            analysisSource: 'ai',
+            analysisError: '',
+        };
+    } catch (e) {
+        console.error('Follow-up analyze failed, fallback applied:', e);
+        return {
+            ...fallback,
+            analysisError: e instanceof Error ? e.message : '未知错误',
+        };
+    }
+};
+export const generateFollowUpSMS = async (n: string) => {
+    const prompt = `
+你是健康管理中心护士助手。请为“${n || '受检者'}”生成一条随访短信。
+
+要求：
+- 语气专业、温和；
+- 包含复查提醒与一句生活方式建议；
+- 80字以内；
+- 仅返回 JSON：
+{"smsContent":"..."}
+`;
+    try {
+        const jsonText = await callDeepSeek("你是医疗随访沟通助手。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const smsContent = String(parsed?.smsContent || '').trim();
+        if (smsContent) return { smsContent };
+    } catch (e) {
+        console.error('generateFollowUpSMS failed:', e);
+    }
+    return { smsContent: `【健康管理中心】${n || '您'}您好，请按计划复查并坚持清淡饮食、规律运动。如有不适请及时就医。` };
+};
 
 // --- ROBUST LOCAL FALLBACK FOR HEATMAP (Comprehensive 10+ Departments) ---
 const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnalytics[] => {
@@ -489,7 +823,29 @@ export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: 
     }
 };
 
-export const generateAnnualReportSummary = async (b: any, c: any) => { return {summary:''} };
+export const generateAnnualReportSummary = async (b: any, c: any) => {
+    const prompt = `
+请根据以下年度对比数据生成一段简要总结，突出“改善点、待改进点、下一步建议”。
+
+基线数据：${JSON.stringify(b || {})}
+本次数据：${JSON.stringify(c || {})}
+
+输出要求：
+- 120字以内；
+- 语气客观、可执行；
+- 仅返回 JSON：
+{"summary":"..."}
+`;
+    try {
+        const jsonText = await callDeepSeek("你是全科健康管理医生。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const summary = String(parsed?.summary || '').trim();
+        if (summary) return { summary };
+    } catch (e) {
+        console.error('generateAnnualReportSummary failed:', e);
+    }
+    return { summary: '年度评估已完成：部分指标较前改善，仍需持续监测血压/血糖/血脂并按计划复查。' };
+};
 export const generateDietAssessment = async (i: string) => { return {reply: 'Diet AI Placeholder'} };
 export const generateExercisePlan = async (i: string) => { return {plan:[]} };
 

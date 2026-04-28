@@ -1,13 +1,17 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { HealthAssessment, HealthRecord } from '../../types';
-import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLocalInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
+import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
+import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
     assessment?: HealthAssessment;
     userCheckupId?: string;
     userName?: string;
+    defaultContactPhone?: string;
     record?: HealthRecord;
 }
 
@@ -96,20 +100,36 @@ const scoreResource = (item: ContentItem, assessment?: HealthAssessment): { scor
     return { score, reason };
 };
 
-export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId, userName, record }) => {
+export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId, userName, defaultContactPhone = '', record }) => {
     const [allResources, setAllResources] = useState<ContentItem[]>([]);
     const [allInteractions, setAllInteractions] = useState<InteractionItem[]>([]);
     const [loading, setLoading] = useState(true);
     
     const [activeCategory, setActiveCategory] = useState<ResourceCategory>('all');
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
+    const [bookingService, setBookingService] = useState<ContentItem | null>(null);
+    const [contactOpen, setContactOpen] = useState(false);
+    const [eventContactOpen, setEventContactOpen] = useState(false);
+    const [pendingService, setPendingService] = useState<{
+        target: ContentItem;
+        timeSlot: string;
+    } | null>(null);
+    const [pendingEvent, setPendingEvent] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         loadResources();
     }, []);
 
     const loadResources = async () => {
-        setLoading(true);
+        const meal = readLocalContent('meal', 'active');
+        const exercise = readLocalContent('exercise', 'active');
+        const service = readLocalContent('service', 'active');
+        const event = readLocalContent('event', 'active');
+        const li = readLocalInteractions();
+        const merged = [...meal, ...exercise, ...service, ...event];
+        setAllResources(merged);
+        setAllInteractions(li);
+        setLoading(merged.length === 0);
         try {
             const [meals, exercises, services, events, interactions] = await Promise.all([
                 fetchContent('meal', 'active'),
@@ -161,36 +181,112 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
         return result;
     }, [allResources, assessment]);
 
-    const handleInteract = async (type: string, target: ContentItem) => {
-        if (!userCheckupId || !userName) {
-            return alert('请先在底部「我的」登录后再报名/预约/收藏');
+    const getServiceEarliestSlotLabel = (service: ContentItem): string => {
+        const slots = getNextMonthSlotsForService(service);
+        for (const slot of slots) {
+            const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+            const count = allInteractions.filter(i =>
+                i.type === 'service_booking' &&
+                i.targetId === service.id &&
+                i.status !== 'cancelled' &&
+                i.details?.includes(fragment)
+            ).length;
+            const quota = getServiceSlotQuota(service.details, slot.dayKey, slot.slotId);
+            if (count < quota) {
+                const mmdd = slot.displayDate.split(' ')[0];
+                return `最早可约：${mmdd} ${SLOT_MAP[slot.slotId]}`;
+            }
         }
-        
+        return '当前无可预约时段';
+    };
+
+    const hrDefaultName = userName?.trim() || '';
+    const hrDefaultPhone = (defaultContactPhone || record?.profile?.phone || '').replace(/\D/g, '').slice(0, 11) || '';
+
+    const completeServiceInteract = async (name: string, phone: string) => {
+        if (!pendingService) return;
+        const { target, timeSlot } = pendingService;
+        const detailsLine = `服务预约：${timeSlot}，价格: ${target.details?.price || '免费'}`;
+        const uid = resolveBookingUserId(userCheckupId, phone);
+        await saveInteraction({
+            id: `service_booking_${Date.now()}`,
+            type: 'service_booking',
+            userId: uid,
+            userName: name.trim(),
+            targetId: target.id,
+            targetName: target.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, detailsLine),
+        });
+        alert('预约申请已提交，请保持手机畅通。');
+        setPendingService(null);
+        setContactOpen(false);
+        setSelectedItem(null);
+        setBookingService(null);
+        fetchInteractions().then(setAllInteractions);
+    };
+
+    const completeEventInteract = async (name: string, phone: string) => {
+        if (!pendingEvent) return;
+        const target = pendingEvent;
+        const uid = resolveBookingUserId(userCheckupId, phone);
+        await saveInteraction({
+            id: `event_signup_${Date.now()}`,
+            type: 'event_signup',
+            userId: uid,
+            userName: name.trim(),
+            targetId: target.id,
+            targetName: target.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, '活动报名'),
+        });
+        alert('报名已提交，请保持手机畅通。');
+        setPendingEvent(null);
+        setEventContactOpen(false);
+        setSelectedItem(null);
+        setBookingService(null);
+        fetchInteractions().then(setAllInteractions);
+    };
+
+    const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
         let interactionType: InteractionItem['type'] = 'service_booking';
         let confirmMsg = '';
         let details = '';
 
         if (target.type === 'event') {
-            interactionType = 'event_signup';
-            confirmMsg = `确定报名参加【${target.title}】吗？`;
-            details = `活动报名`;
+            setPendingEvent(target);
+            setSelectedItem(null);
+            setEventContactOpen(true);
+            return;
         } else if (target.type === 'service') {
-            interactionType = 'service_booking';
-            confirmMsg = `确定预约服务【${target.title}】吗？`;
-            details = `服务预约，价格: ${target.details?.price || '免费'}`;
+            if (!timeSlot) {
+                setBookingService(target);
+                setSelectedItem(null);
+                return;
+            }
+            setPendingService({ target, timeSlot });
+            setBookingService(null);
+            setSelectedItem(null);
+            setContactOpen(true);
+            return;
         } else {
-            // meal / exercise 收藏
+            if (!userCheckupId || !userName) {
+                return alert('请先在底部「我的」登录后再收藏');
+            }
             confirmMsg = `将【${target.title}】加入您的健康计划？`;
             interactionType = 'service_booking';
             details = `收藏资源: ${target.type}`;
         }
 
+        if (!userCheckupId) return;
         if (confirm(confirmMsg)) {
             await saveInteraction({
                 id: `${interactionType}_${Date.now()}`,
                 type: interactionType,
                 userId: userCheckupId,
-                userName: userName,
+                userName: userName || '用户',
                 targetId: target.id,
                 targetName: target.title,
                 status: 'pending',
@@ -199,8 +295,21 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
             });
             alert("已提交！");
             setSelectedItem(null);
+            setBookingService(null);
             fetchInteractions().then(setAllInteractions);
         }
+    };
+
+    const getServiceSlotUsage = (serviceId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
+        const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+        const count = allInteractions.filter(i =>
+            i.type === 'service_booking' &&
+            i.targetId === serviceId &&
+            i.status !== 'cancelled' &&
+            i.details?.includes(fragment)
+        ).length;
+        const quota = getServiceSlotQuota(bookingService?.details, slot.dayKey, slot.slotId);
+        return { count, quota, full: count >= quota };
     };
 
     return (
@@ -295,6 +404,9 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                                 />
                                                 <h3 className="font-bold text-slate-800 text-sm mb-1 line-clamp-1">{item.title}</h3>
                                                 <p className="mb-2 line-clamp-1 text-xs font-medium text-teal-600">{reason}</p>
+                                                {item.type === 'service' && (
+                                                    <p className="mb-2 line-clamp-1 text-[11px] font-semibold text-blue-600">{getServiceEarliestSlotLabel(item)}</p>
+                                                )}
                                                 <div className="flex flex-wrap gap-1">
                                                     {item.tags.slice(0, 2).map(t => (
                                                         <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{t}</span>
@@ -336,6 +448,9 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                             )}
                                         </div>
                                         <p className="mb-2 text-xs font-medium text-teal-600">{reason}</p>
+                                        {item.type === 'service' && (
+                                            <p className="mb-2 text-[11px] font-semibold text-blue-600">{getServiceEarliestSlotLabel(item)}</p>
+                                        )}
                                         <p className="text-xs text-slate-500 line-clamp-2">{item.description || '暂无简介'}</p>
                                     </div>
                                 </div>
@@ -444,6 +559,73 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                                 </button>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+            <BookingContactModal
+                open={contactOpen}
+                title="填写服务预约信息"
+                subtitle={pendingService ? `预约：${pendingService.target.title}` : undefined}
+                defaultName={hrDefaultName}
+                defaultPhone={hrDefaultPhone}
+                onCancel={() => {
+                    setContactOpen(false);
+                    setPendingService(null);
+                }}
+                onConfirm={({ name, phone }) => completeServiceInteract(name, phone)}
+            />
+            <BookingContactModal
+                open={eventContactOpen}
+                title="填写活动报名信息"
+                subtitle={pendingEvent ? `活动：${pendingEvent.title}` : undefined}
+                defaultName={hrDefaultName}
+                defaultPhone={hrDefaultPhone}
+                onCancel={() => {
+                    setEventContactOpen(false);
+                    setPendingEvent(null);
+                }}
+                onConfirm={({ name, phone }) => completeEventInteract(name, phone)}
+            />
+            {bookingService && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setBookingService(null)}>
+                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择服务时间</h3>
+                        <p className="text-xs text-slate-400 text-center mb-6">预约服务：{bookingService.title}</p>
+                        <div className="flex-1 overflow-y-auto space-y-3 pb-6">
+                            {(() => {
+                                const monthSlots = getNextMonthSlotsForService(bookingService);
+                                if (!monthSlots.length) {
+                                    return (
+                                        <div className="text-center py-10">
+                                            <div className="text-4xl mb-3 opacity-20">📅</div>
+                                            <p className="text-sm text-slate-400">该服务暂未配置可预约时间<br/>请联系医院后续开通</p>
+                                        </div>
+                                    );
+                                }
+                                return monthSlots.map((slot) => {
+                                    const { count, quota, full } = getServiceSlotUsage(bookingService.id, slot);
+                                    return (
+                                        <button
+                                            key={`${slot.dateKey}-${slot.slotId}`}
+                                            disabled={full}
+                                            onClick={() => handleInteract('apply', bookingService, `${slot.displayDate}${SLOT_MAP[slot.slotId]}`)}
+                                            className={`w-full border p-4 rounded-2xl flex items-center justify-between transition-all text-left ${
+                                                full
+                                                    ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50 grayscale'
+                                                    : 'border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200'
+                                            }`}
+                                        >
+                                            <span className="font-bold text-slate-700">{slot.displayDate} · {SLOT_MAP[slot.slotId]}</span>
+                                            <span className={`text-xs font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                {full ? '约满' : `余 ${quota - count} 位`}
+                                            </span>
+                                        </button>
+                                    );
+                                });
+                            })()}
+                        </div>
+                        <button onClick={() => setBookingService(null)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm">取消</button>
                     </div>
                 </div>
             )}

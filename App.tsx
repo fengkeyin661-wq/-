@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
@@ -13,17 +13,109 @@ import { HomeAdmin } from './components/HomeAdmin';
 import { ResourceAdmin } from './components/ResourceAdmin'; 
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
 import { DoctorPatients } from './components/DoctorPatients';
+import { DoctorMessageCenter } from './components/DoctorMessageCenter';
 import { CriticalFollowUpManager } from './components/CriticalFollowUpManager'; // New Import
 import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, findArchiveByPhone, updateHealthRecordOnly } from './services/dataService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
+import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
-import { ContentItem, fetchInteractions } from './services/contentService';
+import { ContentItem, fetchInteractions, getDoctorSigningUnreadTotal } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
+import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 
 type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
+
+/** 随访提交后：把 AI 生成的复查计划与要点合并进档案 assessment，避免界面仍读旧评估 */
+const mergeAssessmentFromFollowUpRecord = (
+  base: HealthAssessment,
+  fu: FollowUpRecord['assessment']
+): HealthAssessment => {
+  const nextItems = fu.nextCheckPlan
+    ? fu.nextCheckPlan.split(/[，,、;；\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+    : [];
+  const goals = (fu.lifestyleGoals || []).filter((g) => g && String(g).trim());
+  const baseMon = base.managementPlan?.monitoring || [];
+  const stripped = baseMon.filter((m) => !String(m).startsWith('【随访】'));
+  const monitoring =
+    goals.length > 0
+      ? [...stripped, ...goals.map((g) => `【随访】${g}`)].slice(0, 25)
+      : base.managementPlan.monitoring;
+  return {
+    ...base,
+    riskLevel: fu.riskLevel,
+    summary: (fu.majorIssues && fu.majorIssues.trim()) || base.summary,
+    followUpPlan: {
+      ...base.followUpPlan,
+      nextCheckItems: nextItems.length ? nextItems : base.followUpPlan.nextCheckItems,
+    },
+    managementPlan: {
+      ...base.managementPlan,
+      monitoring,
+    },
+  };
+};
+
+/** 随访提交后：把本次核心指标沉淀到 health_record，供用户端基础指标同源读取 */
+const mergeHealthRecordFromFollowUp = (
+  base: HealthRecord,
+  follow: Omit<FollowUpRecord, 'id'>
+): HealthRecord => {
+  const indicators = follow.indicators || ({} as any);
+  const basics = base.checkup?.basics || ({} as any);
+  const labBasic = base.checkup?.labBasic || ({} as any);
+  const lipids = labBasic.lipids || {};
+  const glucose = labBasic.glucose || {};
+  const nextWeight = Number(indicators.weight || basics.weight || 0);
+  const height = Number(basics.height || 0);
+  const bmi =
+    height > 0 && nextWeight > 0 ? Number((nextWeight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
+
+  return {
+    ...base,
+    checkup: {
+      ...base.checkup,
+      basics: {
+        ...basics,
+        sbp: Number(indicators.sbp || basics.sbp || 0),
+        dbp: Number(indicators.dbp || basics.dbp || 0),
+        weight: nextWeight,
+        bmi,
+      },
+      labBasic: {
+        ...labBasic,
+        glucose: {
+          ...glucose,
+          fasting:
+            indicators.glucose != null && Number.isFinite(Number(indicators.glucose))
+              ? String(indicators.glucose)
+              : glucose.fasting,
+        },
+        lipids: {
+          ...lipids,
+          tc:
+            indicators.tc != null && Number.isFinite(Number(indicators.tc))
+              ? String(indicators.tc)
+              : lipids.tc,
+          tg:
+            indicators.tg != null && Number.isFinite(Number(indicators.tg))
+              ? String(indicators.tg)
+              : lipids.tg,
+          ldl:
+            indicators.ldl != null && Number.isFinite(Number(indicators.ldl))
+              ? String(indicators.ldl)
+              : lipids.ldl,
+          hdl:
+            indicators.hdl != null && Number.isFinite(Number(indicators.hdl))
+              ? String(indicators.hdl)
+              : lipids.hdl,
+        },
+      },
+    },
+  };
+};
 
 const detectPortalModeFromHostname = (): PortalMode => {
   if (typeof window === 'undefined') return 'all';
@@ -50,10 +142,15 @@ export const App: React.FC = () => {
   // User Entry State
   const [showUserEntry, setShowUserEntry] = useState(false);
   const [userCheckupId, setUserCheckupId] = useState('');
+  const [userLoginPhone, setUserLoginPhone] = useState('');
+  const [userLoginPassword, setUserLoginPassword] = useState('');
   
   // Doctor State
   const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); 
-
+  /** 医生侧栏「消息」角标：全部签约用户未读之和 */
+  const [doctorMessageUnread, setDoctorMessageUnread] = useState(0);
+  const baseTitleRef = useRef<string>(typeof document !== 'undefined' ? document.title : '健康管理系统');
+  const prevDoctorUnreadRef = useRef<number>(0);
   // Medical Data State
   const [archives, setArchives] = useState<HealthArchive[]>([]);
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
@@ -64,6 +161,26 @@ export const App: React.FC = () => {
   
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingElderly, setIsSavingElderly] = useState(false);
+
+  const ensureSupabaseSessionForStaff = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
+    if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
+    try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) return { ok: false, message: sessionErr.message };
+      if (sessionData.session) return { ok: true };
+
+      const { error: anonErr } = await supabase.auth.signInAnonymously();
+      if (anonErr) {
+        return {
+          ok: false,
+          message: `无法创建 Supabase 会话：${anonErr.message}。请在 Supabase Auth 开启 Anonymous sign-ins，或改用真实账号登录。`,
+        };
+      }
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, message: e?.message || '创建 Supabase 会话失败' };
+    }
+  }, []);
 
   const canShowAdminEntry = portalMode === 'all' || portalMode === 'admin';
   const canShowOpsEntry = portalMode === 'all' || portalMode === 'ops';
@@ -76,6 +193,84 @@ export const App: React.FC = () => {
         refreshArchives();
     }
   }, [isAuthenticated, currentUserRole, currentDoctor]);
+
+  useEffect(() => {
+    if (currentUserRole !== 'doctor' || !currentDoctor) {
+      setDoctorMessageUnread(0);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const n = await getDoctorSigningUnreadTotal(currentDoctor.id, currentDoctor.title);
+        if (!cancelled) setDoctorMessageUnread(n);
+      } catch {
+        if (!cancelled) setDoctorMessageUnread(0);
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 12000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [currentUserRole, currentDoctor?.id, currentDoctor?.title]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const baseTitle = baseTitleRef.current || '健康管理系统';
+    if (currentUserRole === 'doctor' && doctorMessageUnread > 0) {
+      document.title = `(${doctorMessageUnread}) 条未读消息 - ${baseTitle}`;
+    } else {
+      document.title = baseTitle;
+    }
+  }, [currentUserRole, doctorMessageUnread]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (currentUserRole !== 'doctor') {
+      prevDoctorUnreadRef.current = 0;
+      return;
+    }
+    if (!('Notification' in window)) return;
+
+    const maybeRequestPermission = async () => {
+      if (Notification.permission === 'default') {
+        try {
+          await Notification.requestPermission();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    maybeRequestPermission();
+  }, [currentUserRole]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (currentUserRole !== 'doctor') {
+      prevDoctorUnreadRef.current = 0;
+      return;
+    }
+    if (!('Notification' in window)) return;
+
+    const prev = prevDoctorUnreadRef.current;
+    prevDoctorUnreadRef.current = doctorMessageUnread;
+
+    const hasNewUnread = doctorMessageUnread > prev;
+    const shouldNotify = hasNewUnread && Notification.permission === 'granted' && document.hidden;
+    if (!shouldNotify) return;
+
+    const notification = new Notification('医生工作站新消息', {
+      body: `您有 ${doctorMessageUnread} 条未读消息，点击前往处理。`,
+      tag: 'doctor-unread',
+    });
+    notification.onclick = () => {
+      window.focus();
+      setActiveTab('doctor_messages');
+      notification.close();
+    };
+  }, [currentUserRole, doctorMessageUnread]);
 
   const refreshArchives = async () => {
     const allArchives = await fetchArchives();
@@ -101,7 +296,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleLoginSuccess = (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
+  const handleLoginSuccess = async (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
     if (portalMode === 'admin' && !['admin', 'home'].includes(role)) {
         alert('当前子域仅允许管理控制台登录');
         return;
@@ -122,6 +317,16 @@ export const App: React.FC = () => {
     setIsAuthenticated(true);
     setCurrentUserRole(role);
     setShowLoginModal(false);
+
+    // 后台/医生登录后，确保持有 Supabase authenticated 会话，避免 RLS 将请求判为 anon
+    if (['admin', 'home', 'resource_admin', 'doctor'].includes(role)) {
+      const authRes = await ensureSupabaseSessionForStaff();
+      if (!authRes.ok) {
+        alert(
+          `当前已进入系统，但云端写入可能被 RLS 拒绝。\n原因：${authRes.message || '未建立 Supabase 会话'}`
+        );
+      }
+    }
     
     if (role === 'admin') {
         setActiveTab('admin');
@@ -131,17 +336,29 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleUserLogin = async (input: string) => {
-      let archive = await findArchiveByCheckupId(input);
-      if (!archive) {
-          archive = await findArchiveByPhone(input);
+  const handleUserLogin = async () => {
+      const phone = userLoginPhone.trim();
+      const password = userLoginPassword;
+      if (!phone || !password) {
+          alert('请输入体检登记手机号与密码');
+          return;
       }
-      if (archive) {
-          setUserCheckupId(archive.checkup_id);
+      const result = await loginUserDualPath(phone, password);
+      if (result.success) {
+          setUserCheckupId(result.archive.checkup_id);
           setCurrentUserRole('user');
-          setIsAuthenticated(true); 
+          setIsAuthenticated(true);
+          setUserLoginPassword('');
       } else {
-          alert('未找到档案，请核对体检编号或预留手机号');
+          if (result.reason === 'archive_not_found') {
+              alert(result.message);
+          } else if (result.reason === 'invalid_password') {
+              alert('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
+          } else if (result.reason === 'permission_denied') {
+              alert('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+          } else {
+              alert(`登录失败：${result.message || '查询异常，请稍后重试。'}`);
+          }
       }
   };
 
@@ -184,7 +401,7 @@ export const App: React.FC = () => {
           const portraits = generateSystemPortraits(data);
           const models = evaluateRiskModels(data);
           const analysis = { portraits, models };
-          const res = await saveArchive(data, newAssessment, newSchedule, followUps, analysis);
+          const res = await saveArchive(data, newAssessment, newSchedule, followUps, analysis, { completeProfileOnSave: true });
           
           if (res.success) {
               setHealthRecord(data);
@@ -233,8 +450,15 @@ export const App: React.FC = () => {
       }
   };
 
-  const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
-      if (!healthRecord || !assessment) return;
+  const handleAddFollowUp = async (
+      record: Omit<FollowUpRecord, 'id'>
+  ): Promise<{ success: boolean; message?: string }> => {
+      if (!healthRecord) {
+          return { success: false, message: '未选择健康档案' };
+      }
+      if (!assessment) {
+          return { success: false, message: '缺少综合评估数据，无法保存随访。请先完成建档评估。' };
+      }
       const newRecord: FollowUpRecord = { ...record, id: Date.now().toString() };
       const newFollowUps = [...followUps, newRecord];
       const pendingIdx = schedule.findIndex(s => s.status === 'pending');
@@ -245,12 +469,24 @@ export const App: React.FC = () => {
       const nextItem = generateNextScheduleItem(newRecord.date, newRecord.assessment.nextCheckPlan, newRecord.assessment.riskLevel);
       newSchedule.push(nextItem);
 
-      const res = await updateArchiveData(healthRecord.profile.checkupId, newFollowUps, newSchedule);
+      const mergedAssessment = mergeAssessmentFromFollowUpRecord(assessment, newRecord.assessment);
+      const nextHealthRecord = mergeHealthRecordFromFollowUp(healthRecord, record);
+      const res = await updateArchiveData(healthRecord.profile.checkupId, newFollowUps, newSchedule, {
+          assessment: mergedAssessment,
+          nextHealthRecord,
+          syncSource: 'doctor_followup',
+      });
       if (res.success) {
+          setHealthRecord(nextHealthRecord);
           setFollowUps(newFollowUps);
           setSchedule(newSchedule);
-          refreshArchives();
+          setAssessment(mergedAssessment);
+          // 云端未写入时勿全量刷新，否则会拉回旧 follow_ups 覆盖当前界面
+          if (!res.message) {
+              refreshArchives();
+          }
       }
+      return res;
   };
 
   const handleManualDataUpdate = async (record: FollowUpRecord | null, newSchedule: ScheduledFollowUp[]) => {
@@ -306,7 +542,7 @@ export const App: React.FC = () => {
           const models = evaluateRiskModels(recordToSave);
           const newAnalysis = { portraits, models };
           const newSchedule = generateFollowUpSchedule(newAssessment);
-          const res = await saveArchive(recordToSave, newAssessment, newSchedule, previousFollowUps, newAnalysis);
+          const res = await saveArchive(recordToSave, newAssessment, newSchedule, previousFollowUps, newAnalysis, { completeProfileOnSave: true });
           if (res.success) {
               setHealthRecord(recordToSave);
               setAssessment(newAssessment);
@@ -417,7 +653,12 @@ export const App: React.FC = () => {
                             <h3 className="text-lg font-bold text-green-900">职工健康登录</h3>
                             <button onClick={() => setShowUserEntry(false)} className="text-slate-400 hover:text-slate-600 text-sm">取消</button>
                         </div>
-                        <input autoFocus type="text" placeholder="输入体检编号或手机号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-3 bg-green-50/50" onKeyDown={(e) => { if(e.key === 'Enter') handleUserLogin(e.currentTarget.value); }} />
+                        <label className="block text-xs font-bold text-green-900 mb-1">体检登记手机号</label>
+                        <input autoFocus type="tel" autoComplete="username" inputMode="numeric" placeholder="11位手机号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPhone} onChange={(e) => setUserLoginPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
+                        <label className="block text-xs font-bold text-green-900 mb-1">密码</label>
+                        <input type="password" autoComplete="current-password" placeholder="体检档案默认或已修改的密码" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPassword} onChange={(e) => setUserLoginPassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
+                        <p className="text-[11px] text-green-800/80 mb-2">无自助注册。浏览资源、预约挂号可在应用内直接操作；使用档案与随访请先完成体检建档并由中心开通账号。</p>
+                        <button type="button" onClick={() => handleUserLogin()} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg text-sm hover:bg-green-700 mb-2">登录</button>
                         <button className="text-xs text-green-700 font-bold self-start hover:underline" onClick={() => setActiveTab('external_survey')}>📝 还没有档案？填写健康问卷</button>
                     </div>
                 ) : (
@@ -451,7 +692,8 @@ export const App: React.FC = () => {
             isAuthenticated={isAuthenticated}
             currentUserRole={currentUserRole}
             onLoginClick={() => setShowLoginModal(true)} 
-            onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setCurrentDoctor(null); setActiveTab('dashboard'); setShowUserEntry(false); setArchives([]); }}
+            onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setCurrentDoctor(null); setDoctorMessageUnread(0); setActiveTab('dashboard'); setShowUserEntry(false); setArchives([]); }}
+            navBadges={currentUserRole === 'doctor' ? { doctor_messages: doctorMessageUnread } : undefined}
         >
             {activeTab === 'dashboard' && (
                 <div className="h-full flex flex-col items-center justify-center text-center space-y-6 opacity-60">
@@ -484,6 +726,13 @@ export const App: React.FC = () => {
             {activeTab === 'followup' && <FollowUpDashboard records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp} onUpdateData={handleManualDataUpdate} allArchives={archives} onPatientChange={(arch) => handleSelectPatient(arch, 'followup')} currentPatientId={healthRecord?.profile.checkupId} isAuthenticated={isAuthenticated} healthRecord={healthRecord} onRefresh={refreshArchives} />}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
             {activeTab === 'admin' && currentUserRole === 'admin' && <AdminConsole onSelectPatient={handleSelectPatient} onDataUpdate={refreshArchives} isAuthenticated={isAuthenticated} onTabChange={setActiveTab} />}
+            {activeTab === 'doctor_messages' && currentUserRole === 'doctor' && currentDoctor && (
+                <DoctorMessageCenter
+                    doctorId={currentDoctor.id}
+                    doctorName={currentDoctor.title}
+                    onUnreadTotalChange={setDoctorMessageUnread}
+                />
+            )}
             {activeTab === 'my_patients' && currentUserRole === 'doctor' && currentDoctor && <DoctorPatients doctorId={currentDoctor.id} doctorName={currentDoctor.title} onSelectPatient={handleSelectPatient} />}
         </Layout>
         <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={handleLoginSuccess} roleContext={loginRoleContext} />

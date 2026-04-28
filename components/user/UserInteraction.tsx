@@ -1,8 +1,11 @@
-
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction } from '../../services/contentService';
+﻿
+import React, { useState, useEffect, useRef } from 'react';
+import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLocalInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction, isHealthManagerContent } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
 import { HealthAssessment } from '../../types';
+import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
+import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
     userId?: string;
@@ -10,19 +13,20 @@ interface Props {
     archive?: HealthArchive;
     assessment?: HealthAssessment;
     onMessageRead?: () => void;
+    onOpenDoctors?: () => void;
+    onOpenCommunity?: () => void;
 }
 
 interface DoctorWithUnread {
     interaction: InteractionItem;
     unread: number;
+    isManager?: boolean;
 }
 
-type ViewMode = 'doctors' | 'chat_list' | 'chat';
-
-const DAY_MAP: Record<string, string> = {
-    'Mon': '周一', 'Tue': '周二', 'Wed': '周三', 'Thu': '周四', 'Fri': '周五', 'Sat': '周六', 'Sun': '周日'
-};
-const SLOT_MAP: Record<string, string> = { 'AM': '上午', 'PM': '下午' };
+type ViewMode = 'chat_list' | 'chat';
+const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
+const MANAGER_CHAT_DEEP_LINK_KEY = 'user_manager_chat_deeplink';
+const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
 const getMedicalIcon = (item: ContentItem): string => {
     const t = (item.title + (item.details?.dept || '')).toLowerCase();
@@ -55,17 +59,8 @@ const DoctorAvatar: React.FC<{ doctor: ContentItem; className?: string; fallback
     return <div className={`${className} ${fallbackClassName} shrink-0`}>{getMedicalIcon(doctor)}</div>;
 };
 
-const scoreDoctor = (doc: ContentItem, risks: string[]) => {
-    let score = 0;
-    const text = (doc.title + (doc.tags?.join(' ') || '') + (doc.description || '') + (doc.details?.dept || '')).toLowerCase();
-    risks.forEach(r => {
-        if (text.includes(r.replace('风险',''))) score += 2;
-    });
-    return score + Math.random();
-};
-
-export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, assessment, onMessageRead }) => {
-    const [viewMode, setViewMode] = useState<ViewMode>('doctors');
+export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, onMessageRead, onOpenDoctors, onOpenCommunity }) => {
+    const [viewMode, setViewMode] = useState<ViewMode>('chat_list');
     
     // Doctor List State
     const [allDoctors, setAllDoctors] = useState<ContentItem[]>([]);
@@ -73,6 +68,11 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     const [selectedDoctor, setSelectedDoctor] = useState<ContentItem | null>(null);
     const [showBookingModal, setShowBookingModal] = useState(false);
     const [bookingDoctor, setBookingDoctor] = useState<ContentItem | null>(null);
+    const [contactOpen, setContactOpen] = useState(false);
+    const [pendingBook, setPendingBook] = useState<{
+        target: ContentItem;
+        timeFragment: string;
+    } | null>(null);
     
     // Signed Doctors (for Chat)
     const [doctorList, setDoctorList] = useState<DoctorWithUnread[]>([]);
@@ -90,49 +90,92 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
     }, [userId]);
 
     useEffect(() => {
+        if (!doctorList.length) return;
+        try {
+            const raw = sessionStorage.getItem(MANAGER_CHAT_DEEP_LINK_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw || '{}');
+            const managerId = String(parsed.managerId || '');
+            const at = Number(parsed.at || 0);
+            const ttl = Number(parsed.ttlMs || MANAGER_DEEP_LINK_TTL_MS);
+            if (!managerId || !at || Date.now() - at > ttl) {
+                sessionStorage.removeItem(MANAGER_CHAT_DEEP_LINK_KEY);
+                return;
+            }
+            const target = doctorList.find((d) => d.interaction.targetId === managerId);
+            if (target) {
+                setActiveDoctor(target.interaction);
+                setViewMode('chat');
+            }
+            sessionStorage.removeItem(MANAGER_CHAT_DEEP_LINK_KEY);
+        } catch {
+            // ignore
+        }
+    }, [doctorList]);
+
+    useEffect(() => {
         if (!userId) return;
         let interval: ReturnType<typeof setInterval>;
-        const poll = () => {
+        const poll = async () => {
             if (activeDoctor) {
-                loadMessages();
-                markAsRead(userId, activeDoctor.targetId).then(() => {
-                    if (onMessageRead) onMessageRead();
-                });
+                await loadMessages();
+                await markAsRead(userId, activeDoctor.targetId);
+                if (onMessageRead) onMessageRead();
             } else {
-                loadSignedDoctors();
+                await refreshUnreadOnly();
             }
         };
         poll();
         interval = setInterval(poll, 3000);
         return () => clearInterval(interval);
-    }, [activeDoctor, userId]);
+    }, [activeDoctor, userId, doctorList.length]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatMessages]);
 
+    const buildDoctorList = async (inters: InteractionItem[]) => {
+        if (!userId) {
+            setDoctorList([]);
+            return;
+        }
+        const signings = inters.filter(
+            (i) => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed'
+        );
+        const listWithCount: DoctorWithUnread[] = [];
+        for (const sign of signings) {
+            const count = await getUnreadCount(userId, sign.targetId);
+            listWithCount.push({ interaction: sign, unread: count });
+        }
+        const doctorRows = listWithCount.sort((a, b) => {
+            if (b.unread !== a.unread) return b.unread - a.unread;
+            return new Date(b.interaction.date).getTime() - new Date(a.interaction.date).getTime();
+        });
+        setDoctorList(doctorRows);
+    };
+
     const loadAllData = async () => {
-        setLoading(true);
+        const localDocs = readLocalContent('doctor', 'active');
+        const localInters = readLocalInteractions();
+        setAllDoctors(localDocs);
+        setAllInteractions(localInters);
+        setLoading(localDocs.length === 0);
+        void buildDoctorList(localInters);
+
         try {
-            const [docs, inters] = await Promise.all([
-                fetchContent('doctor', 'active'),
-                fetchInteractions()
-            ]);
+            const docs = await fetchContent('doctor', 'active');
+            let inters: InteractionItem[] = [];
+            try {
+                inters = await fetchInteractions();
+            } catch {
+                inters = [];
+            }
             setAllDoctors(docs);
             setAllInteractions(inters);
-
             if (!userId) {
                 setDoctorList([]);
             } else {
-                const signings = inters.filter(
-                    (i) => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed'
-                );
-                const listWithCount: DoctorWithUnread[] = [];
-                for (const sign of signings) {
-                    const count = await getUnreadCount(userId, sign.targetId);
-                    listWithCount.push({ interaction: sign, unread: count });
-                }
-                setDoctorList(listWithCount);
+                void buildDoctorList(inters);
             }
         } catch (e) {
             console.error(e);
@@ -141,20 +184,20 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         }
     };
 
-    const loadSignedDoctors = async () => {
-        if (!userId) {
-            setDoctorList([]);
-            return;
-        }
-        const inters = await fetchInteractions();
-        setAllInteractions(inters);
-        const signings = inters.filter((i) => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed');
-        const listWithCount: DoctorWithUnread[] = [];
-        for (const sign of signings) {
-            const count = await getUnreadCount(userId, sign.targetId);
-            listWithCount.push({ interaction: sign, unread: count });
-        }
-        setDoctorList(listWithCount);
+    const refreshUnreadOnly = async () => {
+        if (!userId || doctorList.length === 0) return;
+        const next = await Promise.all(
+            doctorList.map(async (item) => ({
+                ...item,
+                unread: await getUnreadCount(userId, item.interaction.targetId),
+            }))
+        );
+        const doctorRows = next
+            .sort((a, b) => {
+                if (b.unread !== a.unread) return b.unread - a.unread;
+                return new Date(b.interaction.date).getTime() - new Date(a.interaction.date).getTime();
+            });
+        setDoctorList(doctorRows);
     };
 
     const loadMessages = async () => {
@@ -179,14 +222,46 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         loadMessages();
     };
 
+    const defaultContactName = userName?.trim() || archive?.name?.trim() || '';
+    const defaultContactPhone =
+        (archive?.phone || archive?.health_record?.profile?.phone || '').replace(/\D/g, '').slice(0, 11) || '';
+
+    const completeBookingWithContact = async (name: string, phone: string) => {
+        if (!pendingBook) return;
+        const { target, timeFragment } = pendingBook;
+        const detailsLine = `预约挂号：${timeFragment}，费用: ${target.details?.fee || 0}元`;
+        const uid = resolveBookingUserId(userId, phone);
+        const fullDetails = buildBookingDetails(name, phone, detailsLine);
+        await saveInteraction({
+            id: `doctor_booking_${Date.now()}`,
+            type: 'doctor_booking',
+            userId: uid,
+            userName: name.trim(),
+            targetId: target.id,
+            targetName: target.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: fullDetails,
+        });
+        alert('挂号申请已提交，请保持手机畅通。');
+        setPendingBook(null);
+        setContactOpen(false);
+        setSelectedDoctor(null);
+        setShowBookingModal(false);
+        setBookingDoctor(null);
+        loadAllData();
+    };
+
     const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
-        if (!userId) return alert('请先在底部「我的」登录后再签约或挂号');
-        
         let interactionType: InteractionItem['type'] = 'doctor_booking';
         let confirmMsg = '';
         let details = '';
 
         if (type === 'signing') {
+            if (!userId) {
+                alert('请先在底部「我的」使用体检登记手机号登录后再签约');
+                return;
+            }
             interactionType = 'doctor_signing';
             confirmMsg = `确定申请签约【${target.title}】为家庭医生吗？`;
             details = '申请家庭医生签约';
@@ -198,10 +273,14 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                 setSelectedDoctor(null);
                 return;
             }
-            confirmMsg = `确定预约【${target.title}】在【${timeSlot}】的门诊吗？`;
-            details = `预约挂号：${timeSlot}，费用: ${target.details?.fee || 0}元`;
+            setPendingBook({ target, timeFragment: timeSlot });
+            setShowBookingModal(false);
+            setBookingDoctor(null);
+            setContactOpen(true);
+            return;
         }
 
+        if (!userId) return;
         if (confirm(confirmMsg)) {
             await saveInteraction({
                 id: `${interactionType}_${Date.now()}`,
@@ -222,35 +301,58 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         }
     };
 
-    const getSlotUsage = (docId: string, dayKey: string, slotId: string) => {
-        const slotText = `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`;
+    const getSlotUsage = (docId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
+        const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
         const count = allInteractions.filter(i => 
             i.type === 'doctor_booking' && 
             i.targetId === docId && 
             i.status !== 'cancelled' && 
-            i.details?.includes(slotText)
+            i.details?.includes(fragment)
         ).length;
-        const quota = bookingDoctor?.details?.slotQuotas?.[dayKey]?.[slotId] || 10;
+        const quota = bookingDoctor?.details?.slotQuotas?.[slot.dayKey]?.[slot.slotId] || 10;
         return { count, quota, full: count >= quota };
     };
 
-    // AI 排序医生
-    const risks = assessment ? [...assessment.risks.red, ...assessment.risks.yellow] : [];
-    const sortedDoctors = useMemo(() => {
-        return [...allDoctors].sort((a, b) => scoreDoctor(b, risks) - scoreDoctor(a, risks)).slice(0, 20);
-    }, [allDoctors, risks]);
-
     const totalUnread = doctorList.reduce((sum, d) => sum + d.unread, 0);
+
+    const openFromRecommendCard = (msg: ChatMessage) => {
+        const type = String(msg.metadata?.resourceType || '');
+        const resourceId = String(msg.metadata?.resourceId || '');
+        if (resourceId) {
+            try {
+                sessionStorage.setItem(
+                    MANAGER_DEEP_LINK_KEY,
+                    JSON.stringify({
+                        resourceId,
+                        resourceType: type,
+                        at: Date.now(),
+                        ttlMs: MANAGER_DEEP_LINK_TTL_MS,
+                    })
+                );
+            } catch {
+                // ignore
+            }
+        }
+        if (type === 'doctor') {
+            if (onOpenDoctors) onOpenDoctors();
+            return;
+        }
+        if (onOpenCommunity) onOpenCommunity();
+    };
 
     // ======== RENDER: CHAT VIEW ========
     if (viewMode === 'chat' && activeDoctor) {
+        const activeProvider = allDoctors.find((d) => d.id === activeDoctor.targetId);
+        const isManagerChat = !!activeProvider && isHealthManagerContent(activeProvider);
         return (
             <div className="relative flex h-full flex-col bg-[#F0F2F5]">
                 <div className="z-10 flex items-center gap-3 border-b border-slate-100 bg-white/90 px-4 py-3 shadow-sm backdrop-blur-md">
                     <button onClick={() => { setViewMode('chat_list'); setActiveDoctor(null); }} className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100">←</button>
                     <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-lg shadow-inner">👨‍⚕️</div>
                     <div>
-                        <h1 className="text-base font-bold text-slate-800">{activeDoctor.targetName} 医生</h1>
+                        <h1 className="text-base font-bold text-slate-800">
+                            {activeDoctor.targetName} {isManagerChat ? '健康管理师' : '医生'}
+                        </h1>
                         <p className="text-xs font-medium text-green-600">在线</p>
                     </div>
                 </div>
@@ -270,7 +372,28 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                     <div className={`max-w-[75%] px-4 py-3 text-sm shadow-sm ${
                                         isMe ? 'bg-teal-600 text-white rounded-2xl rounded-tr-sm' : 'bg-white text-slate-800 rounded-2xl rounded-tl-sm border border-slate-100'
                                     }`}>
-                                        <p className="leading-relaxed">{msg.content}</p>
+                                        {msg.messageType === 'image' && msg.mediaUrl ? (
+                                            <div className="space-y-2">
+                                                <img src={msg.mediaUrl} alt="chat" className="max-h-64 rounded-lg border border-slate-200" />
+                                                <p className="leading-relaxed">{msg.content}</p>
+                                            </div>
+                                        ) : msg.messageType === 'card_recommend' ? (
+                                            <div>
+                                                <p className="font-bold">{msg.metadata?.title || '推荐资源'}</p>
+                                                <p className="leading-relaxed mt-1 text-xs opacity-90">{msg.metadata?.description || msg.content}</p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openFromRecommendCard(msg)}
+                                                    className={`mt-2 rounded-lg px-2.5 py-1 text-[11px] font-bold ${
+                                                        isMe ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-700 border border-blue-100'
+                                                    }`}
+                                                >
+                                                    去查看
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <p className="leading-relaxed">{msg.content}</p>
+                                        )}
                                         <div className={`mt-1 text-right text-xs ${isMe ? 'text-teal-200' : 'text-slate-400'}`}>
                                             {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                         </div>
@@ -300,79 +423,50 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
         );
     }
 
-    // ======== RENDER: MAIN VIEW (Doctors + Chat List Tabs) ========
+    // ======== RENDER: MAIN VIEW (Care workflow + Chat List) ========
     return (
         <div className="min-h-full bg-slate-50 pb-28">
             {/* Header */}
             <div className="sticky top-0 z-10 border-b border-slate-100 bg-white px-5 py-4">
                 <h1 className="text-2xl font-black text-slate-800 tracking-tight">消息中心</h1>
-                <p className="mt-1 text-sm text-slate-500">医生资源 · 在线咨询</p>
+                <p className="mt-1 text-sm text-slate-500">医生与健康管理团队在线沟通</p>
             </div>
 
-            {/* Tabs */}
-            <div className="sticky top-[72px] z-10 flex gap-2 border-b border-slate-100 bg-white px-4 py-3">
-                <button
-                    onClick={() => setViewMode('doctors')}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                        viewMode === 'doctors' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600'
-                    }`}
-                >
-                    👨‍⚕️ 医生资源
-                </button>
-                <button
-                    onClick={() => setViewMode('chat_list')}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all relative ${
-                        viewMode === 'chat_list' ? 'bg-teal-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600'
-                    }`}
-                >
-                    💬 我的咨询
+            {/* Header actions */}
+            <div className="sticky top-[72px] z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-3">
+                <button className="px-4 py-2 rounded-xl text-sm font-bold bg-teal-600 text-white shadow-lg relative">
+                    💬 我的消息
                     {totalUnread > 0 && (
                         <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse">
                             {totalUnread > 9 ? '9+' : totalUnread}
                         </span>
                     )}
                 </button>
+                <button
+                    onClick={() => onOpenDoctors?.()}
+                    className="px-4 py-2 rounded-xl text-sm font-bold bg-blue-50 text-blue-700 border border-blue-100"
+                >
+                    去医生签约
+                </button>
             </div>
 
             <div className="p-4">
                 {loading ? (
                     <div className="text-center py-16 text-slate-400">加载中...</div>
-                ) : viewMode === 'doctors' ? (
-                    // ======== DOCTORS LIST ========
-                    <div className="space-y-4">
-                        <div className="flex justify-between items-center px-1">
-                            <h2 className="font-bold text-slate-800">名医推荐</h2>
-                            <span className="text-xs text-teal-600 font-bold">AI匹配</span>
-                        </div>
-                        {sortedDoctors.length === 0 ? (
-                            <div className="text-center py-16 text-slate-400 bg-white rounded-2xl">暂无医生资源</div>
-                        ) : (
-                            sortedDoctors.map(doc => (
-                                <div 
-                                    key={doc.id}
-                                    onClick={() => setSelectedDoctor(doc)}
-                                    className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
-                                >
-                                    <DoctorAvatar doctor={doc} />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-start mb-1">
-                                            <h3 className="font-bold text-slate-800">{doc.title}</h3>
-                                            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-bold shrink-0">详情</span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 mb-2">{doc.details?.dept} · {doc.details?.title}</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {doc.tags.slice(0, 3).map(t => (
-                                                <span key={t} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">{t}</span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
                 ) : (
-                    // ======== CHAT LIST ========
-                    <div className="space-y-3">
+                    // ======== CHAT LIST + CARE WORKFLOW ========
+                    <div className="space-y-4">
+                        <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                            <h2 className="font-bold text-slate-800">社区支持</h2>
+                            <div className="mt-3 grid grid-cols-3 gap-2">
+                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-blue-50 px-2 py-2 text-xs font-bold text-blue-700">活动</button>
+                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-emerald-50 px-2 py-2 text-xs font-bold text-emerald-700">饮食</button>
+                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-purple-50 px-2 py-2 text-xs font-bold text-purple-700">服务</button>
+                            </div>
+                        </div>
+                        <div className="pt-1">
+                            <h2 className="mb-2 text-sm font-black text-slate-700">我的咨询会话</h2>
+                        </div>
                         {doctorList.length === 0 ? (
                             <div className="text-center py-16 bg-white rounded-2xl">
                                 <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 opacity-50">👨‍⚕️</div>
@@ -381,20 +475,20 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                 </h3>
                                 <p className="text-sm text-slate-400 mb-4 px-4">
                                     {!userId
-                                        ? '请先在底部「我的」登录，签约家庭医生后即可在此咨询'
-                                        : '签约家庭医生后，可在此进行咨询'}
+                                        ? '请先在底部「我的」登录后使用健康管家与医生咨询'
+                                        : '当前暂无已签约医生/健康管理师会话记录'}
                                 </p>
                                 <button
                                     onClick={() =>
                                         userId
-                                            ? setViewMode('doctors')
-                                            : alert('请切换到底部「我的」完成登录后再签约医生')
+                                            ? onOpenDoctors?.()
+                                            : alert('请切换到底部「我的」完成登录后再使用咨询')
                                     }
                                     className={`px-6 py-2 rounded-xl text-sm font-bold ${
                                         userId ? 'bg-blue-600 text-white' : 'bg-teal-600 text-white'
                                     }`}
                                 >
-                                    {userId ? '去签约医生' : '我知道了'}
+                                    {userId ? '去医生签约' : '我知道了'}
                                 </button>
                             </div>
                         ) : (
@@ -416,7 +510,7 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                                     </div>
                                     <div className="flex-1">
                                         <h3 className="font-bold text-slate-800">{item.interaction.targetName}</h3>
-                                        <p className="text-xs text-slate-500">点击进入咨询...</p>
+                                        <p className="text-xs text-slate-500">{item.isManager ? '健康管理师在线服务' : '点击进入咨询...'}</p>
                                     </div>
                                     <div className="text-slate-300 text-lg">›</div>
                                 </div>
@@ -483,6 +577,19 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                 </div>
             )}
 
+            <BookingContactModal
+                open={contactOpen}
+                title="填写挂号信息"
+                subtitle={pendingBook ? `预约：${pendingBook.target.title}` : undefined}
+                defaultName={defaultContactName}
+                defaultPhone={defaultContactPhone}
+                onCancel={() => {
+                    setContactOpen(false);
+                    setPendingBook(null);
+                }}
+                onConfirm={({ name, phone }) => completeBookingWithContact(name, phone)}
+            />
+
             {/* Time Selection Modal */}
             {showBookingModal && bookingDoctor && (
                 <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-900/60 backdrop-blur-sm animate-fadeIn" onClick={() => setShowBookingModal(false)}>
@@ -492,35 +599,44 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, as
                         <p className="text-xs text-slate-400 text-center mb-6">预约专家：{bookingDoctor.title}</p>
                         
                         <div className="flex-1 overflow-y-auto space-y-6 pb-6">
-                            {Object.keys(DAY_MAP).map(dayKey => {
-                                const activeSlots = bookingDoctor.details?.weeklySchedule?.[dayKey] || [];
-                                if (activeSlots.length === 0) return null;
+                            {(() => {
+                                const monthSlots = getNextMonthSlotsForDoctor(bookingDoctor);
+                                if (!monthSlots.length) {
+                                    return <div className="text-center text-slate-400 text-sm py-8">未来30天暂无可预约号源</div>;
+                                }
                                 return (
-                                    <div key={dayKey}>
-                                        <h4 className="mb-3 px-1 text-xs font-black uppercase tracking-widest text-slate-500">{DAY_MAP[dayKey]}</h4>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {activeSlots.map((slotId: string) => {
-                                                const { count, quota, full } = getSlotUsage(bookingDoctor.id, dayKey, slotId);
-                                                return (
-                                                    <button 
-                                                        key={slotId}
-                                                        disabled={full}
-                                                        onClick={() => handleInteract('booking', bookingDoctor, `${DAY_MAP[dayKey]}${SLOT_MAP[slotId]}`)}
-                                                        className={`bg-slate-50 border p-4 rounded-2xl flex flex-col items-center justify-center transition-all ${
-                                                            full ? 'opacity-50 cursor-not-allowed border-slate-100' : 'border-slate-100 hover:bg-blue-50 hover:border-blue-200'
-                                                        }`}
-                                                    >
-                                                        <span className="font-bold text-slate-700">{SLOT_MAP[slotId]}</span>
-                                                        <span className={`mt-1 text-xs font-bold ${full ? 'text-red-500' : 'text-slate-500'}`}>
-                                                            {full ? '约满' : `余 ${quota - count} 位`}
-                                                        </span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {monthSlots.map((slot) => {
+                                            const { count, quota, full } = getSlotUsage(bookingDoctor.id, slot);
+                                            return (
+                                                <button
+                                                    key={`${slot.dateKey}-${slot.slotId}`}
+                                                    disabled={full}
+                                                    onClick={() =>
+                                                        handleInteract(
+                                                            'booking',
+                                                            bookingDoctor,
+                                                            `${slot.displayDate}${SLOT_MAP[slot.slotId]}`
+                                                        )
+                                                    }
+                                                    className={`border p-4 rounded-2xl flex items-center justify-between transition-all ${
+                                                        full
+                                                            ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50'
+                                                            : 'border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200'
+                                                    }`}
+                                                >
+                                                    <span className="font-bold text-slate-700">
+                                                        {slot.displayDate} · {SLOT_MAP[slot.slotId]}
+                                                    </span>
+                                                    <span className={`text-xs font-bold ${full ? 'text-red-500' : 'text-slate-500'}`}>
+                                                        {full ? '约满' : `余 ${quota - count} 位`}
+                                                    </span>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 );
-                            })}
+                            })()}
                         </div>
                         
                         <button onClick={() => setShowBookingModal(false)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm active:scale-95">取消</button>

@@ -15,8 +15,9 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
     
     // Auto-extract info if fresh, or load existing
     const criticalWarning = archive.assessment_data.criticalWarning || '';
-    const levelMatch = criticalWarning.match(/\[([AB]类)\]/);
-    const defaultLevel = levelMatch ? levelMatch[1] : (archive.assessment_data.riskLevel === 'RED' ? 'A类' : 'B类');
+    // 兼容 [A类]/[B类] 与历史数据中的 [A1类][B2类] 等，统一理解为 A类 / B类
+    const levelMatch = criticalWarning.match(/\[\s*([AB])\s*[12１２]?\s*类\s*\]/);
+    const defaultLevel = levelMatch ? `${levelMatch[1]}类` : (archive.assessment_data.riskLevel === 'RED' ? 'A类' : 'B类');
     const desc = criticalWarning.replace(/\[[AB]类\]\s*/, '') || '存在危急指标';
 
     const [form, setForm] = useState<CriticalTrackRecord>({

@@ -9,7 +9,7 @@ interface Props {
   records: FollowUpRecord[];
   assessment: HealthAssessment | null;
   schedule: ScheduledFollowUp[];
-  onAddRecord: (record: Omit<FollowUpRecord, 'id'>) => void;
+  onAddRecord: (record: Omit<FollowUpRecord, 'id'>) => Promise<{ success: boolean; message?: string }>;
   allArchives?: HealthArchive[]; 
   onPatientChange?: (archive: HealthArchive) => void;
   currentPatientId?: string;
@@ -66,13 +66,16 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const currentArchive = allArchives.find(a => a.checkup_id === currentPatientId);
   const currentPatientName = currentArchive?.name || '受检者';
 
+  /**
+   * 是否优先展示「建档/年度」综合评估而非随访 AI 结论。
+   * 注意：保存随访会刷新档案 updated_at，若用 updated_at 与随访 id 比较会长期误判为「评估更新」，
+   * 导致执行单、医生寄语等仍显示旧评估，覆盖最新随访 AI 输出。
+   */
   const isAssessmentNewer = React.useMemo(() => {
-      if (!currentArchive || !assessment) return false;
-      if (!latestRecord) return true; 
-      const recordTime = Number(latestRecord.id); 
-      const archiveTime = new Date(currentArchive.updated_at || currentArchive.created_at).getTime();
-      return archiveTime > (recordTime + 2000);
-  }, [currentArchive, latestRecord, assessment]);
+      if (!assessment) return false;
+      if (!latestRecord) return true;
+      return false;
+  }, [latestRecord, assessment]);
 
   // Derived Active Data
   const activeRiskLevel = isAssessmentNewer && assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
@@ -267,7 +270,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   useEffect(() => {
       autoFillForm();
-  }, [currentPatientId, activePlanText]);
+  }, [currentPatientId, activePlanText, latestRecord?.id, isAssessmentNewer]);
 
   const updateForm = (section: keyof FollowUpRecord, field: string, value: any) => {
     if (section === 'indicators' || section === 'organRisks' || section === 'medication' || section === 'lifestyle' || section === 'assessment') {
@@ -327,9 +330,20 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 lifestyleGoals: result.lifestyleGoals
             }
         };
-        onAddRecord(finalData);
+        const saveRes = await onAddRecord(finalData);
+        if (!saveRes?.success) {
+            alert(saveRes?.message || '随访记录保存失败，请检查网络或权限后重试。');
+            return;
+        }
         autoFillForm();
-        alert('随访记录已保存');
+        const cloudHint = saveRes?.message ? `\n\n${saveRes.message}` : '';
+        if (result?.analysisSource === 'ai') {
+            alert('随访记录已保存，并已生成AI分析执行单。' + cloudHint);
+        } else {
+            alert(
+                `随访记录已保存，但AI分析未成功，当前为回退建议。原因：${result?.analysisError || '未获取到模型返回'}${cloudHint}`
+            );
+        }
     } catch (e) {
         alert(`自动分析失败: ${e instanceof Error ? e.message : '未知错误'}。`);
     } finally {
@@ -409,16 +423,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
       }
   };
 
+  const chartNum = (v: number | undefined) => (v != null && Number.isFinite(v) && v > 0 ? v : undefined);
   let chartData: any[] = sortedRecords.map(r => ({
       date: r.date,
-      sbp: r.indicators.sbp || undefined,
-      dbp: r.indicators.dbp || undefined,
-      heartRate: r.indicators.heartRate || undefined,
-      glucose: r.indicators.glucose || undefined,
-      weight: r.indicators.weight || undefined,
-      tc: r.indicators.tc || undefined,
-      tg: r.indicators.tg || undefined,
-      ldl: r.indicators.ldl || undefined,
+      sbp: chartNum(r.indicators.sbp),
+      dbp: chartNum(r.indicators.dbp),
+      heartRate: chartNum(r.indicators.heartRate),
+      glucose: chartNum(r.indicators.glucose),
+      weight: chartNum(r.indicators.weight),
+      tc: chartNum(r.indicators.tc),
+      tg: chartNum(r.indicators.tg),
+      ldl: chartNum(r.indicators.ldl),
       type: 'followup'
   }));
 

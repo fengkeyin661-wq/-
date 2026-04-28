@@ -16,12 +16,29 @@ export interface ContentItem {
   updatedAt: string;
 }
 
+/** 资源运营台「医生」条目中标记为健康管家，供医生站指派、用户端展示 */
+export const isHealthManagerContent = (item: ContentItem): boolean => {
+  if (item.type !== 'doctor') return false;
+  if (item.details?.role === 'health_manager') return true;
+  return (item.tags || []).some((t) => String(t).includes('健康管家'));
+};
+
+
 export interface InteractionItem {
     id: string;
     // Updated types: 
     // doctor_signing (签约), doctor_booking (挂号), drug_order (药品) -> 医生审核
     // event_signup (活动), circle_join (圈子), service_booking (服务) -> 管理员审核
-    type: 'doctor_signing' | 'doctor_booking' | 'drug_order' | 'event_signup' | 'circle_join' | 'service_booking';
+    type:
+        | 'doctor_signing'
+        | 'doctor_booking'
+        | 'manager_recommend_doctor'
+        | 'manager_recommend_resource'
+        | 'drug_order'
+        | 'event_signup'
+        | 'circle_join'
+        | 'service_booking'
+        | 'check_result_upload';
     userId: string;
     userName: string;
     targetId: string;
@@ -34,17 +51,78 @@ export interface InteractionItem {
 export interface ChatMessage {
     id: string;
     senderId: string;
-    senderRole: 'user' | 'doctor';
+    senderRole: 'user' | 'doctor' | 'manager';
     receiverId: string;
     content: string;
     timestamp: string;
     read: boolean;
+    messageType?: 'text' | 'image' | 'card_recommend';
+    mediaUrl?: string;
+    thumbUrl?: string;
+    metadata?: { [key: string]: any };
 }
+
 
 const STORAGE_KEY = 'HEALTH_GUARD_CONTENT_V4';
 const INTERACTION_KEY = 'HEALTH_GUARD_INTERACTIONS_V1';
 const CHAT_KEY = 'HEALTH_GUARD_CHATS_V1';
 const CHAT_TABLE = 'app_chat_messages';
+const CHAT_RETENTION_DAYS = 90;
+const CHAT_CLEANUP_STAMP_KEY = 'HEALTH_GUARD_CHAT_CLEANUP_TS';
+const CLOUD_QUERY_TIMEOUT_MS = 6000;
+
+const withTimeout = async <T>(promiseLike: PromiseLike<T> | Promise<T>, timeoutMs = CLOUD_QUERY_TIMEOUT_MS): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+        return await Promise.race([
+            Promise.resolve(promiseLike),
+            new Promise<T>((_, reject) => {
+                timer = setTimeout(() => reject(new Error('cloud_query_timeout')), timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+};
+
+const getRetentionCutoffIso = (): string => {
+    const d = new Date();
+    d.setDate(d.getDate() - CHAT_RETENTION_DAYS);
+    return d.toISOString();
+};
+
+const shouldRunCleanupNow = (): boolean => {
+    const raw = localStorage.getItem(CHAT_CLEANUP_STAMP_KEY);
+    if (!raw) return true;
+    const ts = Number(raw);
+    if (!ts) return true;
+    return Date.now() - ts > 24 * 60 * 60 * 1000;
+};
+
+export const pruneOldMessages = async (): Promise<void> => {
+    if (!shouldRunCleanupNow()) return;
+    const cutoffIso = getRetentionCutoffIso();
+    try {
+        const raw = localStorage.getItem(CHAT_KEY);
+        if (raw) {
+            const all: ChatMessage[] = JSON.parse(raw);
+            const kept = all.filter((m) => new Date(m.timestamp).toISOString() >= cutoffIso);
+            if (kept.length !== all.length) {
+                localStorage.setItem(CHAT_KEY, JSON.stringify(kept));
+            }
+        }
+    } catch (e) {
+        console.warn('Local chat cleanup failed', e);
+    }
+    if (isSupabaseConfigured()) {
+        try {
+            await supabase.from(CHAT_TABLE).delete().lt('timestamp', cutoffIso);
+        } catch (e) {
+            console.warn('Cloud chat cleanup failed', e);
+        }
+    }
+    localStorage.setItem(CHAT_CLEANUP_STAMP_KEY, String(Date.now()));
+};
 
 // --- Diagnostic Tool ---
 export const checkDbConnection = async (): Promise<{
@@ -86,6 +164,37 @@ export const checkDbConnection = async (): Promise<{
     }
 };
 
+/** 仅从本地缓存同步读取内容，用于首屏秒开；与 fetchContent 的 local 分支过滤规则一致 */
+export const readLocalContent = (
+  type?: string | string[],
+  status?: 'active' | 'pending'
+): ContentItem[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    let all: ContentItem[] = raw ? JSON.parse(raw) : [];
+    if (type) {
+      if (Array.isArray(type)) all = all.filter((i) => type.includes(i.type));
+      else all = all.filter((i) => i.type === type);
+    }
+    if (status !== undefined) all = all.filter((i) => i.status === status);
+    return all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  } catch {
+    return [];
+  }
+};
+
+/** 仅从本地缓存同步读取互动记录，用于首屏秒开 */
+export const readLocalInteractions = (type?: string): InteractionItem[] => {
+  try {
+    const raw = localStorage.getItem(INTERACTION_KEY);
+    let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
+    if (type) all = all.filter((i) => i.type === type);
+    return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  } catch {
+    return [];
+  }
+};
+
 // 1. Content (Resources)
 export const fetchContent = async (type?: string | string[], status?: 'active' | 'pending'): Promise<ContentItem[]> => {
   let dbData: ContentItem[] | null = null;
@@ -99,7 +208,7 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
               else query = query.eq('type', type);
           }
           if (status) query = query.eq('status', status);
-          const { data, error } = await query.order('updated_at', { ascending: false });
+          const { data, error } = await withTimeout(query.order('updated_at', { ascending: false }));
           
           if (!error && data) {
               dbData = data.map((d:any) => ({ 
@@ -129,6 +238,21 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
       }
       if (status !== undefined) all = all.filter(i => i.status === status);
       return all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  if (dbData && dbData.length) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const all: ContentItem[] = raw ? JSON.parse(raw) : [];
+      for (const item of dbData) {
+        const idx = all.findIndex((i) => i.id === item.id);
+        if (idx >= 0) all[idx] = item;
+        else all.push(item);
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    } catch (e) {
+      console.warn('merge cloud content to local failed', e);
+    }
   }
 
   return dbData || [];
@@ -203,7 +327,7 @@ export const fetchInteractions = async (type?: string): Promise<InteractionItem[
             let query = supabase.from('app_interactions').select('*');
             if (type) query = query.eq('type', type);
             
-            const { data, error } = await query;
+            const { data, error } = await withTimeout(query);
             if (!error && data) {
                 // Map DB snake_case to camelCase
                 dbData = data.map((d: any) => ({
@@ -231,7 +355,24 @@ export const fetchInteractions = async (type?: string): Promise<InteractionItem[
         return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
 
-    return (dbData || []).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const sorted = (dbData || []).sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    if (sorted.length) {
+        try {
+            const raw = localStorage.getItem(INTERACTION_KEY);
+            const all: InteractionItem[] = raw ? JSON.parse(raw) : [];
+            for (const item of sorted) {
+                const idx = all.findIndex((i) => i.id === item.id);
+                if (idx >= 0) all[idx] = item;
+                else all.push(item);
+            }
+            localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
+        } catch (e) {
+            console.warn('merge cloud interactions to local failed', e);
+        }
+    }
+    return sorted;
 };
 
 export const saveInteraction = async (item: InteractionItem): Promise<boolean> => {
@@ -336,15 +477,27 @@ export const updateInteractionStatus = async (id: string, status: InteractionIte
 
 // 3. Chat Messages
 export const fetchMessages = async (userId: string, doctorId: string): Promise<ChatMessage[]> => {
+    await pruneOldMessages();
     if (isSupabaseConfigured()) {
         try {
-            const { data, error } = await supabase
+            const conversationFilter = `and(sender_id.eq.${userId},receiver_id.eq.${doctorId}),and(sender_id.eq.${doctorId},receiver_id.eq.${userId})`;
+            const fullColumns = 'id, sender_id, sender_role, receiver_id, content, timestamp, read, message_type, media_url, thumb_url, metadata';
+            let { data, error } = await supabase
                 .from(CHAT_TABLE)
-                .select('id, sender_id, sender_role, receiver_id, content, timestamp, read')
-                .or(
-                    `and(sender_id.eq.${userId},receiver_id.eq.${doctorId}),and(sender_id.eq.${doctorId},receiver_id.eq.${userId})`
-                )
+                .select(fullColumns)
+                .or(conversationFilter)
                 .order('timestamp', { ascending: true });
+
+            // Backward compatibility: some environments may not have all extended columns.
+            if (error) {
+                const fallback = await supabase
+                    .from(CHAT_TABLE)
+                    .select('id, sender_id, sender_role, receiver_id, content, timestamp, read')
+                    .or(conversationFilter)
+                    .order('timestamp', { ascending: true });
+                data = fallback.data as any;
+                error = fallback.error as any;
+            }
 
             if (!error && data) {
                 const cloudMsgs: ChatMessage[] = data.map((row: any) => ({
@@ -355,6 +508,10 @@ export const fetchMessages = async (userId: string, doctorId: string): Promise<C
                     content: row.content,
                     timestamp: row.timestamp,
                     read: !!row.read,
+                    messageType: row.message_type || 'text',
+                    mediaUrl: row.media_url || undefined,
+                    thumbUrl: row.thumb_url || undefined,
+                    metadata: row.metadata || undefined,
                 }));
                 // Keep local cache warm for offline fallback.
                 localStorage.setItem(CHAT_KEY, JSON.stringify(cloudMsgs));
@@ -371,7 +528,18 @@ export const fetchMessages = async (userId: string, doctorId: string): Promise<C
     return all.filter(m => (m.senderId === userId && m.receiverId === doctorId) || (m.senderId === doctorId && m.receiverId === userId)).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'read'>): Promise<ChatMessage> => {
-    const newMsg: ChatMessage = { ...msg, id: `msg_${Date.now()}`, timestamp: new Date().toISOString(), read: false };
+    await pruneOldMessages();
+    const messageId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const newMsg: ChatMessage = {
+        ...msg,
+        id: messageId,
+        timestamp: new Date().toISOString(),
+        read: false,
+        messageType: msg.messageType || 'text',
+    };
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
     all.push(newMsg);
@@ -379,7 +547,7 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
 
     if (isSupabaseConfigured()) {
         try {
-            const payload = {
+            const fullPayload = {
                 id: newMsg.id,
                 sender_id: newMsg.senderId,
                 sender_role: newMsg.senderRole,
@@ -387,10 +555,27 @@ export const sendMessage = async (msg: Omit<ChatMessage, 'id' | 'timestamp' | 'r
                 content: newMsg.content,
                 timestamp: newMsg.timestamp,
                 read: newMsg.read,
+                message_type: newMsg.messageType || 'text',
+                media_url: newMsg.mediaUrl || null,
+                thumb_url: newMsg.thumbUrl || null,
+                metadata: newMsg.metadata || null,
             };
-            const { error } = await supabase.from(CHAT_TABLE).upsert(payload);
+            let { error } = await supabase.from(CHAT_TABLE).upsert(fullPayload);
             if (error) {
-                console.error('Cloud sendMessage failed, message kept locally:', error.message);
+                const basicPayload = {
+                    id: newMsg.id,
+                    sender_id: newMsg.senderId,
+                    sender_role: newMsg.senderRole,
+                    receiver_id: newMsg.receiverId,
+                    content: newMsg.content,
+                    timestamp: newMsg.timestamp,
+                    read: newMsg.read,
+                };
+                const fallback = await supabase.from(CHAT_TABLE).upsert(basicPayload);
+                error = fallback.error as any;
+            }
+            if (error) {
+                console.error('Cloud sendMessage failed, message kept locally:', error.message || error);
             }
         } catch (e) {
             console.error('Cloud sendMessage exception, message kept locally:', e);
@@ -428,6 +613,34 @@ export const getUnreadCount = async (receiverId: string, senderId?: string): Pro
     }).length;
 };
 
+/** 医生站侧栏角标：当前医生下所有已签约用户发来的未读消息总数 */
+export const getDoctorSigningUnreadTotal = async (doctorId: string, doctorName?: string): Promise<number> => {
+    let interactions: InteractionItem[];
+    try {
+        interactions = await fetchInteractions();
+    } catch {
+        return 0;
+    }
+    const signings = interactions.filter(
+        (i) =>
+            i.type === 'doctor_signing' &&
+            i.status === 'confirmed' &&
+            (i.targetId === doctorId || (!!doctorName && i.targetName === doctorName))
+    );
+    const seen = new Set<string>();
+    let total = 0;
+    for (const s of signings) {
+        if (seen.has(s.userId)) continue;
+        seen.add(s.userId);
+        try {
+            total += await getUnreadCount(doctorId, s.userId);
+        } catch {
+            /* ignore single user */
+        }
+    }
+    return total;
+};
+
 export const markAsRead = async (receiverId: string, senderId: string): Promise<void> => {
     const raw = localStorage.getItem(CHAT_KEY);
     let all: ChatMessage[] = raw ? JSON.parse(raw) : [];
@@ -461,6 +674,7 @@ export const markAsRead = async (receiverId: string, senderId: string): Promise<
         }
     }
 };
+
 
 // --- Seed Data ---
 export const seedInitialData = () => {

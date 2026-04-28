@@ -1,8 +1,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { HealthRecord, HealthAssessment, FollowUpRecord, RiskLevel } from '../../types';
-import { DailyHealthPlan, HealthArchive } from '../../services/dataService';
-import { fetchInteractions, InteractionItem, updateInteractionStatus } from '../../services/contentService';
+import { DailyHealthPlan, HealthArchive, updatePortalPassword } from '../../services/dataService';
+import {
+    fetchInteractions,
+    InteractionItem,
+    updateInteractionStatus,
+    fetchContent,
+    ContentItem,
+} from '../../services/contentService';
+
+const MANAGER_RESOURCE_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
+const MANAGER_CHAT_DEEP_LINK_KEY = 'user_manager_chat_deeplink';
+const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
 interface Props {
   record: HealthRecord;
@@ -12,27 +22,122 @@ interface Props {
   archive: HealthArchive;
   onUpdateRecord: (updatedData: any) => void;
   onLogout: () => void;
-  onNavigate: (tab: string) => void; 
+  onNavigate: (tab: string) => void;
+  onArchiveRefresh?: () => void;
 }
 
-export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, userId, archive, onUpdateRecord, onLogout, onNavigate }) => {
-    const [subView, setSubView] = useState<'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps'>('menu');
+export const UserProfile: React.FC<Props> = ({
+    record,
+    assessment,
+    dailyPlan,
+    userId,
+    archive,
+    onUpdateRecord,
+    onLogout,
+    onNavigate,
+    onArchiveRefresh,
+}) => {
+    const syncSourceLabel: Record<string, string> = {
+        doctor_followup: '健康管家随访',
+        user_profile_edit: '用户自主更新',
+        system: '系统同步',
+    };
+    const [subView, setSubView] = useState<
+        'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager'
+    >('menu');
     // ... (keep existing state/effects) ...
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
-    
+    const [healthManager, setHealthManager] = useState<ContentItem | null>(null);
+    const [pwdOld, setPwdOld] = useState('');
+    const [pwdNew, setPwdNew] = useState('');
+    const [pwdConfirm, setPwdConfirm] = useState('');
+    const [pwdSaving, setPwdSaving] = useState(false);
+    const [pwdMsg, setPwdMsg] = useState('');
     // ... (keep existing methods: loadInteractions, handleSaveRecord, handleCancelInteraction) ...
-    const [isEditing, setIsEditing] = useState(false);
+    const [isBasicEditOpen, setIsBasicEditOpen] = useState(false);
+    const [isBasicCardExpanded, setIsBasicCardExpanded] = useState(false);
     const [editForm, setEditForm] = useState({
         height: record.checkup.basics.height || 0,
         weight: record.checkup.basics.weight || 0,
+        waist: record.checkup.basics.waist || 0,
+        bodyFatRate: Number(record.riskModelExtras?.bodyFatRate || 0),
         sbp: record.checkup.basics.sbp || 0,
         dbp: record.checkup.basics.dbp || 0,
-        glucose: record.checkup.labBasic.glucose?.fasting || '0'
+        glucose: record.checkup.labBasic.glucose?.fasting || '0',
+        tc: record.checkup.labBasic.lipids?.tc || '0',
     });
 
-    useEffect(() => { loadInteractions(); }, [userId]);
+    useEffect(() => {
+        loadInteractions();
+    }, [userId]);
+
+    useEffect(() => {
+        const id = archive.health_manager_content_id;
+        if (!id) {
+            setHealthManager(null);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const doctors = await fetchContent('doctor', 'active');
+                const found = doctors.find((d) => d.id === id) || null;
+                if (!cancelled) setHealthManager(found);
+            } catch {
+                if (!cancelled) setHealthManager(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [archive.health_manager_content_id]);
     const loadInteractions = async () => { const all = await fetchInteractions(); setInteractions(all.filter(i => i.userId === userId)); };
-    const handleSaveRecord = () => { onUpdateRecord(editForm); setIsEditing(false); };
+    const handleSaveRecord = () => {
+        onUpdateRecord({
+            basics: {
+                height: editForm.height,
+                weight: editForm.weight,
+                waist: editForm.waist,
+                sbp: editForm.sbp,
+                dbp: editForm.dbp,
+            },
+            labBasic: {
+                glucose: { fasting: String(editForm.glucose || '0') },
+                lipids: {
+                    ...(record.checkup.labBasic.lipids || {}),
+                    tc: String(editForm.tc || '0'),
+                },
+            },
+            riskModelExtras: {
+                ...(record.riskModelExtras || {}),
+                bodyFatRate: Number(editForm.bodyFatRate || 0),
+            },
+        });
+        setIsBasicEditOpen(false);
+    };
+    const handleChangePassword = async () => {
+        setPwdMsg('');
+        if (pwdNew !== pwdConfirm) {
+            setPwdMsg('两次输入的新密码不一致');
+            return;
+        }
+        setPwdSaving(true);
+        try {
+            const res = await updatePortalPassword(userId, pwdOld, pwdNew);
+            if (res.success) {
+                setPwdMsg('密码已更新');
+                setPwdOld('');
+                setPwdNew('');
+                setPwdConfirm('');
+                onArchiveRefresh?.();
+            } else {
+                setPwdMsg(res.message || '修改失败');
+            }
+        } finally {
+            setPwdSaving(false);
+        }
+    };
+
     const handleCancelInteraction = async (id: string, type: string) => { 
         const label = type === 'doctor_signing' ? '签约' : '预约';
         if (confirm(`确定要取消此${label}吗？`)) {
@@ -40,6 +145,63 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
             loadInteractions();
         }
     };
+
+    const handleManagerQuickEntry = () => {
+        const managerId = archive.health_manager_content_id || healthManager?.id || '';
+        const signedManager = managerId
+            ? interactions.some(
+                  (i) =>
+                      i.type === 'doctor_signing' &&
+                      i.status === 'confirmed' &&
+                      i.targetId === managerId
+              )
+            : false;
+        if (signedManager && managerId) {
+            try {
+                sessionStorage.setItem(
+                    MANAGER_CHAT_DEEP_LINK_KEY,
+                    JSON.stringify({ managerId, at: Date.now(), ttlMs: MANAGER_DEEP_LINK_TTL_MS })
+                );
+            } catch {
+                // ignore
+            }
+            onNavigate('message');
+            return;
+        }
+        if (managerId) {
+            try {
+                sessionStorage.setItem(
+                    MANAGER_RESOURCE_DEEP_LINK_KEY,
+                    JSON.stringify({
+                        resourceId: managerId,
+                        resourceType: 'doctor',
+                        at: Date.now(),
+                        ttlMs: MANAGER_DEEP_LINK_TTL_MS,
+                    })
+                );
+            } catch {
+                // ignore
+            }
+        }
+        onNavigate('doctor');
+    };
+
+    const historyRecords = [
+        ...(archive.history_versions || []).map((v) => v.health_record),
+        record,
+    ];
+    const nextFollowup = (archive.follow_up_schedule || []).find((x) => x.status === 'pending');
+    const trendRows = historyRecords.map((r, idx) => ({
+        label: `#${idx + 1}`,
+        weight: Number(r.checkup.basics.weight || 0),
+        bmi: Number(r.checkup.basics.bmi || 0),
+        waist: Number(r.checkup.basics.waist || 0),
+        bodyFatRate: Number(r.riskModelExtras?.bodyFatRate || 0),
+        sbp: Number(r.checkup.basics.sbp || 0),
+        dbp: Number(r.checkup.basics.dbp || 0),
+        tc: Number(r.checkup.labBasic.lipids?.tc || 0),
+        glucose: Number(r.checkup.labBasic.glucose?.fasting || 0),
+    }));
 
     // ... (keep renderRecordView, renderFollowupView) ...
     const renderRecordView = () => (
@@ -68,41 +230,6 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                 </div>
             </div>
 
-            {/* 2. Basic Indicators (Editable) */}
-            <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-slate-800">基础身体指标</h3>
-                    <button onClick={() => setIsEditing(!isEditing)} className="text-xs text-teal-600 font-bold bg-teal-50 px-3 py-1.5 rounded">
-                        {isEditing ? '取消' : '更新数据'}
-                    </button>
-                </div>
-                
-                {isEditing ? (
-                    <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-                        <div><label className="text-xs text-slate-400">身高(cm)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.height} onChange={e => setEditForm({...editForm, height: Number(e.target.value)})} /></div>
-                        <div><label className="text-xs text-slate-400">体重(kg)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.weight} onChange={e => setEditForm({...editForm, weight: Number(e.target.value)})} /></div>
-                        <div><label className="text-xs text-slate-400">收缩压</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.sbp} onChange={e => setEditForm({...editForm, sbp: Number(e.target.value)})} /></div>
-                        <div><label className="text-xs text-slate-400">舒张压</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.dbp} onChange={e => setEditForm({...editForm, dbp: Number(e.target.value)})} /></div>
-                        <div className="col-span-2"><button onClick={handleSaveRecord} className="w-full bg-teal-600 text-white py-3 rounded-lg font-bold shadow-md">保存修改</button></div>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="p-3 bg-slate-50 rounded-lg">
-                            <div className="text-xs text-slate-400 mb-1">BMI</div>
-                            <div className="font-bold text-lg text-slate-700">{record.checkup.basics.bmi || '-'}</div>
-                        </div>
-                        <div className="p-3 bg-slate-50 rounded-lg">
-                            <div className="text-xs text-slate-400 mb-1">血压</div>
-                            <div className="font-bold text-lg text-slate-700">{record.checkup.basics.sbp}/{record.checkup.basics.dbp}</div>
-                        </div>
-                        <div className="p-3 bg-slate-50 rounded-lg">
-                            <div className="text-xs text-slate-400 mb-1">血糖</div>
-                            <div className="font-bold text-lg text-slate-700">{record.checkup.labBasic.glucose?.fasting || '-'}</div>
-                        </div>
-                    </div>
-                )}
-            </div>
-            
             {/* 3. Detailed Risk Factors (Synced) */}
             <div className="space-y-4">
                 <div className="bg-red-50 p-4 rounded-xl border border-red-100">
@@ -142,113 +269,141 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
         </div>
     );
 
-    const renderFollowupView = () => (
-        <div className="p-4 space-y-6 animate-slideInRight pb-20">
-            {/* ... Execution Sheet ... */}
-            <div className="bg-white rounded-xl shadow-lg border-t-4 border-blue-500 overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-blue-50/50">
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                        📋 下阶段执行单
-                    </h3>
-                    <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
-                        遵医嘱执行
-                    </span>
-                </div>
-                {/* ... existing details ... */}
-            </div>
-            
-            {/* ... History List ... */}
-        </div>
-    );
-
-    const renderPlanView = () => (
-        <div className="p-4 space-y-4 animate-slideInRight">
-            {dailyPlan ? (
-                <>
-                    <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-slate-800">今日 AI 方案</h3>
-                            <span className="text-xs text-slate-400">{new Date(dailyPlan.generatedAt).toLocaleDateString()}</span>
+    const renderFollowupView = () => {
+        const followups = [...(archive.follow_ups || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
+        const latest = followups[0];
+        const pending = nextFollowup;
+        const latestPlan = latest?.assessment?.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '待医生更新';
+        const latestIssues = latest?.assessment?.majorIssues || assessment?.summary || '暂无';
+        const latestGoals = latest?.assessment?.lifestyleGoals || [];
+        const latestMessage = latest?.assessment?.doctorMessage || latest?.assessment?.riskJustification || '请持续监测并按计划执行。';
+        return (
+            <div className="p-4 space-y-6 animate-slideInRight pb-20">
+                <div className="bg-white rounded-xl shadow-lg border-t-4 border-blue-500 overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-blue-50/50">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                            📋 下阶段健康管理执行单
+                        </h3>
+                        <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                            下次随访：{pending?.date || '待定'}
+                        </span>
+                    </div>
+                    <div className="p-5 space-y-4">
+                        <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                            <div className="text-xs text-slate-500">建议时间</div>
+                            <div className="text-lg font-black text-slate-800">{pending?.date || '待定'}</div>
+                            <div className="mt-2 text-xs text-slate-500">具体复查项目</div>
+                            <p className="text-sm text-slate-700 leading-relaxed mt-1">{latestPlan}</p>
                         </div>
-                        <div className="space-y-4">
-                            {/* Text Plan */}
-                            <div className="bg-slate-50 p-4 rounded-lg text-sm space-y-2">
-                                <div className="flex gap-2"><span className="font-bold text-teal-600">早</span> {dailyPlan.diet.breakfast}</div>
-                                <div className="flex gap-2"><span className="font-bold text-teal-600">午</span> {dailyPlan.diet.lunch}</div>
-                                <div className="flex gap-2"><span className="font-bold text-teal-600">晚</span> {dailyPlan.diet.dinner}</div>
-                                <div className="pt-2 border-t border-slate-200 text-xs opacity-70">💡 {dailyPlan.tips}</div>
-                            </div>
+                        <div className="rounded-lg border border-red-100 bg-red-50 p-4">
+                            <div className="text-sm font-bold text-red-800">⚠️ 风险警示与问题</div>
+                            <p className="text-sm text-slate-700 leading-relaxed mt-2">{latestIssues}</p>
+                        </div>
+                        <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                            <div className="text-sm font-bold text-emerald-800">🏃 生活方式干预目标</div>
+                            {latestGoals.length > 0 ? (
+                                <ul className="mt-2 list-disc pl-5 text-sm text-emerald-900 space-y-1">
+                                    {latestGoals.map((g, i) => <li key={`goal-${i}`}>{g}</li>)}
+                                </ul>
+                            ) : (
+                                <p className="mt-2 text-sm text-slate-600">暂无明确目标，请先完成随访录入。</p>
+                            )}
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
+                            <div className="text-sm font-bold text-slate-700">医生寄语</div>
+                            <p className="mt-2 text-sm text-slate-600 leading-relaxed">{latestMessage}</p>
                         </div>
                     </div>
-
-                    {/* Recommendations Display */}
-                    {(dailyPlan.recommendations?.meals?.length || dailyPlan.recommendations?.exercises?.length) ? (
-                        <div className="bg-white rounded-xl shadow-sm p-5 border border-teal-100">
-                            <h3 className="font-bold text-teal-800 mb-4 flex items-center gap-2">
-                                <span>✨</span> 推荐执行项目
-                            </h3>
-                            <div className="space-y-3">
-                                {dailyPlan.recommendations.meals.map((item, i) => (
-                                    <div key={`rm-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                                        <div>
-                                            <span className="mr-2">🥗</span>
-                                            <span className="font-bold text-slate-700">{item.name}</span>
-                                        </div>
-                                        <div className="text-slate-500 font-mono text-xs">{item.calories} kcal</div>
-                                    </div>
-                                ))}
-                                {dailyPlan.recommendations.exercises.map((item, i) => (
-                                    <div key={`re-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                                        <div>
-                                            <span className="mr-2">🏃</span>
-                                            <span className="font-bold text-slate-700">{item.name}</span>
-                                            <span className="text-xs text-slate-400 ml-2">({item.duration}min)</span>
-                                        </div>
-                                        <div className="text-slate-500 font-mono text-xs">{item.calories} kcal</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ) : null}
-
-                    {/* Structured Logs Display */}
-                    {(dailyPlan.dietLogs?.length || dailyPlan.exerciseLogs?.length) ? (
-                        <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
-                            <h3 className="font-bold text-slate-800 mb-4">执行记录详情</h3>
-                            <div className="space-y-3">
-                                {dailyPlan.dietLogs?.map((log, i) => (
-                                    <div key={`d-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                                        <div>
-                                            <span className="mr-2">🥗</span>
-                                            <span className="font-bold text-slate-700">{log.name}</span>
-                                        </div>
-                                        <div className="text-teal-600 font-mono">+{log.calories} kcal</div>
-                                    </div>
-                                ))}
-                                {dailyPlan.exerciseLogs?.map((log, i) => (
-                                    <div key={`e-${i}`} className="flex justify-between items-center text-sm border-b border-slate-50 pb-2">
-                                        <div>
-                                            <span className="mr-2">🏃</span>
-                                            <span className="font-bold text-slate-700">{log.name}</span>
-                                            <span className="text-xs text-slate-400 ml-2">({log.duration}min)</span>
-                                        </div>
-                                        <div className="text-orange-500 font-mono">-{log.calories} kcal</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="text-center text-slate-400 text-sm py-4">暂无打卡记录</div>
-                    )}
-                </>
-            ) : (
-                <div className="text-center text-slate-400 mt-10">
-                    <p>暂无今日方案</p>
-                    <button onClick={() => onNavigate('diet_motion')} className="text-teal-600 font-bold mt-2">去生成</button>
                 </div>
-            )}
-        </div>
-    );
+                <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm">
+                    <h3 className="font-bold text-slate-800 mb-3">随访记录历史</h3>
+                    {followups.length === 0 ? (
+                        <div className="text-sm text-slate-400 text-center py-6">暂无随访记录</div>
+                    ) : (
+                        <div className="space-y-2">
+                            {followups.map((item) => (
+                                <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-bold text-slate-800">{item.date}</span>
+                                        <span className="text-xs text-slate-500">{item.method}</span>
+                                    </div>
+                                    <div className="mt-1 text-xs text-slate-500">
+                                        血压 {item.indicators.sbp}/{item.indicators.dbp} mmHg · 血糖 {item.indicators.glucose || '-'} · 体重 {item.indicators.weight || '-'}kg
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    const renderPlanView = () => {
+        const planFromAssessment = assessment?.managementPlan;
+        const dietaryList = planFromAssessment?.dietary || [];
+        const exerciseList = planFromAssessment?.exercise || [];
+        const monitoringList = planFromAssessment?.monitoring || [];
+        const hasPlan = dietaryList.length || exerciseList.length || monitoringList.length;
+
+        return (
+            <div className="p-4 space-y-4 animate-slideInRight">
+                {hasPlan ? (
+                    <>
+                        <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="font-bold text-slate-800">我的健康管理方案（饮食与运动）</h3>
+                                <span className="text-xs text-slate-400">与健康管理方案保持一致</span>
+                            </div>
+                            <div className="space-y-4">
+                                <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                                    <h4 className="mb-2 text-sm font-bold text-emerald-800">🥗 饮食干预</h4>
+                                    {dietaryList.length ? (
+                                        <ul className="list-disc space-y-1 pl-5 text-sm text-emerald-900">
+                                            {dietaryList.map((item, i) => (
+                                                <li key={`diet-${i}`}>{item}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <div className="text-xs text-emerald-700/80">暂无饮食建议</div>
+                                    )}
+                                </div>
+                                <div className="rounded-lg border border-sky-100 bg-sky-50 p-4">
+                                    <h4 className="mb-2 text-sm font-bold text-sky-800">🏃 运动干预</h4>
+                                    {exerciseList.length ? (
+                                        <ul className="list-disc space-y-1 pl-5 text-sm text-sky-900">
+                                            {exerciseList.map((item, i) => (
+                                                <li key={`exercise-${i}`}>{item}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <div className="text-xs text-sky-700/80">暂无运动建议</div>
+                                    )}
+                                </div>
+                                <div className="rounded-lg border border-violet-100 bg-violet-50 p-4">
+                                    <h4 className="mb-2 text-sm font-bold text-violet-800">🔍 监测随访</h4>
+                                    {monitoringList.length ? (
+                                        <ul className="list-disc space-y-1 pl-5 text-sm text-violet-900">
+                                            {monitoringList.map((item, i) => (
+                                                <li key={`monitor-${i}`}>{item}</li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <div className="text-xs text-violet-700/80">暂无监测建议</div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <div className="text-center text-slate-400 mt-10">
+                        <p>暂无健康管理方案</p>
+                        <p className="mt-2 text-xs">请先由医生端提交评估后查看</p>
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     const renderEventsView = () => {
         const myEvents = interactions.filter(i => i.type === 'event_signup');
@@ -330,11 +485,11 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                                 </div>
                                 <div className="relative z-10 mt-2">
                                     <button 
-                                        onClick={() => onNavigate('interaction')}
+                                        onClick={() => onNavigate('message')}
                                         className="w-full bg-white text-blue-700 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
                                     >
                                         <span className="text-lg">💬</span> 
-                                        <span>去咨询</span>
+                                        <span>去消息</span>
                                     </button>
                                 </div>
                             </div>
@@ -344,7 +499,7 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                             <div className="text-4xl opacity-30 mb-2">👨‍⚕️</div>
                             <p className="opacity-60 text-sm mb-3">您尚未签约家庭医生</p>
                             <button 
-                                onClick={() => onNavigate('medical')}
+                                onClick={() => onNavigate('doctor')}
                                 className="bg-teal-600 text-white hover:bg-teal-700 px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm"
                             >
                                 前往签约
@@ -431,6 +586,108 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
         );
     };
 
+    const renderManagerView = () => (
+        <div className="space-y-4 p-4 pb-24 animate-slideInRight">
+            <h2 className="text-lg font-bold text-slate-800">我的健康管家</h2>
+            {healthManager ? (
+                <div className="rounded-2xl border border-teal-100 bg-white p-5 shadow-sm">
+                    <div className="flex items-center gap-3 mb-3">
+                        {healthManager.image && /^https?:\/\//i.test(healthManager.image) ? (
+                            <img
+                                src={healthManager.image}
+                                alt=""
+                                className="h-14 w-14 rounded-full border border-slate-100 object-cover"
+                            />
+                        ) : (
+                            <div className="text-3xl">{healthManager.image || '🧑‍⚕️'}</div>
+                        )}
+                        <div>
+                            <div className="font-black text-slate-800 text-lg">{healthManager.title}</div>
+                            {healthManager.details?.dept && (
+                                <div className="text-xs text-slate-500">{healthManager.details.dept}</div>
+                            )}
+                        </div>
+                    </div>
+                    {healthManager.description && (
+                        <p className="text-sm text-slate-600 leading-relaxed mb-3">{healthManager.description}</p>
+                    )}
+                    {(healthManager.details?.phone || healthManager.details?.mobile) && (
+                        <p className="text-sm font-bold text-teal-700">
+                            联系电话：{healthManager.details?.phone || healthManager.details?.mobile}
+                        </p>
+                    )}
+                    {!healthManager.details?.phone && !healthManager.details?.mobile && (
+                        <p className="text-xs text-slate-400">联系方式请咨询健康管理中心</p>
+                    )}
+                </div>
+            ) : (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-500 text-sm">
+                    暂未分配健康管家。请等待签约医生或健康管理中心为您指定，或联系健康管家完成建档。
+                </div>
+            )}
+        </div>
+    );
+
+    const renderSecurityView = () => (
+        <div className="space-y-4 p-4 pb-24 animate-slideInRight">
+            <h2 className="text-lg font-bold text-slate-800">修改密码</h2>
+            <p className="text-xs text-slate-500">
+                若从未修改过密码，「当前密码」请填写体检编号；修改成功后请使用新密码登录。
+            </p>
+            <div className="space-y-3 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                <div>
+                    <label className="text-xs font-bold text-slate-600">当前密码</label>
+                    <input
+                        type="password"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        value={pwdOld}
+                        onChange={(e) => setPwdOld(e.target.value)}
+                        autoComplete="current-password"
+                    />
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-slate-600">新密码（至少 6 位）</label>
+                    <input
+                        type="password"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        value={pwdNew}
+                        onChange={(e) => setPwdNew(e.target.value)}
+                        autoComplete="new-password"
+                    />
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-slate-600">确认新密码</label>
+                    <input
+                        type="password"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        value={pwdConfirm}
+                        onChange={(e) => setPwdConfirm(e.target.value)}
+                        autoComplete="new-password"
+                    />
+                </div>
+                {pwdMsg ? (
+                    <p
+                        className={`text-center text-xs font-bold ${
+                            pwdMsg.includes('失败') || pwdMsg.includes('不正确') || pwdMsg.includes('不一致')
+                                ? 'text-red-600'
+                                : 'text-teal-600'
+                        }`}
+                    >
+                        {pwdMsg}
+                    </p>
+                ) : null}
+                <button
+                    type="button"
+                    disabled={pwdSaving}
+                    onClick={handleChangePassword}
+                    className="w-full rounded-xl bg-teal-600 py-3 text-sm font-bold text-white shadow-md hover:bg-teal-700 disabled:opacity-50"
+                >
+                    {pwdSaving ? '保存中...' : '保存新密码'}
+                </button>
+            </div>
+        </div>
+    );
+
     return (
         <div className="bg-slate-50 min-h-full">
             {/* Header / ID Card */}
@@ -463,11 +720,93 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
 
                 {subView === 'menu' && (
                     <div className="flex-1 space-y-3 p-4">
+                        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="font-bold text-slate-800">基础身体指标</h3>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsBasicCardExpanded((v) => !v)}
+                                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700"
+                                    >
+                                        {isBasicCardExpanded ? '收起详情' : '查看详情'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsBasicEditOpen(true)}
+                                        className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700"
+                                    >
+                                        更新数据
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">BMI</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {record.checkup.basics.bmi || '-'}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">血压</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {record.checkup.basics.sbp}/{record.checkup.basics.dbp}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">血糖</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {record.checkup.labBasic.glucose?.fasting || '-'}
+                                    </div>
+                                </div>
+                            </div>
+                            {isBasicCardExpanded && (
+                                <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
+                                    <div className="mb-2 flex items-center justify-between">
+                                        <h4 className="text-sm font-bold text-slate-700">关键指标动态曲线</h4>
+                                        <span className="text-[11px] text-slate-400">按历史记录自动生成</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-3">
+                                        <MiniTrendChart title="体重(kg)" values={trendRows.map(r => r.weight)} color="#0ea5e9" />
+                                        <MiniTrendChart title="BMI" values={trendRows.map(r => r.bmi)} color="#6366f1" />
+                                        <MiniTrendChart title="腰围(cm)" values={trendRows.map(r => r.waist)} color="#f59e0b" />
+                                        <MiniTrendChart title="体脂率(%)" values={trendRows.map(r => r.bodyFatRate)} color="#ec4899" />
+                                        <MiniTrendChart title="血压收缩压(mmHg)" values={trendRows.map(r => r.sbp)} color="#ef4444" />
+                                        <MiniTrendChart title="血压舒张压(mmHg)" values={trendRows.map(r => r.dbp)} color="#f97316" />
+                                        <MiniTrendChart title="总胆固醇TC(mmol/L)" values={trendRows.map(r => r.tc)} color="#22c55e" />
+                                        <MiniTrendChart title="空腹血糖(mmol/L)" values={trendRows.map(r => r.glucose)} color="#14b8a6" />
+                                    </div>
+                                </div>
+                            )}
+                            <p className="mt-3 text-xs text-slate-500">
+                                建议每周至少更新一次基础指标，便于健康管理团队动态调整干预方案。
+                            </p>
+                            <p className="mt-1 text-[11px] text-slate-400">
+                                最近同步：
+                                {archive.updated_at
+                                    ? new Date(archive.updated_at).toLocaleString()
+                                    : '暂无'}
+                            </p>
+                            <p className="mt-1 text-[11px] text-slate-400">
+                                写入来源：
+                                {archive.last_sync_source
+                                    ? syncSourceLabel[archive.last_sync_source] || archive.last_sync_source
+                                    : '未知来源'}
+                            </p>
+                        </div>
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
-                        <MenuButton icon="📅" label="我的随访记录" desc="执行单与历史随访" onClick={() => setSubView('followup')} />
+                        <MenuButton
+                            icon="📅"
+                            label={`我的随访记录${nextFollowup?.date ? `（下次 ${nextFollowup.date}）` : ''}`}
+                            desc={nextFollowup?.date ? `执行单与历史随访 · 下次随访 ${nextFollowup.date}` : '执行单与历史随访'}
+                            onClick={() => setSubView('followup')}
+                        />
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
                         <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
-                        <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与开药历史" onClick={() => setSubView('apps')} />
+                        <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请历史" onClick={() => setSubView('apps')} />
+                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="未签约直达签约，已签约直达消息" onClick={handleManagerQuickEntry} />
+                        <MenuButton icon="💬" label="我的消息" desc="进入消息中心与医生/管家沟通" onClick={() => onNavigate('message')} />
+                        <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
                     </div>
                 )}
 
@@ -476,6 +815,8 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                 {subView === 'plan' && renderPlanView()}
                 {subView === 'events' && renderEventsView()}
                 {subView === 'apps' && renderAppsView()}
+                {subView === 'manager' && renderManagerView()}
+                {subView === 'security' && renderSecurityView()}
 
                 {/* Logout Button (Only on Menu) */}
                 {subView === 'menu' && (
@@ -486,6 +827,42 @@ export const UserProfile: React.FC<Props> = ({ record, assessment, dailyPlan, us
                         >
                             退出登录
                         </button>
+                    </div>
+                )}
+
+                {subView === 'menu' && isBasicEditOpen && (
+                    <div
+                        className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-900/60 backdrop-blur-sm"
+                        onClick={() => setIsBasicEditOpen(false)}
+                    >
+                        <div
+                            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-6 max-h-[85vh] overflow-y-auto"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="mb-4 flex items-center justify-between">
+                                <h3 className="text-lg font-black text-slate-800">更新基础身体指标</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsBasicEditOpen(false)}
+                                    className="h-8 w-8 rounded-full bg-slate-100 text-slate-500 font-black"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+                                <div><label className="text-xs text-slate-400">身高(cm)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.height} onChange={e => setEditForm({...editForm, height: Number(e.target.value)})} /></div>
+                                <div><label className="text-xs text-slate-400">体重(kg)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.weight} onChange={e => setEditForm({...editForm, weight: Number(e.target.value)})} /></div>
+                                <div><label className="text-xs text-slate-400">腰围(cm)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.waist} onChange={e => setEditForm({...editForm, waist: Number(e.target.value)})} /></div>
+                                <div><label className="text-xs text-slate-400">体脂率(%)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.bodyFatRate} onChange={e => setEditForm({...editForm, bodyFatRate: Number(e.target.value)})} /></div>
+                                <div><label className="text-xs text-slate-400">收缩压</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.sbp} onChange={e => setEditForm({...editForm, sbp: Number(e.target.value)})} /></div>
+                                <div><label className="text-xs text-slate-400">舒张压</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.dbp} onChange={e => setEditForm({...editForm, dbp: Number(e.target.value)})} /></div>
+                                <div><label className="text-xs text-slate-400">总胆固醇 TC(mmol/L)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.tc} onChange={e => setEditForm({...editForm, tc: e.target.value})} /></div>
+                                <div><label className="text-xs text-slate-400">空腹血糖(mmol/L)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.glucose} onChange={e => setEditForm({...editForm, glucose: e.target.value})} /></div>
+                            </div>
+                            <button onClick={handleSaveRecord} className="w-full bg-teal-600 text-white py-3 rounded-lg font-bold shadow-md">
+                                保存修改
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
@@ -508,6 +885,36 @@ const MenuButton: React.FC<{icon: string, label: string, desc: string, onClick: 
         <span className="text-slate-300">›</span>
     </button>
 );
+
+const MiniTrendChart: React.FC<{ title: string; values: number[]; color: string }> = ({ title, values, color }) => {
+    const normalized = values.filter((v) => Number.isFinite(v) && v > 0);
+    if (normalized.length === 0) {
+        return (
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <div className="text-xs font-bold text-slate-600">{title}</div>
+                <div className="mt-1 text-xs text-slate-400">暂无有效历史数据</div>
+            </div>
+        );
+    }
+    const min = Math.min(...normalized);
+    const max = Math.max(...normalized);
+    const points = normalized.map((v, i) => {
+        const x = normalized.length === 1 ? 0 : (i / (normalized.length - 1)) * 100;
+        const y = max === min ? 50 : 100 - ((v - min) / (max - min)) * 100;
+        return `${x},${y}`;
+    }).join(' ');
+    return (
+        <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <div className="flex items-center justify-between">
+                <div className="text-xs font-bold text-slate-600">{title}</div>
+                <div className="text-xs text-slate-400">最新: {normalized[normalized.length - 1]}</div>
+            </div>
+            <svg viewBox="0 0 100 100" className="mt-2 h-16 w-full">
+                <polyline fill="none" stroke={color} strokeWidth="3" points={points} />
+            </svg>
+        </div>
+    );
+};
 
 const PlanItem: React.FC<{ icon: string, title: string, items?: string[] }> = ({ icon, title, items }) => (
     <div className="p-4 flex gap-4">

@@ -9,6 +9,8 @@ interface LayoutProps {
   currentUserRole?: string | null;
   onLoginClick?: () => void;
   onLogoutClick?: () => void;
+  /** 与 nav id 对应的未读数，用于侧栏角标（如医生「消息」） */
+  navBadges?: Record<string, number>;
 }
 
 export const Layout: React.FC<LayoutProps> = ({ 
@@ -18,7 +20,8 @@ export const Layout: React.FC<LayoutProps> = ({
   isAuthenticated = false,
   currentUserRole,
   onLoginClick,
-  onLogoutClick
+  onLogoutClick,
+  navBadges,
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -29,6 +32,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'elderly_assessment', label: '老年专项评估', icon: '👵', roles: ['admin', 'doctor'] },
     { id: 'risk_portrait', label: '危急值随访管理', icon: '🛡️', roles: ['admin', 'doctor'] }, // Renamed & New Icon
     { id: 'followup', label: '随访监测', icon: '📅', roles: ['admin', 'doctor'] },
+    { id: 'doctor_messages', label: '消息', icon: '💬', roles: ['doctor'] },
     { id: 'my_patients', label: '我的签约用户', icon: '🤝', roles: ['doctor'] }, 
     { id: 'heatmap', label: '医疗服务热力图', icon: '🏥', roles: ['admin', 'doctor'] },
     { id: 'admin', label: '管理控制台', icon: '⚡', roles: ['admin'] },
@@ -54,7 +58,9 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
         </div>
         <nav className="flex-1 py-6 px-3 space-y-2 min-w-[256px] overflow-y-auto">
-          {visibleItems.map((item) => (
+          {visibleItems.map((item) => {
+            const badge = navBadges?.[item.id];
+            return (
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
@@ -65,9 +71,19 @@ export const Layout: React.FC<LayoutProps> = ({
               }`}
             >
               <span className="text-xl shrink-0">{item.icon}</span>
-              <span className="font-medium text-sm">{item.label}</span>
+              <span className="font-medium text-sm truncate flex-1 min-w-0 text-left">{item.label}</span>
+              {typeof badge === 'number' && badge > 0 ? (
+                <span
+                  className={`shrink-0 min-w-[22px] h-[22px] px-1 rounded-full text-[11px] font-black flex items-center justify-center ${
+                    activeTab === item.id ? 'bg-white text-teal-700' : 'bg-red-500 text-white'
+                  }`}
+                >
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              ) : null}
             </button>
-          ))}
+            );
+          })}
         </nav>
         <div className="p-4 border-t border-slate-700 min-w-[256px]">
           <div className="flex items-center gap-3">

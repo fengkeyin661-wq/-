@@ -1,5 +1,7 @@
 
+import bcrypt from 'bcryptjs';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { fetchContent, isHealthManagerContent } from './contentService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
 
 export interface ExercisePlanData {
@@ -48,6 +50,28 @@ export interface UserGamification {
     badges: string[]; // IDs of unlocked badges
 }
 
+export interface HomeMonitoringLog {
+    id: string;
+    timestamp: string;
+    source: 'user' | 'doctor' | 'manager' | 'upload';
+    type: 'bp' | 'weight' | 'fbg' | 'other';
+    value: string;
+    unit?: string;
+    context?: string;
+    attachments?: { name: string; mime?: string }[];
+    status: 'draft' | 'pending' | 'confirmed' | 'rejected';
+}
+
+export interface HealthDraftData {
+    generatedAt: string;
+    source: 'annual_checkup' | 'upload' | 'home_monitoring' | 'manual_review';
+    note?: string;
+    assessment: HealthAssessment;
+    follow_up_schedule: ScheduledFollowUp[];
+    management_plan: HealthAssessment['managementPlan'];
+    merged_record?: HealthRecord;
+}
+
 export interface DailyHealthPlan {
     generatedAt: string;
     diet: { breakfast: string, lunch: string, dinner: string, snack: string };
@@ -84,6 +108,8 @@ export interface HealthArchive {
     custom_daily_plan?: DailyHealthPlan; 
     habit_tracker?: HabitRecord[]; 
     gamification?: UserGamification; // [NEW]
+    home_monitoring_logs?: HomeMonitoringLog[];
+    draft_data?: HealthDraftData;
 
     history_versions: {
         date: string;
@@ -92,9 +118,301 @@ export interface HealthArchive {
     }[];
     created_at: string;
     updated_at?: string;
+    /** 最近一次写入来源：doctor_followup / user_profile_edit / system */
+    last_sync_source?: string;
+
+    /** bcrypt hash after user changes password; empty = login with default (体检编号) */
+    password_hash?: string | null;
+    /** false: prompt user to contact health manager to finish 建档 */
+    profile_complete?: boolean;
+    /** app_content.id for doctor resource (健康管家) */
+    health_manager_content_id?: string | null;
 }
 
 const ARCHIVE_STORAGE_KEY = 'HEALTH_ARCHIVES_V1_LOCAL';
+
+const pickDefaultHealthManagerId = async (): Promise<string | null> => {
+    try {
+        const doctors = await fetchContent('doctor', 'active');
+        const managers = doctors.filter(isHealthManagerContent);
+        if (!managers.length) return null;
+        // 简单轮询：按更新时间排序后取第一位
+        const sorted = [...managers].sort((a, b) =>
+            new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+        );
+        return sorted[0].id;
+    } catch {
+        return null;
+    }
+};
+
+/** Normalize phone for lookup (strip spaces/dashes). */
+export const normalizePhone = (phone: string): string =>
+    phone
+        .replace(/^\+86/i, '')
+        .replace(/[^\d]/g, '')
+        .replace(/^86(?=\d{11}$)/, '')
+        .trim();
+
+const phoneMatches = (stored: string | undefined | null, input: string): boolean => {
+    if (!stored || !input) return false;
+    return normalizePhone(stored) === normalizePhone(input);
+};
+
+async function verifyArchivePassword(archive: HealthArchive, password: string): Promise<boolean> {
+    const hash = archive.password_hash;
+    if (hash && hash.length > 0) {
+        try {
+            return await bcrypt.compare(password, hash);
+        } catch {
+            return false;
+        }
+    }
+    return password === archive.checkup_id;
+}
+
+export type UserLoginFailureReason =
+    | 'archive_not_found'
+    | 'invalid_password'
+    | 'permission_denied'
+    | 'query_error';
+
+export type UserLoginResult =
+    | { success: true; archive: HealthArchive }
+    | { success: false; reason: UserLoginFailureReason; message: string };
+
+const findArchiveByPhoneWithStatus = async (
+    phone: string
+): Promise<{ archive: HealthArchive | null; reason?: UserLoginFailureReason; message?: string }> => {
+    const n = normalizePhone(phone);
+    if (!n) return { archive: null, reason: 'archive_not_found', message: '手机号不能为空' };
+
+    const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+    if (localRaw) {
+        const localArchives: HealthArchive[] = JSON.parse(localRaw);
+        const matches = localArchives.filter((a) => phoneMatches(a.phone, n));
+        if (matches.length) {
+            matches.sort((a, b) => {
+                const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+                const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+                return tb - ta;
+            });
+            return { archive: matches[0] };
+        }
+    }
+
+    if (!isSupabaseConfigured()) return { archive: null, reason: 'archive_not_found', message: '未配置云数据库' };
+
+    try {
+        const { data, error } = await supabase
+            .from('health_archives')
+            .select('*')
+            .eq('phone', n)
+            .order('updated_at', { ascending: false })
+            .limit(1);
+
+        if (error) {
+            const msg = `${error.code || ''} ${error.message || ''}`.toLowerCase();
+            if (
+                msg.includes('permission denied') ||
+                msg.includes('not allowed') ||
+                msg.includes('rls') ||
+                msg.includes('42501')
+            ) {
+                return {
+                    archive: null,
+                    reason: 'permission_denied',
+                    message: 'RLS/权限策略阻止了档案查询',
+                };
+            }
+            return { archive: null, reason: 'query_error', message: error.message || '查询失败' };
+        }
+        if (data && data.length > 0) return { archive: data[0] as HealthArchive };
+
+        const { data: data2, error: error2 } = await supabase
+            .from('health_archives')
+            .select('*')
+            .eq('phone', phone.trim())
+            .order('updated_at', { ascending: false })
+            .limit(1);
+
+        if (error2) {
+            return { archive: null, reason: 'query_error', message: error2.message || '查询失败' };
+        }
+        if (data2 && data2.length > 0) return { archive: data2[0] as HealthArchive };
+
+        // 兜底：若手机号未维护，允许用体检编号输入登录（便于新建档案首登）
+        const checkupInput = String(phone || '').trim();
+        if (checkupInput) {
+            const { data: byCheckup, error: checkupErr } = await supabase
+                .from('health_archives')
+                .select('*')
+                .eq('checkup_id', checkupInput)
+                .order('updated_at', { ascending: false })
+                .limit(1);
+            if (checkupErr) {
+                return { archive: null, reason: 'query_error', message: checkupErr.message || '查询失败' };
+            }
+            if (byCheckup && byCheckup.length > 0) return { archive: byCheckup[0] as HealthArchive };
+        }
+        return { archive: null, reason: 'archive_not_found', message: '手机号未匹配到档案' };
+    } catch (e: any) {
+        return { archive: null, reason: 'query_error', message: e?.message || '查询异常' };
+    }
+};
+
+/** Login: reserved phone + password (default = 体检编号). Returns reason-aware result. */
+export const authenticateUserByPhone = async (
+    phone: string,
+    password: string
+): Promise<UserLoginResult> => {
+    const found = await findArchiveByPhoneWithStatus(phone);
+    if (!found.archive) {
+        return {
+            success: false,
+            reason: found.reason || 'archive_not_found',
+            message: found.message || '未查询到档案',
+        };
+    }
+    const ok = await verifyArchivePassword(found.archive, password);
+    if (!ok) {
+        return {
+            success: false,
+            reason: 'invalid_password',
+            message: '密码错误或已修改过默认密码',
+        };
+    }
+    syncArchiveToLocal(found.archive);
+    return { success: true, archive: found.archive };
+};
+
+export const updatePortalPassword = async (
+    checkupId: string,
+    oldPassword: string,
+    newPassword: string
+): Promise<{ success: boolean; message?: string }> => {
+    if (!newPassword || newPassword.length < 6) {
+        return { success: false, message: '新密码至少 6 位' };
+    }
+    let archive = await findArchiveByCheckupId(checkupId);
+    if (!archive) {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            archive = all.find((a) => a.checkup_id === checkupId) || null;
+        }
+    }
+    if (!archive) return { success: false, message: '未找到档案' };
+    const oldOk = await verifyArchivePassword(archive, oldPassword);
+    if (!oldOk) return { success: false, message: '原密码不正确' };
+
+    const password_hash = await bcrypt.hash(newPassword, 10);
+    const next = { ...archive, password_hash, updated_at: new Date().toISOString() };
+
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx] = { ...all[idx], password_hash, updated_at: next.updated_at };
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+
+    if (isSupabaseConfigured()) {
+        try {
+            const { error } = await supabase
+                .from('health_archives')
+                .update({ password_hash, updated_at: next.updated_at })
+                .eq('checkup_id', checkupId);
+            if (error) {
+                if (error.message.includes('Could not find') || error.code === '42703') {
+                    return {
+                        success: false,
+                        message: '数据库缺少 password_hash 列，请在 Supabase 执行 supabase/migrations/001_health_archive_portal.sql',
+                    };
+                }
+                return { success: false, message: error.message };
+            }
+        } catch (e: any) {
+            return { success: false, message: e.message };
+        }
+    }
+    syncArchiveToLocal(next);
+    return { success: true };
+};
+
+export type ArchivePortalMetaPatch = Partial<{
+    profile_complete: boolean;
+    health_manager_content_id: string | null;
+}>;
+
+export const updateArchiveMeta = async (
+    checkupId: string,
+    patch: ArchivePortalMetaPatch
+): Promise<{ success: boolean; message?: string }> => {
+    const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if ('profile_complete' in patch) payload.profile_complete = patch.profile_complete;
+    if ('health_manager_content_id' in patch)
+        payload.health_manager_content_id = patch.health_manager_content_id;
+    let localPatched = false;
+
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                if ('profile_complete' in patch) all[idx].profile_complete = patch.profile_complete;
+                if ('health_manager_content_id' in patch)
+                    (all[idx] as any).health_manager_content_id = patch.health_manager_content_id;
+                all[idx].updated_at = payload.updated_at as string;
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+                localPatched = true;
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+
+    if (!isSupabaseConfigured()) return { success: true };
+
+    try {
+        const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
+        if (error) {
+            const msg = `${error.code || ''} ${error.message || ''}`.toLowerCase();
+            if (
+                localPatched &&
+                (msg.includes('permission denied') ||
+                    msg.includes('not allowed') ||
+                    msg.includes('role not allowed') ||
+                    msg.includes('rls') ||
+                    msg.includes('42501'))
+            ) {
+                return {
+                    success: true,
+                    message: '云端权限限制，已改为本地保存（当前端可见）。请联系管理员配置 health_archives 更新权限。',
+                };
+            }
+            if (error.message.includes('Could not find') || error.code === '42703') {
+                return {
+                    success: false,
+                    message: '数据库缺少 profile_complete 或 health_manager_content_id 列，请执行迁移 SQL',
+                };
+            }
+            return { success: false, message: error.message };
+        }
+        const updated = await findArchiveByCheckupId(checkupId);
+        if (updated) syncArchiveToLocal(updated);
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, message: e.message };
+    }
+};
 
 // Helper to generate UUID
 const generateUUID = () => {
@@ -127,15 +445,26 @@ export const syncArchiveToLocal = (archive: HealthArchive) => {
     }
 };
 
+/** 仅从本地缓存同步读取，用于首屏秒开；无网络 */
+export const getLocalArchiveByCheckupIdSync = (checkupId: string): HealthArchive | null => {
+    try {
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (!localRaw) return null;
+        const localArchives: HealthArchive[] = JSON.parse(localRaw);
+        return localArchives.find((a) => a.checkup_id === checkupId) || null;
+    } catch {
+        return null;
+    }
+};
+
 export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthArchive | null> => {
+    let localMatch: HealthArchive | null = null;
     const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
     if (localRaw) {
         const localArchives: HealthArchive[] = JSON.parse(localRaw);
-        const match = localArchives.find(a => a.checkup_id === checkupId);
-        if (match) return match;
+        localMatch = localArchives.find(a => a.checkup_id === checkupId) || null;
     }
-
-    if (!isSupabaseConfigured()) return null;
+    if (!isSupabaseConfigured()) return localMatch;
     try {
         const { data, error } = await supabase
             .from('health_archives')
@@ -145,21 +474,35 @@ export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthA
         
         if (error) {
             console.error("Find archive error:", error);
-            return null;
+            return localMatch;
         }
-        return data;
+        if (data) {
+            syncArchiveToLocal(data as HealthArchive);
+            return data as HealthArchive;
+        }
+        return localMatch;
     } catch (e) {
         console.error("Find archive exception:", e);
-        return null;
+        return localMatch;
     }
 };
 
 export const findArchiveByPhone = async (phone: string): Promise<HealthArchive | null> => {
+    const n = normalizePhone(phone);
+    if (!n) return null;
+
     const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
     if (localRaw) {
         const localArchives: HealthArchive[] = JSON.parse(localRaw);
-        const match = localArchives.find(a => a.phone === phone);
-        if (match) return match;
+        const matches = localArchives.filter((a) => phoneMatches(a.phone, n));
+        if (matches.length) {
+            matches.sort((a, b) => {
+                const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+                const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+                return tb - ta;
+            });
+            return matches[0];
+        }
     }
 
     if (!isSupabaseConfigured()) return null;
@@ -167,11 +510,22 @@ export const findArchiveByPhone = async (phone: string): Promise<HealthArchive |
         const { data, error } = await supabase
             .from('health_archives')
             .select('*')
-            .eq('phone', phone)
-            .maybeSingle();
-        
+            .eq('phone', n)
+            .order('updated_at', { ascending: false })
+            .limit(1);
+
         if (error) return null;
-        return data;
+        if (data && data.length > 0) return data[0] as HealthArchive;
+
+        const { data: data2 } = await supabase
+            .from('health_archives')
+            .select('*')
+            .eq('phone', phone.trim())
+            .order('updated_at', { ascending: false })
+            .limit(1);
+        if (data2 && data2.length > 0) return data2[0] as HealthArchive;
+
+        return null;
     } catch (e) {
         return null;
     }
@@ -182,8 +536,19 @@ export const saveArchive = async (
     assessment: HealthAssessment, 
     schedule: ScheduledFollowUp[],
     existingFollowUps: FollowUpRecord[] = [],
-    riskAnalysis?: RiskAnalysisData
+    riskAnalysis?: RiskAnalysisData,
+    saveOptions?: { completeProfileOnSave?: boolean }
 ): Promise<{ success: boolean; message?: string }> => {
+    const isPermissionDeniedError = (err: any): boolean => {
+        const msg = `${err?.code || ''} ${err?.message || ''}`.toLowerCase();
+        return (
+            msg.includes('permission denied') ||
+            msg.includes('not allowed') ||
+            msg.includes('role not allowed') ||
+            msg.includes('rls') ||
+            msg.includes('42501')
+        );
+    };
     // Ensure checkupId is a string, default to UNKNOWN if missing (Logic for Business Key)
     const checkupId = record.profile.checkupId || `UNKNOWN_${Date.now()}`;
     
@@ -194,6 +559,9 @@ export const saveArchive = async (
     let existingDailyPlan = null;
     let existingHabits = null;
     let existingGamification = null;
+    let existingPasswordHash: string | null | undefined = undefined;
+    let existingProfileComplete: boolean | undefined = undefined;
+    let existingHealthManagerId: string | null | undefined = undefined;
     
     // Determine UUID (Primary Key)
     // 1. Try to find existing ID from DB or Local to maintain consistency
@@ -215,6 +583,9 @@ export const saveArchive = async (
                 existingHabits = match.habit_tracker;
                 existingGamification = match.gamification;
                 if (!existingRiskAnalysis && match.risk_analysis) existingRiskAnalysis = match.risk_analysis;
+                existingPasswordHash = match.password_hash;
+                existingProfileComplete = match.profile_complete;
+                existingHealthManagerId = match.health_manager_content_id;
             }
         }
     } catch(e) {}
@@ -232,6 +603,13 @@ export const saveArchive = async (
                 existingHabits = (existing as any).habit_tracker;
                 existingGamification = (existing as any).gamification;
                 if (!existingRiskAnalysis && existing.risk_analysis) existingRiskAnalysis = existing.risk_analysis;
+                existingPasswordHash = (existing as any).password_hash ?? existingPasswordHash;
+                existingProfileComplete =
+                    (existing as any).profile_complete !== undefined
+                        ? (existing as any).profile_complete
+                        : existingProfileComplete;
+                existingHealthManagerId =
+                    (existing as any).health_manager_content_id ?? existingHealthManagerId;
 
                 if (historyVersions.length > 5) historyVersions = historyVersions.slice(historyVersions.length - 5);
                 historyVersions.push({ date: new Date().toISOString(), health_record: existing.health_record, assessment_data: existing.assessment_data });
@@ -242,11 +620,18 @@ export const saveArchive = async (
     // C. If no ID found anywhere, generate new UUID
     if (!finalId) finalId = generateUUID();
 
+    let profileCompleteOut = true;
+    if (saveOptions?.completeProfileOnSave) {
+        profileCompleteOut = true;
+    } else if (existingProfileComplete === false) {
+        profileCompleteOut = false;
+    }
+
     const basePayload: any = {
         id: finalId, // Use valid UUID
         checkup_id: checkupId, // Business Key (can be UNKNOWN_...)
         name: record.profile.name || '未命名',
-        phone: record.profile.phone || null,
+        phone: record.profile.phone ? normalizePhone(record.profile.phone) : null,
         department: record.profile.department,
         gender: record.profile.gender,
         age: record.profile.age || 0,
@@ -258,8 +643,19 @@ export const saveArchive = async (
         history_versions: historyVersions,
         critical_track: existingCriticalTrack, 
         updated_at: new Date().toISOString(),
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        profile_complete: profileCompleteOut,
     };
+
+    if (existingPasswordHash !== undefined && existingPasswordHash !== null) {
+        basePayload.password_hash = existingPasswordHash;
+    }
+    if (existingHealthManagerId !== undefined && existingHealthManagerId !== null) {
+        basePayload.health_manager_content_id = existingHealthManagerId;
+    } else {
+        const defaultManagerId = await pickDefaultHealthManagerId();
+        if (defaultManagerId) basePayload.health_manager_content_id = defaultManagerId;
+    }
 
     const fullPayload = {
         ...basePayload,
@@ -305,15 +701,29 @@ export const saveArchive = async (
                 delete basicPayload.custom_daily_plan;
                 delete basicPayload.habit_tracker;
                 delete basicPayload.gamification;
+                delete basicPayload.password_hash;
+                delete basicPayload.profile_complete;
+                delete basicPayload.health_manager_content_id;
                 
                 const { error: retryError } = await supabase.from('health_archives').upsert(basicPayload, { onConflict: 'checkup_id' });
-                if (retryError) throw retryError;
+                if (retryError) {
+                    if (isPermissionDeniedError(retryError)) {
+                        return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
+                    }
+                    throw retryError;
+                }
                 return { success: true, message: "部分保存成功 (数据库缺少新字段)" };
+            }
+            if (isPermissionDeniedError(error)) {
+                return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
             }
             throw error;
         }
         return { success: true };
     } catch (e: any) {
+        if (isPermissionDeniedError(e)) {
+            return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
+        }
         return { success: false, message: e.message };
     }
 };
@@ -468,29 +878,331 @@ export const updateCriticalTrack = async (checkupId: string, trackRecord: Critic
     }
 };
 
-export const updateArchiveData = async (checkupId: string, followUps: FollowUpRecord[], schedule: ScheduledFollowUp[]): Promise<{ success: boolean; message?: string }> => {
+const isHealthArchivePermissionError = (message: string): boolean => {
+    const m = `${message || ''}`.toLowerCase();
+    return (
+        m.includes('permission denied') ||
+        m.includes('not allowed') ||
+        m.includes('role not allowed') ||
+        m.includes('rls') ||
+        m.includes('42501') ||
+        m.includes('pgrst301') ||
+        m.includes('jwt')
+    );
+};
+
+const ensureAuthenticatedSessionForArchiveUpdate = async (): Promise<{ ok: boolean; message?: string }> => {
+    if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
     try {
-        // Local
-        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
-        if (raw) {
-            const all: HealthArchive[] = JSON.parse(raw);
-            const idx = all.findIndex(a => a.checkup_id === checkupId);
+        const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+        if (sessionErr) return { ok: false, message: sessionErr.message };
+        if (sessionData.session) return { ok: true };
+        const { error: anonErr } = await supabase.auth.signInAnonymously();
+        if (anonErr) {
+            return {
+                ok: false,
+                message: `无法建立 Supabase authenticated 会话：${anonErr.message}`,
+            };
+        }
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, message: e?.message || '建立 Supabase 会话失败' };
+    }
+};
+
+export const updateArchiveData = async (
+    checkupId: string,
+    followUps: FollowUpRecord[],
+    schedule: ScheduledFollowUp[],
+    options?: {
+        assessment?: HealthAssessment;
+        nextHealthRecord?: HealthRecord;
+        syncSource?: 'doctor_followup' | 'user_profile_edit' | 'system' | string;
+    }
+): Promise<{ success: boolean; message?: string }> => {
+    const nextAssessment = options?.assessment;
+    const nextHealthRecord = options?.nextHealthRecord;
+    const syncSource = options?.syncSource || 'system';
+    let localPatched = false;
+    let resolvedHealthRecord: HealthRecord | undefined = nextHealthRecord;
+    const nextUpdatedAt = new Date().toISOString();
+
+    try {
+        const readAll = (): HealthArchive[] => {
+            try {
+                const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+                return raw ? JSON.parse(raw) : [];
+            } catch {
+                return [];
+            }
+        };
+
+        let all = readAll();
+        let base = all.find((a) => a.checkup_id === checkupId);
+        if (!base && isSupabaseConfigured()) {
+            await findArchiveByCheckupId(checkupId);
+            all = readAll();
+            base = all.find((a) => a.checkup_id === checkupId);
+        }
+
+        if (base) {
+            const deriveRecordFromFollowUps = (record: HealthRecord, fups: FollowUpRecord[]): HealthRecord => {
+                if (!fups?.length) return record;
+                const latest = [...fups].sort((a, b) => {
+                    const ta = new Date(a.date || 0).getTime() || Number(a.id || 0);
+                    const tb = new Date(b.date || 0).getTime() || Number(b.id || 0);
+                    return tb - ta;
+                })[0];
+                const ind = latest?.indicators || ({} as any);
+                const basics = record.checkup?.basics || ({} as any);
+                const labBasic = record.checkup?.labBasic || ({} as any);
+                const lipids = labBasic.lipids || {};
+                const glucose = labBasic.glucose || {};
+                const weight = Number(ind.weight || basics.weight || 0);
+                const height = Number(basics.height || 0);
+                const bmi =
+                    height > 0 && weight > 0 ? Number((weight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
+                return {
+                    ...record,
+                    checkup: {
+                        ...record.checkup,
+                        basics: {
+                            ...basics,
+                            sbp: Number(ind.sbp || basics.sbp || 0),
+                            dbp: Number(ind.dbp || basics.dbp || 0),
+                            weight,
+                            bmi,
+                        },
+                        labBasic: {
+                            ...labBasic,
+                            glucose: {
+                                ...glucose,
+                                fasting:
+                                    ind.glucose != null && Number.isFinite(Number(ind.glucose))
+                                        ? String(ind.glucose)
+                                        : glucose.fasting,
+                            },
+                            lipids: {
+                                ...lipids,
+                                tc:
+                                    ind.tc != null && Number.isFinite(Number(ind.tc))
+                                        ? String(ind.tc)
+                                        : lipids.tc,
+                                tg:
+                                    ind.tg != null && Number.isFinite(Number(ind.tg))
+                                        ? String(ind.tg)
+                                        : lipids.tg,
+                                ldl:
+                                    ind.ldl != null && Number.isFinite(Number(ind.ldl))
+                                        ? String(ind.ldl)
+                                        : lipids.ldl,
+                                hdl:
+                                    ind.hdl != null && Number.isFinite(Number(ind.hdl))
+                                        ? String(ind.hdl)
+                                        : lipids.hdl,
+                            },
+                        },
+                    },
+                };
+            };
+            const finalHealthRecord = nextHealthRecord || deriveRecordFromFollowUps(base.health_record, followUps);
+            resolvedHealthRecord = finalHealthRecord;
+            const patched: HealthArchive = {
+                ...base,
+                follow_ups: followUps,
+                follow_up_schedule: schedule,
+                updated_at: nextUpdatedAt,
+                last_sync_source: syncSource,
+                health_record: finalHealthRecord,
+            };
+            if (nextAssessment) {
+                patched.assessment_data = nextAssessment;
+                patched.risk_level = nextAssessment.riskLevel;
+            }
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) all[idx] = patched;
+            else all.push(patched);
+            localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            localPatched = true;
+        }
+
+        if (!isSupabaseConfigured()) {
+            return localPatched
+                ? { success: true }
+                : { success: false, message: '本地未找到该体检档案，无法保存随访' };
+        }
+
+        const sessionRes = await ensureAuthenticatedSessionForArchiveUpdate();
+        if (!sessionRes.ok) {
+            if (localPatched) {
+                return {
+                    success: true,
+                    message: `云端会话不可用，已仅保存到本机：${sessionRes.message || 'unknown'}`,
+                };
+            }
+            return { success: false, message: sessionRes.message || '云端会话不可用' };
+        }
+
+        const payload: Record<string, unknown> = {
+            follow_ups: followUps,
+            follow_up_schedule: schedule,
+            updated_at: nextUpdatedAt,
+            last_sync_source: syncSource,
+        };
+        if (nextAssessment) {
+            payload.assessment_data = nextAssessment;
+            payload.risk_level = nextAssessment.riskLevel;
+        }
+        if (resolvedHealthRecord) {
+            payload.health_record = resolvedHealthRecord;
+        }
+        const { error } = await supabase.from('health_archives').update(payload).eq('checkup_id', checkupId);
+        if (error) {
+            if (localPatched && isHealthArchivePermissionError(error.message)) {
+                return {
+                    success: true,
+                    message:
+                        `云端拒绝更新 health_archives。随访已写入本机缓存，多设备不同步。原始错误：${error.message}`,
+                };
+            }
+            return { success: false, message: error.message };
+        }
+        if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.DEV) {
+            console.log('[archive-sync] updateArchiveData success', {
+                checkupId,
+                syncSource,
+                updatedAt: nextUpdatedAt,
+                withAssessment: !!nextAssessment,
+                withHealthRecord: !!nextHealthRecord,
+            });
+        }
+        return { success: true };
+    } catch (e: any) {
+        const msg = e?.message || String(e);
+        if (localPatched && isHealthArchivePermissionError(msg)) {
+            return {
+                success: true,
+                message:
+                    `云端写入失败。随访已保存在本机。原始错误：${msg}`,
+            };
+        }
+        return { success: false, message: msg };
+    }
+};
+
+export const appendHomeMonitoringLog = async (
+    checkupId: string,
+    log: HomeMonitoringLog
+): Promise<boolean> => {
+    try {
+        let nextLogs: HomeMonitoringLog[] = [log];
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (localRaw) {
+            const all: HealthArchive[] = JSON.parse(localRaw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
             if (idx >= 0) {
-                all[idx].follow_ups = followUps;
-                all[idx].follow_up_schedule = schedule;
+                const current = all[idx].home_monitoring_logs || [];
+                nextLogs = [...current, log].sort((a, b) =>
+                    a.timestamp < b.timestamp ? 1 : -1
+                );
+                all[idx].home_monitoring_logs = nextLogs;
                 all[idx].updated_at = new Date().toISOString();
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
             }
         }
-
-        // DB
         if (isSupabaseConfigured()) {
-            const { error } = await supabase.from('health_archives').update({ 
-                follow_ups: followUps,
-                follow_up_schedule: schedule,
-                updated_at: new Date().toISOString()
-            }).eq('checkup_id', checkupId);
-            if (error) throw error;
+            const { data: current } = await supabase
+                .from('health_archives')
+                .select('home_monitoring_logs')
+                .eq('checkup_id', checkupId)
+                .maybeSingle();
+            const dbLogs: HomeMonitoringLog[] = (current as any)?.home_monitoring_logs || [];
+            const merged = [...dbLogs, log].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+            await supabase
+                .from('health_archives')
+                .update({ home_monitoring_logs: merged, updated_at: new Date().toISOString() })
+                .eq('checkup_id', checkupId);
+        }
+        return true;
+    } catch (e) {
+        console.error(e);
+        return false;
+    }
+};
+
+export const saveHealthDraft = async (
+    checkupId: string,
+    draft: HealthDraftData
+): Promise<boolean> => {
+    try {
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (localRaw) {
+            const all: HealthArchive[] = JSON.parse(localRaw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].draft_data = draft;
+                all[idx].updated_at = new Date().toISOString();
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+        if (isSupabaseConfigured()) {
+            await supabase
+                .from('health_archives')
+                .update({ draft_data: draft, updated_at: new Date().toISOString() })
+                .eq('checkup_id', checkupId);
+        }
+        return true;
+    } catch (e) {
+        console.error(e);
+        return false;
+    }
+};
+
+export const publishHealthDraft = async (
+    checkupId: string,
+    reviewer?: string
+): Promise<{ success: boolean; message?: string }> => {
+    try {
+        const archive = await findArchiveByCheckupId(checkupId);
+        if (!archive) return { success: false, message: '未找到档案' };
+        if (!archive.draft_data) return { success: false, message: '没有待发布草案' };
+        const d = archive.draft_data;
+        const mergedFollowUps = archive.follow_ups || [];
+        const mergedRecord = d.merged_record || archive.health_record;
+        const saveRes = await saveArchive(
+            mergedRecord,
+            d.assessment,
+            d.follow_up_schedule,
+            mergedFollowUps,
+            archive.risk_analysis,
+            { completeProfileOnSave: true }
+        );
+        if (!saveRes.success) return saveRes;
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (localRaw) {
+            const all: HealthArchive[] = JSON.parse(localRaw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0) {
+                all[idx].draft_data = undefined as any;
+                all[idx].updated_at = new Date().toISOString();
+                all[idx].history_versions = [
+                    ...(all[idx].history_versions || []),
+                    {
+                        date: new Date().toISOString(),
+                        health_record: mergedRecord,
+                        assessment_data: d.assessment,
+                        source: 'manual_review',
+                        reviewer: reviewer || '',
+                    } as any,
+                ];
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+        if (isSupabaseConfigured()) {
+            await supabase
+                .from('health_archives')
+                .update({ draft_data: null, updated_at: new Date().toISOString() })
+                .eq('checkup_id', checkupId);
         }
         return { success: true };
     } catch (e: any) {
@@ -498,23 +1210,43 @@ export const updateArchiveData = async (checkupId: string, followUps: FollowUpRe
     }
 };
 
-export const updateHealthRecordOnly = async (checkupId: string, healthRecord: HealthRecord): Promise<boolean> => {
+export const updateHealthRecordOnly = async (
+    checkupId: string,
+    healthRecord: HealthRecord,
+    syncSource: string = 'user_profile_edit'
+): Promise<boolean> => {
     try {
+        const updatedAt = new Date().toISOString();
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
         if (raw) {
             const all: HealthArchive[] = JSON.parse(raw);
             const idx = all.findIndex(a => a.checkup_id === checkupId);
             if (idx >= 0) {
                 all[idx].health_record = healthRecord;
-                all[idx].updated_at = new Date().toISOString();
+                all[idx].updated_at = updatedAt;
+                all[idx].last_sync_source = syncSource;
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
             }
         }
         if (isSupabaseConfigured()) {
-            await supabase.from('health_archives').update({ 
+            const { error } = await supabase.from('health_archives').update({
                 health_record: healthRecord,
-                updated_at: new Date().toISOString()
+                updated_at: updatedAt,
+                last_sync_source: syncSource,
             }).eq('checkup_id', checkupId);
+            if (error) {
+                console.error('updateHealthRecordOnly cloud error:', error);
+                return false;
+            }
+            const latest = await findArchiveByCheckupId(checkupId);
+            if (latest) syncArchiveToLocal(latest);
+        }
+        if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.DEV) {
+            console.log('[archive-sync] updateHealthRecordOnly success', {
+                checkupId,
+                syncSource,
+                updatedAt,
+            });
         }
         return true;
     } catch { return false; }
@@ -536,11 +1268,15 @@ export const deleteArchive = async (id: string): Promise<boolean> => {
 
 export const fetchArchives = async (): Promise<HealthArchive[]> => {
     let archives: HealthArchive[] = [];
+    let localArchives: HealthArchive[] = [];
     
     // Local
     try {
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
-        if (raw) archives = JSON.parse(raw);
+        if (raw) {
+            localArchives = JSON.parse(raw);
+            archives = localArchives;
+        }
     } catch (e) {}
 
     // Cloud
@@ -548,7 +1284,12 @@ export const fetchArchives = async (): Promise<HealthArchive[]> => {
         try {
             const { data, error } = await supabase.from('health_archives').select('*');
             if (!error && data) {
-                archives = data;
+                const map = new Map<string, HealthArchive>();
+                // 先放本地，保证本地新增不会因云端空集被覆盖
+                localArchives.forEach((a) => map.set(a.checkup_id, a));
+                // 云端同 checkup_id 覆盖本地（以云端为准）
+                (data as HealthArchive[]).forEach((a) => map.set(a.checkup_id, a));
+                archives = Array.from(map.values());
             }
         } catch (e) {
             console.error("Fetch DB error", e);

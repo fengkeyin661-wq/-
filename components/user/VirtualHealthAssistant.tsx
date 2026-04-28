@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { HealthAssessment, HealthRecord } from '../../types';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -8,6 +9,8 @@ type ChatMessage = {
 interface Props {
   userName?: string;
   fullPage?: boolean; // 全屏模式
+  record?: HealthRecord;
+  assessment?: HealthAssessment;
 }
 
 // Helper to safely read env in Vite/browser
@@ -39,8 +42,9 @@ const isDev = (() => {
 const BAICHUAN_API_URL = isDev 
   ? '/api/baichuan/v1/chat/completions'  // Use Vite proxy in development
   : 'https://api.baichuan-ai.com/v1/chat/completions';  // Direct call in production
+const DEFAULT_OVERVIEW_QUESTION = '请根据我的健康档案，给我一份“档案总览建议”，按今天、本周、本月分别给出可执行计划。';
 
-export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = false }) => {
+export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = false, record, assessment }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -52,10 +56,45 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const buildArchiveSummary = (r?: HealthRecord, a?: HealthAssessment) => {
+    if (!r) return '';
+    const basics = r.checkup?.basics || {};
+    const glucose = r.checkup?.labBasic?.glucose || {};
+    const lipids = r.checkup?.labBasic?.lipids || {};
+    const abn = (r.checkup?.abnormalities || []).slice(0, 5).map((x) => `${x.item}:${x.result}`);
+    const riskLabel = a?.riskLevel ? `风险等级=${a.riskLevel}` : '';
+    const assSummary = a?.summary ? `综合评估=${a.summary}` : '';
+    const monitor = (a?.managementPlan?.monitoring || []).slice(0, 3).join('；');
+    return [
+      `性别=${r.profile?.gender || '未知'}`,
+      `年龄=${r.profile?.age || '未知'}`,
+      `血压=${basics.sbp || '-'} / ${basics.dbp || '-'} mmHg`,
+      `BMI=${basics.bmi || '-'}`,
+      `空腹血糖=${glucose.fasting || '-'}`,
+      `TC=${lipids.tc || '-'} TG=${lipids.tg || '-'} LDL=${lipids.ldl || '-'} HDL=${lipids.hdl || '-'}`,
+      abn.length ? `异常项=${abn.join('；')}` : '',
+      riskLabel,
+      assSummary,
+      monitor ? `重点监测=${monitor}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+  };
 
-    const newUserMsg: ChatMessage = { role: 'user', content: input.trim() };
+  const archiveSummary = buildArchiveSummary(record, assessment);
+  const quickQuestions = [
+    '请结合我的健康档案，给我3条最优先的干预建议',
+    '请解读我的血压、血糖和血脂风险，并告诉我本周怎么做',
+    '根据我的体检异常项，给出饮食和运动的具体执行清单',
+    '我最需要优先复查哪些项目？分别建议多久复查一次？',
+    '请把建议按“今天-本周-本月”三个阶段拆解给我',
+  ];
+
+  const handleSend = async () => {
+    if (isLoading) return;
+
+    const userQuestion = input.trim() || DEFAULT_OVERVIEW_QUESTION;
+    const newUserMsg: ChatMessage = { role: 'user', content: userQuestion };
     const nextMessages = [...messages, newUserMsg];
     setMessages(nextMessages);
     setInput('');
@@ -77,12 +116,17 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
         '2) 可以基于用户描述给出生活方式干预建议（饮食、运动、睡眠、减压等）；' +
         '3) 对于疑似严重情况（如持续胸痛、明显呼吸困难、意识变化、剧烈头痛等），务必提醒用户尽快线下就诊或急诊处理；' +
         '4) 如果问题超出你能力或涉及具体诊断/用药调整，请建议用户咨询线下医生或签约医生；' +
-        '5) 回答长度一般控制在 3～6 条要点之内。';
+        '5) 回答长度一般控制在 3～6 条要点之内；' +
+        '6) 若提供了健康档案摘要，必须优先基于该档案给出个性化建议，先解释风险，再给可执行步骤（今天/本周/本月）。';
+
+      const archiveContext = archiveSummary
+        ? `【用户健康档案摘要】${archiveSummary}`
+        : '【用户健康档案摘要】暂无结构化档案数据，仅可给通用建议。';
 
       const payload: any = {
         model: 'Baichuan2-Turbo',
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: `${systemPrompt}\n${archiveContext}` },
           ...nextMessages.map((m) => ({
             role: m.role,
             content: (userName && m.role === 'user'
@@ -194,7 +238,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
 
         {/* Quick Questions */}
         <div className="flex gap-2 overflow-x-auto px-4 py-2 scrollbar-hide">
-          {['血压偏高怎么办？', '如何改善睡眠？', '推荐减脂运动', '体检报告解读'].map((q) => (
+          {quickQuestions.map((q) => (
             <button
               key={q}
               onClick={() => setInput(q)}
@@ -221,9 +265,9 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
             />
             <button
               onClick={handleSend}
-              disabled={isLoading || !input.trim()}
+              disabled={isLoading}
               className={`h-12 w-12 rounded-full flex items-center justify-center text-white text-xl shadow-lg active:scale-95 transition-all ${
-                isLoading || !input.trim()
+                isLoading
                   ? 'bg-slate-300 cursor-not-allowed'
                   : 'bg-teal-600 hover:bg-teal-700'
               }`}
@@ -295,9 +339,9 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
             />
             <button
               onClick={handleSend}
-              disabled={isLoading || !input.trim()}
+              disabled={isLoading}
               className={`h-10 w-10 rounded-full flex items-center justify-center text-white text-lg shadow-md active:scale-95 transition-all ${
-                isLoading || !input.trim()
+                isLoading
                   ? 'bg-slate-300 cursor-not-allowed'
                   : 'bg-teal-600 hover:bg-teal-700'
               }`}

@@ -1,12 +1,16 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLocalInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
+import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
+import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
     userId?: string;
     userName?: string;
+    defaultContactPhone?: string;
     assessment?: HealthAssessment;
 }
 
@@ -17,6 +21,8 @@ interface EventWithStatus extends ContentItem {
 }
 
 type TabType = 'events' | 'meals' | 'services';
+const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
+const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
 const getCommunityIcon = (title: string, type: string): string => {
     const t = title.toLowerCase();
@@ -70,7 +76,7 @@ const formatEventSchedule = (details?: Record<string, any>) => {
     return details?.date?.split?.('T')?.[0] || '待定';
 };
 
-export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment }) => {
+export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContactPhone = '', assessment }) => {
     const [allEvents, setAllEvents] = useState<EventWithStatus[]>([]);
     const [allCircles, setAllCircles] = useState<ContentItem[]>([]);
     const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
@@ -82,44 +88,116 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
     const [searchTerm, setSearchTerm] = useState('');
     
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
+    const [bookingService, setBookingService] = useState<ContentItem | null>(null);
+    const [serviceContactOpen, setServiceContactOpen] = useState(false);
+    const [pendingServiceBook, setPendingServiceBook] = useState<{
+        service: ContentItem;
+        timeSlot: string;
+    } | null>(null);
+    const [eventContactOpen, setEventContactOpen] = useState(false);
+    const [pendingEvent, setPendingEvent] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         loadData();
     }, [userId]);
 
+    useEffect(() => {
+        if (loading) return;
+        try {
+            const raw = sessionStorage.getItem(MANAGER_DEEP_LINK_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw || '{}');
+            const resourceId = String(parsed.resourceId || '');
+            const resourceType = String(parsed.resourceType || '');
+            const at = Number(parsed.at || 0);
+            const ttl = Number(parsed.ttlMs || MANAGER_DEEP_LINK_TTL_MS);
+            if (!at || Date.now() - at > ttl) {
+                sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                return;
+            }
+            if (!resourceId) return;
+
+            if (resourceType === 'service') {
+                const item = allServices.find((x) => x.id === resourceId);
+                if (item) {
+                    setActiveTab('services');
+                    setSelectedItem(item);
+                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                    return;
+                }
+            }
+            if (resourceType === 'meal') {
+                const item = allMeals.find((x) => x.id === resourceId);
+                if (item) {
+                    setActiveTab('meals');
+                    setSelectedItem(item);
+                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                    return;
+                }
+            }
+            if (resourceType === 'event' || resourceType === 'circle') {
+                const pool = resourceType === 'circle' ? allCircles : allEvents;
+                const item = pool.find((x) => x.id === resourceId);
+                if (item) {
+                    setActiveTab('events');
+                    setSelectedItem(item);
+                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                    return;
+                }
+            }
+        } catch {
+            // ignore
+        }
+    }, [loading, allServices, allMeals, allEvents, allCircles]);
+
+    const applyContentToState = (
+        eventsData: ContentItem[],
+        circlesData: ContentItem[],
+        mealsData: ContentItem[],
+        servicesData: ContentItem[],
+        interactions: InteractionItem[]
+    ) => {
+        const processedEvents: EventWithStatus[] = eventsData.map((evt) => {
+            const evtSignups = interactions.filter(
+                (i) => i.type === 'event_signup' && i.targetId === evt.id && i.status !== 'cancelled'
+            );
+            const count = evtSignups.length;
+            const limit = Number(evt.details?.limit) || 100;
+            const myInteraction = userId ? evtSignups.find((i) => i.userId === userId) : null;
+            const isSigned = !!myInteraction;
+
+            let status: 'open' | 'full' | 'joined' | 'pending' | 'ended' = 'open';
+            if (myInteraction?.status === 'confirmed') status = 'joined';
+            else if (myInteraction?.status === 'pending') status = 'pending';
+            else if (count >= limit) status = 'full';
+            else if (evt.details?.businessStatus === '已结束') status = 'ended';
+
+            return { ...evt, currentSignups: count, isSignedUp: isSigned, signupStatus: status };
+        });
+        setAllEvents(processedEvents);
+        setAllCircles(circlesData);
+        setAllMeals(mealsData);
+        setAllServices(servicesData);
+        setAllInteractions(interactions);
+    };
+
     const loadData = async () => {
-        setLoading(true);
+        const le = readLocalContent('event', 'active');
+        const lc = readLocalContent('circle', 'active');
+        const lm = readLocalContent('meal', 'active');
+        const ls = readLocalContent('service', 'active');
+        const li = readLocalInteractions();
+        applyContentToState(le, lc, lm, ls, li);
+        setLoading(!(le.length || lc.length || lm.length || ls.length));
         try {
             const [eventsData, circlesData, mealsData, servicesData, interactions] = await Promise.all([
                 fetchContent('event', 'active'),
                 fetchContent('circle', 'active'),
                 fetchContent('meal', 'active'),
                 fetchContent('service', 'active'),
-                fetchInteractions()
+                fetchInteractions(),
             ]);
-
-            // Process Events with Status
-            const processedEvents = eventsData.map(evt => {
-                const evtSignups = interactions.filter(i => i.type === 'event_signup' && i.targetId === evt.id && i.status !== 'cancelled');
-                const count = evtSignups.length;
-                const limit = Number(evt.details?.limit) || 100;
-                const myInteraction = userId ? evtSignups.find(i => i.userId === userId) : null;
-                const isSigned = !!myInteraction;
-                
-                let status: 'open' | 'full' | 'joined' | 'pending' | 'ended' = 'open';
-                if (myInteraction?.status === 'confirmed') status = 'joined';
-                else if (myInteraction?.status === 'pending') status = 'pending';
-                else if (count >= limit) status = 'full';
-                else if (evt.details?.businessStatus === '已结束') status = 'ended';
-
-                return { ...evt, currentSignups: count, isSignedUp: isSigned, signupStatus: status };
-            });
-
-            setAllEvents(processedEvents);
-            setAllCircles(circlesData);
-            setAllMeals(mealsData);
-            setAllServices(servicesData);
-            setAllInteractions(interactions);
+            applyContentToState(eventsData, circlesData, mealsData, servicesData, interactions);
         } catch (e) {
             console.error(e);
         } finally {
@@ -127,24 +205,35 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         }
     };
 
-    const handleSignup = async (evt: ContentItem) => {
-        if (!userId || !userName) return alert("请先登录");
-        
-        if (confirm(`确定报名参加【${evt.title}】吗？`)) {
-            await saveInteraction({
-                id: `signup_${Date.now()}`,
-                type: 'event_signup',
-                userId, userName,
-                targetId: evt.id,
-                targetName: evt.title,
-                status: 'pending',
-                date: new Date().toISOString().split('T')[0],
-                details: `活动报名`
-            });
-            alert("申请已提交！");
-            setSelectedItem(null);
-            loadData();
-        }
+    const contactDefaultName = userName?.trim() || '';
+    const contactDefaultPhone = defaultContactPhone.replace(/\D/g, '').slice(0, 11) || '';
+
+    const completeEventSignup = async (name: string, phone: string) => {
+        if (!pendingEvent) return;
+        const evt = pendingEvent;
+        const uid = resolveBookingUserId(userId, phone);
+        await saveInteraction({
+            id: `event_signup_${Date.now()}`,
+            type: 'event_signup',
+            userId: uid,
+            userName: name.trim(),
+            targetId: evt.id,
+            targetName: evt.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, '活动报名'),
+        });
+        alert('报名已提交，请保持手机畅通。');
+        setPendingEvent(null);
+        setEventContactOpen(false);
+        setSelectedItem(null);
+        loadData();
+    };
+
+    const handleSignup = (evt: ContentItem) => {
+        setPendingEvent(evt);
+        setSelectedItem(null);
+        setEventContactOpen(true);
     };
 
     const handleJoinCircle = async (circle: ContentItem) => {
@@ -164,23 +253,52 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         setSelectedItem(null);
     };
 
-    const handleBookService = async (service: ContentItem) => {
-        if (!userId || !userName) return alert("请先登录");
-        
-        if (confirm(`确定预约【${service.title}】吗？`)) {
-            await saveInteraction({
-                id: `service_${Date.now()}`,
-                type: 'service_booking',
-                userId, userName,
-                targetId: service.id,
-                targetName: service.title,
-                status: 'pending',
-                date: new Date().toISOString().split('T')[0],
-                details: `服务预约，价格: ${service.details?.price || '免费'}`
-            });
-            alert("预约申请已提交！");
+    const completeServiceBook = async (name: string, phone: string) => {
+        if (!pendingServiceBook) return;
+        const { service, timeSlot } = pendingServiceBook;
+        const detailsLine = `服务预约：${timeSlot}，价格: ${service.details?.price || '免费'}`;
+        const uid = resolveBookingUserId(userId, phone);
+        await saveInteraction({
+            id: `service_booking_${Date.now()}`,
+            type: 'service_booking',
+            userId: uid,
+            userName: name.trim(),
+            targetId: service.id,
+            targetName: service.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, detailsLine),
+        });
+        alert('预约申请已提交，请保持手机畅通。');
+        setPendingServiceBook(null);
+        setServiceContactOpen(false);
+        setSelectedItem(null);
+        setBookingService(null);
+        loadData();
+    };
+
+    const handleBookService = async (service: ContentItem, timeSlot?: string) => {
+        if (!timeSlot) {
+            setBookingService(service);
             setSelectedItem(null);
+            return;
         }
+        setPendingServiceBook({ service, timeSlot });
+        setBookingService(null);
+        setSelectedItem(null);
+        setServiceContactOpen(true);
+    };
+
+    const getServiceSlotUsage = (serviceId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
+        const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+        const count = allInteractions.filter(i =>
+            i.type === 'service_booking' &&
+            i.targetId === serviceId &&
+            i.status !== 'cancelled' &&
+            i.details?.includes(fragment)
+        ).length;
+        const quota = getServiceSlotQuota(bookingService?.details, slot.dayKey, slot.slotId);
+        return { count, quota, full: count >= quota };
     };
 
     // Filter and Sort
@@ -203,6 +321,25 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         if (searchTerm) list = list.filter(s => s.title.includes(searchTerm));
         return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks)).slice(0, 12);
     }, [allServices, searchTerm, risks]);
+
+    const getServiceEarliestSlotLabel = (service: ContentItem): string => {
+        const slots = getNextMonthSlotsForService(service);
+        for (const slot of slots) {
+            const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+            const count = allInteractions.filter(i =>
+                i.type === 'service_booking' &&
+                i.targetId === service.id &&
+                i.status !== 'cancelled' &&
+                i.details?.includes(fragment)
+            ).length;
+            const quota = getServiceSlotQuota(service.details, slot.dayKey, slot.slotId);
+            if (count < quota) {
+                const mmdd = slot.displayDate.split(' ')[0];
+                return `最早可约：${mmdd} ${SLOT_MAP[slot.slotId]}`;
+            }
+        }
+        return '当前无可预约时段';
+    };
 
     const filteredCircles = useMemo(() => {
         let list = allCircles;
@@ -401,6 +538,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                                         </span>
                                                         <span className="text-xs text-slate-400">{svc.details?.categoryL1 || '便民服务'}</span>
                                                     </div>
+                                                    <div className="mt-1 text-[11px] font-semibold text-blue-600 line-clamp-1">{getServiceEarliestSlotLabel(svc)}</div>
                                                 </div>
                                             </div>
                                         ))
@@ -541,6 +679,73 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                 </button>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+            <BookingContactModal
+                open={serviceContactOpen}
+                title="填写服务预约信息"
+                subtitle={pendingServiceBook ? `预约：${pendingServiceBook.service.title}` : undefined}
+                defaultName={contactDefaultName}
+                defaultPhone={contactDefaultPhone}
+                onCancel={() => {
+                    setServiceContactOpen(false);
+                    setPendingServiceBook(null);
+                }}
+                onConfirm={({ name, phone }) => completeServiceBook(name, phone)}
+            />
+            <BookingContactModal
+                open={eventContactOpen}
+                title="填写活动报名信息"
+                subtitle={pendingEvent ? `活动：${pendingEvent.title}` : undefined}
+                defaultName={contactDefaultName}
+                defaultPhone={contactDefaultPhone}
+                onCancel={() => {
+                    setEventContactOpen(false);
+                    setPendingEvent(null);
+                }}
+                onConfirm={({ name, phone }) => completeEventSignup(name, phone)}
+            />
+            {bookingService && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setBookingService(null)}>
+                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择服务时间</h3>
+                        <p className="text-xs text-slate-400 text-center mb-6">预约服务：{bookingService.title}</p>
+                        <div className="flex-1 overflow-y-auto space-y-3 pb-6">
+                            {(() => {
+                                const monthSlots = getNextMonthSlotsForService(bookingService);
+                                if (!monthSlots.length) {
+                                    return (
+                                        <div className="text-center py-10">
+                                            <div className="text-4xl mb-3 opacity-20">📅</div>
+                                            <p className="text-sm text-slate-400">该服务暂未配置可预约时间<br/>请联系医院后续开通</p>
+                                        </div>
+                                    );
+                                }
+                                return monthSlots.map((slot) => {
+                                    const { count, quota, full } = getServiceSlotUsage(bookingService.id, slot);
+                                    return (
+                                        <button
+                                            key={`${slot.dateKey}-${slot.slotId}`}
+                                            disabled={full}
+                                            onClick={() => handleBookService(bookingService, `${slot.displayDate}${SLOT_MAP[slot.slotId]}`)}
+                                            className={`w-full border p-4 rounded-2xl flex items-center justify-between transition-all text-left ${
+                                                full
+                                                    ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50 grayscale'
+                                                    : 'border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200'
+                                            }`}
+                                        >
+                                            <span className="font-bold text-slate-700">{slot.displayDate} · {SLOT_MAP[slot.slotId]}</span>
+                                            <span className={`text-xs font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                {full ? '约满' : `余 ${quota - count} 位`}
+                                            </span>
+                                        </button>
+                                    );
+                                });
+                            })()}
+                        </div>
+                        <button onClick={() => setBookingService(null)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm">取消</button>
                     </div>
                 </div>
             )}

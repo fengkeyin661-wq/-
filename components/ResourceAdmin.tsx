@@ -23,6 +23,18 @@ interface Props {
     onLogout: () => void;
 }
 
+const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_LABELS: Record<string, string> = {
+    Mon: '周一',
+    Tue: '周二',
+    Wed: '周三',
+    Thu: '周四',
+    Fri: '周五',
+    Sat: '周六',
+    Sun: '周日',
+};
+const SLOTS = [{ id: 'AM', label: '上午' }, { id: 'PM', label: '下午' }];
+
 function isImageLike(s?: string) {
     if (!s) return false;
     return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:image');
@@ -156,6 +168,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editItem, setEditItem] = useState<Partial<ContentItem>>({});
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [serviceClosedDateInput, setServiceClosedDateInput] = useState('');
 
     // Batch Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -164,6 +177,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // Generic ref for Excel Import
     const batchImportRef = useRef<HTMLInputElement>(null);
     const coverImageInputRef = useRef<HTMLInputElement>(null);
+    const wechatQrInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
@@ -348,6 +362,55 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }));
     };
 
+    const toggleServiceSchedule = (dayKey: string, slotId: string) => {
+        const weekly = (editItem.details?.serviceWeeklySchedule || {}) as Record<string, string[]>;
+        const quotas = (editItem.details?.serviceSlotQuotas || {}) as Record<string, Record<string, number>>;
+        const current = weekly[dayKey] || [];
+        const updated = current.includes(slotId) ? current.filter((s) => s !== slotId) : [...current, slotId];
+        const nextQuotas = { ...quotas };
+        if (!current.includes(slotId) && !(nextQuotas[dayKey]?.[slotId])) {
+            nextQuotas[dayKey] = { ...(nextQuotas[dayKey] || {}), [slotId]: 10 };
+        }
+        setEditItem((prev) => ({
+            ...prev,
+            details: {
+                ...prev.details,
+                serviceWeeklySchedule: { ...(prev.details?.serviceWeeklySchedule || {}), [dayKey]: updated },
+                serviceSlotQuotas: nextQuotas,
+            }
+        }));
+    };
+
+    const handleServiceQuotaChange = (dayKey: string, slotId: string, value: number) => {
+        setEditItem((prev) => ({
+            ...prev,
+            details: {
+                ...prev.details,
+                serviceSlotQuotas: {
+                    ...(prev.details?.serviceSlotQuotas || {}),
+                    [dayKey]: {
+                        ...((prev.details?.serviceSlotQuotas || {})[dayKey] || {}),
+                        [slotId]: Math.max(1, value || 1)
+                    }
+                }
+            }
+        }));
+    };
+
+    const addServiceClosedDate = () => {
+        const v = serviceClosedDateInput.trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+        const current = ((editItem.details?.serviceClosedDates || []) as string[]).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x));
+        if (current.includes(v)) return;
+        updateDetail('serviceClosedDates', [...current, v].sort());
+        setServiceClosedDateInput('');
+    };
+
+    const removeServiceClosedDate = (date: string) => {
+        const current = ((editItem.details?.serviceClosedDates || []) as string[]).filter((x) => x !== date);
+        updateDetail('serviceClosedDates', current);
+    };
+
     const toggleTag = (tag: string) => {
         const currentTags = editItem.tags || [];
         if (currentTags.includes(tag)) {
@@ -374,6 +437,28 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         const reader = new FileReader();
         reader.onload = () => {
             setEditItem((prev) => ({ ...prev, image: reader.result as string }));
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    };
+
+    const handleWechatQrFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件');
+            e.target.value = '';
+            return;
+        }
+        const max = 2 * 1024 * 1024;
+        if (file.size > max) {
+            alert('二维码图片请控制在 2MB 以内');
+            e.target.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            updateDetail('wechat_qr', reader.result as string);
         };
         reader.readAsDataURL(file);
         e.target.value = '';
@@ -444,7 +529,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         // ... (Keep existing template logic)
         switch(activeTab) {
             case 'event': return { name: '社区活动导入模板', data: [{ "活动ID（系统生成）": "", "活动名称": "秋季教职工颈椎健康讲座", "活动类型": "健康讲座", "主办科室/部门": "康复医学科", "主讲/负责人": "王主任", "活动时间": "2023-10-15 14:00", "活动地点": "校医院三楼报告厅", "封面图URL": "", "活动简介（列表页）": "特邀康复科主任讲解颈椎病预防...", "活动详情": "1.颈椎病成因\n2.预防手段\n3.现场体验", "适宜人群": "长期伏案工作者", "报名方式": "小程序在线报名", "报名开始时间": "2023-10-01 08:00", "报名截止时间": "2023-10-14 18:00", "活动人数上限": 50, "活动频率(单次/每周/每月)": "单次", "循环规则": "", "状态": "报名中", "排序值": 10, "关联服务项目": "" }] };
-            case 'doctor': return { name: '医生信息库导入模板', data: [{ "医生ID（系统生成）": "", "医生工号": "YS1001", "医生姓名": "张伟", "所属科室编码": "REHAB001", "职称": "主任医师", "专长/简介": "擅长颈椎病、腰椎间盘突出...", "详细履历": "医学博士，毕业于...", "头像URL": "", "出诊安排": "周一上午专家门诊", "是否可在线咨询": "是", "咨询费用（元）": 20, "状态": "在职", "排序值": 1 }] };
+            case 'doctor': return { name: '医生信息库导入模板', data: [{ "医生ID（系统生成）": "", "医生工号": "YS1001", "医生姓名": "张伟", "所属科室编码": "REHAB001", "职称": "主任医师", "专长/简介": "擅长颈椎病、腰椎间盘突出...", "详细履历": "医学博士，毕业于...", "头像URL": "", "出诊地点": "校医院门诊二楼内科诊区", "是否可在线咨询": "是", "咨询费用（元）": 20, "状态": "在职", "排序值": 1 }] };
             case 'drug': return { name: '药品信息库导入模板', data: [{ "药品ID（系统生成）": "", "药品通用名": "阿司匹林肠溶片", "商品名": "拜阿司匹灵", "规格": "100mg*30片", "剂型": "片剂", "生产厂家": "拜耳医药保健有限公司", "药品分类": "心血管系统用药", "医保类型": "甲类", "参考单价（元）": 15.80, "库存单位": "盒", "用法用量": "口服，一次1片，一日1次", "主要功效": "抗血小板聚集", "重要注意事项": "活动性溃疡禁用", "说明书URL": "", "是否处方药": "是", "状态": "在售" }] };
             case 'exercise': return { name: '运动方案库导入模板', data: [{ "方案ID（系统生成）": "", "运动方案名称": "办公室颈椎保健操", "运动类型": "综合保健操", "适用人群/场景": "久坐办公族", "禁忌人群": "急性损伤期", "单次时长": "10分钟", "建议频率": "每日1-2次", "核心动作与流程": "热身→米字操→肩部绕环→放松", "强度提示": "低强度", "所需器材": "无", "教学视频/图解URL": "", "注意事项": "动作宜慢不宜快", "关联疾病/标签": "颈椎病,亚健康", "状态": "启用" }] };
             case 'service': return { name: '医院服务项目', data: [{ "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架" }] };
@@ -540,7 +625,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 deptCode: row['所属科室编码'],
                                 title: row['职称'],
                                 resume: row['详细履历'],
-                                schedule: row['出诊安排'],
+                                clinicLocation: row['出诊地点'] || '',
                                 onlineConsult: row['是否可在线咨询'] === '是',
                                 fee: row['咨询费用（元）'],
                                 docStatus: row['状态'],
@@ -749,6 +834,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         setIsAnalyzing(false);
         if (item) {
             setEditItem({...item});
+            setServiceClosedDateInput('');
         } else {
             let type: any = 'meal';
             if (activeTab === 'exercise') type = 'exercise';
@@ -766,6 +852,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 image: type === 'meal' ? '🍲' : type === 'exercise' ? '🏃' : type === 'event' ? '🎉' : type === 'service' ? '🏥' : type === 'drug' ? '💊' : type === 'circle' ? '⭕' : '👨‍⚕️',
                 details: {}
             });
+            setServiceClosedDateInput('');
         }
         setIsModalOpen(true);
     };
@@ -1189,6 +1276,82 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="预计耗时" value={editItem.details?.duration} onChange={(v:any) => updateDetail('duration', v)} />
                                         <InputField label="报告出具时间" value={editItem.details?.reportTime} onChange={(v:any) => updateDetail('reportTime', v)} />
                                     </FormSection>
+                                    <FormSection title="服务时间设置（用于用户预约选时）">
+                                        <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                                            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">时段</div>
+                                                {SLOTS.map((slot) => (
+                                                    <div key={slot.id} className="text-xs font-bold text-slate-600">{slot.label}</div>
+                                                ))}
+                                            </div>
+                                            <div className="space-y-2">
+                                                {DAY_KEYS.map((dayKey) => (
+                                                    <div key={dayKey} className="grid grid-cols-3 gap-2 items-center">
+                                                        <div className="text-xs font-bold text-slate-600">{DAY_LABELS[dayKey]}</div>
+                                                        {SLOTS.map((slot) => {
+                                                            const weekly = (editItem.details?.serviceWeeklySchedule || {}) as Record<string, string[]>;
+                                                            const isActive = (weekly[dayKey] || []).includes(slot.id);
+                                                            const quotas = (editItem.details?.serviceSlotQuotas || {}) as Record<string, Record<string, number>>;
+                                                            const quota = quotas?.[dayKey]?.[slot.id] || 10;
+                                                            return (
+                                                                <div key={`${dayKey}-${slot.id}`} className={`rounded-lg border p-2 ${isActive ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}>
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`w-full rounded-md py-1 text-[11px] font-bold ${isActive ? 'bg-teal-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}
+                                                                        onClick={() => toggleServiceSchedule(dayKey, slot.id)}
+                                                                    >
+                                                                        {isActive ? '可预约' : '关闭'}
+                                                                    </button>
+                                                                    {isActive && (
+                                                                        <div className="mt-1 flex items-center justify-center gap-1">
+                                                                            <span className="text-[10px] text-slate-400">限额</span>
+                                                                            <input
+                                                                                type="number"
+                                                                                min={1}
+                                                                                value={quota}
+                                                                                onChange={(e) => handleServiceQuotaChange(dayKey, slot.id, parseInt(e.target.value) || 1)}
+                                                                                className="w-14 rounded border border-slate-200 bg-white px-1 py-0.5 text-center text-[11px] font-bold text-teal-700"
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                                            <div className="text-xs font-bold text-slate-700 mb-2">服务例外关闭日期（全天不可约）</div>
+                                            <div className="flex flex-wrap items-end gap-2 mb-2">
+                                                <input
+                                                    type="date"
+                                                    value={serviceClosedDateInput}
+                                                    onChange={(e) => setServiceClosedDateInput(e.target.value)}
+                                                    className="rounded border border-slate-300 px-2 py-1.5 text-sm"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={addServiceClosedDate}
+                                                    className="rounded bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700"
+                                                >
+                                                    添加关闭日
+                                                </button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {((editItem.details?.serviceClosedDates || []) as string[]).length === 0 ? (
+                                                    <span className="text-xs text-slate-400">暂无例外关闭日期</span>
+                                                ) : (
+                                                    ((editItem.details?.serviceClosedDates || []) as string[]).map((d) => (
+                                                        <span key={d} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 pl-2 pr-1 py-0.5 text-xs font-bold text-slate-700">
+                                                            {d}
+                                                            <button type="button" className="h-5 w-5 rounded-full hover:bg-slate-200" onClick={() => removeServiceClosedDate(d)}>×</button>
+                                                        </span>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    </FormSection>
                                     <FormSection title="费用与医保">
                                         <InputField label="标准价格 (元)" type="number" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
                                         <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={presets.serviceInsurance} />
@@ -1217,10 +1380,104 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="登录密码" placeholder="设置初始密码" type="text" value={editItem.details?.password} onChange={(v:any) => updateDetail('password', v)} />
                                     </FormSection>
 
+                                    <FormSection title="健康管家">
+                                        <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+                                            <input
+                                                type="checkbox"
+                                                className="mt-1"
+                                                checked={
+                                                    editItem.details?.role === 'health_manager' ||
+                                                    (editItem.tags || []).some((t: string) => String(t).includes('健康管家'))
+                                                }
+                                                onChange={(e) => {
+                                                    const on = e.target.checked;
+                                                    const tags = [...(editItem.tags || [])];
+                                                    const hasTag = tags.some((t) => String(t).includes('健康管家'));
+                                                    let nextTags = tags;
+                                                    if (on && !hasTag) nextTags = [...tags, '健康管家'];
+                                                    if (!on) nextTags = tags.filter((t) => !String(t).includes('健康管家'));
+                                                    setEditItem({
+                                                        ...editItem,
+                                                        tags: nextTags,
+                                                        details: {
+                                                            ...editItem.details,
+                                                            role: on ? 'health_manager' : undefined,
+                                                        },
+                                                    });
+                                                }}
+                                            />
+                                            <span>
+                                                标记为「健康管家」（医生工作站可指派给签约用户；用户端「我的」—「我的健康管家」中展示）
+                                            </span>
+                                        </label>
+                                        <InputField
+                                            label="对外联系电话（用户端展示）"
+                                            placeholder="手机号或座机"
+                                            value={editItem.details?.phone}
+                                            onChange={(v: any) => updateDetail('phone', v)}
+                                        />
+                                        <InputField
+                                            label="微信二维码图片地址（用户登录页展示）"
+                                            placeholder="https://.../wechat-qr.png"
+                                            value={editItem.details?.wechat_qr}
+                                            onChange={(v: any) => updateDetail('wechat_qr', v)}
+                                        />
+                                        <div className="col-span-2 space-y-2">
+                                            <label className="block text-xs font-bold text-slate-700">二维码图片上传（支持 png/jpg/webp）</label>
+                                            <div className="flex flex-wrap items-start gap-3">
+                                                {editItem.details?.wechat_qr ? (
+                                                    <img
+                                                        src={editItem.details?.wechat_qr}
+                                                        alt="微信二维码"
+                                                        className="h-20 w-20 rounded border border-slate-200 object-cover bg-white"
+                                                    />
+                                                ) : (
+                                                    <div className="h-20 w-20 rounded border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-[11px] text-slate-400">
+                                                        无二维码
+                                                    </div>
+                                                )}
+                                                <div className="space-y-2">
+                                                    <input
+                                                        ref={wechatQrInputRef}
+                                                        type="file"
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                        onChange={handleWechatQrFile}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => wechatQrInputRef.current?.click()}
+                                                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white hover:bg-teal-700"
+                                                    >
+                                                        上传二维码图片
+                                                    </button>
+                                                    {editItem.details?.wechat_qr && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => updateDetail('wechat_qr', '')}
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-600 hover:bg-slate-50"
+                                                        >
+                                                            清除二维码
+                                                        </button>
+                                                    )}
+                                                    <p className="text-[11px] text-slate-500">
+                                                        支持直接上传图片，或在上方填写 URL 地址。
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <InputField
+                                            label="微信号（可选）"
+                                            placeholder="例如：health_manager_01"
+                                            value={editItem.details?.wechat_id}
+                                            onChange={(v: any) => updateDetail('wechat_id', v)}
+                                        />
+                                    </FormSection>
+
                                     <FormSection title="专业能力">
                                         <TextAreaField label="擅长领域 (标签请逗号分隔)" value={editItem.tags?.join(',')} onChange={(v:string) => setEditItem({...editItem, tags: v.split(/[,，]/)})} placeholder="如：高血压, 糖尿病, 小儿推拿" />
                                         <TextAreaField label="个人简介" placeholder="毕业院校、从业年限、学术成就..." value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
-                                        <InputField label="出诊时间表" full placeholder="如：周一上午、周三下午" value={editItem.details?.schedule} onChange={(v:any) => updateDetail('schedule', v)} />
+                                        <InputField label="出诊地点" full placeholder="如：校医院门诊二楼内科诊区" value={editItem.details?.clinicLocation} onChange={(v:any) => updateDetail('clinicLocation', v)} />
                                     </FormSection>
                                 </>
                             )}

@@ -1,16 +1,74 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
-import { UserHealthResources } from './UserHealthResources';
 import { UserHabits } from './UserHabits';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserProfileShell } from './UserProfileShell';
 import { UserCommunity } from './UserCommunity';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
+import { UserDoctors } from './UserDoctors';
+import {
+  HealthArchive,
+  findArchiveByCheckupId,
+  updateHealthRecordOnly,
+  syncArchiveToLocal,
+  getLocalArchiveByCheckupIdSync,
+} from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
+import { supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 
-const USER_SESSION_CHECKUP_KEY = 'user_portal_checkup_id';
+const USER_PORTAL_SESSION_KEY = 'USER_PORTAL_SESSION_V1';
+/** 历史：仅 sessionStorage 存 id，启动时迁移到 localStorage */
+const LEGACY_USER_SESSION_CHECKUP_KEY = 'user_portal_checkup_id';
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+type PortalSessionV1 = { checkupId: string; expiresAt: number };
+
+const readPortalSession = (): PortalSessionV1 | null => {
+  try {
+    const raw = localStorage.getItem(USER_PORTAL_SESSION_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<PortalSessionV1>;
+    if (!p?.checkupId || typeof p.expiresAt !== 'number') return null;
+    return p as PortalSessionV1;
+  } catch {
+    return null;
+  }
+};
+
+const writePortalSession = (checkupId: string) => {
+  try {
+    const payload: PortalSessionV1 = { checkupId, expiresAt: Date.now() + SESSION_TTL_MS };
+    localStorage.setItem(USER_PORTAL_SESSION_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore */
+  }
+};
+
+const clearPortalSession = () => {
+  try {
+    localStorage.removeItem(USER_PORTAL_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    sessionStorage.removeItem(LEGACY_USER_SESSION_CHECKUP_KEY);
+  } catch {
+    /* ignore */
+  }
+};
+
+const migrateLegacySessionFromSessionStorage = (): string | null => {
+  try {
+    const id = sessionStorage.getItem(LEGACY_USER_SESSION_CHECKUP_KEY)?.trim();
+    if (!id) return null;
+    writePortalSession(id);
+    sessionStorage.removeItem(LEGACY_USER_SESSION_CHECKUP_KEY);
+    return id;
+  } catch {
+    return null;
+  }
+};
 
 interface Props {
   /** 主域名入口登录后传入的体检编号 */
@@ -20,42 +78,98 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits');
+  const [activeTab, setActiveTab] = useState('message');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const refreshUnreadCount = useCallback(async () => {
+    if (!userArchive) return;
+    const count = await getUnreadCount(userArchive.checkup_id);
+    setUnreadCount(count);
+  }, [userArchive?.checkup_id]);
 
   const resolvedUserName =
     userArchive?.name?.trim() || userArchive?.health_record?.profile?.name?.trim() || '用户';
 
-  const persistSessionCheckupId = (checkupId: string) => {
-    try {
-      sessionStorage.setItem(USER_SESSION_CHECKUP_KEY, checkupId);
-    } catch {
-      /* ignore */
-    }
-  };
+  const profileIncompleteBanner =
+    userArchive && userArchive.profile_complete === false
+      ? '您的个人健康档案尚未完善，请联系健康管家完成健康档案建档。'
+      : null;
 
-  const clearSessionCheckupId = () => {
-    try {
-      sessionStorage.removeItem(USER_SESSION_CHECKUP_KEY);
-    } catch {
-      /* ignore */
+  const hydrateFromLatestFollowUp = (a: HealthArchive): HealthArchive => {
+    const fups = a.follow_ups || [];
+    if (!fups.length) return a;
+    const latest = [...fups].sort((x, y) => {
+      const tx = new Date(x.date || 0).getTime() || Number(x.id || 0);
+      const ty = new Date(y.date || 0).getTime() || Number(y.id || 0);
+      return ty - tx;
+    })[0];
+    const ind = latest?.indicators || ({} as any);
+    const basics = a.health_record?.checkup?.basics || ({} as any);
+    const labBasic = a.health_record?.checkup?.labBasic || ({} as any);
+    const lipids = labBasic.lipids || {};
+    const glucose = labBasic.glucose || {};
+    if (!ind || (!ind.sbp && !ind.dbp && !ind.glucose && !ind.weight && !ind.tc && !ind.tg && !ind.ldl && !ind.hdl)) {
+      return a;
     }
+    const weight = Number(ind.weight || basics.weight || 0);
+    const height = Number(basics.height || 0);
+    const bmi = height > 0 && weight > 0 ? Number((weight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
+    return {
+      ...a,
+      health_record: {
+        ...a.health_record,
+        checkup: {
+          ...a.health_record.checkup,
+          basics: {
+            ...basics,
+            sbp: Number(ind.sbp || basics.sbp || 0),
+            dbp: Number(ind.dbp || basics.dbp || 0),
+            weight,
+            bmi,
+          },
+          labBasic: {
+            ...labBasic,
+            glucose: {
+              ...glucose,
+              fasting: ind.glucose != null && Number.isFinite(Number(ind.glucose)) ? String(ind.glucose) : glucose.fasting,
+            },
+            lipids: {
+              ...lipids,
+              tc: ind.tc != null && Number.isFinite(Number(ind.tc)) ? String(ind.tc) : lipids.tc,
+              tg: ind.tg != null && Number.isFinite(Number(ind.tg)) ? String(ind.tg) : lipids.tg,
+              ldl: ind.ldl != null && Number.isFinite(Number(ind.ldl)) ? String(ind.ldl) : lipids.ldl,
+              hdl: ind.hdl != null && Number.isFinite(Number(ind.hdl)) ? String(ind.hdl) : lipids.hdl,
+            },
+          },
+        },
+      },
+      last_sync_source: a.last_sync_source || 'doctor_followup',
+    };
   };
 
   const loadArchiveById = useCallback(
     async (checkupId: string, isSilent = false, showAlertOnMissing = false) => {
-      if (!isSilent) setLoading(true);
+      if (!isSilent) {
+        const local = getLocalArchiveByCheckupIdSync(checkupId);
+        if (local) {
+          setUserArchive(hydrateFromLatestFollowUp(local));
+          setLoading(false);
+        } else {
+          setLoading(true);
+        }
+      }
+
       try {
         const archive = await findArchiveByCheckupId(checkupId);
         if (archive) {
-          setUserArchive(archive);
-          syncArchiveToLocal(archive);
-          persistSessionCheckupId(archive.checkup_id);
+          const hydrated = hydrateFromLatestFollowUp(archive);
+          setUserArchive(hydrated);
+          syncArchiveToLocal(hydrated);
+          writePortalSession(hydrated.checkup_id);
         } else {
           setUserArchive(null);
-          clearSessionCheckupId();
+          clearPortalSession();
           if (showAlertOnMissing) {
             alert('未找到您的档案，请联系管理员核对体检编号');
           }
@@ -72,16 +186,18 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
 
   useEffect(() => {
     const bootstrap = async () => {
-      const fromProp = initialCheckupId?.trim();
-      let fromSession = '';
-      try {
-        fromSession = sessionStorage.getItem(USER_SESSION_CHECKUP_KEY) || '';
-      } catch {
-        fromSession = '';
+      const fromProp = initialCheckupId?.trim() || '';
+      const legacyMigrated = migrateLegacySessionFromSessionStorage();
+      let session = readPortalSession();
+      if (session && session.expiresAt <= Date.now()) {
+        clearPortalSession();
+        session = null;
       }
-      const id = fromProp || fromSession;
+      const fromPortal = session && session.expiresAt > Date.now() ? session.checkupId : '';
+      const hadPersistedSession = !!legacyMigrated || !!fromPortal;
+      const id = fromProp || legacyMigrated || fromPortal;
       if (id) {
-        await loadArchiveById(id, false, !!fromProp && !fromSession);
+        await loadArchiveById(id, false, !!fromProp && !hadPersistedSession);
       } else {
         setLoading(false);
         setUserArchive(null);
@@ -91,64 +207,184 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   }, [initialCheckupId, loadArchiveById]);
 
   useEffect(() => {
-    const checkUnread = async () => {
-      if (!userArchive) return;
-      const count = await getUnreadCount(userArchive.checkup_id);
-      setUnreadCount(count);
-    };
-
     if (userArchive) {
-      checkUnread();
-      const interval = setInterval(checkUnread, 5000);
+      refreshUnreadCount();
+      const interval = setInterval(refreshUnreadCount, 5000);
       return () => clearInterval(interval);
     }
-  }, [userArchive?.checkup_id]);
+  }, [userArchive?.checkup_id, refreshUnreadCount]);
+
+  useEffect(() => {
+    if (!userArchive?.checkup_id) return;
+    const interval = setInterval(() => {
+      loadArchiveById(userArchive.checkup_id, true);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [userArchive?.checkup_id, loadArchiveById]);
+
+  useEffect(() => {
+    if (!userArchive?.checkup_id) return;
+    if (!isSupabaseConfigured()) return;
+    const checkupId = userArchive.checkup_id;
+    const channel = supabase
+      .channel(`archive-sync-${checkupId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'health_archives',
+          filter: `checkup_id=eq.${checkupId}`,
+        },
+        () => {
+          loadArchiveById(checkupId, true);
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userArchive?.checkup_id, loadArchiveById]);
+
+  useEffect(() => {
+    if (!userArchive?.checkup_id) return;
+    const next = (userArchive.follow_up_schedule || []).find((x) => x.status === 'pending');
+    if (!next?.date) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(next.date);
+    due.setHours(0, 0, 0, 0);
+    const daysLeft = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysLeft < 0) return;
+    const remindStage = daysLeft === 7 ? 'd7' : daysLeft === 3 ? 'd3' : daysLeft === 0 ? 'd0' : '';
+    if (!remindStage) return;
+
+    const remindKey = `followup_remind_${userArchive.checkup_id}_${next.date}_${remindStage}`;
+    try {
+      if (localStorage.getItem(remindKey) === '1') return;
+    } catch {
+      // ignore
+    }
+
+    const remindText =
+      remindStage === 'd0'
+        ? `今天是您的随访日期（${next.date}），请主动联系健康管家完成随访。`
+        : remindStage === 'd3'
+        ? `距离下次随访（${next.date}）还有 3 天，请提前安排。`
+        : `距离下次随访（${next.date}）还有 7 天，请提前安排。`;
+
+    const notify = async () => {
+      if (typeof window === 'undefined') return;
+      if ('Notification' in window) {
+        try {
+          if (Notification.permission === 'default') {
+            await Notification.requestPermission();
+          }
+          if (Notification.permission === 'granted') {
+            new Notification('随访提醒', {
+              body: remindText,
+              tag: `followup-${userArchive.checkup_id}-${next.date}-${remindStage}`,
+            });
+          } else {
+            alert(`【随访提醒】${remindText}`);
+          }
+        } catch {
+          alert(`【随访提醒】${remindText}`);
+        }
+      } else {
+        alert(`【随访提醒】${remindText}`);
+      }
+      try {
+        localStorage.setItem(remindKey, '1');
+      } catch {
+        // ignore
+      }
+    };
+
+    notify();
+  }, [userArchive?.checkup_id, userArchive?.follow_up_schedule]);
 
   const handleUpdateRecord = async (updatedData: any) => {
     if (!userArchive) return;
+    const updatedAt = new Date().toISOString();
 
     const newCheckup = {
       ...userArchive.health_record.checkup,
       basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
-      labBasic: { ...userArchive.health_record.checkup.labBasic, ...updatedData.labBasic },
+      labBasic: {
+        ...userArchive.health_record.checkup.labBasic,
+        ...updatedData.labBasic,
+        lipids: {
+          ...userArchive.health_record.checkup.labBasic.lipids,
+          ...(updatedData.labBasic?.lipids || {}),
+        },
+        glucose: {
+          ...userArchive.health_record.checkup.labBasic.glucose,
+          ...(updatedData.labBasic?.glucose || {}),
+        },
+      },
     };
 
-    const newRecord = { ...userArchive.health_record, checkup: newCheckup };
-    setUserArchive({ ...userArchive, health_record: newRecord });
+    const newRecord = {
+      ...userArchive.health_record,
+      checkup: newCheckup,
+      riskModelExtras: {
+        ...(userArchive.health_record.riskModelExtras || {}),
+        ...(updatedData.riskModelExtras || {}),
+      },
+    };
+    setUserArchive({ ...userArchive, health_record: newRecord, updated_at: updatedAt });
 
     try {
       await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
+      if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.DEV) {
+        console.log('[archive-sync] user_profile_edit submitted', {
+          checkupId: userArchive.checkup_id,
+          updatedAt,
+        });
+      }
+      await loadArchiveById(userArchive.checkup_id, true);
     } catch (e) {
       console.error('Sync failed', e);
     }
   };
 
   const handleProfileLogout = () => {
-    clearSessionCheckupId();
+    clearPortalSession();
     setUserArchive(null);
     setUnreadCount(0);
     setActiveTab('habits');
     onLogout?.();
   };
 
-  const handleShellLoginSuccess = async (archive: HealthArchive) => {
+  const handleShellLoginSuccess = (archive: HealthArchive) => {
     setUserArchive(archive);
     syncArchiveToLocal(archive);
-    persistSessionCheckupId(archive.checkup_id);
+    writePortalSession(archive.checkup_id);
     setLoading(false);
+    setActiveTab('message');
+  };
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
   };
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold text-sm">正在加载...</p>
+      <div className="user-initial-loader flex min-h-[100dvh] flex-col items-center justify-center bg-slate-50">
+        <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-teal-500 border-t-transparent"></div>
+        <p className="text-sm font-bold text-slate-500">正在加载...</p>
       </div>
     );
   }
 
   return (
-    <UserLayout activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount}>
+    <UserLayout
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+      unreadCount={unreadCount}
+      profileIncompleteBanner={profileIncompleteBanner}
+    >
       {activeTab === 'habits' && (
         <UserHabits
           assessment={userArchive?.assessment_data}
@@ -158,28 +394,34 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           onRefresh={() => userArchive && loadArchiveById(userArchive.checkup_id, true)}
         />
       )}
-      {activeTab === 'resources' && (
-        <UserHealthResources
-          assessment={userArchive?.assessment_data}
-          userCheckupId={userArchive?.checkup_id}
-          userName={userArchive ? resolvedUserName : undefined}
-          record={userArchive?.health_record}
-        />
-      )}
       {activeTab === 'community' && (
         <UserCommunity
           userId={userArchive?.checkup_id}
           userName={userArchive ? resolvedUserName : undefined}
+          defaultContactPhone={userArchive?.phone || userArchive?.health_record?.profile?.phone || ''}
           assessment={userArchive?.assessment_data}
         />
       )}
-      {activeTab === 'interaction' && (
+      {activeTab === 'doctor' && (
+        <UserDoctors
+          userId={userArchive?.checkup_id}
+          userName={userArchive ? resolvedUserName : undefined}
+          archive={userArchive ?? undefined}
+          defaultContactPhone={userArchive?.phone || userArchive?.health_record?.profile?.phone || ''}
+          onOpenMessage={(_doctorId) => {
+            setActiveTab('message');
+          }}
+        />
+      )}
+      {activeTab === 'message' && (
         <UserInteraction
           userId={userArchive?.checkup_id}
           userName={userArchive ? resolvedUserName : undefined}
           archive={userArchive ?? undefined}
           assessment={userArchive?.assessment_data}
-          onMessageRead={() => setUnreadCount(0)}
+          onMessageRead={refreshUnreadCount}
+          onOpenDoctors={() => setActiveTab('doctor')}
+          onOpenCommunity={() => setActiveTab('community')}
         />
       )}
       {activeTab === 'profile' &&
@@ -193,9 +435,12 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
             onUpdateRecord={handleUpdateRecord}
             onLogout={handleProfileLogout}
             onNavigate={setActiveTab}
+            onArchiveRefresh={() =>
+              userArchive && loadArchiveById(userArchive.checkup_id, true)
+            }
           />
         ) : (
-          <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />
+            <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />
         ))}
     </UserLayout>
   );
