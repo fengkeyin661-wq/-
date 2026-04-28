@@ -1,6 +1,6 @@
 ﻿
 import React, { useState, useEffect } from 'react';
-import { fetchContent, ContentItem, saveInteraction, InteractionItem, fetchInteractions } from '../../services/contentService';
+import { fetchContent, ContentItem, saveInteraction, InteractionItem, fetchInteractions, readLocalContent, readLocalInteractions } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForDoctor, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
@@ -65,6 +65,17 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, default
     } | null>(null);
 
     useEffect(() => {
+        const localDocs = readLocalContent('doctor', 'active');
+        const localMeds = readLocalContent('drug', 'active');
+        const localSvcs = readLocalContent('service', 'active');
+        const localInters = readLocalInteractions();
+        setAllDoctors(localDocs);
+        setAllDrugs(localMeds);
+        setAllServices(localSvcs);
+        setAllInteractions(localInters);
+        refreshRecommendations('doctor', localDocs);
+        refreshRecommendations('drug', localMeds);
+
         const load = async () => {
             const [docs, meds, svcs, inters] = await Promise.all([
                 fetchContent('doctor', 'active'),
@@ -79,7 +90,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, default
             refreshRecommendations('doctor', docs);
             refreshRecommendations('drug', meds);
         };
-        load();
+        void load();
     }, [assessment]);
 
     const refreshRecommendations = (type: 'doctor' | 'drug', sourceList?: ContentItem[]) => {

@@ -1,6 +1,6 @@
 ﻿
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction, isHealthManagerContent } from '../../services/contentService';
+import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLocalInteractions, InteractionItem, ChatMessage, fetchMessages, sendMessage, markAsRead, getUnreadCount, saveInteraction, isHealthManagerContent } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
@@ -134,8 +134,34 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatMessages]);
 
+    const buildDoctorList = async (inters: InteractionItem[]) => {
+        if (!userId) {
+            setDoctorList([]);
+            return;
+        }
+        const signings = inters.filter(
+            (i) => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed'
+        );
+        const listWithCount: DoctorWithUnread[] = [];
+        for (const sign of signings) {
+            const count = await getUnreadCount(userId, sign.targetId);
+            listWithCount.push({ interaction: sign, unread: count });
+        }
+        const doctorRows = listWithCount.sort((a, b) => {
+            if (b.unread !== a.unread) return b.unread - a.unread;
+            return new Date(b.interaction.date).getTime() - new Date(a.interaction.date).getTime();
+        });
+        setDoctorList(doctorRows);
+    };
+
     const loadAllData = async () => {
-        setLoading(true);
+        const localDocs = readLocalContent('doctor', 'active');
+        const localInters = readLocalInteractions();
+        setAllDoctors(localDocs);
+        setAllInteractions(localInters);
+        setLoading(localDocs.length === 0);
+        void buildDoctorList(localInters);
+
         try {
             const docs = await fetchContent('doctor', 'active');
             let inters: InteractionItem[] = [];
@@ -146,23 +172,10 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
             }
             setAllDoctors(docs);
             setAllInteractions(inters);
-
             if (!userId) {
                 setDoctorList([]);
             } else {
-                const signings = inters.filter(
-                    (i) => i.type === 'doctor_signing' && i.userId === userId && i.status === 'confirmed'
-                );
-                const listWithCount: DoctorWithUnread[] = [];
-                for (const sign of signings) {
-                    const count = await getUnreadCount(userId, sign.targetId);
-                    listWithCount.push({ interaction: sign, unread: count });
-                }
-                const doctorRows = listWithCount.sort((a, b) => {
-                    if (b.unread !== a.unread) return b.unread - a.unread;
-                    return new Date(b.interaction.date).getTime() - new Date(a.interaction.date).getTime();
-                });
-                setDoctorList(doctorRows);
+                void buildDoctorList(inters);
             }
         } catch (e) {
             console.error(e);

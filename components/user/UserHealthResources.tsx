@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { HealthAssessment, HealthRecord } from '../../types';
-import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLocalInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
 import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
@@ -121,7 +121,15 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
     }, []);
 
     const loadResources = async () => {
-        setLoading(true);
+        const meal = readLocalContent('meal', 'active');
+        const exercise = readLocalContent('exercise', 'active');
+        const service = readLocalContent('service', 'active');
+        const event = readLocalContent('event', 'active');
+        const li = readLocalInteractions();
+        const merged = [...meal, ...exercise, ...service, ...event];
+        setAllResources(merged);
+        setAllInteractions(li);
+        setLoading(merged.length === 0);
         try {
             const [meals, exercises, services, events, interactions] = await Promise.all([
                 fetchContent('meal', 'active'),

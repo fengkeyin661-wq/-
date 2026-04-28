@@ -7,11 +7,68 @@ import { UserProfile } from './UserProfile';
 import { UserProfileShell } from './UserProfileShell';
 import { UserCommunity } from './UserCommunity';
 import { UserDoctors } from './UserDoctors';
-import { HealthArchive, findArchiveByCheckupId, updateHealthRecordOnly, syncArchiveToLocal } from '../../services/dataService';
+import {
+  HealthArchive,
+  findArchiveByCheckupId,
+  updateHealthRecordOnly,
+  syncArchiveToLocal,
+  getLocalArchiveByCheckupIdSync,
+} from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
 import { supabase, isSupabaseConfigured } from '../../services/supabaseClient';
 
-const USER_SESSION_CHECKUP_KEY = 'user_portal_checkup_id';
+const USER_PORTAL_SESSION_KEY = 'USER_PORTAL_SESSION_V1';
+/** 历史：仅 sessionStorage 存 id，启动时迁移到 localStorage */
+const LEGACY_USER_SESSION_CHECKUP_KEY = 'user_portal_checkup_id';
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+type PortalSessionV1 = { checkupId: string; expiresAt: number };
+
+const readPortalSession = (): PortalSessionV1 | null => {
+  try {
+    const raw = localStorage.getItem(USER_PORTAL_SESSION_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<PortalSessionV1>;
+    if (!p?.checkupId || typeof p.expiresAt !== 'number') return null;
+    return p as PortalSessionV1;
+  } catch {
+    return null;
+  }
+};
+
+const writePortalSession = (checkupId: string) => {
+  try {
+    const payload: PortalSessionV1 = { checkupId, expiresAt: Date.now() + SESSION_TTL_MS };
+    localStorage.setItem(USER_PORTAL_SESSION_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore */
+  }
+};
+
+const clearPortalSession = () => {
+  try {
+    localStorage.removeItem(USER_PORTAL_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    sessionStorage.removeItem(LEGACY_USER_SESSION_CHECKUP_KEY);
+  } catch {
+    /* ignore */
+  }
+};
+
+const migrateLegacySessionFromSessionStorage = (): string | null => {
+  try {
+    const id = sessionStorage.getItem(LEGACY_USER_SESSION_CHECKUP_KEY)?.trim();
+    if (!id) return null;
+    writePortalSession(id);
+    sessionStorage.removeItem(LEGACY_USER_SESSION_CHECKUP_KEY);
+    return id;
+  } catch {
+    return null;
+  }
+};
 
 interface Props {
   /** 主域名入口登录后传入的体检编号 */
@@ -39,86 +96,80 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
       ? '您的个人健康档案尚未完善，请联系健康管家完成健康档案建档。'
       : null;
 
-  const persistSessionCheckupId = (checkupId: string) => {
-    try {
-      sessionStorage.setItem(USER_SESSION_CHECKUP_KEY, checkupId);
-    } catch {
-      /* ignore */
+  const hydrateFromLatestFollowUp = (a: HealthArchive): HealthArchive => {
+    const fups = a.follow_ups || [];
+    if (!fups.length) return a;
+    const latest = [...fups].sort((x, y) => {
+      const tx = new Date(x.date || 0).getTime() || Number(x.id || 0);
+      const ty = new Date(y.date || 0).getTime() || Number(y.id || 0);
+      return ty - tx;
+    })[0];
+    const ind = latest?.indicators || ({} as any);
+    const basics = a.health_record?.checkup?.basics || ({} as any);
+    const labBasic = a.health_record?.checkup?.labBasic || ({} as any);
+    const lipids = labBasic.lipids || {};
+    const glucose = labBasic.glucose || {};
+    if (!ind || (!ind.sbp && !ind.dbp && !ind.glucose && !ind.weight && !ind.tc && !ind.tg && !ind.ldl && !ind.hdl)) {
+      return a;
     }
-  };
-
-  const clearSessionCheckupId = () => {
-    try {
-      sessionStorage.removeItem(USER_SESSION_CHECKUP_KEY);
-    } catch {
-      /* ignore */
-    }
+    const weight = Number(ind.weight || basics.weight || 0);
+    const height = Number(basics.height || 0);
+    const bmi = height > 0 && weight > 0 ? Number((weight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
+    return {
+      ...a,
+      health_record: {
+        ...a.health_record,
+        checkup: {
+          ...a.health_record.checkup,
+          basics: {
+            ...basics,
+            sbp: Number(ind.sbp || basics.sbp || 0),
+            dbp: Number(ind.dbp || basics.dbp || 0),
+            weight,
+            bmi,
+          },
+          labBasic: {
+            ...labBasic,
+            glucose: {
+              ...glucose,
+              fasting: ind.glucose != null && Number.isFinite(Number(ind.glucose)) ? String(ind.glucose) : glucose.fasting,
+            },
+            lipids: {
+              ...lipids,
+              tc: ind.tc != null && Number.isFinite(Number(ind.tc)) ? String(ind.tc) : lipids.tc,
+              tg: ind.tg != null && Number.isFinite(Number(ind.tg)) ? String(ind.tg) : lipids.tg,
+              ldl: ind.ldl != null && Number.isFinite(Number(ind.ldl)) ? String(ind.ldl) : lipids.ldl,
+              hdl: ind.hdl != null && Number.isFinite(Number(ind.hdl)) ? String(ind.hdl) : lipids.hdl,
+            },
+          },
+        },
+      },
+      last_sync_source: a.last_sync_source || 'doctor_followup',
+    };
   };
 
   const loadArchiveById = useCallback(
     async (checkupId: string, isSilent = false, showAlertOnMissing = false) => {
-      if (!isSilent) setLoading(true);
+      if (!isSilent) {
+        const local = getLocalArchiveByCheckupIdSync(checkupId);
+        if (local) {
+          setUserArchive(hydrateFromLatestFollowUp(local));
+          setLoading(false);
+        } else {
+          setLoading(true);
+        }
+      }
+
       try {
         const archive = await findArchiveByCheckupId(checkupId);
         if (archive) {
-          const hydrateFromLatestFollowUp = (a: HealthArchive): HealthArchive => {
-            const fups = a.follow_ups || [];
-            if (!fups.length) return a;
-            const latest = [...fups].sort((x, y) => {
-              const tx = new Date(x.date || 0).getTime() || Number(x.id || 0);
-              const ty = new Date(y.date || 0).getTime() || Number(y.id || 0);
-              return ty - tx;
-            })[0];
-            const ind = latest?.indicators || ({} as any);
-            const basics = a.health_record?.checkup?.basics || ({} as any);
-            const labBasic = a.health_record?.checkup?.labBasic || ({} as any);
-            const lipids = labBasic.lipids || {};
-            const glucose = labBasic.glucose || {};
-            if (!ind || (!ind.sbp && !ind.dbp && !ind.glucose && !ind.weight && !ind.tc && !ind.tg && !ind.ldl && !ind.hdl)) {
-              return a;
-            }
-            const weight = Number(ind.weight || basics.weight || 0);
-            const height = Number(basics.height || 0);
-            const bmi = height > 0 && weight > 0 ? Number((weight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
-            return {
-              ...a,
-              health_record: {
-                ...a.health_record,
-                checkup: {
-                  ...a.health_record.checkup,
-                  basics: {
-                    ...basics,
-                    sbp: Number(ind.sbp || basics.sbp || 0),
-                    dbp: Number(ind.dbp || basics.dbp || 0),
-                    weight,
-                    bmi,
-                  },
-                  labBasic: {
-                    ...labBasic,
-                    glucose: {
-                      ...glucose,
-                      fasting: ind.glucose != null && Number.isFinite(Number(ind.glucose)) ? String(ind.glucose) : glucose.fasting,
-                    },
-                    lipids: {
-                      ...lipids,
-                      tc: ind.tc != null && Number.isFinite(Number(ind.tc)) ? String(ind.tc) : lipids.tc,
-                      tg: ind.tg != null && Number.isFinite(Number(ind.tg)) ? String(ind.tg) : lipids.tg,
-                      ldl: ind.ldl != null && Number.isFinite(Number(ind.ldl)) ? String(ind.ldl) : lipids.ldl,
-                      hdl: ind.hdl != null && Number.isFinite(Number(ind.hdl)) ? String(ind.hdl) : lipids.hdl,
-                    },
-                  },
-                },
-              },
-              last_sync_source: a.last_sync_source || 'doctor_followup',
-            };
-          };
           const hydrated = hydrateFromLatestFollowUp(archive);
           setUserArchive(hydrated);
           syncArchiveToLocal(hydrated);
-          persistSessionCheckupId(hydrated.checkup_id);
+          writePortalSession(hydrated.checkup_id);
         } else {
           setUserArchive(null);
-          clearSessionCheckupId();
+          clearPortalSession();
           if (showAlertOnMissing) {
             alert('未找到您的档案，请联系管理员核对体检编号');
           }
@@ -135,16 +186,18 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
 
   useEffect(() => {
     const bootstrap = async () => {
-      const fromProp = initialCheckupId?.trim();
-      let fromSession = '';
-      try {
-        fromSession = sessionStorage.getItem(USER_SESSION_CHECKUP_KEY) || '';
-      } catch {
-        fromSession = '';
+      const fromProp = initialCheckupId?.trim() || '';
+      const legacyMigrated = migrateLegacySessionFromSessionStorage();
+      let session = readPortalSession();
+      if (session && session.expiresAt <= Date.now()) {
+        clearPortalSession();
+        session = null;
       }
-      const id = fromProp || fromSession;
+      const fromPortal = session && session.expiresAt > Date.now() ? session.checkupId : '';
+      const hadPersistedSession = !!legacyMigrated || !!fromPortal;
+      const id = fromProp || legacyMigrated || fromPortal;
       if (id) {
-        await loadArchiveById(id, false, !!fromProp && !fromSession);
+        await loadArchiveById(id, false, !!fromProp && !hadPersistedSession);
       } else {
         setLoading(false);
         setUserArchive(null);
@@ -297,7 +350,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   };
 
   const handleProfileLogout = () => {
-    clearSessionCheckupId();
+    clearPortalSession();
     setUserArchive(null);
     setUnreadCount(0);
     setActiveTab('habits');
@@ -307,7 +360,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   const handleShellLoginSuccess = (archive: HealthArchive) => {
     setUserArchive(archive);
     syncArchiveToLocal(archive);
-    persistSessionCheckupId(archive.checkup_id);
+    writePortalSession(archive.checkup_id);
     setLoading(false);
     setActiveTab('message');
   };
@@ -318,9 +371,9 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-        <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold text-sm">正在加载...</p>
+      <div className="user-initial-loader flex min-h-[100dvh] flex-col items-center justify-center bg-slate-50">
+        <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-teal-500 border-t-transparent"></div>
+        <p className="text-sm font-bold text-slate-500">正在加载...</p>
       </div>
     );
   }

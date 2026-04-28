@@ -37,7 +37,9 @@ export const UserLayout: React.FC<Props> = ({
             {profileIncompleteBanner}
           </div>
         ) : null}
-        {children}
+        <div key={activeTab} className="user-tab-content">
+          {children}
+        </div>
       </main>
 
       {/* Bottom Nav */}
@@ -49,31 +51,33 @@ export const UserLayout: React.FC<Props> = ({
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className="group relative flex h-14 min-w-[64px] flex-col items-center justify-center rounded-2xl px-2 transition-all duration-200 active:scale-95"
+              className={`group relative flex h-[70px] min-w-[64px] flex-col items-center justify-center rounded-2xl px-2.5 transition-all duration-200 active:scale-95 ${
+                isActive ? 'bg-teal-50' : ''
+              }`}
               aria-label={item.label}
             >
-              <div className={`relative mb-1 text-xl transition-transform duration-200 ${
+              <div
+                className={`relative mb-0.5 text-[22px] leading-none transition-transform duration-200 ${
                   isActive ? 'scale-105 text-teal-600' : 'text-slate-500 group-hover:scale-105'
-              }`}>
+                }`}
+              >
                 {item.icon}
-                
+
                 {/* Notification Badge */}
                 {item.id === 'message' && unreadCount > 0 && (
-                    <span className="absolute -right-2 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-xs font-bold text-white ring-2 ring-white">
-                        {unreadCount > 9 ? '9+' : unreadCount}
-                    </span>
+                  <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white ring-2 ring-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
                 )}
               </div>
-              
-              <span className={`text-xs font-semibold tracking-wide transition-colors duration-200 ${
+
+              <span
+                className={`text-[11px] font-bold tracking-wide transition-colors duration-200 ${
                   isActive ? 'text-teal-600' : 'text-slate-500'
-              }`}>
+                }`}
+              >
                 {item.label}
               </span>
-
-              {isActive && (
-                  <span className="absolute -bottom-1 h-1 w-8 rounded-full bg-teal-600/70"></span>
-              )}
             </button>
           );
         })}

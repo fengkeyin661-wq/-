@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLocalInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
@@ -150,39 +150,54 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
         }
     }, [loading, allServices, allMeals, allEvents, allCircles]);
 
+    const applyContentToState = (
+        eventsData: ContentItem[],
+        circlesData: ContentItem[],
+        mealsData: ContentItem[],
+        servicesData: ContentItem[],
+        interactions: InteractionItem[]
+    ) => {
+        const processedEvents: EventWithStatus[] = eventsData.map((evt) => {
+            const evtSignups = interactions.filter(
+                (i) => i.type === 'event_signup' && i.targetId === evt.id && i.status !== 'cancelled'
+            );
+            const count = evtSignups.length;
+            const limit = Number(evt.details?.limit) || 100;
+            const myInteraction = userId ? evtSignups.find((i) => i.userId === userId) : null;
+            const isSigned = !!myInteraction;
+
+            let status: 'open' | 'full' | 'joined' | 'pending' | 'ended' = 'open';
+            if (myInteraction?.status === 'confirmed') status = 'joined';
+            else if (myInteraction?.status === 'pending') status = 'pending';
+            else if (count >= limit) status = 'full';
+            else if (evt.details?.businessStatus === '已结束') status = 'ended';
+
+            return { ...evt, currentSignups: count, isSignedUp: isSigned, signupStatus: status };
+        });
+        setAllEvents(processedEvents);
+        setAllCircles(circlesData);
+        setAllMeals(mealsData);
+        setAllServices(servicesData);
+        setAllInteractions(interactions);
+    };
+
     const loadData = async () => {
-        setLoading(true);
+        const le = readLocalContent('event', 'active');
+        const lc = readLocalContent('circle', 'active');
+        const lm = readLocalContent('meal', 'active');
+        const ls = readLocalContent('service', 'active');
+        const li = readLocalInteractions();
+        applyContentToState(le, lc, lm, ls, li);
+        setLoading(!(le.length || lc.length || lm.length || ls.length));
         try {
             const [eventsData, circlesData, mealsData, servicesData, interactions] = await Promise.all([
                 fetchContent('event', 'active'),
                 fetchContent('circle', 'active'),
                 fetchContent('meal', 'active'),
                 fetchContent('service', 'active'),
-                fetchInteractions()
+                fetchInteractions(),
             ]);
-
-            // Process Events with Status
-            const processedEvents = eventsData.map(evt => {
-                const evtSignups = interactions.filter(i => i.type === 'event_signup' && i.targetId === evt.id && i.status !== 'cancelled');
-                const count = evtSignups.length;
-                const limit = Number(evt.details?.limit) || 100;
-                const myInteraction = userId ? evtSignups.find(i => i.userId === userId) : null;
-                const isSigned = !!myInteraction;
-                
-                let status: 'open' | 'full' | 'joined' | 'pending' | 'ended' = 'open';
-                if (myInteraction?.status === 'confirmed') status = 'joined';
-                else if (myInteraction?.status === 'pending') status = 'pending';
-                else if (count >= limit) status = 'full';
-                else if (evt.details?.businessStatus === '已结束') status = 'ended';
-
-                return { ...evt, currentSignups: count, isSignedUp: isSigned, signupStatus: status };
-            });
-
-            setAllEvents(processedEvents);
-            setAllCircles(circlesData);
-            setAllMeals(mealsData);
-            setAllServices(servicesData);
-            setAllInteractions(interactions);
+            applyContentToState(eventsData, circlesData, mealsData, servicesData, interactions);
         } catch (e) {
             console.error(e);
         } finally {

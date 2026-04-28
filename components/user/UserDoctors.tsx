@@ -5,6 +5,8 @@ import {
   fetchContent,
   fetchInteractions,
   isHealthManagerContent,
+  readLocalContent,
+  readLocalInteractions,
   saveInteraction,
 } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
@@ -71,7 +73,6 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
   } | null>(null);
 
   const refresh = async () => {
-    setLoading(true);
     try {
       const [docs, inters] = await Promise.all([
         fetchContent('doctor', 'active'),
@@ -85,7 +86,12 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
   };
 
   useEffect(() => {
-    refresh();
+    const localDocs = readLocalContent('doctor', 'active');
+    const localInters = readLocalInteractions();
+    setDoctors(localDocs);
+    setInteractions(localInters);
+    setLoading(localDocs.length === 0);
+    void refresh();
   }, [userId]);
 
   useEffect(() => {

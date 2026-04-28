@@ -164,6 +164,37 @@ export const checkDbConnection = async (): Promise<{
     }
 };
 
+/** 仅从本地缓存同步读取内容，用于首屏秒开；与 fetchContent 的 local 分支过滤规则一致 */
+export const readLocalContent = (
+  type?: string | string[],
+  status?: 'active' | 'pending'
+): ContentItem[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    let all: ContentItem[] = raw ? JSON.parse(raw) : [];
+    if (type) {
+      if (Array.isArray(type)) all = all.filter((i) => type.includes(i.type));
+      else all = all.filter((i) => i.type === type);
+    }
+    if (status !== undefined) all = all.filter((i) => i.status === status);
+    return all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  } catch {
+    return [];
+  }
+};
+
+/** 仅从本地缓存同步读取互动记录，用于首屏秒开 */
+export const readLocalInteractions = (type?: string): InteractionItem[] => {
+  try {
+    const raw = localStorage.getItem(INTERACTION_KEY);
+    let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
+    if (type) all = all.filter((i) => i.type === type);
+    return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  } catch {
+    return [];
+  }
+};
+
 // 1. Content (Resources)
 export const fetchContent = async (type?: string | string[], status?: 'active' | 'pending'): Promise<ContentItem[]> => {
   let dbData: ContentItem[] | null = null;
@@ -207,6 +238,21 @@ export const fetchContent = async (type?: string | string[], status?: 'active' |
       }
       if (status !== undefined) all = all.filter(i => i.status === status);
       return all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  if (dbData && dbData.length) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const all: ContentItem[] = raw ? JSON.parse(raw) : [];
+      for (const item of dbData) {
+        const idx = all.findIndex((i) => i.id === item.id);
+        if (idx >= 0) all[idx] = item;
+        else all.push(item);
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    } catch (e) {
+      console.warn('merge cloud content to local failed', e);
+    }
   }
 
   return dbData || [];
@@ -309,7 +355,24 @@ export const fetchInteractions = async (type?: string): Promise<InteractionItem[
         return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
 
-    return (dbData || []).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const sorted = (dbData || []).sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    if (sorted.length) {
+        try {
+            const raw = localStorage.getItem(INTERACTION_KEY);
+            const all: InteractionItem[] = raw ? JSON.parse(raw) : [];
+            for (const item of sorted) {
+                const idx = all.findIndex((i) => i.id === item.id);
+                if (idx >= 0) all[idx] = item;
+                else all.push(item);
+            }
+            localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
+        } catch (e) {
+            console.warn('merge cloud interactions to local failed', e);
+        }
+    }
+    return sorted;
 };
 
 export const saveInteraction = async (item: InteractionItem): Promise<boolean> => {

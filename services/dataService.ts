@@ -445,6 +445,18 @@ export const syncArchiveToLocal = (archive: HealthArchive) => {
     }
 };
 
+/** 仅从本地缓存同步读取，用于首屏秒开；无网络 */
+export const getLocalArchiveByCheckupIdSync = (checkupId: string): HealthArchive | null => {
+    try {
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (!localRaw) return null;
+        const localArchives: HealthArchive[] = JSON.parse(localRaw);
+        return localArchives.find((a) => a.checkup_id === checkupId) || null;
+    } catch {
+        return null;
+    }
+};
+
 export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthArchive | null> => {
     let localMatch: HealthArchive | null = null;
     const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);

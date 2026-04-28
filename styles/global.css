@@ -1,0 +1,125 @@
+/**
+ * 用户端 H5 全局样式：动画 keyframes、Tab 切页、scrollbar 隐藏、触控优化
+ * index.html 内联样式仍保留；本文件由 index.tsx 引入
+ */
+
+/* --- 触控与橡皮筋抑制 --- */
+html,
+body {
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: pan-y;
+}
+
+#root {
+  min-height: 100dvh;
+  min-height: 100vh;
+}
+
+/* --- scrollbar 隐藏（UserLayout 等用 scrollbar-hide 类名）--- */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* --- 全页淡入 / 从下滑入 / 模态上滑 等，与 class 名配合 --- */
+@keyframes appFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes appSlideUp {
+  from {
+    opacity: 0.96;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+@keyframes appScaleIn {
+  from {
+    opacity: 0.96;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes appFlipIn {
+  from {
+    opacity: 0;
+    transform: perspective(800px) rotateX(-4deg) translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(800px) rotateX(0) translate3d(0, 0, 0);
+  }
+}
+
+.app-ease,
+.animate-fadeIn,
+.animate-slideUp,
+.animate-scaleIn,
+.animate-flipIn,
+.animate-fadeInSlow {
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+.animate-fadeIn {
+  animation-name: appFadeIn;
+  animation-duration: 0.24s;
+}
+
+.animate-fadeInSlow {
+  animation-name: appFadeIn;
+  animation-duration: 0.4s;
+}
+
+.animate-slideUp {
+  animation-name: appSlideUp;
+  animation-duration: 0.28s;
+}
+
+.animate-scaleIn {
+  animation-name: appScaleIn;
+  animation-duration: 0.24s;
+}
+
+.animate-flipIn {
+  animation-name: appFlipIn;
+  animation-duration: 0.4s;
+}
+
+/* --- 底栏 Tab 切换时主内容区 --- */
+@keyframes tabContentEnter {
+  from {
+    opacity: 0.92;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.user-tab-content {
+  animation: tabContentEnter 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  min-height: 100%;
+}
+
+/* 全屏首屏 loading 不重复动画，避免频闪 */
+.user-initial-loader {
+  animation: appFadeIn 0.2s ease-out both;
+}
