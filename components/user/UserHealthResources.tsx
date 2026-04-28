@@ -4,11 +4,14 @@ import { HealthAssessment, HealthRecord } from '../../types';
 import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
 import { ResourceCover } from './ResourceCover';
 import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
+import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
     assessment?: HealthAssessment;
     userCheckupId?: string;
     userName?: string;
+    defaultContactPhone?: string;
     record?: HealthRecord;
 }
 
@@ -97,7 +100,7 @@ const scoreResource = (item: ContentItem, assessment?: HealthAssessment): { scor
     return { score, reason };
 };
 
-export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId, userName, record }) => {
+export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId, userName, defaultContactPhone = '', record }) => {
     const [allResources, setAllResources] = useState<ContentItem[]>([]);
     const [allInteractions, setAllInteractions] = useState<InteractionItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -105,6 +108,13 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
     const [activeCategory, setActiveCategory] = useState<ResourceCategory>('all');
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
     const [bookingService, setBookingService] = useState<ContentItem | null>(null);
+    const [contactOpen, setContactOpen] = useState(false);
+    const [eventContactOpen, setEventContactOpen] = useState(false);
+    const [pendingService, setPendingService] = useState<{
+        target: ContentItem;
+        timeSlot: string;
+    } | null>(null);
+    const [pendingEvent, setPendingEvent] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         loadResources();
@@ -182,41 +192,93 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
         return '当前无可预约时段';
     };
 
+    const hrDefaultName = userName?.trim() || '';
+    const hrDefaultPhone = (defaultContactPhone || record?.profile?.phone || '').replace(/\D/g, '').slice(0, 11) || '';
+
+    const completeServiceInteract = async (name: string, phone: string) => {
+        if (!pendingService) return;
+        const { target, timeSlot } = pendingService;
+        const detailsLine = `服务预约：${timeSlot}，价格: ${target.details?.price || '免费'}`;
+        const uid = resolveBookingUserId(userCheckupId, phone);
+        await saveInteraction({
+            id: `service_booking_${Date.now()}`,
+            type: 'service_booking',
+            userId: uid,
+            userName: name.trim(),
+            targetId: target.id,
+            targetName: target.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, detailsLine),
+        });
+        alert('预约申请已提交，请保持手机畅通。');
+        setPendingService(null);
+        setContactOpen(false);
+        setSelectedItem(null);
+        setBookingService(null);
+        fetchInteractions().then(setAllInteractions);
+    };
+
+    const completeEventInteract = async (name: string, phone: string) => {
+        if (!pendingEvent) return;
+        const target = pendingEvent;
+        const uid = resolveBookingUserId(userCheckupId, phone);
+        await saveInteraction({
+            id: `event_signup_${Date.now()}`,
+            type: 'event_signup',
+            userId: uid,
+            userName: name.trim(),
+            targetId: target.id,
+            targetName: target.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, '活动报名'),
+        });
+        alert('报名已提交，请保持手机畅通。');
+        setPendingEvent(null);
+        setEventContactOpen(false);
+        setSelectedItem(null);
+        setBookingService(null);
+        fetchInteractions().then(setAllInteractions);
+    };
+
     const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
-        if (!userCheckupId || !userName) {
-            return alert('请先在底部「我的」登录后再报名/预约/收藏');
-        }
-        
         let interactionType: InteractionItem['type'] = 'service_booking';
         let confirmMsg = '';
         let details = '';
 
         if (target.type === 'event') {
-            interactionType = 'event_signup';
-            confirmMsg = `确定报名参加【${target.title}】吗？`;
-            details = `活动报名`;
+            setPendingEvent(target);
+            setSelectedItem(null);
+            setEventContactOpen(true);
+            return;
         } else if (target.type === 'service') {
-            interactionType = 'service_booking';
             if (!timeSlot) {
                 setBookingService(target);
                 setSelectedItem(null);
                 return;
             }
-            confirmMsg = `确定预约服务【${target.title}】吗？`;
-            details = `服务预约：${timeSlot}，价格: ${target.details?.price || '免费'}`;
+            setPendingService({ target, timeSlot });
+            setBookingService(null);
+            setSelectedItem(null);
+            setContactOpen(true);
+            return;
         } else {
-            // meal / exercise 收藏
+            if (!userCheckupId || !userName) {
+                return alert('请先在底部「我的」登录后再收藏');
+            }
             confirmMsg = `将【${target.title}】加入您的健康计划？`;
             interactionType = 'service_booking';
             details = `收藏资源: ${target.type}`;
         }
 
+        if (!userCheckupId) return;
         if (confirm(confirmMsg)) {
             await saveInteraction({
                 id: `${interactionType}_${Date.now()}`,
                 type: interactionType,
                 userId: userCheckupId,
-                userName: userName,
+                userName: userName || '用户',
                 targetId: target.id,
                 targetName: target.title,
                 status: 'pending',
@@ -492,6 +554,30 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
                     </div>
                 </div>
             )}
+            <BookingContactModal
+                open={contactOpen}
+                title="填写服务预约信息"
+                subtitle={pendingService ? `预约：${pendingService.target.title}` : undefined}
+                defaultName={hrDefaultName}
+                defaultPhone={hrDefaultPhone}
+                onCancel={() => {
+                    setContactOpen(false);
+                    setPendingService(null);
+                }}
+                onConfirm={({ name, phone }) => completeServiceInteract(name, phone)}
+            />
+            <BookingContactModal
+                open={eventContactOpen}
+                title="填写活动报名信息"
+                subtitle={pendingEvent ? `活动：${pendingEvent.title}` : undefined}
+                defaultName={hrDefaultName}
+                defaultPhone={hrDefaultPhone}
+                onCancel={() => {
+                    setEventContactOpen(false);
+                    setPendingEvent(null);
+                }}
+                onConfirm={({ name, phone }) => completeEventInteract(name, phone)}
+            />
             {bookingService && (
                 <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setBookingService(null)}>
                     <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>

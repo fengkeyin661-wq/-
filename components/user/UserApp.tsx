@@ -24,7 +24,6 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   const [activeTab, setActiveTab] = useState('message');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
-  const [needsArchiveBinding, setNeedsArchiveBinding] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const refreshUnreadCount = useCallback(async () => {
     if (!userArchive) return;
@@ -39,8 +38,6 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     userArchive && userArchive.profile_complete === false
       ? '您的个人健康档案尚未完善，请联系健康管家完成健康档案建档。'
       : null;
-
-  const isArchiveLocked = !userArchive || userArchive.profile_complete === false || needsArchiveBinding;
 
   const persistSessionCheckupId = (checkupId: string) => {
     try {
@@ -302,24 +299,15 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   const handleProfileLogout = () => {
     clearSessionCheckupId();
     setUserArchive(null);
-    setNeedsArchiveBinding(false);
     setUnreadCount(0);
     setActiveTab('habits');
     onLogout?.();
   };
 
-  const handleShellLoginSuccess = async (
-    archive: HealthArchive | null,
-    options?: { needsArchiveBinding?: boolean }
-  ) => {
-    setNeedsArchiveBinding(!!options?.needsArchiveBinding || !archive);
-    if (archive) {
-      setUserArchive(archive);
-      syncArchiveToLocal(archive);
-      persistSessionCheckupId(archive.checkup_id);
-    } else {
-      setUserArchive(null);
-    }
+  const handleShellLoginSuccess = (archive: HealthArchive) => {
+    setUserArchive(archive);
+    syncArchiveToLocal(archive);
+    persistSessionCheckupId(archive.checkup_id);
     setLoading(false);
     setActiveTab('message');
   };
@@ -357,6 +345,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
         <UserCommunity
           userId={userArchive?.checkup_id}
           userName={userArchive ? resolvedUserName : undefined}
+          defaultContactPhone={userArchive?.phone || userArchive?.health_record?.profile?.phone || ''}
           assessment={userArchive?.assessment_data}
         />
       )}
@@ -365,6 +354,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           userId={userArchive?.checkup_id}
           userName={userArchive ? resolvedUserName : undefined}
           archive={userArchive ?? undefined}
+          defaultContactPhone={userArchive?.phone || userArchive?.health_record?.profile?.phone || ''}
           onOpenMessage={(_doctorId) => {
             setActiveTab('message');
           }}
@@ -397,27 +387,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
             }
           />
         ) : (
-          needsArchiveBinding ? (
-            <div className="min-h-full bg-slate-50 px-4 py-6 pb-24">
-              <div className="mx-auto max-w-md rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
-                <h2 className="text-xl font-black text-amber-900">您已注册，尚未建档</h2>
-                <p className="mt-2 text-sm leading-relaxed text-amber-800">
-                  医疗资源内容已开放浏览。查看我的健康档案与随访记录前，请联系健康管家完成健康建档。
-                </p>
-                <div className="mt-4">
-                  <button
-                    type="button"
-                    onClick={handleProfileLogout}
-                    className="w-full rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-bold text-amber-700 hover:bg-amber-100"
-                  >
-                    退出账号
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
             <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />
-          )
         ))}
     </UserLayout>
   );

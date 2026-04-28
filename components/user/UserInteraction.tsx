@@ -4,6 +4,8 @@ import { fetchContent, ContentItem, fetchInteractions, InteractionItem, ChatMess
 import { HealthArchive } from '../../services/dataService';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
+import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
     userId?: string;
@@ -66,6 +68,11 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
     const [selectedDoctor, setSelectedDoctor] = useState<ContentItem | null>(null);
     const [showBookingModal, setShowBookingModal] = useState(false);
     const [bookingDoctor, setBookingDoctor] = useState<ContentItem | null>(null);
+    const [contactOpen, setContactOpen] = useState(false);
+    const [pendingBook, setPendingBook] = useState<{
+        target: ContentItem;
+        timeFragment: string;
+    } | null>(null);
     
     // Signed Doctors (for Chat)
     const [doctorList, setDoctorList] = useState<DoctorWithUnread[]>([]);
@@ -202,14 +209,46 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
         loadMessages();
     };
 
+    const defaultContactName = userName?.trim() || archive?.name?.trim() || '';
+    const defaultContactPhone =
+        (archive?.phone || archive?.health_record?.profile?.phone || '').replace(/\D/g, '').slice(0, 11) || '';
+
+    const completeBookingWithContact = async (name: string, phone: string) => {
+        if (!pendingBook) return;
+        const { target, timeFragment } = pendingBook;
+        const detailsLine = `预约挂号：${timeFragment}，费用: ${target.details?.fee || 0}元`;
+        const uid = resolveBookingUserId(userId, phone);
+        const fullDetails = buildBookingDetails(name, phone, detailsLine);
+        await saveInteraction({
+            id: `doctor_booking_${Date.now()}`,
+            type: 'doctor_booking',
+            userId: uid,
+            userName: name.trim(),
+            targetId: target.id,
+            targetName: target.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: fullDetails,
+        });
+        alert('挂号申请已提交，请保持手机畅通。');
+        setPendingBook(null);
+        setContactOpen(false);
+        setSelectedDoctor(null);
+        setShowBookingModal(false);
+        setBookingDoctor(null);
+        loadAllData();
+    };
+
     const handleInteract = async (type: string, target: ContentItem, timeSlot?: string) => {
-        if (!userId) return alert('请先在底部「我的」登录后再签约或挂号');
-        
         let interactionType: InteractionItem['type'] = 'doctor_booking';
         let confirmMsg = '';
         let details = '';
 
         if (type === 'signing') {
+            if (!userId) {
+                alert('请先在底部「我的」使用体检登记手机号登录后再签约');
+                return;
+            }
             interactionType = 'doctor_signing';
             confirmMsg = `确定申请签约【${target.title}】为家庭医生吗？`;
             details = '申请家庭医生签约';
@@ -221,10 +260,14 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
                 setSelectedDoctor(null);
                 return;
             }
-            confirmMsg = `确定预约【${target.title}】在【${timeSlot}】的门诊吗？`;
-            details = `预约挂号：${timeSlot}，费用: ${target.details?.fee || 0}元`;
+            setPendingBook({ target, timeFragment: timeSlot });
+            setShowBookingModal(false);
+            setBookingDoctor(null);
+            setContactOpen(true);
+            return;
         }
 
+        if (!userId) return;
         if (confirm(confirmMsg)) {
             await saveInteraction({
                 id: `${interactionType}_${Date.now()}`,
@@ -520,6 +563,19 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
                     </div>
                 </div>
             )}
+
+            <BookingContactModal
+                open={contactOpen}
+                title="填写挂号信息"
+                subtitle={pendingBook ? `预约：${pendingBook.target.title}` : undefined}
+                defaultName={defaultContactName}
+                defaultPhone={defaultContactPhone}
+                onCancel={() => {
+                    setContactOpen(false);
+                    setPendingBook(null);
+                }}
+                onConfirm={({ name, phone }) => completeBookingWithContact(name, phone)}
+            />
 
             {/* Time Selection Modal */}
             {showBookingModal && bookingDoctor && (

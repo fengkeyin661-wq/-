@@ -4,10 +4,13 @@ import { fetchContent, ContentItem, fetchInteractions, saveInteraction, Interact
 import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
+import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
     userId?: string;
     userName?: string;
+    defaultContactPhone?: string;
     assessment?: HealthAssessment;
 }
 
@@ -73,7 +76,7 @@ const formatEventSchedule = (details?: Record<string, any>) => {
     return details?.date?.split?.('T')?.[0] || '待定';
 };
 
-export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment }) => {
+export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContactPhone = '', assessment }) => {
     const [allEvents, setAllEvents] = useState<EventWithStatus[]>([]);
     const [allCircles, setAllCircles] = useState<ContentItem[]>([]);
     const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
@@ -86,6 +89,13 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
     
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
     const [bookingService, setBookingService] = useState<ContentItem | null>(null);
+    const [serviceContactOpen, setServiceContactOpen] = useState(false);
+    const [pendingServiceBook, setPendingServiceBook] = useState<{
+        service: ContentItem;
+        timeSlot: string;
+    } | null>(null);
+    const [eventContactOpen, setEventContactOpen] = useState(false);
+    const [pendingEvent, setPendingEvent] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         loadData();
@@ -180,24 +190,35 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         }
     };
 
-    const handleSignup = async (evt: ContentItem) => {
-        if (!userId || !userName) return alert("请先登录");
-        
-        if (confirm(`确定报名参加【${evt.title}】吗？`)) {
-            await saveInteraction({
-                id: `signup_${Date.now()}`,
-                type: 'event_signup',
-                userId, userName,
-                targetId: evt.id,
-                targetName: evt.title,
-                status: 'pending',
-                date: new Date().toISOString().split('T')[0],
-                details: `活动报名`
-            });
-            alert("申请已提交！");
-            setSelectedItem(null);
-            loadData();
-        }
+    const contactDefaultName = userName?.trim() || '';
+    const contactDefaultPhone = defaultContactPhone.replace(/\D/g, '').slice(0, 11) || '';
+
+    const completeEventSignup = async (name: string, phone: string) => {
+        if (!pendingEvent) return;
+        const evt = pendingEvent;
+        const uid = resolveBookingUserId(userId, phone);
+        await saveInteraction({
+            id: `event_signup_${Date.now()}`,
+            type: 'event_signup',
+            userId: uid,
+            userName: name.trim(),
+            targetId: evt.id,
+            targetName: evt.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, '活动报名'),
+        });
+        alert('报名已提交，请保持手机畅通。');
+        setPendingEvent(null);
+        setEventContactOpen(false);
+        setSelectedItem(null);
+        loadData();
+    };
+
+    const handleSignup = (evt: ContentItem) => {
+        setPendingEvent(evt);
+        setSelectedItem(null);
+        setEventContactOpen(true);
     };
 
     const handleJoinCircle = async (circle: ContentItem) => {
@@ -217,31 +238,40 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         setSelectedItem(null);
     };
 
-    const handleBookService = async (service: ContentItem, timeSlot?: string) => {
-        if (!userId || !userName) return alert("请先登录");
+    const completeServiceBook = async (name: string, phone: string) => {
+        if (!pendingServiceBook) return;
+        const { service, timeSlot } = pendingServiceBook;
+        const detailsLine = `服务预约：${timeSlot}，价格: ${service.details?.price || '免费'}`;
+        const uid = resolveBookingUserId(userId, phone);
+        await saveInteraction({
+            id: `service_booking_${Date.now()}`,
+            type: 'service_booking',
+            userId: uid,
+            userName: name.trim(),
+            targetId: service.id,
+            targetName: service.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, detailsLine),
+        });
+        alert('预约申请已提交，请保持手机畅通。');
+        setPendingServiceBook(null);
+        setServiceContactOpen(false);
+        setSelectedItem(null);
+        setBookingService(null);
+        loadData();
+    };
 
+    const handleBookService = async (service: ContentItem, timeSlot?: string) => {
         if (!timeSlot) {
             setBookingService(service);
             setSelectedItem(null);
             return;
         }
-
-        if (confirm(`确定预约【${service.title}】在【${timeSlot}】吗？`)) {
-            await saveInteraction({
-                id: `service_${Date.now()}`,
-                type: 'service_booking',
-                userId, userName,
-                targetId: service.id,
-                targetName: service.title,
-                status: 'pending',
-                date: new Date().toISOString().split('T')[0],
-                details: `服务预约：${timeSlot}，价格: ${service.details?.price || '免费'}`
-            });
-            alert("预约申请已提交！");
-            setSelectedItem(null);
-            setBookingService(null);
-            loadData();
-        }
+        setPendingServiceBook({ service, timeSlot });
+        setBookingService(null);
+        setSelectedItem(null);
+        setServiceContactOpen(true);
     };
 
     const getServiceSlotUsage = (serviceId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
@@ -637,6 +667,30 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                     </div>
                 </div>
             )}
+            <BookingContactModal
+                open={serviceContactOpen}
+                title="填写服务预约信息"
+                subtitle={pendingServiceBook ? `预约：${pendingServiceBook.service.title}` : undefined}
+                defaultName={contactDefaultName}
+                defaultPhone={contactDefaultPhone}
+                onCancel={() => {
+                    setServiceContactOpen(false);
+                    setPendingServiceBook(null);
+                }}
+                onConfirm={({ name, phone }) => completeServiceBook(name, phone)}
+            />
+            <BookingContactModal
+                open={eventContactOpen}
+                title="填写活动报名信息"
+                subtitle={pendingEvent ? `活动：${pendingEvent.title}` : undefined}
+                defaultName={contactDefaultName}
+                defaultPhone={contactDefaultPhone}
+                onCancel={() => {
+                    setEventContactOpen(false);
+                    setPendingEvent(null);
+                }}
+                onConfirm={({ name, phone }) => completeEventSignup(name, phone)}
+            />
             {bookingService && (
                 <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setBookingService(null)}>
                     <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>

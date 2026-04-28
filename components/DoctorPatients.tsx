@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { fetchInteractions, updateInteractionStatus, InteractionItem, ChatMessage, fetchMessages, sendMessage, getUnreadCount, markAsRead, fetchContent, saveContent, ContentItem, saveInteraction } from '../services/contentService';
+import { isGuestBookingUserId } from '../services/bookingContact';
 import { findArchiveByCheckupId, HealthArchive, publishHealthDraft } from '../services/dataService';
 import { extractTextFromFile } from '../services/fileParseService';
 import { generateDraftFromText } from '../services/healthDraftService';
@@ -351,6 +352,10 @@ export const DoctorPatients: React.FC<Props> = ({ doctorId, doctorName, onSelect
                                                 <div className="flex gap-2 shrink-0">
                                                     <button 
                                                         onClick={async () => {
+                                                            if (isGuestBookingUserId(req.userId)) {
+                                                                alert('此项为访客预约登记，无在线电子档案。请通过申请中的联系电话联系确认。');
+                                                                return;
+                                                            }
                                                             const arch = await findArchiveByCheckupId(req.userId);
                                                             if (arch) onSelectPatient(arch, 'assessment');
                                                             else alert("未找到该用户健康档案");

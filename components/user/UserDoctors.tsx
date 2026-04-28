@@ -9,11 +9,15 @@ import {
 } from '../../services/contentService';
 import { HealthArchive } from '../../services/dataService';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
+import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
   userId?: string;
   userName?: string;
   archive?: HealthArchive;
+  /** 已登录时预填预约联系电话 */
+  defaultContactPhone?: string;
   onOpenMessage?: (doctorId: string) => void;
 }
 const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
@@ -52,7 +56,7 @@ const buildWeeklyScheduleSummary = (doctor: ContentItem): string[] => {
     });
 };
 
-export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpenMessage }) => {
+export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaultContactPhone = '', onOpenMessage }) => {
   const [doctors, setDoctors] = useState<ContentItem[]>([]);
   const [interactions, setInteractions] = useState<InteractionItem[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<ContentItem | null>(null);
@@ -60,6 +64,11 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [teamRecommendRole, setTeamRecommendRole] = useState<string | null>(null);
+  const [contactOpen, setContactOpen] = useState(false);
+  const [pendingBooking, setPendingBooking] = useState<{
+    target: ContentItem;
+    detailsLine: string;
+  } | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -208,13 +217,19 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
     return { count, quota, full: count >= quota };
   };
 
+  const defaultContactName = userName?.trim() || archive?.name?.trim() || '';
+  const defaultContactPhoneDigits =
+    (defaultContactPhone || archive?.phone || archive?.health_record?.profile?.phone || '')
+      .replace(/\D/g, '')
+      .slice(0, 11) || '';
+
   const submitInteraction = async (
     type: 'doctor_signing' | 'doctor_booking',
     target: ContentItem,
     details: string
   ) => {
     if (!userId) {
-      alert('请先到“我的”完成登录');
+      alert('请先到「我的」使用体检登记手机号登录后再签约');
       return;
     }
     await saveInteraction({
@@ -231,6 +246,35 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
     alert('申请已提交，请等待审核。');
     setSelectedDoctor(null);
     setBookingDoctor(null);
+    refresh();
+  };
+
+  const startBookingWithSlot = (target: ContentItem, detailsLine: string) => {
+    setPendingBooking({ target, detailsLine });
+    setBookingDoctor(null);
+    setContactOpen(true);
+  };
+
+  const completeGuestOrUserBooking = async (name: string, phone: string) => {
+    if (!pendingBooking) return;
+    const { target, detailsLine } = pendingBooking;
+    const uid = resolveBookingUserId(userId, phone);
+    const fullDetails = buildBookingDetails(name, phone, detailsLine);
+    await saveInteraction({
+      id: `doctor_booking_${Date.now()}`,
+      type: 'doctor_booking',
+      userId: uid,
+      userName: name.trim(),
+      targetId: target.id,
+      targetName: target.title,
+      status: 'pending',
+      date: new Date().toISOString().split('T')[0],
+      details: fullDetails,
+    });
+    alert('挂号申请已提交，请保持手机畅通，健康管家可能致电确认。');
+    setPendingBooking(null);
+    setContactOpen(false);
+    setSelectedDoctor(null);
     refresh();
   };
 
@@ -474,6 +518,19 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
         </div>
       )}
 
+      <BookingContactModal
+        open={contactOpen}
+        title="填写挂号信息"
+        subtitle={pendingBooking ? `预约：${pendingBooking.target.title}` : undefined}
+        defaultName={defaultContactName}
+        defaultPhone={defaultContactPhoneDigits}
+        onCancel={() => {
+          setContactOpen(false);
+          setPendingBooking(null);
+        }}
+        onConfirm={({ name, phone }) => completeGuestOrUserBooking(name, phone)}
+      />
+
       {bookingDoctor && (
         <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center" onClick={() => setBookingDoctor(null)}>
           <div className="w-full max-w-md rounded-t-3xl bg-white p-5 space-y-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -496,8 +553,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, onOpen
                           full ? 'bg-slate-100 text-slate-400 border-slate-100' : 'bg-white text-slate-700 border-slate-200'
                         }`}
                         onClick={() =>
-                          submitInteraction(
-                            'doctor_booking',
+                          startBookingWithSlot(
                             bookingDoctor,
                             `预约挂号：${slot.displayDate}${SLOT_MAP[slot.slotId]}，费用: ${bookingDoctor.details?.fee || 0}元`
                           )
