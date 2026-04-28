@@ -6,7 +6,12 @@
 /* --- 触控与橡皮筋抑制 --- */
 html,
 body {
-  overscroll-behavior-y: none;
+  min-height: 100%;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
   -webkit-tap-highlight-color: transparent;
   touch-action: pan-y;
 }
