@@ -15,6 +15,7 @@ import { parseExamDateToIso, shouldApplyReportToSnapshot, compareExamDates } fro
 import { resolveExamDateIso } from './examDateExtract';
 import {
   isValidCheckupId,
+  normalizeCheckupId,
   resolveCheckupIdFromReport,
 } from './checkupIdUtils';
 import { observationsFromHealthRecord } from './observationMapper';
@@ -350,7 +351,7 @@ export const importCheckupReportsBatch = async (
     try {
       const parsed = await parseHealthDataFromText(item.text);
       const fallbackId = options.selectedCheckupId || '';
-      const checkupId = resolveCheckupIdFromReport(parsed.profile?.checkupId, fallbackId);
+      const checkupId = normalizeCheckupId(parsed.profile?.checkupId, item.text, fallbackId);
 
       if (!isValidCheckupId(checkupId)) {
         log(`❌ 跳过 ${item.fileName}：未识别 6 位体检编号`);

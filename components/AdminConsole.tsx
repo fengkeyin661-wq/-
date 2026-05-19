@@ -145,33 +145,63 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         }
     };
 
+    const resolveSelectedArchive = (): HealthArchive | undefined => {
+        if (selectedIds.size !== 1) return undefined;
+        const onlyId = Array.from(selectedIds)[0];
+        return archives.find((a) => a.id === onlyId || a.checkup_id === onlyId);
+    };
+
     const handleManagerUploadClick = () => {
-        checkUploadRef.current?.click();
+        if (!checkUploadRef.current) {
+            alert('上传组件未就绪，请刷新页面后重试');
+            return;
+        }
+        checkUploadRef.current.click();
     };
 
     const handleManagerUploadFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const fileList = e.target.files;
-        e.currentTarget.value = '';
         if (!fileList?.length) return;
+        const files = Array.from(fileList);
+        e.currentTarget.value = '';
 
-        const selected =
-            selectedIds.size === 1 ? archives.find((a) => selectedIds.has(a.id)) : undefined;
+        const selected = resolveSelectedArchive();
         const selectedCheckupId = selected?.checkup_id;
+
+        if (selectedIds.size > 1) {
+            alert('已勾选多人，历年报告导入仅支持单人。请只保留一行勾选后再上传。');
+            return;
+        }
 
         setIsCheckUploadModalOpen(true);
         setCheckUploadLogs([
             selectedCheckupId
-                ? `已关联档案 ${selected?.name}（${selectedCheckupId}），共 ${fileList.length} 个文件`
-                : `未勾选档案，将从报告中识别 6 位体检编号（共 ${fileList.length} 个文件）`,
+                ? `已关联档案 ${selected?.name}（${selectedCheckupId}），共 ${files.length} 个文件`
+                : `未勾选档案：请勾选左侧复选框，或确保报告含 6 位体检编号（共 ${files.length} 个文件）`,
+            '提示：仅点「查看」不会关联人员，需勾选该行复选框。',
         ]);
         setIsCheckUploadProcessing(true);
 
         try {
             const items: { fileName: string; text: string }[] = [];
-            for (const file of Array.from(fileList)) {
+            for (const file of files) {
                 setCheckUploadLogs((prev) => [...prev, `📄 读取: ${file.name}`]);
-                const text = await extractTextFromFile(file);
-                items.push({ fileName: file.name, text });
+                try {
+                    const text = await extractTextFromFile(file);
+                    if (!text?.trim()) {
+                        setCheckUploadLogs((prev) => [...prev, `❌ ${file.name}：未能提取文字（扫描件请换 OCR 版 PDF）`]);
+                        continue;
+                    }
+                    items.push({ fileName: file.name, text });
+                } catch (readErr: unknown) {
+                    const msg = readErr instanceof Error ? readErr.message : String(readErr);
+                    setCheckUploadLogs((prev) => [...prev, `❌ ${file.name}：${msg}`]);
+                }
+            }
+
+            if (!items.length) {
+                setCheckUploadLogs((prev) => [...prev, '❌ 没有可解析的文件，请检查格式（推荐 PDF/Word）']);
+                return;
             }
 
             const res = await importCheckupReportsBatch(items, {
@@ -183,12 +213,14 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 setCheckUploadLogs((prev) => [...prev, `❌ ${res.message || '导入失败'}`]);
             } else {
                 setCheckUploadLogs((prev) => [...prev, `✅ ${res.message}`]);
+                alert(res.message || '导入完成');
             }
             loadData();
             if (onDataUpdate) onDataUpdate();
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             setCheckUploadLogs((prev) => [...prev, `❌ 异常: ${msg}`]);
+            alert(`导入异常：${msg}`);
         } finally {
             setIsCheckUploadProcessing(false);
         }
@@ -419,7 +451,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const handleCriticalSave = async (record: CriticalTrackRecord) => { if (!criticalModalArchive) return; const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record); if (res.success) { setCriticalModalArchive(null); loadData(); if (onDataUpdate) onDataUpdate(); } };
     
     const handleSmartBatchFiles = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) { setSmartBatchFiles(Array.from(e.target.files)); setSmartBatchLogs([]); } };
-    const extractTextFromFile = async (file: File): Promise<string> => {
+    const extractTextForSmartBatch = async (file: File): Promise<string> => {
         const fileType = file.name.split('.').pop()?.toLowerCase();
         if (fileType === 'txt') return await file.text();
         if (fileType === 'docx' || fileType === 'doc') { const arrayBuffer = await file.arrayBuffer(); const result = await mammoth.extractRawText({ arrayBuffer }); return result.value; }
@@ -448,7 +480,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         for (const file of smartBatchFiles) {
             setSmartBatchLogs(prev => [...prev, `📄 读取: ${file.name}`]);
             try {
-                const text = await extractTextFromFile(file);
+                const text = await extractTextForSmartBatch(file);
                 setSmartBatchLogs(prev => [...prev, `🤖 AI 解析中...`]);
                 const parsedRecord = await parseHealthDataFromText(text);
                 if (parsedRecord.profile.name && parsedRecord.profile.name.includes('解析失败')) throw new Error(parsedRecord.profile.name);
@@ -560,8 +592,15 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         {loading ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">加载中...</td></tr> : filteredArchives.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">暂无数据</td></tr> : filteredArchives.map((archive) => {
                             const isCritical = archive.assessment_data?.isCritical || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'));
                             return (
-                                <tr key={archive.id} className="hover:bg-blue-50/30 transition-colors group cursor-pointer" onDoubleClick={() => onSelectPatient(archive, 'assessment')}>
-                                    <td className="p-4"><input type="checkbox" checked={selectedIds.has(archive.id)} onChange={() => handleSelectRow(archive.id)} onClick={(e) => e.stopPropagation()} /></td>
+                                <tr
+                                    key={archive.id}
+                                    className={`hover:bg-blue-50/30 transition-colors group cursor-pointer ${selectedIds.has(archive.id) ? 'bg-purple-50/80 ring-1 ring-inset ring-purple-200' : ''}`}
+                                    onClick={() => handleSelectRow(archive.id)}
+                                    onDoubleClick={() => onSelectPatient(archive, 'assessment')}
+                                >
+                                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                                        <input type="checkbox" checked={selectedIds.has(archive.id)} onChange={() => handleSelectRow(archive.id)} />
+                                    </td>
                                     <td className="p-4 font-mono text-slate-600">{archive.checkup_id}</td>
                                     <td className="p-4">
                                         <div className="font-bold text-slate-800">{archive.name}</div>
@@ -615,7 +654,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             
             {/* Smart Batch Modal */}
             {isCheckUploadModalOpen && (
-                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm">
+                <div className="fixed inset-0 bg-slate-900/60 z-[100] flex items-center justify-center backdrop-blur-sm">
                     <div className="bg-white w-full max-w-3xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-scaleIn">
                         <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                             <div>
