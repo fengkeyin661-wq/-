@@ -49,6 +49,7 @@ export const UserProfile: React.FC<Props> = ({
     const syncSourceLabel: Record<string, string> = {
         doctor_followup: '健康管家随访',
         user_profile_edit: '用户自主更新',
+        checkup_import: '体检报告导入',
         system: '系统同步',
     };
     const [subView, setSubView] = useState<

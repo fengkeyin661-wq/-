@@ -40,6 +40,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
   const [lipidData, setLipidData] = useState<
     Record<(typeof LIPID_VARIANTS)[number], { label: string; value: number }[]>
   >({ tc: [], tg: [], ldl: [], hdl: [] });
+  const [waistData, setWaistData] = useState<{ label: string; value: number }[]>([]);
+  const [bodyFatData, setBodyFatData] = useState<{ label: string; value: number }[]>([]);
+  const [creatinineData, setCreatinineData] = useState<{ label: string; value: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,6 +59,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
         'core.tg',
         'core.ldl',
         'core.hdl',
+        'core.waist',
+        'core.body_fat_rate',
+        'core.creatinine',
       ];
       const rows = await fetchObservationSeries(checkupId, metricCodes, 200);
       if (cancelled) return;
@@ -75,6 +81,13 @@ export const HealthTrendCharts: React.FC<Props> = ({
         ldl: buildChartSeries(rows, 'core.ldl').map((p) => ({ label: p.label, value: p.value })),
         hdl: buildChartSeries(rows, 'core.hdl').map((p) => ({ label: p.label, value: p.value })),
       });
+      setWaistData(buildChartSeries(rows, 'core.waist').map((p) => ({ label: p.label, value: p.value })));
+      setBodyFatData(
+        buildChartSeries(rows, 'core.body_fat_rate').map((p) => ({ label: p.label, value: p.value }))
+      );
+      setCreatinineData(
+        buildChartSeries(rows, 'core.creatinine').map((p) => ({ label: p.label, value: p.value }))
+      );
       setLoading(false);
     })();
     return () => {
@@ -102,11 +115,15 @@ export const HealthTrendCharts: React.FC<Props> = ({
         : [];
 
   const hasLipid = lipidKeysToShow.some((k) => lipidData[k].length > 0);
+  const showExtra = variant === 'all';
   const hasAny =
     (showBp && bpData.length > 0) ||
     (showWeight && weightData.length > 0) ||
     (showGlucose && glucoseData.length > 0) ||
-    (showLipids && hasLipid);
+    (showLipids && hasLipid) ||
+    (showExtra && waistData.length > 0) ||
+    (showExtra && bodyFatData.length > 0) ||
+    (showExtra && creatinineData.length > 0);
 
   if (!hasAny) {
     return (
@@ -198,6 +215,54 @@ export const HealthTrendCharts: React.FC<Props> = ({
         </div>
       )}
       {showLipids && lipidKeysToShow.map(renderLipidChart)}
+      {showExtra && waistData.length > 0 && (
+        <div>
+          <h4 className="text-sm font-bold text-slate-700 mb-2">腰围趋势</h4>
+          <div className="h-40 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={waistData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" fontSize={10} />
+                <YAxis fontSize={10} domain={['dataMin - 5', 'dataMax + 5']} />
+                <Tooltip />
+                <Line type="monotone" dataKey="value" name="cm" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      {showExtra && bodyFatData.length > 0 && (
+        <div>
+          <h4 className="text-sm font-bold text-slate-700 mb-2">体脂率趋势</h4>
+          <div className="h-40 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={bodyFatData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" fontSize={10} />
+                <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
+                <Tooltip />
+                <Line type="monotone" dataKey="value" name="%" stroke="#ec4899" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      {showExtra && creatinineData.length > 0 && (
+        <div>
+          <h4 className="text-sm font-bold text-slate-700 mb-2">血肌酐趋势（肾功能）</h4>
+          <div className="h-40 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={creatinineData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" fontSize={10} />
+                <YAxis fontSize={10} domain={['auto', 'auto']} />
+                <Tooltip />
+                <Line type="monotone" dataKey="value" name="μmol/L" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          </div>
+      )}
     </div>
   );
 };

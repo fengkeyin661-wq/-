@@ -209,6 +209,35 @@ export const buildBpChartData = (
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 };
 
+/** 按指标汇总历次观测，供 AI 结合趋势分析 */
+export const buildObservationTrendsSummary = async (checkupId: string): Promise<string> => {
+  const codes = CORE_METRICS.map((m) => m.code);
+  const rows = await fetchObservationSeries(checkupId, codes, 500);
+  if (!rows.length) return '';
+
+  const byMetric = new Map<string, { date: string; value: number; source: string }[]>();
+  for (const r of rows) {
+    if (r.value_numeric == null) continue;
+    const list = byMetric.get(r.metric_code) || [];
+    list.push({
+      date: r.observed_at.slice(0, 10),
+      value: Number(r.value_numeric),
+      source: r.source,
+    });
+    byMetric.set(r.metric_code, list);
+  }
+
+  const lines: string[] = [];
+  for (const def of CORE_METRICS) {
+    const points = byMetric.get(def.code);
+    if (!points?.length) continue;
+    const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
+    const series = sorted.map((p) => `${p.date}:${p.value}${def.unit}`).join(' → ');
+    lines.push(`${def.label}(${def.code}): ${series}`);
+  }
+  return lines.join('\n');
+};
+
 export const getLatestObservationsMap = async (
   checkupId: string
 ): Promise<Map<string, number>> => {

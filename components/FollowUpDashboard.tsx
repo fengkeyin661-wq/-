@@ -57,7 +57,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // State for Chart View
   const [activeChart, setActiveChart] = useState<'bp' | 'metabolic' | 'lipids'>('bp');
   const [observationChartRows, setObservationChartRows] = useState<
-    { date: string; sbp?: number; dbp?: number; glucose?: number; weight?: number; tc?: number; tg?: number; ldl?: number }[]
+    {
+      date: string;
+      sbp?: number;
+      dbp?: number;
+      glucose?: number;
+      weight?: number;
+      tc?: number;
+      tg?: number;
+      ldl?: number;
+      hdl?: number;
+    }[]
   >([]);
 
   // State for Critical Value Modal
@@ -436,7 +446,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
     (async () => {
       const rows = await fetchObservationSeries(
         currentPatientId,
-        ['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose', 'core.tc', 'core.tg', 'core.ldl'],
+        [
+          'core.sbp',
+          'core.dbp',
+          'core.weight',
+          'core.fasting_glucose',
+          'core.tc',
+          'core.tg',
+          'core.ldl',
+          'core.hdl',
+          'core.waist',
+          'core.body_fat_rate',
+          'core.creatinine',
+        ],
         200
       );
       if (cancelled) return;
@@ -454,6 +476,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
         if (r.metric_code === 'core.tc') cur.tc = v;
         if (r.metric_code === 'core.tg') cur.tg = v;
         if (r.metric_code === 'core.ldl') cur.ldl = v;
+        if (r.metric_code === 'core.hdl') cur.hdl = v;
         byDate.set(key, cur);
       }
       setObservationChartRows(

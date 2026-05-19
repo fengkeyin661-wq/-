@@ -516,10 +516,17 @@ export const normalizeCriticalAssessment = (ass: HealthAssessment): HealthAssess
     return { ...ass, criticalWarning: w, isCritical };
 };
 
-export const generateHealthAssessment = async (rec: HealthRecord): Promise<HealthAssessment> => {
+export const generateHealthAssessment = async (
+    rec: HealthRecord,
+    options?: { observationTrends?: string }
+): Promise<HealthAssessment> => {
+    const trendsBlock = options?.observationTrends?.trim()
+        ? `\n    【历次体检/随访指标趋势（按检查日期，箭头连接为时间先后）】\n    ${options.observationTrends}\n`
+        : '';
     const prompt = `
-    你是资深全科医生。请根据以下体检/健康档案数据，生成风险评估报告。
-    数据：${JSON.stringify(rec)}
+    你是资深全科医生。请根据以下体检/健康档案数据及历次指标变化趋势，生成风险评估报告。
+    当前档案快照：${JSON.stringify(rec)}
+    ${trendsBlock}
 
     【重要异常结果 / 危急值分层 — 仅两档，禁止再细分】
     本系统只使用 **A类** 与 **B类** 两档（不要输出 A1、A2、B1、B2 等子类；若你认为属于原 A1/A2 一律标为 A类，原 B1/B2 一律标为 B类）。

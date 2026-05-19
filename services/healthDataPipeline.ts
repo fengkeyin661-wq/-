@@ -108,7 +108,7 @@ export const pipelineAfterUserMetricEntry = async (
   );
 
   if (!inputs.length) {
-    if (entry.metric === 'waist' || entry.metric === 'height' || entry.metric === 'bodyFat') {
+    if (entry.metric === 'height' || entry.metric === 'bodyFat') {
       const patched = patchHealthRecordForUserMetric(
         baseRecord,
         entry.metric,

@@ -53,6 +53,9 @@ export const observationsFromHealthRecord = (
   push('core.tg', num(lipids.tg), 'mmol/L');
   push('core.ldl', num(lipids.ldl), 'mmol/L');
   push('core.hdl', num(lipids.hdl), 'mmol/L');
+  push('core.waist', num(b.waist), 'cm');
+  push('core.creatinine', num(l.renal?.creatinine), 'μmol/L');
+  push('core.body_fat_rate', num(record.riskModelExtras?.bodyFatRate), '%');
   if (!onlyMetricCodes?.length) return out;
   return out.filter((o) => onlyMetricCodes.includes(o.metricCode));
 };
@@ -86,6 +89,7 @@ export const metricCodesForUserKey = (key: UserMetricKey): string[] => {
     case 'hdl':
       return ['core.hdl'];
     case 'waist':
+      return ['core.waist'];
     case 'height':
     case 'bodyFat':
       return [];
@@ -106,6 +110,7 @@ export const observationsFromUserMetricEntry = (
     tg?: number | string;
     ldl?: number | string;
     hdl?: number | string;
+    waist?: number;
   },
   observedAt: string,
   sourceRef?: string
@@ -132,6 +137,7 @@ export const observationsFromUserMetricEntry = (
   else if (key === 'tg') push('core.tg', num(values.tg), 'mmol/L');
   else if (key === 'ldl') push('core.ldl', num(values.ldl), 'mmol/L');
   else if (key === 'hdl') push('core.hdl', num(values.hdl), 'mmol/L');
+  else if (key === 'waist') push('core.waist', num(values.waist), 'cm');
   return out;
 };
 
@@ -317,6 +323,16 @@ export const applyLatestObservationsToRecord = (
         break;
       case 'core.hdl':
         lab.lipids!.hdl = String(v);
+        break;
+      case 'core.waist':
+        b.waist = v;
+        break;
+      case 'core.creatinine':
+        lab.renal = lab.renal || {};
+        lab.renal.creatinine = String(v);
+        break;
+      case 'core.body_fat_rate':
+        next.riskModelExtras = { ...(next.riskModelExtras || {}), bodyFatRate: v };
         break;
       default:
         break;

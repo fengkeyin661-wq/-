@@ -6,7 +6,7 @@ import {
   type HealthDraftData,
 } from './dataService';
 import { applyLatestObservationsToRecord } from './observationMapper';
-import { getLatestObservationsMap } from './observationService';
+import { buildObservationTrendsSummary, getLatestObservationsMap } from './observationService';
 import { generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { generateSystemPortraits, evaluateRiskModels } from './riskModelService';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
@@ -19,6 +19,7 @@ export type TriggerEvent =
   | 'doctor_followup'
   | 'user_profile_edit'
   | 'home_monitoring'
+  | 'checkup_import'
   | 'manual';
 
 export interface RecomputeOptions {
@@ -45,7 +46,7 @@ const resolvePublishMode = (
   requested?: PublishMode
 ): PublishMode => {
   if (requested) return requested;
-  if (trigger === 'doctor_followup') return 'publish';
+  if (trigger === 'doctor_followup' || trigger === 'checkup_import') return 'publish';
   if (trigger === 'user_profile_edit' || trigger === 'home_monitoring') return 'auto';
   return 'draft';
 };
@@ -95,8 +96,15 @@ export const recomputeArchive = async (
     const models = evaluateRiskModels(materialized);
     const ruleOutput: RiskAnalysisData = { portraits, models };
 
+    const observationTrends =
+      triggerEvent === 'checkup_import' || triggerEvent === 'observation_batch'
+        ? await buildObservationTrendsSummary(checkupId)
+        : '';
     const assessment =
-      assessmentOverride || (await generateHealthAssessment(materialized));
+      assessmentOverride ||
+      (await generateHealthAssessment(materialized, {
+        observationTrends: observationTrends || undefined,
+      }));
     const schedule = generateFollowUpSchedule(assessment);
 
     const shouldPublish =

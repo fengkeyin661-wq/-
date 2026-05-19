@@ -26,6 +26,9 @@ export const CORE_METRICS: MetricDefinition[] = [
   { code: 'core.tg', label: '甘油三酯', unit: 'mmol/L', validMin: 0.1, validMax: 20, isCore: true },
   { code: 'core.ldl', label: '低密度脂蛋白', unit: 'mmol/L', validMin: 0.1, validMax: 15, isCore: true },
   { code: 'core.hdl', label: '高密度脂蛋白', unit: 'mmol/L', validMin: 0.1, validMax: 10, isCore: true },
+  { code: 'core.waist', label: '腰围', unit: 'cm', validMin: 40, validMax: 200, isCore: true },
+  { code: 'core.body_fat_rate', label: '体脂率', unit: '%', validMin: 3, validMax: 60, isCore: true },
+  { code: 'core.creatinine', label: '血肌酐', unit: 'μmol/L', validMin: 20, validMax: 2000, isCore: true },
 ];
 
 export type ObservationSource =

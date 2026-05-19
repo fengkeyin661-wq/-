@@ -112,6 +112,25 @@ cross join lateral (
 where public.parse_health_numeric(v.val) is not null
 on conflict do nothing;
 
+insert into public.health_observations (
+  archive_id, checkup_id, metric_code, value_numeric, value_text, unit, observed_at, source, source_ref, entered_by_role
+)
+select ha.id, ha.checkup_id, v.code,
+  public.parse_health_numeric(v.val),
+  v.val,
+  v.unit,
+  coalesce(ha.updated_at, ha.created_at, now()),
+  coalesce(ha.last_sync_source, 'system'), 'backfill:health_record', 'system'
+from public.health_archives ha
+cross join lateral (
+  values
+    ('core.waist', ha.health_record->'checkup'->'basics'->>'waist', 'cm'),
+    ('core.creatinine', ha.health_record->'checkup'->'labBasic'->'renal'->>'creatinine', 'μmol/L'),
+    ('core.body_fat_rate', ha.health_record->'riskModelExtras'->>'bodyFatRate', '%')
+) as v(code, val, unit)
+where public.parse_health_numeric(v.val) is not null
+on conflict do nothing;
+
 -- 2) follow_ups 指标
 insert into public.health_observations (
   archive_id, checkup_id, metric_code, value_numeric, value_text, unit, observed_at, source, source_ref, entered_by_role

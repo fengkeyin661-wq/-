@@ -193,7 +193,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         if (!checkUploadPending) return;
         setCheckUploadSubmitting(true);
         try {
-            const selected = archives.find((a) => a.checkup_id === checkUploadPending.checkupId);
             const res = await importCheckupReportForArchive(
                 checkUploadPending.checkupId,
                 checkUploadPending.text,
@@ -206,19 +205,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             if (!res.success) {
                 alert(res.message || '导入失败');
                 return;
-            }
-            if (res.appliedToSnapshot) {
-                await saveInteraction({
-                    id: `check_result_upload_${Date.now()}`,
-                    type: 'check_result_upload',
-                    userId: checkUploadPending.checkupId,
-                    userName: checkUploadPending.userName,
-                    targetId: selected?.health_manager_content_id || 'doctor-review',
-                    targetName: '签约医生审核',
-                    status: 'pending',
-                    date: checkUploadPending.examDate,
-                    details: `检查日期 ${checkUploadPending.examDate} · ${checkUploadPending.fileName}`,
-                });
             }
             alert(res.message || '导入完成');
             setCheckUploadPending(null);
@@ -656,7 +642,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <h3 className="text-lg font-bold text-slate-800 mb-1">确认检查日期</h3>
                         <p className="text-xs text-slate-500 mb-4">
                             为 <span className="font-bold">{checkUploadPending.userName}</span> 导入
-                            「{checkUploadPending.fileName}」。较新日期会更新当前档案；较早日期仅加入趋势。
+                            「{checkUploadPending.fileName}」。报告内体检编号将与档案匹配；较新日期更新快照，较早日期仅入趋势。导入后自动更新风险档案与随访（无需医生审核）。
                         </p>
                         <label className="block text-xs font-bold text-slate-500 mb-1">检查日期</label>
                         <input

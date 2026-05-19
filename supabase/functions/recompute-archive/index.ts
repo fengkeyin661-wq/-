@@ -105,6 +105,18 @@ Deno.serve(async (req) => {
         case 'core.hdl':
           lipids.hdl = String(v);
           break;
+        case 'core.waist':
+          basics.waist = v;
+          break;
+        case 'core.creatinine': {
+          const renal = (labBasic.renal as Record<string, unknown>) || {};
+          renal.creatinine = String(v);
+          labBasic.renal = renal;
+          break;
+        }
+        case 'core.body_fat_rate':
+          record.riskModelExtras = { ...(record.riskModelExtras as object || {}), bodyFatRate: v };
+          break;
       }
     }
     checkup.basics = basics;

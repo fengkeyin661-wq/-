@@ -1,15 +1,19 @@
 /**
- * 管理端上传体检/检查结果：按检查日期写入时序，较新报告才更新当前快照
+ * 管理端上传体检/检查结果：以体检编号识别同一人，按检查日期写入时序并自动发布评估
  */
 import { parseHealthDataFromText } from './geminiService';
-import { findArchiveByCheckupId, saveHealthDraft, updateHealthRecordOnly } from './dataService';
+import {
+  findArchiveByCheckupId,
+  updateHealthRecordOnly,
+  updateArchiveData,
+} from './dataService';
 import type { HealthDraftData } from './dataService';
-import type { HealthRecord } from '../types';
+import type { HealthRecord, FollowUpRecord } from '../types';
+import { RiskLevel } from '../types';
 import { parseExamDateToIso, shouldApplyReportToSnapshot, compareExamDates } from './examDateUtils';
 import { observationsFromHealthRecord } from './observationMapper';
 import { upsertObservations } from './observationService';
-import { generateFollowUpSchedule, generateHealthAssessment } from './geminiService';
-import { generateDraftFromText } from './healthDraftService';
+import { recomputeArchive } from './recomputeArchiveService';
 
 const mergeRecordForImport = (base: HealthRecord, patch: Partial<HealthRecord>): HealthRecord => {
   return {
@@ -24,8 +28,10 @@ const mergeRecordForImport = (base: HealthRecord, patch: Partial<HealthRecord>):
         ...(patch.checkup?.labBasic || {}),
         lipids: { ...base.checkup.labBasic?.lipids, ...(patch.checkup?.labBasic?.lipids || {}) },
         glucose: { ...base.checkup.labBasic?.glucose, ...(patch.checkup?.labBasic?.glucose || {}) },
+        renal: { ...base.checkup.labBasic?.renal, ...(patch.checkup?.labBasic?.renal || {}) },
       },
     },
+    riskModelExtras: { ...(base.riskModelExtras || {}), ...(patch.riskModelExtras || {}) },
     questionnaire: patch.questionnaire || base.questionnaire,
   };
 };
@@ -34,8 +40,10 @@ export type CheckupImportResult = {
   success: boolean;
   message?: string;
   examDate?: string;
+  checkupId?: string;
   appliedToSnapshot?: boolean;
   observationCount?: number;
+  published?: boolean;
 };
 
 /** 从文本解析检查日期（AI + 正则兜底） */
@@ -56,12 +64,87 @@ export const extractExamDateFromText = (text: string, parsed?: HealthRecord): st
   return null;
 };
 
+/** 从报告解析体检编号，与选中档案编号合并（报告内编号优先） */
+export const resolveCheckupIdFromReport = (
+  parsed: HealthRecord,
+  fallbackCheckupId: string
+): string => {
+  const fromReport = parsed.profile?.checkupId?.trim();
+  return fromReport || fallbackCheckupId;
+};
+
+const num = (v: unknown): number => {
+  if (v == null || v === '') return 0;
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  return Number.isFinite(n) ? n : 0;
+};
+
+const buildCheckupImportFollowUp = (
+  examDate: string,
+  record: HealthRecord,
+  assessmentSummary: string,
+  riskLevel: RiskLevel
+): FollowUpRecord => {
+  const b = record.checkup?.basics || {};
+  const lipids = record.checkup?.labBasic?.lipids || {};
+  const glucose = record.checkup?.labBasic?.glucose?.fasting;
+  return {
+    id: `checkup_import_${examDate}_${Date.now()}`,
+    date: examDate,
+    method: '线下',
+    mainComplaint: '体检报告导入',
+    indicators: {
+      sbp: num(b.sbp),
+      dbp: num(b.dbp),
+      glucose: num(glucose),
+      glucoseType: '空腹',
+      weight: num(b.weight),
+      tc: num(lipids.tc),
+      tg: num(lipids.tg),
+      ldl: num(lipids.ldl),
+      hdl: num(lipids.hdl),
+    },
+    organRisks: {
+      carotidPlaque: '未查',
+      carotidStatus: '未查',
+      thyroidNodule: '未查',
+      thyroidStatus: '未查',
+      lungNodule: '未查',
+      lungStatus: '未查',
+      otherFindings: '体检报告自动归档',
+      otherStatus: '已记录',
+    },
+    medicalCompliance: [],
+    medication: { currentDrugs: '', compliance: '未记录', adverseReactions: '无' },
+    lifestyle: {
+      diet: '未记录',
+      exercise: '未记录',
+      smokingAmount: 0,
+      drinkingAmount: 0,
+      sleepHours: 7,
+      sleepQuality: '未记录',
+      psychology: '未记录',
+      stress: '未记录',
+    },
+    taskCompliance: [],
+    otherInfo: `管理端上传体检报告（检查日期 ${examDate}）`,
+    assessment: {
+      riskLevel,
+      riskJustification: '基于本次及历次体检指标 AI 综合评估',
+      majorIssues: assessmentSummary.slice(0, 200),
+      referral: riskLevel === RiskLevel.RED,
+      nextCheckPlan: '按管理计划随访',
+      lifestyleGoals: [],
+      doctorMessage: '请按健康管理计划执行，指标异常请及时复诊。',
+    },
+  };
+};
+
 /**
- * 健康管家上传检查结果/报告
- * @param examDateIso 检查日期（必填，用于 observed_at 排序）
+ * 健康管家上传检查结果/报告（自动发布，无需医生审核）
  */
 export const importCheckupReportForArchive = async (
-  checkupId: string,
+  selectedCheckupId: string,
   text: string,
   options: {
     examDateIso: string;
@@ -69,14 +152,22 @@ export const importCheckupReportForArchive = async (
     source?: HealthDraftData['source'];
   }
 ): Promise<CheckupImportResult> => {
+  const parsed = await parseHealthDataFromText(text);
+  const checkupId = resolveCheckupIdFromReport(parsed, selectedCheckupId);
+  parsed.profile.checkupId = checkupId;
+
   const archive = await findArchiveByCheckupId(checkupId);
-  if (!archive) return { success: false, message: '未找到档案' };
+  if (!archive) {
+    return {
+      success: false,
+      checkupId,
+      message: `未找到体检编号「${checkupId}」对应档案；请确认编号一致或先建档`,
+    };
+  }
 
   const examIso = parseExamDateToIso(options.examDateIso);
-  if (!examIso) return { success: false, message: '检查日期无效' };
+  if (!examIso) return { success: false, checkupId, message: '检查日期无效' };
 
-  const parsed = await parseHealthDataFromText(text);
-  parsed.profile.checkupId = checkupId;
   parsed.profile.checkupDate = examIso.slice(0, 10);
 
   const sourceRef = options.fileName
@@ -93,7 +184,7 @@ export const importCheckupReportForArchive = async (
 
   const obsRes = await upsertObservations(checkupId, observations);
   if (!obsRes.success) {
-    return { success: false, message: obsRes.message || '观测写入失败' };
+    return { success: false, checkupId, message: obsRes.message || '观测写入失败' };
   }
 
   const applySnapshot = shouldApplyReportToSnapshot(
@@ -104,56 +195,58 @@ export const importCheckupReportForArchive = async (
   if (applySnapshot) {
     const merged = mergeRecordForImport(archive.health_record, parsed);
     merged.profile.checkupDate = examIso.slice(0, 10);
-    await updateHealthRecordOnly(checkupId, merged, 'system', { skipPipeline: true });
-    const draft = await generateDraftFromText(
-      checkupId,
-      text,
-      options.source || 'upload',
-      `检查日期 ${examIso.slice(0, 10)}${options.fileName ? ` · ${options.fileName}` : ''}`
-    );
-    if (!draft.success) {
-      return {
-        success: true,
-        examDate: examIso.slice(0, 10),
-        appliedToSnapshot: true,
-        observationCount: obsRes.inserted,
-        message: '观测已入库；AI 草案生成失败，请手动评估',
-      };
-    }
+    merged.profile.checkupId = checkupId;
+    await updateHealthRecordOnly(checkupId, merged, 'checkup_import', { skipPipeline: true });
+  }
+
+  const recompute = await recomputeArchive({
+    checkupId,
+    triggerEvent: 'checkup_import',
+    triggerRef: sourceRef,
+    publishMode: 'publish',
+  });
+
+  if (!recompute.success) {
     return {
-      success: true,
+      success: false,
+      checkupId,
       examDate: examIso.slice(0, 10),
-      appliedToSnapshot: true,
       observationCount: obsRes.inserted,
-      message: '已按检查日期入库并生成待审核草案（已更新当前档案快照）',
+      message: recompute.message || 'AI 评估发布失败',
     };
   }
 
-  const note = `历史检查报告 ${examIso.slice(0, 10)} 已加入趋势（未覆盖当前快照）${
-    options.fileName ? ` · ${options.fileName}` : ''
-  }`;
-  const assessment = await generateHealthAssessment(
-    mergeRecordForImport(archive.health_record, parsed)
-  );
-  const schedule = generateFollowUpSchedule(assessment);
-  const mergedRecord = mergeRecordForImport(archive.health_record, parsed);
-  const draft: HealthDraftData = {
-    generatedAt: new Date().toISOString(),
-    source: options.source || 'upload',
-    note,
-    assessment,
-    follow_up_schedule: schedule,
-    management_plan: assessment.managementPlan,
-    merged_record: mergedRecord,
-  };
-  await saveHealthDraft(checkupId, draft);
+  const refreshed = await findArchiveByCheckupId(checkupId);
+  if (refreshed?.assessment_data) {
+    const followUp = buildCheckupImportFollowUp(
+      examIso.slice(0, 10),
+      refreshed.health_record,
+      refreshed.assessment_data.summary || '',
+      refreshed.assessment_data.riskLevel || RiskLevel.GREEN
+    );
+    const existing = refreshed.follow_ups || [];
+    const withoutDup = existing.filter(
+      (f) => !(f.id.startsWith('checkup_import_') && f.date === examIso.slice(0, 10))
+    );
+    await updateArchiveData(checkupId, [...withoutDup, followUp], refreshed.follow_up_schedule || [], {
+      assessment: refreshed.assessment_data,
+      nextHealthRecord: refreshed.health_record,
+      syncSource: 'checkup_import',
+    });
+  }
+
+  const snapshotNote = applySnapshot
+    ? '已更新当前档案快照'
+    : '历史报告已写入趋势（未覆盖较新快照）';
 
   return {
     success: true,
+    checkupId,
     examDate: examIso.slice(0, 10),
-    appliedToSnapshot: false,
+    appliedToSnapshot: applySnapshot,
     observationCount: obsRes.inserted,
-    message: `历史报告（${examIso.slice(0, 10)}）已按时间序写入趋势；当前展示仍以较新检查为准`,
+    published: recompute.published,
+    message: `体检编号 ${checkupId} · 检查日期 ${examIso.slice(0, 10)}：${snapshotNote}，已自动更新风险评估与随访计划（无需医生审核）`,
   };
 };
 
