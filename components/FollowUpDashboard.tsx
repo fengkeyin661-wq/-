@@ -4,6 +4,7 @@ import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
 import { CriticalHandleModal } from './CriticalHandleModal';
+import { fetchObservationSeries, buildBpChartData } from '../services/observationService';
 
 interface Props {
   records: FollowUpRecord[];
@@ -55,6 +56,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   // State for Chart View
   const [activeChart, setActiveChart] = useState<'bp' | 'metabolic' | 'lipids'>('bp');
+  const [observationChartRows, setObservationChartRows] = useState<
+    { date: string; sbp?: number; dbp?: number; glucose?: number; weight?: number; tc?: number; tg?: number; ldl?: number }[]
+  >([]);
 
   // State for Critical Value Modal
   const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
@@ -423,6 +427,44 @@ export const FollowUpDashboard: React.FC<Props> = ({
       }
   };
 
+  useEffect(() => {
+    if (!currentPatientId) {
+      setObservationChartRows([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchObservationSeries(
+        currentPatientId,
+        ['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose', 'core.tc', 'core.tg', 'core.ldl'],
+        200
+      );
+      if (cancelled) return;
+      const bp = buildBpChartData(rows);
+      const byDate = new Map<string, (typeof observationChartRows)[0]>();
+      for (const p of bp) {
+        byDate.set(p.date, { date: p.date, sbp: p.sbp, dbp: p.dbp });
+      }
+      for (const r of rows) {
+        const key = r.observed_at.slice(0, 10);
+        const cur = byDate.get(key) || { date: key };
+        const v = r.value_numeric != null ? Number(r.value_numeric) : undefined;
+        if (r.metric_code === 'core.fasting_glucose') cur.glucose = v;
+        if (r.metric_code === 'core.weight') cur.weight = v;
+        if (r.metric_code === 'core.tc') cur.tc = v;
+        if (r.metric_code === 'core.tg') cur.tg = v;
+        if (r.metric_code === 'core.ldl') cur.ldl = v;
+        byDate.set(key, cur);
+      }
+      setObservationChartRows(
+        Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPatientId, records.length]);
+
   const chartNum = (v: number | undefined) => (v != null && Number.isFinite(v) && v > 0 ? v : undefined);
   let chartData: any[] = sortedRecords.map(r => ({
       date: r.date,
@@ -459,6 +501,28 @@ export const FollowUpDashboard: React.FC<Props> = ({
               return new Date(a.date).getTime() - new Date(b.date).getTime();
           });
       }
+  }
+
+  if (observationChartRows.length > 0) {
+      const obsMapped = observationChartRows.map((r) => ({
+          date: r.date,
+          sbp: chartNum(r.sbp),
+          dbp: chartNum(r.dbp),
+          glucose: chartNum(r.glucose),
+          weight: chartNum(r.weight),
+          tc: chartNum(r.tc),
+          tg: chartNum(r.tg),
+          ldl: chartNum(r.ldl),
+          type: 'observation',
+      }));
+      const merged = new Map<string, any>();
+      [...chartData, ...obsMapped].forEach((row) => {
+          const key = row.date;
+          merged.set(key, { ...(merged.get(key) || {}), ...row, date: key });
+      });
+      chartData = Array.from(merged.values()).sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
   }
 
   const summaryChartData = assessment ? [

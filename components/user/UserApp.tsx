@@ -167,6 +167,9 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           setUserArchive(hydrated);
           syncArchiveToLocal(hydrated);
           writePortalSession(hydrated.checkup_id);
+          void import('../../services/observationService').then((m) =>
+            m.ensureDefaultMetricPreferences(hydrated.id)
+          );
         } else {
           setUserArchive(null);
           clearPortalSession();
@@ -234,6 +237,30 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           event: 'UPDATE',
           schema: 'public',
           table: 'health_archives',
+          filter: `checkup_id=eq.${checkupId}`,
+        },
+        () => {
+          loadArchiveById(checkupId, true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'health_observations',
+          filter: `checkup_id=eq.${checkupId}`,
+        },
+        () => {
+          loadArchiveById(checkupId, true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'health_assessment_runs',
           filter: `checkup_id=eq.${checkupId}`,
         },
         () => {

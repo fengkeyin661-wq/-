@@ -120,6 +120,9 @@ export interface HealthArchive {
     updated_at?: string;
     /** 最近一次写入来源：doctor_followup / user_profile_edit / system */
     last_sync_source?: string;
+    last_observation_at?: string;
+    recompute_status?: string;
+    current_assessment_run_id?: string;
 
     /** bcrypt hash after user changes password; empty = login with default (体检编号) */
     password_hash?: string | null;
@@ -1123,6 +1126,7 @@ export const appendHomeMonitoringLog = async (
                 .update({ home_monitoring_logs: merged, updated_at: new Date().toISOString() })
                 .eq('checkup_id', checkupId);
         }
+        void import('./healthDataPipeline').then((m) => m.pipelineAfterHomeMonitoring(checkupId, log));
         return true;
     } catch (e) {
         console.error(e);
@@ -1248,6 +1252,13 @@ export const updateHealthRecordOnly = async (
                 updatedAt,
             });
         }
+        void import('./healthDataPipeline').then((m) =>
+            m.pipelineAfterHealthRecordEdit(
+                checkupId,
+                healthRecord,
+                syncSource === 'doctor_followup' ? 'doctor_followup' : 'user_profile_edit'
+            )
+        );
         return true;
     } catch { return false; }
 };

@@ -481,6 +481,15 @@ export const App: React.FC = () => {
           setFollowUps(newFollowUps);
           setSchedule(newSchedule);
           setAssessment(mergedAssessment);
+          void import('./services/healthDataPipeline').then((m) =>
+              m.pipelineAfterFollowUp(
+                  healthRecord.profile.checkupId,
+                  nextHealthRecord,
+                  record,
+                  newRecord.id,
+                  mergedAssessment
+              )
+          );
           // 云端未写入时勿全量刷新，否则会拉回旧 follow_ups 覆盖当前界面
           if (!res.message) {
               refreshArchives();
