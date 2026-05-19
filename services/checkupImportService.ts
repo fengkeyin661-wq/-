@@ -11,6 +11,10 @@ import type { HealthDraftData } from './dataService';
 import type { HealthRecord, FollowUpRecord } from '../types';
 import { RiskLevel } from '../types';
 import { parseExamDateToIso, shouldApplyReportToSnapshot, compareExamDates } from './examDateUtils';
+import {
+  isValidCheckupId,
+  resolveCheckupIdFromReport,
+} from './checkupIdUtils';
 import { observationsFromHealthRecord } from './observationMapper';
 import { upsertObservations } from './observationService';
 import { recomputeArchive } from './recomputeArchiveService';
@@ -62,15 +66,6 @@ export const extractExamDateFromText = (text: string, parsed?: HealthRecord): st
     }
   }
   return null;
-};
-
-/** 从报告解析体检编号，与选中档案编号合并（报告内编号优先） */
-export const resolveCheckupIdFromReport = (
-  parsed: HealthRecord,
-  fallbackCheckupId: string
-): string => {
-  const fromReport = parsed.profile?.checkupId?.trim();
-  return fromReport || fallbackCheckupId;
 };
 
 const num = (v: unknown): number => {
@@ -153,15 +148,24 @@ export const importCheckupReportForArchive = async (
   }
 ): Promise<CheckupImportResult> => {
   const parsed = await parseHealthDataFromText(text);
-  const checkupId = resolveCheckupIdFromReport(parsed, selectedCheckupId);
+  const checkupId = resolveCheckupIdFromReport(parsed.profile?.checkupId, selectedCheckupId);
   parsed.profile.checkupId = checkupId;
+
+  if (!isValidCheckupId(checkupId)) {
+    return {
+      success: false,
+      checkupId: checkupId || undefined,
+      message:
+        '未能识别合法体检编号（须为 6 位数字）。请勿使用登记流水号；请核对报告封面「体检编号」或手动选择正确档案后重试',
+    };
+  }
 
   const archive = await findArchiveByCheckupId(checkupId);
   if (!archive) {
     return {
       success: false,
       checkupId,
-      message: `未找到体检编号「${checkupId}」对应档案；请确认编号一致或先建档`,
+      message: `未找到体检编号「${checkupId}」对应档案；请确认 6 位编号一致或先建档`,
     };
   }
 

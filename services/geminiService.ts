@@ -1,6 +1,7 @@
 
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
 import { HabitRecord } from "./dataService";
+import { normalizeCheckupId as normalizeCheckupIdStrict } from './checkupIdUtils';
 
 // Helper to safely access environment variables
 const getEnvVar = (key: string): string => {
@@ -183,35 +184,6 @@ const extractTabularColumns = (raw: string): Record<string, string> => {
     return map;
 };
 
-const extractCheckupIdFromRaw = (raw: string): string | undefined => {
-    const labelMatch = raw.match(/(?:体检编号|编号|检号)\s*[:：]?\s*([A-Za-z0-9_-]{4,24})/);
-    if (labelMatch?.[1]) return labelMatch[1].trim();
-
-    const lines = raw.split(/\r?\n/).slice(0, 200);
-    for (const line of lines) {
-        if (!/(体检编号|编号|检号)/.test(line)) continue;
-        const tokenMatch = line.match(/([A-Za-z0-9_-]{4,24})/g);
-        if (tokenMatch?.length) {
-            const candidate = tokenMatch.find(t => !/(体检编号|编号|sheet|page)/i.test(t));
-            if (candidate) return candidate.trim();
-        }
-    }
-
-    return undefined;
-};
-
-const normalizeCheckupId = (aiId: string | undefined, raw: string): string => {
-    const cols = extractTabularColumns(raw);
-    const idFromCol = cols['1.体检编号'];
-    if (idFromCol) return idFromCol.replace(/\s+/g, '');
-
-    const cleanedAiId = (aiId || '').trim();
-    const ruleId = extractCheckupIdFromRaw(raw);
-    if (ruleId) return ruleId;
-    if (cleanedAiId && cleanedAiId.length <= 24) return cleanedAiId;
-    return '';
-};
-
 const extractMatrixScores = (raw: string, stems: string[]): Array<number | null> => {
     return stems.map((stem) => {
         const p1 = new RegExp(`${escapeRegex(stem)}[\\s\\S]{0,60}?(完全不会|好几天|一半以上天数|一半以上|几乎每一天|几乎每天|[0-3])`, 'i');
@@ -347,7 +319,9 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
     4. **关键字段识别**：
-       - **体检编号 (checkupId)**：优先提取“体检编号/编号/检号”字段对应值。可能是6位数字，也可能是字母数字组合（如 A240123、2024-0188），不要误抓条码号/流水号。
+       - **体检编号 (checkupId)**：必须是**恰好 6 位纯数字**（如 240188、012345）。只从明确标注为「体检编号」的字段取值。
+       - **严禁**将以下当作体检编号：登记流水号、流水号、条码、条形码、报告单号、LIS 号、标本号、检号流水、长串字母数字 ID。
+       - 若原文同时出现「登记流水号」与「体检编号」，只取「体检编号」后的 6 位数字；若无合法 6 位数字则 checkupId 留空字符串 ""。
        - **问卷选项提取**：请根据文本内容提取对应选项。
        - **Q17 家族史提取**：请识别以下特定家族史，并映射到 familyHistory 字段：
          - "父亲 - 冠心病/心肌梗死" -> fatherCvdEarly (若提及)
@@ -371,7 +345,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
-      "profile": { "checkupId": "string", "name": "string", "gender": "string", "age": number, "department": "string", "phone": "string", "checkupDate": "string" },
+      "profile": { "checkupId": "6位数字字符串或空", "name": "string", "gender": "string", "age": number, "department": "string", "phone": "string", "checkupDate": "string" },
       "checkup": {
          "basics": { "height": number, "weight": number, "bmi": number, "sbp": number, "dbp": number, "waist": number },
          "labBasic": { 
@@ -481,8 +455,8 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
              if (nameMatch) merged.profile.name = nameMatch[1];
         }
 
-        // --- 2. Checkup ID normalization (supports numeric/alphanumeric IDs) ---
-        merged.profile.checkupId = normalizeCheckupId(merged.profile.checkupId, raw);
+        // --- 2. 体检编号：仅保留 6 位数字，排除登记流水号 ---
+        merged.profile.checkupId = normalizeCheckupIdStrict(merged.profile.checkupId, raw);
 
         // --- 3. Rule fallback for questionnaire fields that often fail in Excel matrix exports ---
         maybePatchMentalScalesFromRaw(raw, merged);

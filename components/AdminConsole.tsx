@@ -642,7 +642,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <h3 className="text-lg font-bold text-slate-800 mb-1">确认检查日期</h3>
                         <p className="text-xs text-slate-500 mb-4">
                             为 <span className="font-bold">{checkUploadPending.userName}</span> 导入
-                            「{checkUploadPending.fileName}」。报告内体检编号将与档案匹配；较新日期更新快照，较早日期仅入趋势。导入后自动更新风险档案与随访（无需医生审核）。
+                            「{checkUploadPending.fileName}」。以报告内 6 位「体检编号」匹配档案（非登记流水号）；较新日期更新快照。导入后自动更新风险与随访。
                         </p>
                         <label className="block text-xs font-bold text-slate-500 mb-1">检查日期</label>
                         <input

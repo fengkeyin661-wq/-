@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { QuestionnaireData, HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
+import { formatCheckupId, isValidCheckupId } from '../services/checkupIdUtils';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -349,8 +350,9 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
     // --- Data Mapping Logic ---
     const handleSubmit = () => {
-        if (!form.checkupId) {
-            alert('请填写体检编号');
+        const checkupId = formatCheckupId(form.checkupId);
+        if (!isValidCheckupId(checkupId)) {
+            alert('体检编号须为 6 位数字（见报告封面「体检编号」，不是登记流水号）');
             return;
         }
 
@@ -496,7 +498,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
             data.respiratory.chronicPhlegm = true; 
         }
 
-        onSubmit(data, form.checkupId, {
+        onSubmit(data, checkupId, {
             gender: form.gender, 
             dept: '' 
         });
@@ -559,7 +561,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
                     {/* Section 1: Profile */}
                     <div className="space-y-6">
-                        <InputQ idx={1} label="体检编号" required desc="详见体检报告封面或指引单，信息匹配唯一识别码" value={form.checkupId} onChange={(v: any) => handleChange('checkupId', v)} />
+                        <InputQ idx={1} label="体检编号" required desc="6位数字，见报告封面「体检编号」（不是登记流水号）" value={form.checkupId} onChange={(v: any) => handleChange('checkupId', v)} />
                         
                         <RadioQ idx={2} label="性别" required options={OPTIONS.gender} value={form.gender} onChange={(v: any) => handleChange('gender', v)} />
                     </div>
