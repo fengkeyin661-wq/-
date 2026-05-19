@@ -8,11 +8,7 @@ import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, Ris
 import { fetchContent, fetchInteractions, saveInteraction } from '../services/contentService'; // Interconnection
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { extractTextFromFile } from '../services/fileParseService';
-import {
-    extractExamDateFromText,
-    importCheckupReportForArchive,
-    sortArchivesByExamDate,
-} from '../services/checkupImportService';
+import { importCheckupReportsBatch, sortArchivesByExamDate } from '../services/checkupImportService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -67,14 +63,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     // Questionnaire Update Import (Excel Only)
     const questionnaireImportRef = useRef<HTMLInputElement>(null);
     const checkUploadRef = useRef<HTMLInputElement>(null);
-    const [checkUploadPending, setCheckUploadPending] = useState<{
-        checkupId: string;
-        userName: string;
-        fileName: string;
-        text: string;
-        examDate: string;
-    } | null>(null);
-    const [checkUploadSubmitting, setCheckUploadSubmitting] = useState(false);
+    const [isCheckUploadModalOpen, setIsCheckUploadModalOpen] = useState(false);
+    const [checkUploadLogs, setCheckUploadLogs] = useState<string[]>([]);
+    const [isCheckUploadProcessing, setIsCheckUploadProcessing] = useState(false);
 
     const configured = isSupabaseConfigured();
 
@@ -155,65 +146,51 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     };
 
     const handleManagerUploadClick = () => {
-        if (selectedIds.size !== 1) {
-            alert('请先勾选 1 位用户档案后再上传检查结果。');
-            return;
-        }
         checkUploadRef.current?.click();
     };
 
-    const handleManagerUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
+    const handleManagerUploadFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const fileList = e.target.files;
         e.currentTarget.value = '';
-        if (!file) return;
-        const selected = archives.find((a) => selectedIds.has(a.id));
-        if (!selected) {
-            alert('未找到选中档案');
-            return;
-        }
-        try {
-            const text = await extractTextFromFile(file);
-            const suggested =
-                extractExamDateFromText(text) ||
-                selected.health_record?.profile?.checkupDate?.slice(0, 10) ||
-                new Date().toISOString().slice(0, 10);
-            setCheckUploadPending({
-                checkupId: selected.checkup_id,
-                userName: selected.name,
-                fileName: file.name,
-                text,
-                examDate: suggested,
-            });
-        } catch (err: any) {
-            alert(`文件解析失败: ${err.message || err}`);
-        }
-    };
+        if (!fileList?.length) return;
 
-    const handleConfirmCheckUpload = async () => {
-        if (!checkUploadPending) return;
-        setCheckUploadSubmitting(true);
+        const selected =
+            selectedIds.size === 1 ? archives.find((a) => selectedIds.has(a.id)) : undefined;
+        const selectedCheckupId = selected?.checkup_id;
+
+        setIsCheckUploadModalOpen(true);
+        setCheckUploadLogs([
+            selectedCheckupId
+                ? `已关联档案 ${selected?.name}（${selectedCheckupId}），共 ${fileList.length} 个文件`
+                : `未勾选档案，将从报告中识别 6 位体检编号（共 ${fileList.length} 个文件）`,
+        ]);
+        setIsCheckUploadProcessing(true);
+
         try {
-            const res = await importCheckupReportForArchive(
-                checkUploadPending.checkupId,
-                checkUploadPending.text,
-                {
-                    examDateIso: checkUploadPending.examDate,
-                    fileName: checkUploadPending.fileName,
-                    source: 'upload',
-                }
-            );
-            if (!res.success) {
-                alert(res.message || '导入失败');
-                return;
+            const items: { fileName: string; text: string }[] = [];
+            for (const file of Array.from(fileList)) {
+                setCheckUploadLogs((prev) => [...prev, `📄 读取: ${file.name}`]);
+                const text = await extractTextFromFile(file);
+                items.push({ fileName: file.name, text });
             }
-            alert(res.message || '导入完成');
-            setCheckUploadPending(null);
+
+            const res = await importCheckupReportsBatch(items, {
+                selectedCheckupId,
+                onProgress: (line) => setCheckUploadLogs((prev) => [...prev, line]),
+            });
+
+            if (!res.success) {
+                setCheckUploadLogs((prev) => [...prev, `❌ ${res.message || '导入失败'}`]);
+            } else {
+                setCheckUploadLogs((prev) => [...prev, `✅ ${res.message}`]);
+            }
             loadData();
             if (onDataUpdate) onDataUpdate();
-        } catch (err: any) {
-            alert(`上传失败: ${err.message || err}`);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            setCheckUploadLogs((prev) => [...prev, `❌ 异常: ${msg}`]);
         } finally {
-            setCheckUploadSubmitting(false);
+            setIsCheckUploadProcessing(false);
         }
     };
 
@@ -538,8 +515,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         type="file"
                         ref={checkUploadRef}
                         className="hidden"
+                        multiple
                         accept=".pdf,.docx,.doc,.txt,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
-                        onChange={handleManagerUploadFile}
+                        onChange={handleManagerUploadFiles}
                     />
                     
                     <button onClick={handleExportList} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1 shadow-sm" title="导出当前列表为Excel">
@@ -549,8 +527,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <button onClick={() => questionnaireImportRef.current?.click()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1" title="批量AI识别问卷并更新">
                         📝 导入问卷更新
                     </button>
-                    <button onClick={handleManagerUploadClick} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm flex items-center gap-1" title="上传检查结果并生成草案">
-                        🧾 上传检查结果
+                    <button onClick={handleManagerUploadClick} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm flex items-center gap-1" title="支持多选历年 PDF/报告，自动识别检查日期与体检编号">
+                        🧾 上传历年体检报告
                     </button>
 
                     {selectedIds.size > 0 && <button onClick={handleBatchDelete} className="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-200">🗑️ 删除选中</button>}
@@ -636,39 +614,50 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             {criticalModalArchive && <CriticalHandleModal archive={criticalModalArchive} onClose={() => setCriticalModalArchive(null)} onSave={handleCriticalSave} />}
             
             {/* Smart Batch Modal */}
-            {checkUploadPending && (
-                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm p-4">
-                    <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6">
-                        <h3 className="text-lg font-bold text-slate-800 mb-1">确认检查日期</h3>
-                        <p className="text-xs text-slate-500 mb-4">
-                            为 <span className="font-bold">{checkUploadPending.userName}</span> 导入
-                            「{checkUploadPending.fileName}」。以报告内 6 位「体检编号」匹配档案（非登记流水号）；较新日期更新快照。导入后自动更新风险与随访。
-                        </p>
-                        <label className="block text-xs font-bold text-slate-500 mb-1">检查日期</label>
-                        <input
-                            type="date"
-                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-4"
-                            value={checkUploadPending.examDate}
-                            onChange={(e) =>
-                                setCheckUploadPending({ ...checkUploadPending, examDate: e.target.value })
-                            }
-                        />
-                        <div className="flex gap-2 justify-end">
+            {isCheckUploadModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm">
+                    <div className="bg-white w-full max-w-3xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-scaleIn">
+                        <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800">历年体检报告导入</h3>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    自动识别检查日期与 6 位体检编号；无档案时自动建档；按日期升序入库后统一评估
+                                </p>
+                            </div>
                             <button
                                 type="button"
-                                className="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 font-bold"
-                                disabled={checkUploadSubmitting}
-                                onClick={() => setCheckUploadPending(null)}
+                                onClick={() => {
+                                    if (!isCheckUploadProcessing) {
+                                        setIsCheckUploadModalOpen(false);
+                                        setCheckUploadLogs([]);
+                                    }
+                                }}
+                                className="text-slate-400 hover:text-slate-600 text-2xl font-bold"
                             >
-                                取消
+                                ×
                             </button>
+                        </div>
+                        <div className="flex-1 p-6 overflow-hidden flex flex-col">
+                            <div className="flex-1 bg-black rounded-xl p-4 font-mono text-xs text-green-400 overflow-y-auto">
+                                {checkUploadLogs.map((log, i) => (
+                                    <div key={i} className="mb-1">
+                                        {log}
+                                    </div>
+                                ))}
+                                {isCheckUploadProcessing && <div className="animate-pulse">_</div>}
+                            </div>
+                        </div>
+                        <div className="p-6 border-t border-slate-200 bg-white flex justify-end">
                             <button
                                 type="button"
-                                className="px-4 py-2 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-700 disabled:opacity-50"
-                                disabled={checkUploadSubmitting}
-                                onClick={handleConfirmCheckUpload}
+                                disabled={isCheckUploadProcessing}
+                                onClick={() => {
+                                    setIsCheckUploadModalOpen(false);
+                                    setCheckUploadLogs([]);
+                                }}
+                                className="px-6 py-2 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-700 disabled:opacity-50"
                             >
-                                {checkUploadSubmitting ? '导入中…' : '确认导入'}
+                                关闭
                             </button>
                         </div>
                     </div>

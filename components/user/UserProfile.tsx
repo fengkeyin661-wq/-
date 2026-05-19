@@ -771,7 +771,7 @@ export const UserProfile: React.FC<Props> = ({
                                         <h4 className="text-sm font-bold text-slate-700">关键指标动态曲线</h4>
                                         <span className="text-[11px] text-slate-400">来自连续观测记录</span>
                                     </div>
-                                    <HealthTrendCharts checkupId={userId} variant="all" />
+                                    <HealthTrendCharts checkupId={userId} variant="dashboard" />
                                     {/* legacy mini charts removed */}
 </div>
                             )}

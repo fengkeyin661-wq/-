@@ -38,7 +38,7 @@ export const UserHealth: React.FC<Props> = ({ record, assessment, riskAnalysis, 
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-        <HealthTrendCharts checkupId={checkupId} variant="all" />
+        <HealthTrendCharts checkupId={checkupId} variant="dashboard" />
       </div>
 
       {riskAnalysis && (
