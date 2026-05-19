@@ -8,7 +8,11 @@ import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, Ris
 import { fetchContent, fetchInteractions, saveInteraction } from '../services/contentService'; // Interconnection
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { extractTextFromFile } from '../services/fileParseService';
-import { generateDraftFromText } from '../services/healthDraftService';
+import {
+    extractExamDateFromText,
+    importCheckupReportForArchive,
+    sortArchivesByExamDate,
+} from '../services/checkupImportService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -63,6 +67,14 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     // Questionnaire Update Import (Excel Only)
     const questionnaireImportRef = useRef<HTMLInputElement>(null);
     const checkUploadRef = useRef<HTMLInputElement>(null);
+    const [checkUploadPending, setCheckUploadPending] = useState<{
+        checkupId: string;
+        userName: string;
+        fileName: string;
+        text: string;
+        examDate: string;
+    } | null>(null);
+    const [checkUploadSubmitting, setCheckUploadSubmitting] = useState(false);
 
     const configured = isSupabaseConfigured();
 
@@ -101,7 +113,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         setSelectedIds(new Set());
         try {
             const data = await fetchArchives();
-            setArchives(data);
+            setArchives(sortArchivesByExamDate(data));
         } catch (error: unknown) {
             setFetchError(String(error));
         } finally {
@@ -161,30 +173,61 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         }
         try {
             const text = await extractTextFromFile(file);
-            const draft = await generateDraftFromText(
-                selected.checkup_id,
+            const suggested =
+                extractExamDateFromText(text) ||
+                selected.health_record?.profile?.checkupDate?.slice(0, 10) ||
+                new Date().toISOString().slice(0, 10);
+            setCheckUploadPending({
+                checkupId: selected.checkup_id,
+                userName: selected.name,
+                fileName: file.name,
                 text,
-                'upload',
-                `健康管家后台上传: ${file.name}`
+                examDate: suggested,
+            });
+        } catch (err: any) {
+            alert(`文件解析失败: ${err.message || err}`);
+        }
+    };
+
+    const handleConfirmCheckUpload = async () => {
+        if (!checkUploadPending) return;
+        setCheckUploadSubmitting(true);
+        try {
+            const selected = archives.find((a) => a.checkup_id === checkUploadPending.checkupId);
+            const res = await importCheckupReportForArchive(
+                checkUploadPending.checkupId,
+                checkUploadPending.text,
+                {
+                    examDateIso: checkUploadPending.examDate,
+                    fileName: checkUploadPending.fileName,
+                    source: 'upload',
+                }
             );
-            if (!draft.success) {
-                alert(draft.message || '草案生成失败');
+            if (!res.success) {
+                alert(res.message || '导入失败');
                 return;
             }
-            await saveInteraction({
-                id: `check_result_upload_${Date.now()}`,
-                type: 'check_result_upload',
-                userId: selected.checkup_id,
-                userName: selected.name,
-                targetId: selected.health_manager_content_id || 'doctor-review',
-                targetName: '签约医生审核',
-                status: 'pending',
-                date: new Date().toISOString().split('T')[0],
-                details: `后台上传检查结果: ${file.name}`,
-            });
-            alert('上传成功：已生成AI草案并提交医生审核。');
+            if (res.appliedToSnapshot) {
+                await saveInteraction({
+                    id: `check_result_upload_${Date.now()}`,
+                    type: 'check_result_upload',
+                    userId: checkUploadPending.checkupId,
+                    userName: checkUploadPending.userName,
+                    targetId: selected?.health_manager_content_id || 'doctor-review',
+                    targetName: '签约医生审核',
+                    status: 'pending',
+                    date: checkUploadPending.examDate,
+                    details: `检查日期 ${checkUploadPending.examDate} · ${checkUploadPending.fileName}`,
+                });
+            }
+            alert(res.message || '导入完成');
+            setCheckUploadPending(null);
+            loadData();
+            if (onDataUpdate) onDataUpdate();
         } catch (err: any) {
             alert(`上传失败: ${err.message || err}`);
+        } finally {
+            setCheckUploadSubmitting(false);
         }
     };
 
@@ -607,6 +650,45 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             {criticalModalArchive && <CriticalHandleModal archive={criticalModalArchive} onClose={() => setCriticalModalArchive(null)} onSave={handleCriticalSave} />}
             
             {/* Smart Batch Modal */}
+            {checkUploadPending && (
+                <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm p-4">
+                    <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6">
+                        <h3 className="text-lg font-bold text-slate-800 mb-1">确认检查日期</h3>
+                        <p className="text-xs text-slate-500 mb-4">
+                            为 <span className="font-bold">{checkUploadPending.userName}</span> 导入
+                            「{checkUploadPending.fileName}」。较新日期会更新当前档案；较早日期仅加入趋势。
+                        </p>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">检查日期</label>
+                        <input
+                            type="date"
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-4"
+                            value={checkUploadPending.examDate}
+                            onChange={(e) =>
+                                setCheckUploadPending({ ...checkUploadPending, examDate: e.target.value })
+                            }
+                        />
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                type="button"
+                                className="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100 font-bold"
+                                disabled={checkUploadSubmitting}
+                                onClick={() => setCheckUploadPending(null)}
+                            >
+                                取消
+                            </button>
+                            <button
+                                type="button"
+                                className="px-4 py-2 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-700 disabled:opacity-50"
+                                disabled={checkUploadSubmitting}
+                                onClick={handleConfirmCheckUpload}
+                            >
+                                {checkUploadSubmitting ? '导入中…' : '确认导入'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isSmartBatchModalOpen && (
                 <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center backdrop-blur-sm">
                     <div className="bg-white w-full max-w-3xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-scaleIn">

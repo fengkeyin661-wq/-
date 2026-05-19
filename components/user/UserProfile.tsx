@@ -11,7 +11,9 @@ import {
 } from '../../services/contentService';
 import { HealthTrendCharts } from '../HealthTrendCharts';
 import { UserMetricPreferences } from './UserMetricPreferences';
+import { UserMetricEntryModal } from './UserMetricEntryModal';
 import { fetchLatestAssessmentRun } from '../../services/assessmentPipelineService';
+import type { UserMetricKey } from '../../services/observationMapper';
 
 const MANAGER_RESOURCE_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
 const MANAGER_CHAT_DEEP_LINK_KEY = 'user_manager_chat_deeplink';
@@ -23,7 +25,11 @@ interface Props {
   dailyPlan?: DailyHealthPlan;
   userId: string;
   archive: HealthArchive;
-  onUpdateRecord: (updatedData: any) => void;
+  onUpdateRecord: (payload: {
+    metric: UserMetricKey;
+    values: Record<string, number | string>;
+    measuredAt: string;
+  }) => Promise<void>;
   onLogout: () => void;
   onNavigate: (tab: string) => void;
   onArchiveRefresh?: () => void;
@@ -60,16 +66,6 @@ export const UserProfile: React.FC<Props> = ({
     const [isBasicEditOpen, setIsBasicEditOpen] = useState(false);
     const [isBasicCardExpanded, setIsBasicCardExpanded] = useState(false);
     const [recomputeHint, setRecomputeHint] = useState<string | null>(null);
-    const [editForm, setEditForm] = useState({
-        height: record.checkup.basics.height || 0,
-        weight: record.checkup.basics.weight || 0,
-        waist: record.checkup.basics.waist || 0,
-        bodyFatRate: Number(record.riskModelExtras?.bodyFatRate || 0),
-        sbp: record.checkup.basics.sbp || 0,
-        dbp: record.checkup.basics.dbp || 0,
-        glucose: record.checkup.labBasic.glucose?.fasting || '0',
-        tc: record.checkup.labBasic.lipids?.tc || '0',
-    });
 
     useEffect(() => {
         loadInteractions();
@@ -114,28 +110,14 @@ export const UserProfile: React.FC<Props> = ({
         };
     }, [archive.health_manager_content_id]);
     const loadInteractions = async () => { const all = await fetchInteractions(); setInteractions(all.filter(i => i.userId === userId)); };
-    const handleSaveRecord = () => {
-        onUpdateRecord({
-            basics: {
-                height: editForm.height,
-                weight: editForm.weight,
-                waist: editForm.waist,
-                sbp: editForm.sbp,
-                dbp: editForm.dbp,
-            },
-            labBasic: {
-                glucose: { fasting: String(editForm.glucose || '0') },
-                lipids: {
-                    ...(record.checkup.labBasic.lipids || {}),
-                    tc: String(editForm.tc || '0'),
-                },
-            },
-            riskModelExtras: {
-                ...(record.riskModelExtras || {}),
-                bodyFatRate: Number(editForm.bodyFatRate || 0),
-            },
-        });
+    const handleMetricSave = async (payload: {
+        metric: UserMetricKey;
+        values: Record<string, number | string>;
+        measuredAt: string;
+    }) => {
+        await onUpdateRecord(payload);
         setIsBasicEditOpen(false);
+        onArchiveRefresh?.();
     };
     const handleChangePassword = async () => {
         setPwdMsg('');
@@ -852,41 +834,13 @@ export const UserProfile: React.FC<Props> = ({
                     </div>
                 )}
 
-                {subView === 'menu' && isBasicEditOpen && (
-                    <div
-                        className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-900/60 backdrop-blur-sm"
-                        onClick={() => setIsBasicEditOpen(false)}
-                    >
-                        <div
-                            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-6 max-h-[85vh] overflow-y-auto"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="mb-4 flex items-center justify-between">
-                                <h3 className="text-lg font-black text-slate-800">更新基础身体指标</h3>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsBasicEditOpen(false)}
-                                    className="h-8 w-8 rounded-full bg-slate-100 text-slate-500 font-black"
-                                >
-                                    ×
-                                </button>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-                                <div><label className="text-xs text-slate-400">身高(cm)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.height} onChange={e => setEditForm({...editForm, height: Number(e.target.value)})} /></div>
-                                <div><label className="text-xs text-slate-400">体重(kg)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.weight} onChange={e => setEditForm({...editForm, weight: Number(e.target.value)})} /></div>
-                                <div><label className="text-xs text-slate-400">腰围(cm)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.waist} onChange={e => setEditForm({...editForm, waist: Number(e.target.value)})} /></div>
-                                <div><label className="text-xs text-slate-400">体脂率(%)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.bodyFatRate} onChange={e => setEditForm({...editForm, bodyFatRate: Number(e.target.value)})} /></div>
-                                <div><label className="text-xs text-slate-400">收缩压</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.sbp} onChange={e => setEditForm({...editForm, sbp: Number(e.target.value)})} /></div>
-                                <div><label className="text-xs text-slate-400">舒张压</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" value={editForm.dbp} onChange={e => setEditForm({...editForm, dbp: Number(e.target.value)})} /></div>
-                                <div><label className="text-xs text-slate-400">总胆固醇 TC(mmol/L)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.tc} onChange={e => setEditForm({...editForm, tc: e.target.value})} /></div>
-                                <div><label className="text-xs text-slate-400">空腹血糖(mmol/L)</label><input className="w-full border p-2 rounded mt-1 bg-slate-50" type="number" step="0.1" value={editForm.glucose} onChange={e => setEditForm({...editForm, glucose: e.target.value})} /></div>
-                            </div>
-                            <button onClick={handleSaveRecord} className="w-full bg-teal-600 text-white py-3 rounded-lg font-bold shadow-md">
-                                保存修改
-                            </button>
-                        </div>
-                    </div>
-                )}
+                <UserMetricEntryModal
+                    open={subView === 'menu' && isBasicEditOpen}
+                    onClose={() => setIsBasicEditOpen(false)}
+                    record={record}
+                    checkupId={userId}
+                    onSave={handleMetricSave}
+                />
             </div>
         </div>
     );

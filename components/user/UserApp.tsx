@@ -10,7 +10,6 @@ import { UserDoctors } from './UserDoctors';
 import {
   HealthArchive,
   findArchiveByCheckupId,
-  updateHealthRecordOnly,
   syncArchiveToLocal,
   getLocalArchiveByCheckupIdSync,
 } from '../../services/dataService';
@@ -331,48 +330,23 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     notify();
   }, [userArchive?.checkup_id, userArchive?.follow_up_schedule]);
 
-  const handleUpdateRecord = async (updatedData: any) => {
+  const handleUpdateRecord = async (payload: {
+    metric: import('../../services/observationMapper').UserMetricKey;
+    values: Record<string, number | string>;
+    measuredAt: string;
+  }) => {
     if (!userArchive) return;
-    const updatedAt = new Date().toISOString();
-
-    const newCheckup = {
-      ...userArchive.health_record.checkup,
-      basics: { ...userArchive.health_record.checkup.basics, ...updatedData.basics },
-      labBasic: {
-        ...userArchive.health_record.checkup.labBasic,
-        ...updatedData.labBasic,
-        lipids: {
-          ...userArchive.health_record.checkup.labBasic.lipids,
-          ...(updatedData.labBasic?.lipids || {}),
-        },
-        glucose: {
-          ...userArchive.health_record.checkup.labBasic.glucose,
-          ...(updatedData.labBasic?.glucose || {}),
-        },
-      },
-    };
-
-    const newRecord = {
-      ...userArchive.health_record,
-      checkup: newCheckup,
-      riskModelExtras: {
-        ...(userArchive.health_record.riskModelExtras || {}),
-        ...(updatedData.riskModelExtras || {}),
-      },
-    };
-    setUserArchive({ ...userArchive, health_record: newRecord, updated_at: updatedAt });
-
     try {
-      await updateHealthRecordOnly(userArchive.checkup_id, newRecord);
-      if (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.DEV) {
-        console.log('[archive-sync] user_profile_edit submitted', {
-          checkupId: userArchive.checkup_id,
-          updatedAt,
-        });
-      }
+      const { pipelineAfterUserMetricEntry } = await import('../../services/healthDataPipeline');
+      await pipelineAfterUserMetricEntry(userArchive.checkup_id, userArchive.health_record, {
+        metric: payload.metric,
+        values: payload.values,
+        measuredAt: payload.measuredAt,
+      });
       await loadArchiveById(userArchive.checkup_id, true);
     } catch (e) {
       console.error('Sync failed', e);
+      throw e;
     }
   };
 

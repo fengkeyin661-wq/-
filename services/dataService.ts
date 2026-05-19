@@ -1217,7 +1217,8 @@ export const publishHealthDraft = async (
 export const updateHealthRecordOnly = async (
     checkupId: string,
     healthRecord: HealthRecord,
-    syncSource: string = 'user_profile_edit'
+    syncSource: string = 'user_profile_edit',
+    options?: { skipPipeline?: boolean }
 ): Promise<boolean> => {
     try {
         const updatedAt = new Date().toISOString();
@@ -1252,13 +1253,15 @@ export const updateHealthRecordOnly = async (
                 updatedAt,
             });
         }
-        void import('./healthDataPipeline').then((m) =>
-            m.pipelineAfterHealthRecordEdit(
-                checkupId,
-                healthRecord,
-                syncSource === 'doctor_followup' ? 'doctor_followup' : 'user_profile_edit'
-            )
-        );
+        if (!options?.skipPipeline) {
+            void import('./healthDataPipeline').then((m) =>
+                m.pipelineAfterHealthRecordEdit(
+                    checkupId,
+                    healthRecord,
+                    syncSource === 'doctor_followup' ? 'doctor_followup' : 'user_profile_edit'
+                )
+            );
+        }
         return true;
     } catch { return false; }
 };

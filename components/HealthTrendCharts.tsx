@@ -17,9 +17,17 @@ import {
 
 interface Props {
   checkupId: string;
-  variant?: 'bp' | 'weight' | 'glucose' | 'all';
+  variant?: 'bp' | 'weight' | 'glucose' | 'tc' | 'tg' | 'ldl' | 'hdl' | 'lipids' | 'all';
   className?: string;
 }
+
+const LIPID_VARIANTS = ['tc', 'tg', 'ldl', 'hdl'] as const;
+const LIPID_META: Record<(typeof LIPID_VARIANTS)[number], { code: string; title: string; color: string }> = {
+  tc: { code: 'core.tc', title: '总胆固醇 TC', color: '#0d9488' },
+  tg: { code: 'core.tg', title: '甘油三酯 TG', color: '#f59e0b' },
+  ldl: { code: 'core.ldl', title: '低密度脂蛋白 LDL', color: '#ef4444' },
+  hdl: { code: 'core.hdl', title: '高密度脂蛋白 HDL', color: '#3b82f6' },
+};
 
 export const HealthTrendCharts: React.FC<Props> = ({
   checkupId,
@@ -29,6 +37,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
   const [bpData, setBpData] = useState<{ date: string; label: string; sbp?: number; dbp?: number }[]>([]);
   const [weightData, setWeightData] = useState<{ label: string; value: number }[]>([]);
   const [glucoseData, setGlucoseData] = useState<{ label: string; value: number }[]>([]);
+  const [lipidData, setLipidData] = useState<
+    Record<(typeof LIPID_VARIANTS)[number], { label: string; value: number }[]>
+  >({ tc: [], tg: [], ldl: [], hdl: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -36,11 +47,17 @@ export const HealthTrendCharts: React.FC<Props> = ({
     (async () => {
       if (!checkupId) return;
       setLoading(true);
-      const rows = await fetchObservationSeries(
-        checkupId,
-        ['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose'],
-        200
-      );
+      const metricCodes = [
+        'core.sbp',
+        'core.dbp',
+        'core.weight',
+        'core.fasting_glucose',
+        'core.tc',
+        'core.tg',
+        'core.ldl',
+        'core.hdl',
+      ];
+      const rows = await fetchObservationSeries(checkupId, metricCodes, 200);
       if (cancelled) return;
       setBpData(buildBpChartData(rows));
       setWeightData(
@@ -52,6 +69,12 @@ export const HealthTrendCharts: React.FC<Props> = ({
           value: p.value,
         }))
       );
+      setLipidData({
+        tc: buildChartSeries(rows, 'core.tc').map((p) => ({ label: p.label, value: p.value })),
+        tg: buildChartSeries(rows, 'core.tg').map((p) => ({ label: p.label, value: p.value })),
+        ldl: buildChartSeries(rows, 'core.ldl').map((p) => ({ label: p.label, value: p.value })),
+        hdl: buildChartSeries(rows, 'core.hdl').map((p) => ({ label: p.label, value: p.value })),
+      });
       setLoading(false);
     })();
     return () => {
@@ -66,11 +89,24 @@ export const HealthTrendCharts: React.FC<Props> = ({
   const showBp = variant === 'bp' || variant === 'all';
   const showWeight = variant === 'weight' || variant === 'all';
   const showGlucose = variant === 'glucose' || variant === 'all';
+  const showLipids =
+    variant === 'lipids' ||
+    variant === 'all' ||
+    LIPID_VARIANTS.includes(variant as (typeof LIPID_VARIANTS)[number]);
 
+  const lipidKeysToShow: (typeof LIPID_VARIANTS)[number][] =
+    variant === 'lipids' || variant === 'all'
+      ? [...LIPID_VARIANTS]
+      : LIPID_VARIANTS.includes(variant as (typeof LIPID_VARIANTS)[number])
+        ? [variant as (typeof LIPID_VARIANTS)[number]]
+        : [];
+
+  const hasLipid = lipidKeysToShow.some((k) => lipidData[k].length > 0);
   const hasAny =
     (showBp && bpData.length > 0) ||
     (showWeight && weightData.length > 0) ||
-    (showGlucose && glucoseData.length > 0);
+    (showGlucose && glucoseData.length > 0) ||
+    (showLipids && hasLipid);
 
   if (!hasAny) {
     return (
@@ -79,6 +115,35 @@ export const HealthTrendCharts: React.FC<Props> = ({
       </div>
     );
   }
+
+  const renderLipidChart = (key: (typeof LIPID_VARIANTS)[number]) => {
+    const data = lipidData[key];
+    if (!data.length) return null;
+    const meta = LIPID_META[key];
+    return (
+      <div key={key}>
+        <h4 className="text-sm font-bold text-slate-700 mb-2">{meta.title}</h4>
+        <div className="h-40 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
+              <YAxis fontSize={10} domain={['dataMin - 0.5', 'dataMax + 0.5']} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
+              <Line
+                type="monotone"
+                dataKey="value"
+                name="mmol/L"
+                stroke={meta.color}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -132,6 +197,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
           </div>
         </div>
       )}
+      {showLipids && lipidKeysToShow.map(renderLipidChart)}
     </div>
   );
 };

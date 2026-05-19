@@ -8,7 +8,12 @@ import {
   observationsFromHealthRecord,
   observationsFromFollowUp,
   observationsFromHomeLog,
+  observationsFromUserMetricEntry,
+  patchHealthRecordForUserMetric,
+  type UserMetricKey,
 } from './observationMapper';
+import { shouldApplyReportToSnapshot, parseExamDateToIso } from './examDateUtils';
+import { findArchiveByCheckupId, updateHealthRecordOnly } from './dataService';
 import { upsertObservationsAndEnqueue } from './assessmentPipelineService';
 import type { PublishMode, TriggerEvent } from './recomputeArchiveService';
 
@@ -66,3 +71,72 @@ export const pipelineAfterHomeMonitoring = async (
     publishMode: 'auto',
   });
 };
+
+/** 用户端：仅更新所选单项指标 */
+export const pipelineAfterUserMetricEntry = async (
+  checkupId: string,
+  baseRecord: HealthRecord,
+  entry: {
+    metric: UserMetricKey;
+    values: {
+      sbp?: number;
+      dbp?: number;
+      weight?: number;
+      height?: number;
+      waist?: number;
+      glucose?: number | string;
+      tc?: number | string;
+      tg?: number | string;
+      ldl?: number | string;
+      hdl?: number | string;
+    };
+    measuredAt: string;
+  }
+) => {
+  const measuredIso = parseExamDateToIso(entry.measuredAt) || new Date().toISOString();
+  const inputs = observationsFromUserMetricEntry(
+    entry.metric,
+    entry.values,
+    measuredIso,
+    `user:${entry.metric}:${measuredIso.slice(0, 10)}`
+  );
+  const archive = await findArchiveByCheckupId(checkupId);
+  const applySnapshot = shouldApplyReportToSnapshot(
+    measuredIso,
+    archive?.health_record?.profile?.checkupDate || measuredIso
+  );
+
+  if (!inputs.length) {
+    if (entry.metric === 'waist' || entry.metric === 'height') {
+      const patched = patchHealthRecordForUserMetric(
+        baseRecord,
+        entry.metric,
+        entry.values,
+        applySnapshot ? measuredIso.slice(0, 10) : undefined
+      );
+      await updateHealthRecordOnly(checkupId, patched, 'user_profile_edit', { skipPipeline: true });
+      return {
+        observationsInserted: 0,
+        recompute: { success: true, published: false, usedDraft: false, message: '档案已更新' },
+      };
+    }
+    return { observationsInserted: 0, recompute: { success: false, published: false, usedDraft: false, message: '无有效数值' } };
+  }
+
+  if (applySnapshot) {
+    const patched = patchHealthRecordForUserMetric(
+      baseRecord,
+      entry.metric,
+      entry.values,
+      measuredIso.slice(0, 10)
+    );
+    await updateHealthRecordOnly(checkupId, patched, 'user_profile_edit', { skipPipeline: true });
+  }
+
+  return upsertObservationsAndEnqueue(checkupId, inputs, {
+    triggerEvent: 'user_profile_edit',
+    publishMode: 'auto',
+  });
+};
+
+export type { UserMetricKey };

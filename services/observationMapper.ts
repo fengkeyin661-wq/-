@@ -24,7 +24,8 @@ export const observationsFromHealthRecord = (
   source: ObservationSource | string,
   observedAt: string,
   sourceRef?: string,
-  enteredByRole?: string
+  enteredByRole?: string,
+  onlyMetricCodes?: string[]
 ): ObservationInput[] => {
   const out: ObservationInput[] = [];
   const b = record.checkup?.basics || {};
@@ -52,7 +53,131 @@ export const observationsFromHealthRecord = (
   push('core.tg', num(lipids.tg), 'mmol/L');
   push('core.ldl', num(lipids.ldl), 'mmol/L');
   push('core.hdl', num(lipids.hdl), 'mmol/L');
+  if (!onlyMetricCodes?.length) return out;
+  return out.filter((o) => onlyMetricCodes.includes(o.metricCode));
+};
+
+export type UserMetricKey =
+  | 'bp'
+  | 'weight'
+  | 'glucose'
+  | 'tc'
+  | 'tg'
+  | 'ldl'
+  | 'hdl'
+  | 'waist'
+  | 'height';
+
+export const metricCodesForUserKey = (key: UserMetricKey): string[] => {
+  switch (key) {
+    case 'bp':
+      return ['core.sbp', 'core.dbp'];
+    case 'weight':
+      return ['core.weight'];
+    case 'glucose':
+      return ['core.fasting_glucose'];
+    case 'tc':
+      return ['core.tc'];
+    case 'tg':
+      return ['core.tg'];
+    case 'ldl':
+      return ['core.ldl'];
+    case 'hdl':
+      return ['core.hdl'];
+    case 'waist':
+      return [];
+    case 'height':
+      return [];
+    default:
+      return [];
+  }
+};
+
+/** 用户单项指标写入：仅生成对应观测 */
+export const observationsFromUserMetricEntry = (
+  key: UserMetricKey,
+  values: {
+    sbp?: number;
+    dbp?: number;
+    weight?: number;
+    glucose?: number | string;
+    tc?: number | string;
+    tg?: number | string;
+    ldl?: number | string;
+    hdl?: number | string;
+  },
+  observedAt: string,
+  sourceRef?: string
+): ObservationInput[] => {
+  const out: ObservationInput[] = [];
+  const push = (metricCode: string, value: number | undefined, unit: string) => {
+    if (value == null) return;
+    out.push({
+      metricCode,
+      valueNumeric: value,
+      unit,
+      observedAt,
+      source: 'user_profile_edit',
+      sourceRef,
+      enteredByRole: 'user',
+    });
+  };
+  if (key === 'bp') {
+    push('core.sbp', num(values.sbp), 'mmHg');
+    push('core.dbp', num(values.dbp), 'mmHg');
+  } else if (key === 'weight') push('core.weight', num(values.weight), 'kg');
+  else if (key === 'glucose') push('core.fasting_glucose', num(values.glucose), 'mmol/L');
+  else if (key === 'tc') push('core.tc', num(values.tc), 'mmol/L');
+  else if (key === 'tg') push('core.tg', num(values.tg), 'mmol/L');
+  else if (key === 'ldl') push('core.ldl', num(values.ldl), 'mmol/L');
+  else if (key === 'hdl') push('core.hdl', num(values.hdl), 'mmol/L');
   return out;
+};
+
+/** 将单项指标合并进 health_record（仅相关字段） */
+export const patchHealthRecordForUserMetric = (
+  base: HealthRecord,
+  key: UserMetricKey,
+  values: {
+    sbp?: number;
+    dbp?: number;
+    weight?: number;
+    height?: number;
+    waist?: number;
+    glucose?: number | string;
+    tc?: number | string;
+    tg?: number | string;
+    ldl?: number | string;
+    hdl?: number | string;
+  },
+  examDate?: string
+): HealthRecord => {
+  const next = JSON.parse(JSON.stringify(base)) as HealthRecord;
+  const b = next.checkup.basics || ({} as HealthRecord['checkup']['basics']);
+  const lab = next.checkup.labBasic || ({} as HealthRecord['checkup']['labBasic']);
+  lab.lipids = lab.lipids || {};
+  lab.glucose = lab.glucose || {};
+
+  if (key === 'bp') {
+    if (values.sbp != null) b.sbp = values.sbp;
+    if (values.dbp != null) b.dbp = values.dbp;
+  }
+  if (key === 'weight' && values.weight != null) b.weight = values.weight;
+  if (key === 'height' && values.height != null) b.height = values.height;
+  if (key === 'waist' && values.waist != null) b.waist = values.waist;
+  if (key === 'glucose' && values.glucose != null) lab.glucose.fasting = String(values.glucose);
+  if (key === 'tc' && values.tc != null) lab.lipids.tc = String(values.tc);
+  if (key === 'tg' && values.tg != null) lab.lipids.tg = String(values.tg);
+  if (key === 'ldl' && values.ldl != null) lab.lipids.ldl = String(values.ldl);
+  if (key === 'hdl' && values.hdl != null) lab.lipids.hdl = String(values.hdl);
+
+  if (b.weight && b.height && b.height > 0) {
+    b.bmi = Number((b.weight / Math.pow(b.height / 100, 2)).toFixed(1));
+  }
+  next.checkup.basics = b;
+  next.checkup.labBasic = lab;
+  if (examDate) next.profile.checkupDate = examDate.slice(0, 10);
+  return next;
 };
 
 /** 从随访记录提取 */
