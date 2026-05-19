@@ -4,28 +4,31 @@ import type { UserMetricKey } from '../../services/observationMapper';
 import { buildChartSeries, fetchObservationSeries } from '../../services/observationService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+/** 身高/体重/血压/血糖 → 血脂四项 → 腰围/体脂率 */
 const METRIC_OPTIONS: { key: UserMetricKey; label: string; hint: string }[] = [
-  { key: 'bp', label: '血压', hint: '收缩压 / 舒张压' },
+  { key: 'height', label: '身高', hint: 'cm' },
   { key: 'weight', label: '体重', hint: 'kg' },
+  { key: 'bp', label: '血压', hint: '收缩压/舒张压' },
   { key: 'glucose', label: '空腹血糖', hint: 'mmol/L' },
   { key: 'tc', label: '总胆固醇 TC', hint: 'mmol/L' },
   { key: 'tg', label: '甘油三酯 TG', hint: 'mmol/L' },
-  { key: 'ldl', label: '低密度脂蛋白 LDL', hint: 'mmol/L' },
-  { key: 'hdl', label: '高密度脂蛋白 HDL', hint: 'mmol/L' },
-  { key: 'waist', label: '腰围', hint: 'cm（仅更新档案，不入核心趋势）' },
-  { key: 'height', label: '身高', hint: 'cm（用于计算 BMI）' },
+  { key: 'ldl', label: '低密度 LDL', hint: 'mmol/L' },
+  { key: 'hdl', label: '高密度 HDL', hint: 'mmol/L' },
+  { key: 'waist', label: '腰围', hint: 'cm' },
+  { key: 'bodyFat', label: '体脂率', hint: '%' },
 ];
 
 const METRIC_CODE: Record<UserMetricKey, string | null> = {
-  bp: null,
+  height: null,
   weight: 'core.weight',
+  bp: null,
   glucose: 'core.fasting_glucose',
   tc: 'core.tc',
   tg: 'core.tg',
   ldl: 'core.ldl',
   hdl: 'core.hdl',
   waist: null,
-  height: null,
+  bodyFat: null,
 };
 
 interface Props {
@@ -58,14 +61,13 @@ export const UserMetricEntryModal: React.FC<Props> = ({
     weight: record.checkup.basics.weight || 0,
     height: record.checkup.basics.height || 0,
     waist: record.checkup.basics.waist || 0,
+    bodyFatRate: Number(record.riskModelExtras?.bodyFatRate || 0),
     glucose: record.checkup.labBasic.glucose?.fasting || '',
     tc: record.checkup.labBasic.lipids?.tc || '',
     tg: record.checkup.labBasic.lipids?.tg || '',
     ldl: record.checkup.labBasic.lipids?.ldl || '',
     hdl: record.checkup.labBasic.lipids?.hdl || '',
   });
-
-  const lipidKeys: UserMetricKey[] = ['tc', 'tg', 'ldl', 'hdl'];
 
   useEffect(() => {
     if (!open) {
@@ -121,23 +123,25 @@ export const UserMetricEntryModal: React.FC<Props> = ({
 
   if (!open) return null;
 
+  const panelClass =
+    step === 'pick'
+      ? 'w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl'
+      : 'w-full max-w-md max-h-[min(90vh,640px)] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl';
+
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-900/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div
-        className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-6 max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
+      <div className={panelClass} onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
           <h3 className="text-lg font-black text-slate-800">
             {step === 'pick' ? '选择要更新的指标' : `填写：${selectedMeta?.label}`}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="h-8 w-8 rounded-full bg-slate-100 text-slate-500 font-black"
+            className="h-8 w-8 shrink-0 rounded-full bg-slate-100 text-slate-500 font-black"
           >
             ×
           </button>
@@ -145,25 +149,25 @@ export const UserMetricEntryModal: React.FC<Props> = ({
 
         {step === 'pick' && (
           <>
-            <p className="mb-3 text-xs text-slate-500">每次只更新一项指标，历史将按测量日期记入趋势。</p>
-            <div className="grid grid-cols-2 gap-2">
+            <p className="mb-2.5 text-[11px] leading-snug text-slate-500">
+              每次只更新一项，历史按测量日期记入趋势。
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
               {METRIC_OPTIONS.map((m) => (
                 <button
                   key={m.key}
                   type="button"
                   onClick={() => handlePick(m.key)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left hover:border-teal-300 hover:bg-teal-50"
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-left active:scale-[0.98] hover:border-teal-300 hover:bg-teal-50"
                 >
-                  <div className="text-sm font-bold text-slate-800">{m.label}</div>
-                  <div className="text-[11px] text-slate-500">{m.hint}</div>
+                  <div className="text-[13px] font-bold leading-tight text-slate-800">{m.label}</div>
+                  <div className="text-[10px] text-slate-500">{m.hint}</div>
                 </button>
               ))}
             </div>
-            {lipidKeys.length > 0 && (
-              <p className="mt-3 text-[11px] text-slate-400">
-                血脂四项（TC/TG/LDL/HDL）请分别选择对应项目更新，可在详情中查看各自趋势。
-              </p>
-            )}
+            <p className="mt-2 text-[10px] leading-snug text-slate-400">
+              血脂四项请分别更新；腰围、体脂率仅写入档案。
+            </p>
           </>
         )}
 
@@ -187,7 +191,7 @@ export const UserMetricEntryModal: React.FC<Props> = ({
             </div>
             {trend.length > 0 && (
               <div className="mb-4 h-32 w-full rounded-lg border border-slate-100 bg-slate-50 p-2">
-                <div className="text-[11px] text-slate-500 mb-1">{selectedMeta?.label} 历史趋势</div>
+                <div className="mb-1 text-[11px] text-slate-500">{selectedMeta?.label} 历史趋势</div>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trend}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -199,7 +203,7 @@ export const UserMetricEntryModal: React.FC<Props> = ({
                 </ResponsiveContainer>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+            <div className="mb-4 grid grid-cols-2 gap-3 text-sm">
               {selected === 'bp' && (
                 <>
                   <div>
@@ -312,6 +316,18 @@ export const UserMetricEntryModal: React.FC<Props> = ({
                     className="mt-1 w-full rounded border p-2"
                     value={values.height}
                     onChange={(e) => setValues({ ...values, height: Number(e.target.value) })}
+                  />
+                </div>
+              )}
+              {selected === 'bodyFat' && (
+                <div className="col-span-2">
+                  <label className="text-xs text-slate-400">体脂率 (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="mt-1 w-full rounded border p-2"
+                    value={values.bodyFatRate}
+                    onChange={(e) => setValues({ ...values, bodyFatRate: Number(e.target.value) })}
                   />
                 </div>
               )}

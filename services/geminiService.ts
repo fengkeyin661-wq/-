@@ -36,8 +36,9 @@ const isDev = (() => {
     }
 })();
 
-// DeepSeek API Configuration
+// DeepSeek API Configuration（固定 Flash，不使用 Pro 以节省费用）
 const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
+const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 // PROXY STRATEGY:
 const PROXY_URL = "/api/deepseek/chat/completions";
@@ -53,7 +54,7 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
     }
 
     const makeRequest = async (url: string) => {
-        console.log(`[AI] Calling DeepSeek via ${url}...`);
+        console.log(`[AI] Calling DeepSeek (${DEEPSEEK_MODEL}) via ${url}...`);
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -61,7 +62,7 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
                 'Authorization': `Bearer ${API_KEY}`
             },
             body: JSON.stringify({
-                model: "deepseek-v4-pro",
+                model: DEEPSEEK_MODEL,
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userContent }

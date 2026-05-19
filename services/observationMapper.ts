@@ -58,15 +58,16 @@ export const observationsFromHealthRecord = (
 };
 
 export type UserMetricKey =
-  | 'bp'
+  | 'height'
   | 'weight'
+  | 'bp'
   | 'glucose'
   | 'tc'
   | 'tg'
   | 'ldl'
   | 'hdl'
   | 'waist'
-  | 'height';
+  | 'bodyFat';
 
 export const metricCodesForUserKey = (key: UserMetricKey): string[] => {
   switch (key) {
@@ -85,8 +86,8 @@ export const metricCodesForUserKey = (key: UserMetricKey): string[] => {
     case 'hdl':
       return ['core.hdl'];
     case 'waist':
-      return [];
     case 'height':
+    case 'bodyFat':
       return [];
     default:
       return [];
@@ -144,6 +145,7 @@ export const patchHealthRecordForUserMetric = (
     weight?: number;
     height?: number;
     waist?: number;
+    bodyFatRate?: number;
     glucose?: number | string;
     tc?: number | string;
     tg?: number | string;
@@ -165,6 +167,9 @@ export const patchHealthRecordForUserMetric = (
   if (key === 'weight' && values.weight != null) b.weight = values.weight;
   if (key === 'height' && values.height != null) b.height = values.height;
   if (key === 'waist' && values.waist != null) b.waist = values.waist;
+  if (key === 'bodyFat' && values.bodyFatRate != null) {
+    next.riskModelExtras = { ...(next.riskModelExtras || {}), bodyFatRate: values.bodyFatRate };
+  }
   if (key === 'glucose' && values.glucose != null) lab.glucose.fasting = String(values.glucose);
   if (key === 'tc' && values.tc != null) lab.lipids.tc = String(values.tc);
   if (key === 'tg' && values.tg != null) lab.lipids.tg = String(values.tg);
