@@ -598,11 +598,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                         <span>📈</span> 核心指标监测
                      </h2>
                      <p className="text-xs text-slate-500 mt-1">
-                       与用户端一致：默认血压、体重、空腹血糖分图展示，其余指标可单选查看
+                       默认血压、体重、空腹血糖分图展示；血脂四项（含 HDL）分项展示，不显示心率
                      </p>
                  </div>
                  {currentPatientId ? (
-                   <HealthTrendCharts checkupId={currentPatientId} variant="dashboard" />
+                   <HealthTrendCharts checkupId={currentPatientId} variant="admin" />
                  ) : (
                    <div className="py-12 text-center text-sm text-slate-400 bg-slate-50 rounded-lg">
                      请先选择受检者

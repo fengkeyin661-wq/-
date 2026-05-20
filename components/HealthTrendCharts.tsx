@@ -18,15 +18,38 @@ import {
 
 interface Props {
   checkupId: string;
-  variant?: 'bp' | 'weight' | 'glucose' | 'tc' | 'tg' | 'ldl' | 'hdl' | 'lipids' | 'all' | 'dashboard';
+  variant?: 'bp' | 'weight' | 'glucose' | 'tc' | 'tg' | 'ldl' | 'hdl' | 'lipids' | 'all' | 'dashboard' | 'admin';
   className?: string;
 }
 
 const DEFAULT_CODES = ['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose'];
+const LIPID_CODES = ['core.tc', 'core.tg', 'core.ldl', 'core.hdl'] as const;
 
 const OPTIONAL_METRICS = CORE_METRICS.filter(
   (m) => !['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose', 'core.bmi'].includes(m.code)
 );
+
+/** Admin optional metrics exclude lipids (shown as separate charts). */
+const ADMIN_OPTIONAL_METRICS = OPTIONAL_METRICS.filter(
+  (m) => !LIPID_CODES.includes(m.code as (typeof LIPID_CODES)[number])
+);
+
+const UI = {
+  loading: '\u52a0\u8f7d\u8d8b\u52bf\u6570\u636e\u2026',
+  empty: '\u6682\u65e0\u5386\u53f2\u89c2\u6d4b\uff0c\u66f4\u65b0\u6307\u6807\u540e\u5c06\u81ea\u52a8\u751f\u6210\u8d8b\u52bf',
+  bp: '\u8840\u538b\u8d8b\u52bf',
+  weight: '\u4f53\u91cd\u8d8b\u52bf',
+  glucose: '\u7a7a\u8179\u8840\u7cd6\u8d8b\u52bf',
+  lipidSection: '\u8840\u8102\u6307\u6807\uff08\u5206\u9879\u5c55\u793a\uff0c\u542b\u9ad8\u5bc6\u5ea6\u8102\u86cb\u767d\uff09',
+  moreAdmin: '\u67e5\u770b\u66f4\u591a\u6307\u6807\u8d8b\u52bf',
+  moreUser: '\u67e5\u770b\u66f4\u591a\u5b9a\u91cf\u6307\u6807\u8d8b\u52bf',
+  phAdmin: '\u8bf7\u9009\u62e9\u6307\u6807\uff08\u8170\u56f4\u3001\u4f53\u8102\u7387\u3001\u80be\u529f\u80fd\u7b49\uff09',
+  phUser: '\u8bf7\u9009\u62e9\u6307\u6807\uff08\u8840\u8102\u3001\u8170\u56f4\u3001\u80be\u529f\u80fd\u7b49\uff09',
+  optLoading: '\u52a0\u8f7d\u6307\u6807\u8d8b\u52bf\u2026',
+  optEmpty: '\u8be5\u6307\u6807\u6682\u65e0\u5386\u53f2\u6570\u636e',
+  trend: '\u8d8b\u52bf',
+  renal: '\u8d8b\u52bf\uff08\u80be\u529f\u80fd\uff09',
+} as const;
 
 const metricLabel = (code: string): string =>
   CORE_METRICS.find((m) => m.code === code)?.label ?? code;
@@ -54,7 +77,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
   variant = 'bp',
   className = '',
 }) => {
-  const isDashboard = variant === 'dashboard';
+  const isUserDashboard = variant === 'dashboard';
+  const isAdminDashboard = variant === 'admin';
+  const isCompactDashboard = isUserDashboard || isAdminDashboard;
   const [bpData, setBpData] = useState<{ date: string; label: string; sbp?: number; dbp?: number }[]>([]);
   const [weightData, setWeightData] = useState<{ label: string; value: number }[]>([]);
   const [glucoseData, setGlucoseData] = useState<{ label: string; value: number }[]>([]);
@@ -74,21 +99,23 @@ export const HealthTrendCharts: React.FC<Props> = ({
     (async () => {
       if (!checkupId) return;
       setLoading(true);
-      const codes = isDashboard
+      const codes = isUserDashboard
         ? DEFAULT_CODES
-        : [
-            'core.sbp',
-            'core.dbp',
-            'core.weight',
-            'core.fasting_glucose',
-            'core.tc',
-            'core.tg',
-            'core.ldl',
-            'core.hdl',
-            'core.waist',
-            'core.body_fat_rate',
-            'core.creatinine',
-          ];
+        : isAdminDashboard
+          ? [...DEFAULT_CODES, ...LIPID_CODES]
+          : [
+              'core.sbp',
+              'core.dbp',
+              'core.weight',
+              'core.fasting_glucose',
+              'core.tc',
+              'core.tg',
+              'core.ldl',
+              'core.hdl',
+              'core.waist',
+              'core.body_fat_rate',
+              'core.creatinine',
+            ];
       const rows = await fetchObservationSeries(checkupId, codes, 200);
       if (cancelled) return;
       setBpData(buildBpChartData(rows));
@@ -101,13 +128,15 @@ export const HealthTrendCharts: React.FC<Props> = ({
           value: p.value,
         }))
       );
-      if (!isDashboard) {
+      if (isAdminDashboard || !isCompactDashboard) {
         setLipidData({
           tc: buildChartSeries(rows, 'core.tc').map((p) => ({ label: p.label, value: p.value })),
           tg: buildChartSeries(rows, 'core.tg').map((p) => ({ label: p.label, value: p.value })),
           ldl: buildChartSeries(rows, 'core.ldl').map((p) => ({ label: p.label, value: p.value })),
           hdl: buildChartSeries(rows, 'core.hdl').map((p) => ({ label: p.label, value: p.value })),
         });
+      }
+      if (!isCompactDashboard) {
         setWaistData(buildChartSeries(rows, 'core.waist').map((p) => ({ label: p.label, value: p.value })));
         setBodyFatData(
           buildChartSeries(rows, 'core.body_fat_rate').map((p) => ({ label: p.label, value: p.value }))
@@ -121,10 +150,10 @@ export const HealthTrendCharts: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [checkupId, isDashboard]);
+  }, [checkupId, isUserDashboard, isAdminDashboard, isCompactDashboard]);
 
   useEffect(() => {
-    if (!isDashboard || !selectedOptional || !checkupId) {
+    if (!isCompactDashboard || !selectedOptional || !checkupId) {
       setOptionalSeries([]);
       return;
     }
@@ -141,26 +170,59 @@ export const HealthTrendCharts: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [checkupId, isDashboard, selectedOptional]);
+  }, [checkupId, isCompactDashboard, selectedOptional]);
+
+  const optionalMetricList = isAdminDashboard ? ADMIN_OPTIONAL_METRICS : OPTIONAL_METRICS;
 
   const optionalMeta = useMemo(
-    () => OPTIONAL_METRICS.find((m) => m.code === selectedOptional),
-    [selectedOptional]
+    () => optionalMetricList.find((m) => m.code === selectedOptional),
+    [optionalMetricList, selectedOptional]
   );
 
   if (loading) {
-    return <div className={`text-center text-xs text-slate-400 py-6 ${className}`}>加载趋势数据…</div>;
+    return <div className={`text-center text-xs text-slate-400 py-6 ${className}`}>{UI.loading}</div>;
   }
 
-  if (isDashboard) {
+  const renderLipidChart = (key: (typeof LIPID_VARIANTS)[number]) => {
+    const data = lipidData[key];
+    if (!data.length) return null;
+    const meta = LIPID_META[key];
+    const title = metricLabel(meta.code);
+    return (
+      <div key={key}>
+        <h4 className="text-sm font-bold text-slate-700 mb-2">{title}</h4>
+        <div className="h-40 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
+              <YAxis fontSize={10} domain={['dataMin - 0.5', 'dataMax + 0.5']} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
+              <Line
+                type="monotone"
+                dataKey="value"
+                name="mmol/L"
+                stroke={meta.color}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    );
+  };
+
+  if (isCompactDashboard) {
+    const hasLipidCharts = isAdminDashboard && LIPID_VARIANTS.some((k) => lipidData[k].length > 0);
     const hasDefault =
-      bpData.length > 0 || weightData.length > 0 || glucoseData.length > 0;
+      bpData.length > 0 || weightData.length > 0 || glucoseData.length > 0 || hasLipidCharts;
     const hasOptional = selectedOptional && optionalSeries.length > 0;
 
     if (!hasDefault && !hasOptional && !optionalLoading) {
       return (
         <div className={`text-center text-xs text-slate-400 py-6 ${className}`}>
-          暂无历史观测，更新指标后将自动生成趋势
+          {UI.empty}
         </div>
       );
     }
@@ -169,7 +231,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       <div className={`space-y-4 ${className}`}>
         {bpData.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">血压趋势</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.bp}</h4>
             <div className="h-48 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={bpData}>
@@ -201,7 +263,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
         )}
         {weightData.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">体重趋势</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.weight}</h4>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={weightData}>
@@ -224,7 +286,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
         )}
         {glucoseData.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">空腹血糖趋势</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.glucose}</h4>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={glucoseData}>
@@ -245,15 +307,25 @@ export const HealthTrendCharts: React.FC<Props> = ({
             </div>
           </div>
         )}
+        {isAdminDashboard && hasLipidCharts && (
+          <div className="space-y-4 border-t border-slate-100 pt-4">
+            <p className="text-xs font-bold text-slate-600">{UI.lipidSection}</p>
+            {LIPID_VARIANTS.map(renderLipidChart)}
+          </div>
+        )}
         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-          <label className="mb-1 block text-xs font-bold text-slate-600">查看更多定量指标趋势</label>
+          <label className="mb-1 block text-xs font-bold text-slate-600">
+            {isAdminDashboard ? UI.moreAdmin : UI.moreUser}
+          </label>
           <select
             className="w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
             value={selectedOptional}
             onChange={(e) => setSelectedOptional(e.target.value)}
           >
-            <option value="">请选择指标（血脂、腰围、肾功能等）</option>
-            {OPTIONAL_METRICS.map((m) => (
+            <option value="">
+              {isAdminDashboard ? UI.phAdmin : UI.phUser}
+            </option>
+            {optionalMetricList.map((m) => (
               <option key={m.code} value={m.code}>
                 {m.label}
               </option>
@@ -261,14 +333,14 @@ export const HealthTrendCharts: React.FC<Props> = ({
           </select>
         </div>
         {optionalLoading && (
-          <div className="text-center text-xs text-slate-400 py-4">加载指标趋势…</div>
+          <div className="text-center text-xs text-slate-400 py-4">{UI.optLoading}</div>
         )}
         {!optionalLoading && selectedOptional && optionalSeries.length === 0 && (
-          <div className="text-center text-xs text-slate-400 py-4">该指标暂无历史数据</div>
+          <div className="text-center text-xs text-slate-400 py-4">{UI.optEmpty}</div>
         )}
         {!optionalLoading && hasOptional && optionalMeta && (
           <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{optionalMeta.label} 趋势</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">{optionalMeta.label}{UI.trend}</h4>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={optionalSeries}>
@@ -322,46 +394,16 @@ export const HealthTrendCharts: React.FC<Props> = ({
   if (!hasAny) {
     return (
       <div className={`text-center text-xs text-slate-400 py-6 ${className}`}>
-        暂无历史观测，更新指标后将自动生成趋势
+        {UI.empty}
       </div>
     );
   }
-
-  const renderLipidChart = (key: (typeof LIPID_VARIANTS)[number]) => {
-    const data = lipidData[key];
-    if (!data.length) return null;
-    const meta = LIPID_META[key];
-    const title = metricLabel(meta.code);
-    return (
-      <div key={key}>
-        <h4 className="text-sm font-bold text-slate-700 mb-2">{title}</h4>
-        <div className="h-40 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
-              <YAxis fontSize={10} domain={['dataMin - 0.5', 'dataMax + 0.5']} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-              <Line
-                type="monotone"
-                dataKey="value"
-                name="mmol/L"
-                stroke={meta.color}
-                strokeWidth={2}
-                dot={{ r: 3 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className={`space-y-4 ${className}`}>
       {showBp && bpData.length > 0 && (
         <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">血压趋势</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.bp}</h4>
           <div className="h-48 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={bpData}>
@@ -393,7 +435,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       )}
       {showWeight && weightData.length > 0 && (
         <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">体重趋势</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.weight}</h4>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={weightData}>
@@ -416,7 +458,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       )}
       {showGlucose && glucoseData.length > 0 && (
         <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">空腹血糖趋势</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.glucose}</h4>
           <div className="h-40 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={glucoseData}>
@@ -465,7 +507,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       )}
       {showExtra && creatinineData.length > 0 && (
         <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.creatinine')}趋势（肾功能）</h4>
+          <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.creatinine')}{UI.renal}</h4>
           <div className="h-40 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={creatinineData}>
