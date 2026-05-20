@@ -28,6 +28,9 @@ const OPTIONAL_METRICS = CORE_METRICS.filter(
   (m) => !['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose', 'core.bmi'].includes(m.code)
 );
 
+const metricLabel = (code: string): string =>
+  CORE_METRICS.find((m) => m.code === code)?.label ?? code;
+
 const CHART_COLORS: Record<string, string> = {
   'core.tc': '#0d9488',
   'core.tg': '#f59e0b',
@@ -39,11 +42,11 @@ const CHART_COLORS: Record<string, string> = {
 };
 
 const LIPID_VARIANTS = ['tc', 'tg', 'ldl', 'hdl'] as const;
-const LIPID_META: Record<(typeof LIPID_VARIANTS)[number], { code: string; title: string; color: string }> = {
-  tc: { code: 'core.tc', title: '???? TC', color: '#0d9488' },
-  tg: { code: 'core.tg', title: '???? TG', color: '#f59e0b' },
-  ldl: { code: 'core.ldl', title: '?????? LDL', color: '#ef4444' },
-  hdl: { code: 'core.hdl', title: '?????? HDL', color: '#3b82f6' },
+const LIPID_META: Record<(typeof LIPID_VARIANTS)[number], { code: string; color: string }> = {
+  tc: { code: 'core.tc', color: '#0d9488' },
+  tg: { code: 'core.tg', color: '#f59e0b' },
+  ldl: { code: 'core.ldl', color: '#ef4444' },
+  hdl: { code: 'core.hdl', color: '#3b82f6' },
 };
 
 export const HealthTrendCharts: React.FC<Props> = ({
@@ -146,7 +149,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
   );
 
   if (loading) {
-    return <div className={`text-center text-xs text-slate-400 py-6 ${className}`}>???????</div>;
+    return <div className={`text-center text-xs text-slate-400 py-6 ${className}`}>加载趋势数据…</div>;
   }
 
   if (isDashboard) {
@@ -157,7 +160,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
     if (!hasDefault && !hasOptional && !optionalLoading) {
       return (
         <div className={`text-center text-xs text-slate-400 py-6 ${className}`}>
-          ???????????????????
+          暂无历史观测，更新指标后将自动生成趋势
         </div>
       );
     }
@@ -166,7 +169,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       <div className={`space-y-4 ${className}`}>
         {bpData.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">????</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">血压趋势</h4>
             <div className="h-48 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={bpData}>
@@ -175,8 +178,22 @@ export const HealthTrendCharts: React.FC<Props> = ({
                   <YAxis fontSize={10} domain={['dataMin - 10', 'dataMax + 10']} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
                   <Legend wrapperStyle={{ fontSize: '10px' }} />
-                  <Line type="monotone" dataKey="sbp" name="???" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="dbp" name="???" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line
+                    type="monotone"
+                    dataKey="sbp"
+                    name={metricLabel('core.sbp')}
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="dbp"
+                    name={metricLabel('core.dbp')}
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -184,7 +201,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
         )}
         {weightData.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">????</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">体重趋势</h4>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={weightData}>
@@ -192,7 +209,14 @@ export const HealthTrendCharts: React.FC<Props> = ({
                   <XAxis dataKey="label" fontSize={10} />
                   <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="value" name="??(kg)" stroke="#0d9488" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    name={`${metricLabel('core.weight')}(kg)`}
+                    stroke="#0d9488"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -200,7 +224,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
         )}
         {glucoseData.length > 0 && (
           <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">??????</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">空腹血糖趋势</h4>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={glucoseData}>
@@ -208,20 +232,27 @@ export const HealthTrendCharts: React.FC<Props> = ({
                   <XAxis dataKey="label" fontSize={10} />
                   <YAxis fontSize={10} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="value" name="mmol/L" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    name="mmol/L"
+                    stroke="#8b5cf6"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-          <label className="mb-1 block text-xs font-bold text-slate-600">??????????</label>
+          <label className="mb-1 block text-xs font-bold text-slate-600">查看更多定量指标趋势</label>
           <select
             className="w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm"
             value={selectedOptional}
             onChange={(e) => setSelectedOptional(e.target.value)}
           >
-            <option value="">?????????????????</option>
+            <option value="">请选择指标（血脂、腰围、肾功能等）</option>
             {OPTIONAL_METRICS.map((m) => (
               <option key={m.code} value={m.code}>
                 {m.label}
@@ -230,14 +261,14 @@ export const HealthTrendCharts: React.FC<Props> = ({
           </select>
         </div>
         {optionalLoading && (
-          <div className="text-center text-xs text-slate-400 py-4">???????</div>
+          <div className="text-center text-xs text-slate-400 py-4">加载指标趋势…</div>
         )}
         {!optionalLoading && selectedOptional && optionalSeries.length === 0 && (
-          <div className="text-center text-xs text-slate-400 py-4">?????????</div>
+          <div className="text-center text-xs text-slate-400 py-4">该指标暂无历史数据</div>
         )}
         {!optionalLoading && hasOptional && optionalMeta && (
           <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{optionalMeta.label} ??</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">{optionalMeta.label} 趋势</h4>
             <div className="h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={optionalSeries}>
@@ -291,7 +322,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
   if (!hasAny) {
     return (
       <div className={`text-center text-xs text-slate-400 py-6 ${className}`}>
-        ???????????????????
+        暂无历史观测，更新指标后将自动生成趋势
       </div>
     );
   }
@@ -300,9 +331,10 @@ export const HealthTrendCharts: React.FC<Props> = ({
     const data = lipidData[key];
     if (!data.length) return null;
     const meta = LIPID_META[key];
+    const title = metricLabel(meta.code);
     return (
       <div key={key}>
-        <h4 className="text-sm font-bold text-slate-700 mb-2">{meta.title}</h4>
+        <h4 className="text-sm font-bold text-slate-700 mb-2">{title}</h4>
         <div className="h-40 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data}>
@@ -329,7 +361,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
     <div className={`space-y-4 ${className}`}>
       {showBp && bpData.length > 0 && (
         <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">????</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">血压趋势</h4>
           <div className="h-48 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={bpData}>
@@ -338,8 +370,22 @@ export const HealthTrendCharts: React.FC<Props> = ({
                 <YAxis fontSize={10} domain={['dataMin - 10', 'dataMax + 10']} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
                 <Legend wrapperStyle={{ fontSize: '10px' }} />
-                <Line type="monotone" dataKey="sbp" name="???" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="dbp" name="???" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} />
+                <Line
+                  type="monotone"
+                  dataKey="sbp"
+                  name={metricLabel('core.sbp')}
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="dbp"
+                  name={metricLabel('core.dbp')}
+                  stroke="#f97316"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -347,15 +393,22 @@ export const HealthTrendCharts: React.FC<Props> = ({
       )}
       {showWeight && weightData.length > 0 && (
         <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">????</h4>
-          <div className="h-40 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={weightData}>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">体重趋势</h4>
+            <div className="h-40 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={weightData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="label" fontSize={10} />
                 <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" name="??(kg)" stroke="#0d9488" strokeWidth={2} dot={{ r: 3 }} />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  name={`${metricLabel('core.weight')}(kg)`}
+                  stroke="#0d9488"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -363,7 +416,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       )}
       {showGlucose && glucoseData.length > 0 && (
         <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">??????</h4>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">空腹血糖趋势</h4>
           <div className="h-40 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={glucoseData}>
@@ -380,7 +433,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       {showLipids && lipidKeysToShow.map(renderLipidChart)}
       {showExtra && waistData.length > 0 && (
         <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">????</h4>
+          <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.waist')}??</h4>
           <div className="h-40 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={waistData}>
@@ -396,7 +449,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       )}
       {showExtra && bodyFatData.length > 0 && (
         <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">?????</h4>
+          <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.body_fat_rate')}??</h4>
           <div className="h-40 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={bodyFatData}>
@@ -412,7 +465,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       )}
       {showExtra && creatinineData.length > 0 && (
         <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">??????????</h4>
+          <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.creatinine')}趋势（肾功能）</h4>
           <div className="h-40 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={creatinineData}>
@@ -420,7 +473,14 @@ export const HealthTrendCharts: React.FC<Props> = ({
                 <XAxis dataKey="label" fontSize={10} />
                 <YAxis fontSize={10} domain={['auto', 'auto']} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" name="?mol/L" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3 }} />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  name={CORE_METRICS.find((m) => m.code === 'core.creatinine')?.unit ?? '?mol/L'}
+                  stroke="#14b8a6"
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
