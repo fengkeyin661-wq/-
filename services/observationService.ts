@@ -26,6 +26,18 @@ export interface ChartPoint {
   source?: string;
 }
 
+/** 趋势图横轴：年月日（如 2024年4月24日） */
+export const formatObservationChartLabel = (observedAt: string): string => {
+  const day = observedAt.slice(0, 10);
+  const match = day.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (match) {
+    return `${match[1]}年${parseInt(match[2], 10)}月${parseInt(match[3], 10)}日`;
+  }
+  const d = new Date(observedAt);
+  if (Number.isNaN(d.getTime())) return day;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+};
+
 const OBSERVATIONS_CACHE_PREFIX = 'HEALTH_OBSERVATIONS_CACHE_';
 
 const cacheKey = (checkupId: string) => `${OBSERVATIONS_CACHE_PREFIX}${checkupId}`;
@@ -185,7 +197,7 @@ export const buildChartSeries = (
     .filter((r) => r.metric_code === metricCode && r.value_numeric != null)
     .map((r) => ({
       date: r.observed_at.slice(0, 10),
-      label: new Date(r.observed_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }),
+      label: formatObservationChartLabel(r.observed_at),
       value: Number(r.value_numeric),
       source: r.source,
     }));
@@ -197,10 +209,7 @@ export const buildBpChartData = (
   const byDate = new Map<string, { date: string; label: string; sbp?: number; dbp?: number }>();
   for (const r of rows) {
     const key = r.observed_at.slice(0, 10);
-    const label = new Date(r.observed_at).toLocaleDateString('zh-CN', {
-      month: 'short',
-      day: 'numeric',
-    });
+    const label = formatObservationChartLabel(r.observed_at);
     const cur = byDate.get(key) || { date: key, label };
     if (r.metric_code === 'core.sbp' && r.value_numeric != null) cur.sbp = Number(r.value_numeric);
     if (r.metric_code === 'core.dbp' && r.value_numeric != null) cur.dbp = Number(r.value_numeric);
