@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
 import { CriticalHandleModal } from './CriticalHandleModal';
-import { fetchObservationSeries, buildBpChartData } from '../services/observationService';
+import { HealthTrendCharts } from './HealthTrendCharts';
 
 interface Props {
   records: FollowUpRecord[];
@@ -53,22 +52,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const [showSmsModal, setShowSmsModal] = useState(false);
   const [smsContent, setSmsContent] = useState('');
   const [isGeneratingSms, setIsGeneratingSms] = useState(false);
-
-  // State for Chart View
-  const [activeChart, setActiveChart] = useState<'bp' | 'metabolic' | 'lipids'>('bp');
-  const [observationChartRows, setObservationChartRows] = useState<
-    {
-      date: string;
-      sbp?: number;
-      dbp?: number;
-      glucose?: number;
-      weight?: number;
-      tc?: number;
-      tg?: number;
-      ldl?: number;
-      hdl?: number;
-    }[]
-  >([]);
 
   // State for Critical Value Modal
   const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
@@ -437,117 +420,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       }
   };
 
-  useEffect(() => {
-    if (!currentPatientId) {
-      setObservationChartRows([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const rows = await fetchObservationSeries(
-        currentPatientId,
-        [
-          'core.sbp',
-          'core.dbp',
-          'core.weight',
-          'core.fasting_glucose',
-          'core.tc',
-          'core.tg',
-          'core.ldl',
-          'core.hdl',
-          'core.waist',
-          'core.body_fat_rate',
-          'core.creatinine',
-        ],
-        200
-      );
-      if (cancelled) return;
-      const bp = buildBpChartData(rows);
-      const byDate = new Map<string, (typeof observationChartRows)[0]>();
-      for (const p of bp) {
-        byDate.set(p.date, { date: p.date, sbp: p.sbp, dbp: p.dbp });
-      }
-      for (const r of rows) {
-        const key = r.observed_at.slice(0, 10);
-        const cur = byDate.get(key) || { date: key };
-        const v = r.value_numeric != null ? Number(r.value_numeric) : undefined;
-        if (r.metric_code === 'core.fasting_glucose') cur.glucose = v;
-        if (r.metric_code === 'core.weight') cur.weight = v;
-        if (r.metric_code === 'core.tc') cur.tc = v;
-        if (r.metric_code === 'core.tg') cur.tg = v;
-        if (r.metric_code === 'core.ldl') cur.ldl = v;
-        if (r.metric_code === 'core.hdl') cur.hdl = v;
-        byDate.set(key, cur);
-      }
-      setObservationChartRows(
-        Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
-      );
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentPatientId, records.length]);
-
-  const chartNum = (v: number | undefined) => (v != null && Number.isFinite(v) && v > 0 ? v : undefined);
-  let chartData: any[] = sortedRecords.map(r => ({
-      date: r.date,
-      sbp: chartNum(r.indicators.sbp),
-      dbp: chartNum(r.indicators.dbp),
-      heartRate: chartNum(r.indicators.heartRate),
-      glucose: chartNum(r.indicators.glucose),
-      weight: chartNum(r.indicators.weight),
-      tc: chartNum(r.indicators.tc),
-      tg: chartNum(r.indicators.tg),
-      ldl: chartNum(r.indicators.ldl),
-      type: 'followup'
-  }));
-
-  if (healthRecord && healthRecord.checkup) {
-      const b = healthRecord.checkup.basics;
-      const l = healthRecord.checkup.labBasic;
-      if (b.sbp || b.weight || l.glucose?.fasting) {
-           const baselinePoint = {
-              date: healthRecord.profile.checkupDate || currentArchive?.created_at?.split('T')[0] || '建档基线',
-              sbp: b.sbp || undefined,
-              dbp: b.dbp || undefined,
-              heartRate: undefined,
-              glucose: l.glucose?.fasting ? parseFloat(l.glucose.fasting) : undefined,
-              weight: b.weight || undefined,
-              tc: l.lipids?.tc ? parseFloat(l.lipids.tc) : undefined,
-              tg: l.lipids?.tg ? parseFloat(l.lipids.tg) : undefined,
-              ldl: l.lipids?.ldl ? parseFloat(l.lipids.ldl) : undefined,
-              type: 'baseline'
-          };
-          chartData = [baselinePoint, ...chartData].sort((a, b) => {
-              if (a.date === '建档基线') return -1;
-              if (b.date === '建档基线') return 1;
-              return new Date(a.date).getTime() - new Date(b.date).getTime();
-          });
-      }
-  }
-
-  if (observationChartRows.length > 0) {
-      const obsMapped = observationChartRows.map((r) => ({
-          date: r.date,
-          sbp: chartNum(r.sbp),
-          dbp: chartNum(r.dbp),
-          glucose: chartNum(r.glucose),
-          weight: chartNum(r.weight),
-          tc: chartNum(r.tc),
-          tg: chartNum(r.tg),
-          ldl: chartNum(r.ldl),
-          type: 'observation',
-      }));
-      const merged = new Map<string, any>();
-      [...chartData, ...obsMapped].forEach((row) => {
-          const key = row.date;
-          merged.set(key, { ...(merged.get(key) || {}), ...row, date: key });
-      });
-      chartData = Array.from(merged.values()).sort(
-          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
-  }
-
   const summaryChartData = assessment ? [
     { name: 'High', value: Math.max(assessment.risks.red.length, 0.5), color: '#ef4444' },
     { name: 'Medium', value: Math.max(assessment.risks.yellow.length, 0.5), color: '#eab308' },
@@ -720,67 +592,22 @@ export const FollowUpDashboard: React.FC<Props> = ({
           {/* Left Column: Charts + Profile Summary */}
           <div className="lg:col-span-2 space-y-6">
               {/* Charts Card */}
-              <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-[400px]">
-                 <div className="flex justify-between items-center mb-4">
+              <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col">
+                 <div className="mb-4">
                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                         <span>📈</span> 核心指标监测
                      </h2>
-                     <div className="flex bg-slate-100 rounded-lg p-1">
-                         {[{id: 'bp', label: '血压/心率'}, {id: 'metabolic', label: '血糖/体重'}, {id: 'lipids', label: '血脂趋势'}].map(tab => (
-                             <button 
-                                 key={tab.id}
-                                 onClick={() => setActiveChart(tab.id as any)}
-                                 className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeChart === tab.id ? 'bg-white shadow text-teal-700' : 'text-slate-500 hover:text-slate-700'}`}
-                             >
-                                 {tab.label}
-                             </button>
-                         ))}
-                     </div>
+                     <p className="text-xs text-slate-500 mt-1">
+                       与用户端一致：默认血压、体重、空腹血糖分图展示，其余指标可单选查看
+                     </p>
                  </div>
-                 
-                 <div className="flex-1 w-full min-h-0">
-                     {chartData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                <XAxis dataKey="date" fontSize={12} stroke="#9ca3af" tickMargin={10} />
-                                <YAxis fontSize={12} stroke="#9ca3af" domain={['auto', 'auto']} />
-                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                                <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                                
-                                {activeChart === 'bp' && (
-                                    <>
-                                        <ReferenceLine y={140} stroke="red" strokeDasharray="3 3" label={{ value: 'SBP上限 140', fill: 'red', fontSize: 10, position: 'right' }} />
-                                        <ReferenceLine y={90} stroke="orange" strokeDasharray="3 3" label={{ value: 'DBP上限 90', fill: 'orange', fontSize: 10, position: 'right' }} />
-                                        <Line type="monotone" dataKey="sbp" name="收缩压" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                        <Line type="monotone" dataKey="dbp" name="舒张压" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                        <Line type="monotone" dataKey="heartRate" name="心率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} connectNulls />
-                                    </>
-                                )}
-                                {activeChart === 'metabolic' && (
-                                    <>
-                                        <ReferenceLine y={6.1} stroke="#0ea5e9" strokeDasharray="3 3" label={{ value: '空腹血糖上限 6.1', fill: '#0ea5e9', fontSize: 10, position: 'insideTopRight' }} />
-                                        <Line type="monotone" dataKey="glucose" name="空腹血糖" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                        <Line type="monotone" dataKey="weight" name="体重(kg)" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} connectNulls />
-                                    </>
-                                )}
-                                {activeChart === 'lipids' && (
-                                    <>
-                                        <ReferenceLine y={5.2} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: 'TC上限 5.2', fill: '#f59e0b', fontSize: 10 }} />
-                                        <ReferenceLine y={1.7} stroke="#84cc16" strokeDasharray="3 3" label={{ value: 'TG上限 1.7', fill: '#84cc16', fontSize: 10 }} />
-                                        <Line type="monotone" dataKey="tc" name="总胆固醇" stroke="#f59e0b" strokeWidth={2} connectNulls />
-                                        <Line type="monotone" dataKey="tg" name="甘油三酯" stroke="#84cc16" strokeWidth={2} connectNulls />
-                                        <Line type="monotone" dataKey="ldl" name="LDL-C" stroke="#dc2626" strokeWidth={2} connectNulls />
-                                    </>
-                                )}
-                            </LineChart>
-                        </ResponsiveContainer>
-                     ) : (
-                         <div className="h-full flex items-center justify-center text-slate-400 bg-slate-50 rounded-lg">
-                             暂无监测数据
-                         </div>
-                     )}
-                 </div>
+                 {currentPatientId ? (
+                   <HealthTrendCharts checkupId={currentPatientId} variant="dashboard" />
+                 ) : (
+                   <div className="py-12 text-center text-sm text-slate-400 bg-slate-50 rounded-lg">
+                     请先选择受检者
+                   </div>
+                 )}
               </div>
 
               {/* Patient Basic Info & Assessment Card (New) */}
