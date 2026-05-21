@@ -14,12 +14,12 @@ interface Props {
 }
 
 // Helper to safely read env in Vite/browser
-const getBaichuanApiKey = (): string => {
+const getDeepSeekApiKey = (): string => {
   try {
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env) {
       // @ts-ignore
-      return (import.meta as any).env.VITE_BAICHUAN_API_KEY || '';
+      return (import.meta as any).env.VITE_DEEPSEEK_API_KEY || '';
     }
   } catch (e) {
     console.warn('Cannot read import.meta.env in current environment');
@@ -27,7 +27,7 @@ const getBaichuanApiKey = (): string => {
   return '';
 };
 
-const BAICHUAN_API_KEY = getBaichuanApiKey();
+const DEEPSEEK_API_KEY = getDeepSeekApiKey();
 
 // Use proxy in development, direct URL in production
 const isDev = (() => {
@@ -39,9 +39,10 @@ const isDev = (() => {
   }
 })();
 
-const BAICHUAN_API_URL = isDev 
-  ? '/api/baichuan/v1/chat/completions'  // Use Vite proxy in development
-  : 'https://api.baichuan-ai.com/v1/chat/completions';  // Direct call in production
+const DEEPSEEK_API_URL = isDev
+  ? '/api/deepseek/chat/completions'
+  : 'https://api.deepseek.com/chat/completions';
+const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const DEFAULT_OVERVIEW_QUESTION = '请根据我的健康档案，给我一份“档案总览建议”，按今天、本周、本月分别给出可执行计划。';
 
 export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = false, record, assessment }) => {
@@ -102,8 +103,8 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
 
     setIsLoading(true);
     try {
-      if (!BAICHUAN_API_KEY) {
-        const errorMsg = '未配置百川API密钥，请在环境变量中设置 VITE_BAICHUAN_API_KEY';
+      if (!DEEPSEEK_API_KEY) {
+        const errorMsg = '未配置 DeepSeek API 密钥，请在环境变量中设置 VITE_DEEPSEEK_API_KEY';
         console.error(errorMsg);
         setError(errorMsg);
         setIsLoading(false);
@@ -124,7 +125,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
         : '【用户健康档案摘要】暂无结构化档案数据，仅可给通用建议。';
 
       const payload: any = {
-        model: 'Baichuan2-Turbo',
+        model: DEEPSEEK_MODEL,
         messages: [
           { role: 'system', content: `${systemPrompt}\n${archiveContext}` },
           ...nextMessages.map((m) => ({
@@ -138,30 +139,30 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
         temperature: 0.3,
       };
 
-      console.log('[Baichuan] Calling API:', BAICHUAN_API_URL);
-      console.log('[Baichuan] Payload:', JSON.stringify(payload, null, 2));
+      console.log('[DeepSeek] Calling API:', DEEPSEEK_API_URL);
+      console.log('[DeepSeek] Payload:', JSON.stringify(payload, null, 2));
 
-      const resp = await fetch(BAICHUAN_API_URL, {
+      const resp = await fetch(DEEPSEEK_API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${BAICHUAN_API_KEY}`,
+          'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
         },
         body: JSON.stringify(payload),
       });
 
-      console.log('[Baichuan] Response status:', resp.status, resp.statusText);
+      console.log('[DeepSeek] Response status:', resp.status, resp.statusText);
 
       if (!resp.ok) {
         const text = await resp.text();
-        console.error('[Baichuan] Error response:', text);
-        throw new Error(`百川接口返回错误：${resp.status} ${resp.statusText} - ${text.slice(0, 200)}`);
+        console.error('[DeepSeek] Error response:', text);
+        throw new Error(`DeepSeek 接口返回错误：${resp.status} ${resp.statusText} - ${text.slice(0, 200)}`);
       }
 
       const data = await resp.json();
-      console.log('[Baichuan] Response data:', data);
+      console.log('[DeepSeek] Response data:', data);
 
-      // 百川API响应格式：{ choices: [{ message: { content: "..." } }] }
+      // DeepSeek 响应格式：{ choices: [{ message: { content: "..." } }] }
       const assistantContent =
         data?.choices?.[0]?.message?.content ||
         data?.data?.choices?.[0]?.message?.content ||
@@ -172,7 +173,7 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
 
       setMessages((prev) => [...prev, { role: 'assistant', content: String(assistantContent) }]);
     } catch (e: any) {
-      console.error('[Baichuan] Exception:', e);
+      console.error('[DeepSeek] Exception:', e);
       const errorMessage = e?.message || '调用虚拟助手失败，请稍后重试。';
       setError(errorMessage);
       

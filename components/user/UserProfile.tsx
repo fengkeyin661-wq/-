@@ -10,6 +10,7 @@ import {
     ContentItem,
 } from '../../services/contentService';
 import { HealthTrendCharts } from '../HealthTrendCharts';
+import { UserMetricPreferences } from './UserMetricPreferences';
 import { UserMetricEntryModal } from './UserMetricEntryModal';
 import { fetchLatestAssessmentRun } from '../../services/assessmentPipelineService';
 import type { UserMetricKey } from '../../services/observationMapper';
@@ -774,6 +775,7 @@ export const UserProfile: React.FC<Props> = ({
                                     {/* legacy mini charts removed */}
 </div>
                             )}
+                            <UserMetricPreferences archiveId={archive.id} />
                             {archive.draft_data && (
                                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                                     有新的 AI 健康建议待医生审核发布（
