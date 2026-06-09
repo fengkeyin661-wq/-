@@ -150,8 +150,8 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
         <table><thead><tr><th>星期</th><th>活动</th><th>时长</th><th>强度</th></tr></thead><tbody>${exerciseHtml}</tbody></table>
         <p><strong>注意事项：</strong></p>${listHtml(report.exercisePlan.precautions)}
       </div>
-      <div class="section"><h3>六、严重并发症就医提醒</h3>
-        ${report.complicationAlerts.length ? listHtml(report.complicationAlerts) : '<p class="muted">本次未见需紧急就医的严重并发症信号，请继续保持定期筛查。</p>'}
+      <div class="section"><h3>六、并发症就医提醒</h3>
+        ${report.complicationAlerts.length ? listHtml(report.complicationAlerts) : '<p class="muted">本次未见需及时就医的并发症相关信号，请继续保持定期筛查。</p>'}
       </div>
       <div class="section"><h3>七、指南与系统建议</h3>${listHtml(report.guidelineNotes)}</div>
       <div class="section"><h3>八、糖尿病常见检测指标科普</h3>${indicatorEducationTableHtml(report.indicatorEducation)}</div>
@@ -261,11 +261,11 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
         <p className="text-sm text-slate-600">{report.exercisePlan.summary}</p>
       </Section>
       <Section
-        title="六、严重并发症就医提醒"
+        title="六、并发症就医提醒"
         items={
           report.complicationAlerts.length
             ? report.complicationAlerts
-            : ['本次未见需紧急就医的严重并发症信号，请继续保持定期筛查。']
+            : ['本次未见需及时就医的并发症相关信号，请继续保持定期筛查。']
         }
       />
       <Section title="七、指南与系统建议" items={report.guidelineNotes.slice(0, 4)} />

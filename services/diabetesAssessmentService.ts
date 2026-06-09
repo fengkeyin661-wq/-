@@ -154,7 +154,7 @@ const buildMissedItems = (
         label: check.label,
         priority: 'high',
         reason: '本次社区并发症初筛活动中未完成该项检测',
-        recommendedCycle: '尽快补检',
+        recommendedCycle: '建议补检',
       });
     }
   }
@@ -237,7 +237,7 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
 
     const doneDomains = domains.filter((d) => d.status !== 'not_done');
     if (doneDomains.length && doneDomains.every((d) => d.status === 'normal')) {
-      screeningFindings.push('初筛已完成项目未见显著异常，请继续保持健康生活方式并定期复查');
+      screeningFindings.push('初筛已完成项目未见异常，请继续保持健康生活方式并定期复查');
     }
   }
 

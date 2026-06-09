@@ -120,7 +120,7 @@ export const evaluateGlucoseDomain = (
     if (fasting < 3.9) {
       status = mergeStatus(status, 'critical');
       result.findings.push(`空腹血糖 ${fasting} mmol/L，偏低（低血糖风险）`);
-      result.alerts.push('血糖偏低，若伴心慌出汗等不适请立即就医');
+      result.alerts.push('血糖偏低，若伴心慌出汗等不适请及时就医');
       result.retest.push({
         itemId: 'glucose_fasting',
         label: '空腹血糖',
@@ -130,8 +130,8 @@ export const evaluateGlucoseDomain = (
       });
     } else if (fasting >= 11.1) {
       status = 'critical';
-      result.findings.push(`空腹血糖 ${fasting} mmol/L，显著升高`);
-      result.alerts.push('空腹血糖显著升高，建议尽快内分泌科就诊');
+      result.findings.push(`空腹血糖 ${fasting} mmol/L，升高`);
+      result.alerts.push('空腹血糖升高，建议内分泌科就诊');
       result.retest.push({
         itemId: 'glucose_fasting',
         label: '空腹血糖',
@@ -176,8 +176,8 @@ export const evaluateGlucoseDomain = (
   if (post != null) {
     if (post >= 11.1) {
       status = mergeStatus(status, 'critical');
-      result.findings.push(`餐后随机血糖 ${post} mmol/L，显著升高`);
-      result.alerts.push('餐后血糖显著升高，建议内分泌科进一步评估');
+      result.findings.push(`餐后随机血糖 ${post} mmol/L，升高`);
+      result.alerts.push('餐后血糖升高，建议内分泌科进一步评估');
       result.retest.push({
         itemId: 'glucose_postprandial',
         label: '餐后随机血糖',
@@ -269,12 +269,12 @@ export const evaluateEcgDomain = (screening: DiabetesScreeningRecord | null): Sc
     )
   ) {
     status = 'critical';
-    result.findings.push(`心电图诊断提示：${text || '显著异常'}`);
-    result.alerts.push('心电图提示严重异常，建议尽快心内科就诊');
+    result.findings.push(`心电图诊断提示：${text || '异常'}`);
+    result.alerts.push('心电图提示异常，建议心内科就诊');
     result.retest.push({
       itemId: 'ecg',
       label: '心电图',
-      currentFinding: text || '显著异常',
+      currentFinding: text || '异常',
       advice: '心内科就诊，完善心肌酶、动态心电图或心脏彩超',
       urgency: 'urgent',
     });
@@ -373,7 +373,7 @@ export const evaluateArteriosclerosisDomain = (
   const evalBaPWV = (pwv: number, side: string) => {
     if (pwv >= 1800) {
       status = mergeStatus(status, 'abnormal');
-      result.findings.push(`${side}臂踝 PWV ${pwv} cm/s，动脉硬化程度较重`);
+      result.findings.push(`${side}臂踝 PWV ${pwv} cm/s，动脉硬化程度偏高`);
       result.retest.push({
         itemId: 'arteriosclerosis',
         label: '臂踝脉搏波传导速度',
@@ -395,7 +395,7 @@ export const evaluateArteriosclerosisDomain = (
   if (cfPWV != null) {
     if (cfPWV >= 12) {
       status = mergeStatus(status, 'abnormal');
-      result.findings.push(`颈股 PWV ${cfPWV} m/s，大动脉硬化明显`);
+      result.findings.push(`颈股 PWV ${cfPWV} m/s，大动脉硬化`);
     } else if (cfPWV >= 10) {
       status = mergeStatus(status, 'borderline');
       result.findings.push(`颈股 PWV ${cfPWV} m/s，动脉弹性减退`);
@@ -408,7 +408,7 @@ export const evaluateArteriosclerosisDomain = (
     if (sbp >= 180 || dbp >= 110) {
       status = mergeStatus(status, 'critical');
       result.findings.push(`${side}上肢血压 ${sbp}/${dbp} mmHg，达高血压3级`);
-      result.alerts.push('血压显著升高，请尽快就医');
+      result.alerts.push('血压偏高，建议就医评估');
     } else if (sbp >= 140 || dbp >= 90) {
       status = mergeStatus(status, 'abnormal');
       result.findings.push(`${side}上肢血压 ${sbp}/${dbp} mmHg，偏高（糖尿病人群建议 <130/80）`);
@@ -489,7 +489,7 @@ export const evaluateFundusDomain = (screening: DiabetesScreeningRecord | null):
     ) {
       status = mergeStatus(status, 'critical');
       result.findings.push(`${side}眼：${text}（需眼科专科评估）`);
-      result.alerts.push(`${side}眼眼底病变较重，请2周内眼科就诊`);
+      result.alerts.push(`${side}眼眼底病变需关注，建议2周内眼科就诊`);
       result.retest.push({
         itemId: 'fundus',
         label: '眼底照相',
@@ -511,7 +511,7 @@ export const evaluateFundusDomain = (screening: DiabetesScreeningRecord | null):
       status = mergeStatus(status, 'borderline');
       result.findings.push(`${side}眼：${text}`);
     } else if (/未见|无异常|正常|未发现/.test(text)) {
-      result.findings.push(`${side}眼：未见明显糖尿病视网膜病变`);
+      result.findings.push(`${side}眼：未见糖尿病视网膜病变`);
     } else if (hasText(text)) {
       result.findings.push(`${side}眼：${text}`);
     }
@@ -582,7 +582,7 @@ export const evaluateBodyCompositionDomain = (
     const veryHigh = isMale ? 30 : 35;
     if (bfr >= veryHigh) {
       status = mergeStatus(status, 'abnormal');
-      result.findings.push(`体脂率 ${bfr}%，明显偏高`);
+      result.findings.push(`体脂率 ${bfr}%，偏高`);
     } else if (bfr >= high) {
       status = mergeStatus(status, 'borderline');
       result.findings.push(`体脂率 ${bfr}%，偏高`);

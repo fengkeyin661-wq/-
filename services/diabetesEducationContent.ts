@@ -228,7 +228,7 @@ export const GUIDELINE_NOTES = [
   '血压控制目标<130/80 mmHg（无禁忌时），合并肾病者需个体化',
   'LDL-C控制目标：无ASCVD <2.6 mmol/L，有ASCVD <1.8 mmol/L',
   '规律监测血糖：口服药治疗者每月至少4次；胰岛素治疗者每日监测',
-  '出现视力骤降、足部破溃、胸闷胸痛等症状应立即就医',
+  '出现视力骤降、足部破溃、胸闷胸痛等症状请及时就医',
 ];
 
 export const getDietGuidance = (): DietGuidance => ({
@@ -280,7 +280,7 @@ export const getExerciseGuidance = (riskLevel: RiskLevel): ExerciseGuidance => {
 
   return {
     summary: isHighRisk
-      ? '当前存在较高健康风险，建议在医生指导下从低强度运动开始，每周累计约90分钟'
+      ? '建议在医生指导下从低强度运动开始，每周累计约90分钟'
       : isMediumRisk
         ? '建议每周至少150分钟中等强度有氧运动，配合2次抗阻训练'
         : '建议每周至少150分钟中等强度有氧运动，配合2–3次抗阻训练，维持代谢健康',
@@ -289,7 +289,7 @@ export const getExerciseGuidance = (riskLevel: RiskLevel): ExerciseGuidance => {
       '运动前监测血糖，<5.6 mmol/L时适量加餐，>16.7 mmol/L暂缓运动',
       '避免空腹剧烈运动，防止低血糖',
       '穿合适鞋袜，运动后检查足部',
-      '出现胸痛、气短、头晕立即停止运动并就医',
+      '出现胸痛、气短、头晕时应停止运动并及时就医',
       '高血压未控制者避免憋气用力动作',
     ],
   };
