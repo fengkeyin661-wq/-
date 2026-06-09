@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DiabetesAssessmentResult, HealthProfile, IndicatorEdu, ScreeningFindingRow, DietGuidance, GiFoodItem, GiEducationGuide } from '../types';
+import type { DiabetesAssessmentResult, HealthProfile, IndicatorEdu, ScreeningFindingSection, DietGuidance, GiFoodItem, GiEducationGuide } from '../types';
 import { DIABETES_CLINIC_CONTACT, GI_EDUCATION, formatGiLevel, REPORT_ENCOURAGEMENT } from '../services/diabetesEducationContent';
 
 interface Props {
@@ -76,19 +76,25 @@ const giFoodTableHtml = (foods: GiFoodItem[]) => {
   return `<table><thead><tr><th>食物</th><th>GI值（参考）</th><th>GI分类</th><th>选食建议</th></tr></thead><tbody>${rows}</tbody></table>`;
 };
 
-const getScreeningFindingRows = (report: DiabetesAssessmentResult): ScreeningFindingRow[] => {
-  if (report.screeningFindingRows?.length) return report.screeningFindingRows;
-  return report.screeningFindings
-    .filter((f) => !f.startsWith('初筛已完成') && !f.startsWith('暂无社区'))
-    .map((f) => {
-      const m = f.match(/^【([^】]+)】(.+)$/);
-      return {
-        domainLabel: m?.[1] ?? '—',
-        itemLabel: '—',
-        result: m?.[2] ?? f,
-        referenceRange: '—',
-      };
-    });
+const getScreeningFindingSections = (report: DiabetesAssessmentResult): ScreeningFindingSection[] => {
+  if (report.screeningFindingSections?.length) return report.screeningFindingSections;
+
+  const grouped = new Map<string, string[]>();
+  for (const line of report.screeningFindings) {
+    if (line.startsWith('初筛已完成') || line.startsWith('暂无社区')) continue;
+    const m = line.match(/^【([^】]+)】(.+)$/);
+    if (!m) continue;
+    const list = grouped.get(m[1]) ?? [];
+    list.push(m[2]);
+    grouped.set(m[1], list);
+  }
+
+  return [...grouped.entries()].map(([itemLabel, paragraphs], index) => ({
+    domainId: `legacy-${index}`,
+    itemLabel,
+    status: 'done' as const,
+    paragraphs,
+  }));
 };
 
 const screeningSummaryNote = (report: DiabetesAssessmentResult) =>
@@ -96,45 +102,38 @@ const screeningSummaryNote = (report: DiabetesAssessmentResult) =>
     (f) => f.startsWith('初筛已完成') || f.startsWith('暂无社区')
   );
 
-const ScreeningFindingTable: React.FC<{ rows: ScreeningFindingRow[] }> = ({ rows }) => {
-  if (!rows.length) {
+const ScreeningFindingSections: React.FC<{ sections: ScreeningFindingSection[] }> = ({ sections }) => {
+  if (!sections.length) {
     return <p className="text-sm text-slate-500">暂无</p>;
   }
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm border border-slate-200">
-        <thead>
-          <tr className="bg-slate-50 text-slate-700">
-            <th className="border border-slate-200 px-3 py-2 text-left font-bold">检查项目</th>
-            <th className="border border-slate-200 px-3 py-2 text-left font-bold">检测指标</th>
-            <th className="border border-slate-200 px-3 py-2 text-left font-bold">本次结果</th>
-            <th className="border border-slate-200 px-3 py-2 text-left font-bold">正常参考范围</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className="text-slate-700">
-              <td className="border border-slate-200 px-3 py-2 font-medium whitespace-nowrap">{r.domainLabel}</td>
-              <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{r.itemLabel}</td>
-              <td className="border border-slate-200 px-3 py-2">{r.result}</td>
-              <td className="border border-slate-200 px-3 py-2">{r.referenceRange}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-4">
+      {sections.map((s) => (
+        <div key={s.domainId} className="text-sm text-slate-700">
+          <p className="font-bold text-slate-800 mb-1.5">{s.itemLabel}</p>
+          <div className="space-y-2 pl-3 border-l-2 border-teal-200">
+            {s.paragraphs.map((p, i) => (
+              <p key={i} className="leading-relaxed">
+                {p}
+              </p>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
 
-const screeningFindingTableHtml = (rows: ScreeningFindingRow[]) => {
-  if (!rows.length) return '<p class="muted">暂无</p>';
-  const body = rows
+const screeningFindingSectionsHtml = (sections: ScreeningFindingSection[]) => {
+  if (!sections.length) return '<p class="muted">暂无</p>';
+  return sections
     .map(
-      (r) =>
-        `<tr><td>${r.domainLabel}</td><td>${r.itemLabel}</td><td>${r.result}</td><td>${r.referenceRange}</td></tr>`
+      (s) =>
+        `<div class="finding-item"><p><strong>${s.itemLabel}</strong></p>${s.paragraphs
+          .map((p) => `<p>${p}</p>`)
+          .join('')}</div>`
     )
     .join('');
-  return `<table><thead><tr><th>检查项目</th><th>检测指标</th><th>本次结果</th><th>正常参考范围</th></tr></thead><tbody>${body}</tbody></table>`;
 };
 
 const IndicatorEducationTable: React.FC<{ items: IndicatorEdu[] }> = ({ items }) => {
@@ -177,18 +176,22 @@ const contactSectionHtml = () =>
 
 const encouragementHtml = () =>
   `<div class="encourage-box">
-    <p><strong>${REPORT_ENCOURAGEMENT.title}</strong></p>
+    <p class="encourage-title">${REPORT_ENCOURAGEMENT.title}</p>
+    <p class="encourage-greeting">${REPORT_ENCOURAGEMENT.greeting}</p>
     ${REPORT_ENCOURAGEMENT.paragraphs.map((p) => `<p>${p}</p>`).join('')}
+    <p class="encourage-signature">${REPORT_ENCOURAGEMENT.signature}</p>
   </div>`;
 
 const EncouragementBlock: React.FC = () => (
-  <div className="rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 to-emerald-50 p-4 text-sm text-slate-700 space-y-2">
-    <p className="font-bold text-teal-900">{REPORT_ENCOURAGEMENT.title}</p>
+  <div className="rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 to-emerald-50 p-5 text-sm text-slate-700 space-y-3">
+    <p className="font-bold text-teal-900 text-base">{REPORT_ENCOURAGEMENT.title}</p>
+    <p className="leading-relaxed">{REPORT_ENCOURAGEMENT.greeting}</p>
     {REPORT_ENCOURAGEMENT.paragraphs.map((p, i) => (
-      <p key={i} className="leading-relaxed">
+      <p key={i} className="leading-relaxed indent-8">
         {p}
       </p>
     ))}
+    <p className="text-right font-medium text-teal-900 pt-2">{REPORT_ENCOURAGEMENT.signature}</p>
   </div>
 );
 
@@ -213,7 +216,7 @@ const indicatorEducationTableHtml = (items: IndicatorEdu[]) => {
 };
 
 export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName, profile }) => {
-  const screeningRows = getScreeningFindingRows(report);
+  const screeningSections = getScreeningFindingSections(report);
   const screeningNote = screeningSummaryNote(report);
   const giEducation = getGiEducation(report.dietPlan);
   const giFoods = getGiFoods(report.dietPlan);
@@ -274,8 +277,13 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
         ul{padding-left:20px}
         .contact-box{margin-top:8px;padding:16px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px}
         .encourage-box{margin-bottom:24px;padding:18px 20px;background:linear-gradient(135deg,#f0fdfa,#ecfdf5);border:1px solid #99f6e4;border-radius:10px;color:#334155;line-height:1.8}
-        .encourage-box p{margin:0 0 10px}
-        .encourage-box p:last-child{margin-bottom:0}
+        .encourage-box p{margin:0 0 10px;text-indent:2em}
+        .encourage-box .encourage-title{font-weight:bold;font-size:16px;color:#115e59;text-indent:0;margin-bottom:12px}
+        .encourage-box .encourage-greeting{text-indent:0;margin-bottom:12px}
+        .encourage-box .encourage-signature{text-align:right;font-weight:600;color:#115e59;text-indent:0;margin-top:16px;margin-bottom:0}
+        .finding-item{margin-bottom:16px}
+        .finding-item p{margin:0 0 8px;line-height:1.7}
+        .finding-item p:last-child{margin-bottom:0}
       </style></head><body>
       <div class="header">
         <p>社区糖尿病并发症筛查</p>
@@ -285,7 +293,7 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
       ${encouragementHtml()}
       <div class="summary-box"><p>${report.summary}</p></div>
       ${alertsHtml}
-      <div class="section"><h3>一、本次检查风险提示</h3>${screeningNote ? `<p>${screeningNote}</p>` : ''}${screeningFindingTableHtml(screeningRows)}</div>
+      <div class="section"><h3>一、本次检查风险提示</h3>${screeningNote ? `<p>${screeningNote}</p>` : ''}${screeningFindingSectionsHtml(screeningSections)}</div>
       <div class="section"><h3>二、项目补检建议</h3>${missedHtml}</div>
       <div class="section"><h3>三、已检项目复检与进一步检查建议</h3>${retestHtml}</div>
       <div class="section"><h3>四、膳食指导</h3>
@@ -354,7 +362,7 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
 
       <Section title="一、本次检查风险提示">
         {screeningNote && <p className="text-sm text-slate-600 mb-2">{screeningNote}</p>}
-        <ScreeningFindingTable rows={screeningRows} />
+        <ScreeningFindingSections sections={screeningSections} />
       </Section>
       <Section title="二、项目补检建议">
         {report.missedItems.length ? (
