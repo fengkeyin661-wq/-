@@ -1,4 +1,4 @@
-import type { IndicatorEdu, DietGuidance, ExerciseGuidance } from '../types';
+import type { IndicatorEdu, DietGuidance, ExerciseGuidance, GiFoodItem, GiEducationGuide } from '../types';
 import { RiskLevel } from '../types';
 
 export const INDICATOR_EDUCATION: Record<string, IndicatorEdu> = {
@@ -184,20 +184,82 @@ export const DIABETES_CLINIC_CONTACT = {
   inviteText: '欢迎有血糖管理需求的职工联系咨询。',
 };
 
-export const HENAN_GI_FOODS: DietGuidance['henangiFoods'] = [
-  { name: '荞麦面', gi: 'low', note: '河南伏牛山地区常见，富含膳食纤维，推荐替代部分白面' },
-  { name: '小米粥', gi: 'low', note: '升糖较慢，适合早餐，不宜煮得过烂' },
-  { name: '红薯（蒸）', gi: 'low', note: '河南主产，蒸食优于烤食，每次100–150g' },
-  { name: '全麦馒头', gi: 'medium', note: '优于白馒头，建议搭配蔬菜与蛋白质' },
-  { name: '白馒头', gi: 'high', note: '河南主食，建议减量，搭配蔬菜先吃' },
-  { name: '烩面', gi: 'high', note: '汤面升糖快，建议少喝汤、多加蔬菜、控制份量' },
-  { name: '油条', gi: 'high', note: '高油高糖，不宜经常食用' },
-  { name: '胡辣汤（不加油馍头）', gi: 'medium', note: '注意勾芡与粉条用量，搭配鸡蛋或豆腐' },
-  { name: '绿豆', gi: 'low', note: '夏季绿豆汤少加糖，可作杂粮搭配' },
-  { name: '玉米（煮）', gi: 'medium', note: '河南常见，整粒玉米优于玉米糊' },
-  { name: '南瓜（蒸）', gi: 'medium', note: '老南瓜糖分与淀粉较高，升糖相对更快；嫩南瓜相对较低，均需控制份量，不宜大量替代主食' },
-  { name: '豆腐', gi: 'low', note: '优质蛋白来源，河南家常菜可常选用' },
+/** 报告开篇鼓励语 */
+export const REPORT_ENCOURAGEMENT = {
+  title: '写给您的几句话',
+  paragraphs: [
+    '感谢您参与本次糖尿病并发症筛查。愿意了解自己的身体状况，本身就是对健康负责、值得肯定的一步。',
+    '请不必因个别指标异常而过度焦虑。医学研究与实践均表明：在规范管理与医生指导下，通过科学膳食、适度运动、体重管理与规律监测，糖尿病及多数并发症可以得到有效控制，生活质量完全可以保持良好。',
+    '对于糖尿病前期或病程较短、胰岛功能尚好的人群，坚持生活方式干预，部分甚至有望实现血糖正常化——这被称为“逆转”，已在越来越多案例中得到验证。',
+    '本报告中的每一项建议，都是为您量身梳理的方向。请带着信心行动起来，您不必独自面对——我们愿与您携手，把健康稳稳地握在自己手中。',
+  ],
+};
+
+/** WS/T 652-2019 食物 GI 分级 */
+export const classifyGi = (giValue: number): GiFoodItem['gi'] =>
+  giValue <= 55 ? 'low' : giValue <= 70 ? 'medium' : 'high';
+
+export const formatGiLevel = (gi: GiFoodItem['gi']) =>
+  gi === 'low' ? '低GI' : gi === 'medium' ? '中GI' : '高GI';
+
+export const GI_EDUCATION: GiEducationGuide = {
+  intro:
+    'GI（血糖生成指数，Glycemic Index）表示进食含 50 g 可利用碳水化合物的食物后，2 小时内血糖应答相对于葡萄糖（GI=100）的升高幅度，反映食物引起血糖升高的相对能力。',
+  standardNote:
+    '分级依据国家卫生健康委 WS/T 652-2019《食物血糖生成指数测定方法》及中国营养学会团体标准 T/CNSS 012-2019《预包装食品血糖生成指数标示规范》等文件：',
+  tiers: [
+    {
+      level: 'low',
+      label: '低GI食物',
+      range: 'GI ≤ 55',
+      description: '消化吸收较慢，葡萄糖释放平缓，血糖波动较小，更利于血糖管理',
+    },
+    {
+      level: 'medium',
+      label: '中GI食物',
+      range: '55 < GI ≤ 70',
+      description: '血糖上升速度中等，需注意食用份量，并与蔬菜、优质蛋白搭配',
+    },
+    {
+      level: 'high',
+      label: '高GI食物',
+      range: 'GI > 70',
+      description: '消化吸收较快、血糖上升较快，建议减少精制主食或调整烹调与搭配方式',
+    },
+  ],
+  disclaimer:
+    '下表 GI 值为我国常见食物测定或《中国食物成分表》等权威资料参考值；同一食物因品种、加工与烹调方式不同会有差异，供日常选食参考。',
+};
+
+const COMMON_GI_FOOD_DATA: Omit<GiFoodItem, 'gi'>[] = [
+  { name: '燕麦片', giValue: 55, note: '整粒/钢切燕麦优于速溶；适合早餐主食' },
+  { name: '荞麦面', giValue: 54, note: '富含膳食纤维，可替代部分精制面条' },
+  { name: '玉米（煮）', giValue: 55, note: '整粒玉米优于玉米糊；每次约半根至一根' },
+  { name: '红薯（蒸）', giValue: 54, note: '蒸食优于烤食，每次约 100–150 g，替代部分主食' },
+  { name: '绿豆', giValue: 38, note: '绿豆汤少加糖，可与主食搭配' },
+  { name: '豆腐', giValue: 15, note: '优质植物蛋白，日常可常选用' },
+  { name: '牛奶', giValue: 27, note: '选低糖或原味，每日约 300 ml' },
+  { name: '苹果', giValue: 36, note: '带皮食用，每天约 200 g' },
+  { name: '香蕉', giValue: 52, note: '成熟度越高 GI 略升，注意控量' },
+  { name: '糙米饭', giValue: 68, note: '优于白米饭，需充分咀嚼，可与豆类同煮' },
+  { name: '小米粥', giValue: 69, note: '不宜煮得过烂，可与鸡蛋、蔬菜搭配' },
+  { name: '土豆（煮）', giValue: 66, note: '作蔬菜而非主食，避免泥状、油炸加工' },
+  { name: '南瓜（蒸）', giValue: 65, note: '老南瓜升糖相对更快，均需控制份量，不宜大量替代主食' },
+  { name: '白米饭', giValue: 83, note: '可与杂粮同煮，先吃菜和蛋白再吃主食' },
+  { name: '白馒头', giValue: 88, note: '精制主食，建议减量，搭配蔬菜先吃' },
+  { name: '小麦面条', giValue: 81, note: '少喝汤、多加蔬菜，控制面条份量' },
+  { name: '肉包/馒头类', giValue: 80, note: '面皮升糖较快，注意控制个数与搭配' },
+  { name: '油条', giValue: 95, note: '高油高糖，不宜经常食用' },
+  { name: '西瓜', giValue: 72, note: '单次少量，两餐之间适量' },
 ];
+
+export const COMMON_GI_FOODS: GiFoodItem[] = COMMON_GI_FOOD_DATA.map((f) => ({
+  ...f,
+  gi: classifyGi(f.giValue),
+})).sort((a, b) => {
+  const order = { low: 0, medium: 1, high: 2 };
+  return order[a.gi] - order[b.gi] || a.giValue - b.giValue;
+});
 
 export const COOKING_TIPS = [
   '烹调方式优先：蒸、煮、炖、凉拌，减少油炸、煎炒',
@@ -239,7 +301,8 @@ export const getDietGuidance = (): DietGuidance => ({
     '限制饱和脂肪，增加不饱和脂肪（橄榄油、坚果、鱼）',
     '钠盐每日不超过5g',
   ],
-  henangiFoods: HENAN_GI_FOODS,
+  giEducation: GI_EDUCATION,
+  giFoods: COMMON_GI_FOODS,
   cookingTips: COOKING_TIPS,
   eatingTips: EATING_TIPS,
 });

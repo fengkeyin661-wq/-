@@ -1,12 +1,80 @@
 import React from 'react';
-import type { DiabetesAssessmentResult, HealthProfile, IndicatorEdu, ScreeningFindingRow } from '../types';
-import { DIABETES_CLINIC_CONTACT } from '../services/diabetesEducationContent';
+import type { DiabetesAssessmentResult, HealthProfile, IndicatorEdu, ScreeningFindingRow, DietGuidance, GiFoodItem, GiEducationGuide } from '../types';
+import { DIABETES_CLINIC_CONTACT, GI_EDUCATION, formatGiLevel, REPORT_ENCOURAGEMENT } from '../services/diabetesEducationContent';
 
 interface Props {
   report: DiabetesAssessmentResult;
   patientName?: string;
   profile?: HealthProfile;
 }
+
+const getGiEducation = (plan: DietGuidance): GiEducationGuide => plan.giEducation ?? GI_EDUCATION;
+
+const getGiFoods = (plan: DietGuidance): GiFoodItem[] => {
+  if (plan.giFoods?.length) return plan.giFoods;
+  const legacy = (plan as { henangiFoods?: { name: string; gi: GiFoodItem['gi']; note: string }[] }).henangiFoods;
+  return (
+    legacy?.map((f) => ({
+      ...f,
+      giValue: f.gi === 'low' ? 50 : f.gi === 'medium' ? 63 : 83,
+    })) ?? []
+  );
+};
+
+const GiEducationBlock: React.FC<{ guide: GiEducationGuide }> = ({ guide }) => (
+  <div className="text-sm text-slate-700 space-y-2 mb-3 bg-slate-50 rounded-lg p-3 border border-slate-100">
+    <p>{guide.intro}</p>
+    <p>{guide.standardNote}</p>
+    <ul className="list-disc pl-5 space-y-1">
+      {guide.tiers.map((t) => (
+        <li key={t.level}>
+          <strong>{t.label}</strong>（{t.range}）：{t.description}
+        </li>
+      ))}
+    </ul>
+    <p className="text-slate-500 text-xs">{guide.disclaimer}</p>
+  </div>
+);
+
+const giEducationHtml = (guide: GiEducationGuide) =>
+  `<p>${guide.intro}</p><p>${guide.standardNote}</p><ul>${guide.tiers
+    .map((t) => `<li><strong>${t.label}</strong>（${t.range}）：${t.description}</li>`)
+    .join('')}</ul><p class="muted">${guide.disclaimer}</p>`;
+
+const GiFoodTable: React.FC<{ foods: GiFoodItem[] }> = ({ foods }) => (
+  <div className="overflow-x-auto">
+    <table className="w-full text-sm border border-slate-200">
+      <thead>
+        <tr className="bg-slate-50 text-slate-700">
+          <th className="border border-slate-200 px-3 py-2 text-left font-bold">食物</th>
+          <th className="border border-slate-200 px-3 py-2 text-left font-bold">GI值（参考）</th>
+          <th className="border border-slate-200 px-3 py-2 text-left font-bold">GI分类</th>
+          <th className="border border-slate-200 px-3 py-2 text-left font-bold">选食建议</th>
+        </tr>
+      </thead>
+      <tbody>
+        {foods.map((f) => (
+          <tr key={f.name} className="text-slate-700">
+            <td className="border border-slate-200 px-3 py-2 font-medium whitespace-nowrap">{f.name}</td>
+            <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{f.giValue}</td>
+            <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{formatGiLevel(f.gi)}</td>
+            <td className="border border-slate-200 px-3 py-2">{f.note}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+const giFoodTableHtml = (foods: GiFoodItem[]) => {
+  const rows = foods
+    .map(
+      (f) =>
+        `<tr><td>${f.name}</td><td>${f.giValue}</td><td>${formatGiLevel(f.gi)}</td><td>${f.note}</td></tr>`
+    )
+    .join('');
+  return `<table><thead><tr><th>食物</th><th>GI值（参考）</th><th>GI分类</th><th>选食建议</th></tr></thead><tbody>${rows}</tbody></table>`;
+};
 
 const getScreeningFindingRows = (report: DiabetesAssessmentResult): ScreeningFindingRow[] => {
   if (report.screeningFindingRows?.length) return report.screeningFindingRows;
@@ -107,6 +175,23 @@ const contactSectionHtml = () =>
     <p>${DIABETES_CLINIC_CONTACT.inviteText}</p>
   </div>`;
 
+const encouragementHtml = () =>
+  `<div class="encourage-box">
+    <p><strong>${REPORT_ENCOURAGEMENT.title}</strong></p>
+    ${REPORT_ENCOURAGEMENT.paragraphs.map((p) => `<p>${p}</p>`).join('')}
+  </div>`;
+
+const EncouragementBlock: React.FC = () => (
+  <div className="rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 to-emerald-50 p-4 text-sm text-slate-700 space-y-2">
+    <p className="font-bold text-teal-900">{REPORT_ENCOURAGEMENT.title}</p>
+    {REPORT_ENCOURAGEMENT.paragraphs.map((p, i) => (
+      <p key={i} className="leading-relaxed">
+        {p}
+      </p>
+    ))}
+  </div>
+);
+
 const ContactSection: React.FC = () => (
   <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-slate-700 space-y-1">
     <p className="font-bold text-slate-800">健康咨询</p>
@@ -130,6 +215,8 @@ const indicatorEducationTableHtml = (items: IndicatorEdu[]) => {
 export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName, profile }) => {
   const screeningRows = getScreeningFindingRows(report);
   const screeningNote = screeningSummaryNote(report);
+  const giEducation = getGiEducation(report.dietPlan);
+  const giFoods = getGiFoods(report.dietPlan);
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank', 'height=900,width=800');
@@ -164,12 +251,7 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
           .join('')}</tbody></table>`
       : '<p class="muted">暂无复检建议</p>';
 
-    const giHtml = report.dietPlan.henangiFoods
-      .map(
-        (f) =>
-          `<tr><td>${f.name}</td><td>${f.gi === 'low' ? '低GI' : f.gi === 'medium' ? '中GI' : '高GI'}</td><td>${f.note}</td></tr>`
-      )
-      .join('');
+    const giHtml = giFoodTableHtml(giFoods);
 
     const exerciseHtml = report.exercisePlan.weeklyPlan
       .map((d) => `<tr><td>${d.day}</td><td>${d.activity}</td><td>${d.duration}</td><td>${d.intensity}</td></tr>`)
@@ -191,12 +273,16 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
         .muted{color:#888}
         ul{padding-left:20px}
         .contact-box{margin-top:8px;padding:16px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px}
+        .encourage-box{margin-bottom:24px;padding:18px 20px;background:linear-gradient(135deg,#f0fdfa,#ecfdf5);border:1px solid #99f6e4;border-radius:10px;color:#334155;line-height:1.8}
+        .encourage-box p{margin:0 0 10px}
+        .encourage-box p:last-child{margin-bottom:0}
       </style></head><body>
       <div class="header">
         <p>社区糖尿病并发症筛查</p>
         <h1>糖尿病专项筛查评估报告</h1>
         <div class="meta"><span>姓名：${pName} ${pGender} ${pAge}</span><span>${pDept ? `单位：${pDept}` : ''}</span><span>生成日期：${report.generatedAt.slice(0, 10)}</span></div>
       </div>
+      ${encouragementHtml()}
       <div class="summary-box"><p>${report.summary}</p></div>
       ${alertsHtml}
       <div class="section"><h3>一、本次检查风险提示</h3>${screeningNote ? `<p>${screeningNote}</p>` : ''}${screeningFindingTableHtml(screeningRows)}</div>
@@ -204,8 +290,9 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
       <div class="section"><h3>三、已检项目复检与进一步检查建议</h3>${retestHtml}</div>
       <div class="section"><h3>四、膳食指导</h3>
         <p><strong>原则：</strong></p>${listHtml(report.dietPlan.principles)}
-        <p><strong>河南地区常见食物升糖指数（GI）：</strong></p>
-        <table><thead><tr><th>食物</th><th>GI分类</th><th>说明</th></tr></thead><tbody>${giHtml}</tbody></table>
+        <p><strong>升糖指数（GI）科普：</strong></p>${giEducationHtml(giEducation)}
+        <p><strong>常见食物 GI 参考（中国居民日常膳食）：</strong></p>
+        ${giHtml}
         <p><strong>烹调方法：</strong></p>${listHtml(report.dietPlan.cookingTips)}
         <p><strong>进食技巧：</strong></p>${listHtml(report.dietPlan.eatingTips)}
       </div>
@@ -237,6 +324,8 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
           打印报告
         </button>
       </div>
+
+      <EncouragementBlock />
 
       <p className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3 border border-slate-100">{report.summary}</p>
 
@@ -306,15 +395,18 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
           <p className="text-sm text-slate-500">暂无</p>
         )}
       </Section>
-      <Section title="四、膳食指导（河南地区）">
-        <p className="text-sm text-slate-600 mb-2">{report.dietPlan.principles.join('；')}</p>
-        <div className="grid sm:grid-cols-2 gap-2 text-sm">
-          {report.dietPlan.henangiFoods.slice(0, 6).map((f, i) => (
-            <div key={i} className="bg-slate-50 rounded px-2 py-1 border border-slate-100">
-              {f.name} — {f.gi === 'low' ? '低GI' : f.gi === 'medium' ? '中GI' : '高GI'}
-            </div>
+      <Section title="四、膳食指导">
+        <p className="text-sm text-slate-600 mb-3">{report.dietPlan.principles.join('；')}</p>
+        <p className="text-sm font-bold text-slate-800 mb-2">升糖指数（GI）科普</p>
+        <GiEducationBlock guide={giEducation} />
+        <p className="text-sm font-bold text-slate-800 mb-2">常见食物 GI 参考（中国居民日常膳食）</p>
+        <GiFoodTable foods={giFoods} />
+        <p className="text-sm font-bold text-slate-800 mt-3 mb-1">烹调方法</p>
+        <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
+          {report.dietPlan.cookingTips.slice(0, 4).map((t, i) => (
+            <li key={i}>{t}</li>
           ))}
-        </div>
+        </ul>
       </Section>
       <Section title="五、运动指导">
         <p className="text-sm text-slate-600">{report.exercisePlan.summary}</p>

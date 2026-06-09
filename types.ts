@@ -439,9 +439,25 @@ export interface IndicatorEdu {
   retestCycle: string;
 }
 
+export interface GiFoodItem {
+  name: string;
+  gi: 'low' | 'medium' | 'high';
+  /** 参考 GI 值（葡萄糖=100） */
+  giValue: number;
+  note: string;
+}
+
+export interface GiEducationGuide {
+  intro: string;
+  standardNote: string;
+  tiers: { level: 'low' | 'medium' | 'high'; label: string; range: string; description: string }[];
+  disclaimer: string;
+}
+
 export interface DietGuidance {
   principles: string[];
-  henangiFoods: { name: string; gi: 'low' | 'medium' | 'high'; note: string }[];
+  giEducation: GiEducationGuide;
+  giFoods: GiFoodItem[];
   cookingTips: string[];
   eatingTips: string[];
 }
