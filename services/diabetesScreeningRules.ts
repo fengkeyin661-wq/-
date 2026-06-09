@@ -320,10 +320,6 @@ export const evaluateArteriosclerosisDomain = (
   const leftPWV = num(screening?.leftBaPWV);
   const rightPWV = num(screening?.rightBaPWV ?? screening?.pwv);
   const cfPWV = num(screening?.cfPWV);
-  const rSbp = num(screening?.rightArmSbp);
-  const rDbp = num(screening?.rightArmDbp);
-  const lSbp = num(screening?.leftArmSbp);
-  const lDbp = num(screening?.leftArmDbp);
 
   const hasData =
     leftABI != null ||
@@ -331,8 +327,6 @@ export const evaluateArteriosclerosisDomain = (
     leftPWV != null ||
     rightPWV != null ||
     cfPWV != null ||
-    rSbp != null ||
-    lSbp != null ||
     hasText(screening?.arteriosclerosisRisk) ||
     hasText(screening?.arteriosclerosisConclusion);
 
@@ -404,32 +398,6 @@ export const evaluateArteriosclerosisDomain = (
     }
   }
 
-  const evalBP = (sbp: number, dbp: number, side: string) => {
-    if (sbp >= 180 || dbp >= 110) {
-      status = mergeStatus(status, 'critical');
-      result.findings.push(`${side}上肢血压 ${sbp}/${dbp} mmHg，达高血压3级`);
-      result.alerts.push('血压偏高，建议就医评估');
-    } else if (sbp >= 140 || dbp >= 90) {
-      status = mergeStatus(status, 'abnormal');
-      result.findings.push(`${side}上肢血压 ${sbp}/${dbp} mmHg，偏高（糖尿病人群建议 <130/80）`);
-      result.retest.push({
-        itemId: 'arteriosclerosis',
-        label: '血压',
-        currentFinding: `${side} ${sbp}/${dbp} mmHg`,
-        advice: '家庭血压监测，心内科评估降压方案',
-        urgency: 'soon',
-      });
-    } else if (sbp >= 130 || dbp >= 80) {
-      status = mergeStatus(status, 'borderline');
-      result.findings.push(`${side}上肢血压 ${sbp}/${dbp} mmHg，未达糖尿病人群理想目标（<130/80）`);
-    } else {
-      result.findings.push(`${side}上肢血压 ${sbp}/${dbp} mmHg`);
-    }
-  };
-
-  if (rSbp != null && rDbp != null) evalBP(rSbp, rDbp, '右');
-  if (lSbp != null && lDbp != null) evalBP(lSbp, lDbp, '左');
-
   if (hasText(screening?.arteriosclerosisRisk)) {
     const risk = String(screening!.arteriosclerosisRisk);
     result.findings.push(`动脉硬化风险评估：${risk}`);
@@ -454,6 +422,75 @@ export const evaluateArteriosclerosisDomain = (
       result.alerts.push(`动脉硬化检测特别提示：${screening!.specialNote}`);
     }
   }
+
+  result.status = status;
+  result.score = statusScore(status);
+  return result;
+};
+
+export const evaluateBloodPressureDomain = (
+  screening: DiabetesScreeningRecord | null
+): ScreeningDomainResult => {
+  const result: ScreeningDomainResult = {
+    domainId: 'blood_pressure',
+    label: '血压',
+    status: 'not_done',
+    findings: [],
+    alerts: [],
+    retest: [],
+    score: 0,
+  };
+
+  const rSbp = num(screening?.rightArmSbp);
+  const rDbp = num(screening?.rightArmDbp);
+  const lSbp = num(screening?.leftArmSbp);
+  const lDbp = num(screening?.leftArmDbp);
+
+  const hasRight = rSbp != null && rDbp != null;
+  const hasLeft = lSbp != null && lDbp != null;
+  if (!hasRight && !hasLeft) return result;
+
+  let status: DomainStatus = 'normal';
+  const measureParts: string[] = [];
+
+  const assessArm = (sbp: number, dbp: number, side: string): DomainStatus => {
+    measureParts.push(`${side}上肢 ${sbp}/${dbp} mmHg`);
+    if (sbp >= 180 || dbp >= 110) return 'critical';
+    if (sbp >= 140 || dbp >= 90) return 'abnormal';
+    if (sbp >= 130 || dbp >= 80) return 'borderline';
+    return 'normal';
+  };
+
+  if (hasRight) status = mergeStatus(status, assessArm(rSbp!, rDbp!, '右'));
+  if (hasLeft) status = mergeStatus(status, assessArm(lSbp!, lDbp!, '左'));
+
+  let interpretation = '均在正常范围';
+  if (status === 'critical') {
+    interpretation = '测量值明显升高，建议就医评估';
+    result.alerts.push('血压偏高，建议就医评估');
+    result.retest.push({
+      itemId: 'blood_pressure',
+      label: '血压',
+      currentFinding: measureParts.join('；'),
+      advice: '家庭血压监测，心内科评估降压方案',
+      urgency: 'soon',
+    });
+  } else if (status === 'abnormal') {
+    interpretation = '偏高，糖尿病人群建议控制在 <130/80 mmHg';
+    result.retest.push({
+      itemId: 'blood_pressure',
+      label: '血压',
+      currentFinding: measureParts.join('；'),
+      advice: '家庭血压监测，心内科评估降压方案',
+      urgency: 'soon',
+    });
+  } else if (status === 'borderline') {
+    interpretation = '未达糖尿病人群理想血压目标（<130/80 mmHg）';
+  }
+
+  result.findings.push(
+    `${measureParts.join('；')}。${interpretation}（正常参考范围：<130/80 mmHg，糖尿病人群）`
+  );
 
   result.status = status;
   result.score = statusScore(status);
@@ -654,6 +691,7 @@ export const evaluateAllScreeningDomains = (
   evaluateGlucoseDomain(screening, gender),
   evaluateEcgDomain(screening),
   evaluateArteriosclerosisDomain(screening),
+  evaluateBloodPressureDomain(screening),
   evaluateFundusDomain(screening),
   evaluateBodyCompositionDomain(screening, gender),
 ];

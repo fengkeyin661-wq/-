@@ -26,8 +26,8 @@ import {
   INITIAL_SCREENING_CHECKS,
 } from './diabetesScreeningRules';
 import {
-  buildScreeningFindingRows,
-  screeningFindingRowsToStrings,
+  buildScreeningFindingSections,
+  screeningSectionsToStrings,
 } from './diabetesScreeningFindingRows';
 
 const INITIAL_SCREENING_CLINICAL_MEANING: Record<string, string> = {
@@ -226,7 +226,7 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
   }));
 
   const screeningFindings: string[] = [];
-  let screeningFindingRows: DiabetesAssessmentResult['screeningFindingRows'] = [];
+  let screeningFindingSections: DiabetesAssessmentResult['screeningFindingSections'] = [];
   const complicationAlerts: string[] = [];
   const retestAdvice: DiabetesAssessmentResult['retestAdvice'] = [];
   let screeningDomains: DiabetesAssessmentResult['screeningDomains'] = [];
@@ -242,8 +242,8 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
       findings: d.findings,
     }));
 
-    screeningFindingRows = buildScreeningFindingRows(screeningDomains);
-    screeningFindings.push(...screeningFindingRowsToStrings(screeningFindingRows));
+    screeningFindingSections = buildScreeningFindingSections(screeningDomains);
+    screeningFindings.push(...screeningSectionsToStrings(screeningFindingSections));
 
     for (const d of domains) {
       complicationAlerts.push(...d.alerts);
@@ -304,7 +304,7 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
     screeningDomains,
     initialScreeningCoverage,
     screeningFindings,
-    screeningFindingRows,
+    screeningFindingSections,
     missedItems,
     retestAdvice,
     indicatorEducation: getIndicatorEducation(eduIds),

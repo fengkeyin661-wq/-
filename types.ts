@@ -468,6 +468,13 @@ export interface ExerciseGuidance {
   precautions: string[];
 }
 
+export interface ScreeningFindingSection {
+  domainId: string;
+  itemLabel: string;
+  status: 'not_done' | 'done';
+  paragraphs: string[];
+}
+
 export interface ScreeningFindingRow {
   domainLabel: string;
   itemLabel: string;
@@ -489,9 +496,11 @@ export interface DiabetesAssessmentResult {
   screeningDomains?: ScreeningDomainSummary[];
   /** 初筛五项完成度 */
   initialScreeningCoverage?: { itemId: string; label: string; done: boolean }[];
-  /** 本次检查风险提示（表格） */
+  /** 本次检查风险提示（分项文本） */
+  screeningFindingSections?: ScreeningFindingSection[];
+  /** @deprecated 兼容旧报告 */
   screeningFindingRows?: ScreeningFindingRow[];
-  /** @deprecated 兼容旧报告，优先使用 screeningFindingRows */
+  /** @deprecated 兼容旧报告 */
   screeningFindings: string[];
   missedItems: MissedScreeningItem[];
   retestAdvice: RetestAdviceItem[];
