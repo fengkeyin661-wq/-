@@ -13,13 +13,14 @@ import { importDiabetesScreeningExcel } from '../services/diabetesScreeningImpor
 import {
   reevaluateStandalone,
   saveStandaloneParticipant,
+  deleteStandaloneParticipant,
 } from '../services/diabetesStandaloneService';
 import { DiabetesAssessmentReport } from './DiabetesAssessmentReport';
 
 interface Props {
   participants: DiabetesStandaloneParticipant[];
   currentParticipant: DiabetesStandaloneParticipant | null;
-  onSelectParticipant: (p: DiabetesStandaloneParticipant) => void;
+  onSelectParticipant: (p: DiabetesStandaloneParticipant | null) => void;
   onRefresh: () => void | Promise<void>;
   isSaving?: boolean;
 }
@@ -46,6 +47,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   const [importLogs, setImportLogs] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [localSaving, setLocalSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -115,6 +117,31 @@ export const DiabetesManagementModule: React.FC<Props> = ({
     }
   };
 
+  const handleDeleteParticipant = async (p: DiabetesStandaloneParticipant) => {
+    const label = p.name || p.checkupId || '该参与者';
+    if (
+      !window.confirm(
+        `确定删除「${label}」的专项筛查档案？\n\n将清除其筛查记录与评估报告，此操作不可恢复。`
+      )
+    ) {
+      return;
+    }
+    setDeletingId(p.id);
+    try {
+      const res = await deleteStandaloneParticipant(p.id);
+      if (!res.success) {
+        alert(res.message || '删除失败');
+        return;
+      }
+      if (currentParticipant?.id === p.id) {
+        onSelectParticipant(null);
+      }
+      await onRefresh();
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const handleImport = async (file: File) => {
     setIsImporting(true);
     setImportLogs([]);
@@ -170,6 +197,59 @@ export const DiabetesManagementModule: React.FC<Props> = ({
         <p className="text-xs text-teal-700 mt-3">
           已入库 {participants.length} 人 · 本模块不写入 health_archives，后续正式建档时可另行关联
         </p>
+
+        {filteredParticipants.length > 0 && (
+          <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden">
+            <div className="max-h-56 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-slate-600 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium">姓名</th>
+                    <th className="text-left px-3 py-2 font-medium">体检编号</th>
+                    <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">电话</th>
+                    <th className="text-left px-3 py-2 font-medium hidden md:table-cell">更新时间</th>
+                    <th className="text-right px-3 py-2 font-medium w-28">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredParticipants.map((p) => {
+                    const selected = currentParticipant?.id === p.id;
+                    return (
+                      <tr
+                        key={p.id}
+                        className={`border-t border-slate-100 ${selected ? 'bg-teal-50' : 'hover:bg-slate-50'}`}
+                      >
+                        <td className="px-3 py-2 font-medium text-slate-800">{p.name || '未命名'}</td>
+                        <td className="px-3 py-2 text-slate-600">{p.checkupId || '—'}</td>
+                        <td className="px-3 py-2 text-slate-600 hidden sm:table-cell">{p.phone || '—'}</td>
+                        <td className="px-3 py-2 text-slate-500 text-xs hidden md:table-cell">
+                          {(p.updatedAt || p.createdAt || '').slice(0, 10) || '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => onSelectParticipant(p)}
+                            className="text-teal-700 hover:text-teal-900 text-xs font-medium mr-3"
+                          >
+                            {selected ? '已选' : '查看'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteParticipant(p)}
+                            disabled={deletingId === p.id || isImporting}
+                            className="text-red-600 hover:text-red-800 text-xs font-medium disabled:opacity-50"
+                          >
+                            {deletingId === p.id ? '删除中…' : '删除'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
