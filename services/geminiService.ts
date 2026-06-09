@@ -925,6 +925,8 @@ export const generateDailyIntegratedPlan = async (userProfileStr: string, resour
 export type ParsedDiabetesScreeningRow = {
   checkupId: string;
   name?: string;
+  gender?: string;
+  age?: number;
   screening: Partial<DiabetesScreeningRecord>;
 };
 
@@ -945,6 +947,8 @@ export const parseDiabetesScreeningRowWithAI = async (
 {
   "checkupId": "恰好6位数字或空",
   "name": "string",
+  "gender": "男/女",
+  "age": number,
   "screening": {
     "screeningDate": "登记日期 YYYY-MM-DD",
     "registrationDate": "同登记日期",

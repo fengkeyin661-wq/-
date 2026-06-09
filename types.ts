@@ -391,6 +391,28 @@ export interface DiabetesManagementData {
   notes?: string;
 }
 
+/** 专项筛查独立参与者（无需预先建立 health_archives） */
+export interface DiabetesStandaloneParticipant {
+  id: string;
+  /** 去重键：体检编号 / 身份证 / 电话等 */
+  participantKey: string;
+  checkupId?: string;
+  name: string;
+  gender?: string;
+  age?: number;
+  phone?: string;
+  idCard?: string;
+  checkupCount?: number;
+  checkStatus?: string;
+  activityName?: string;
+  diabetesManagement: DiabetesManagementData;
+  diabetesReport?: DiabetesAssessmentResult;
+  /** 若后续完成正式建档，可记录关联的 health_archives.checkup_id */
+  linkedArchiveCheckupId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MissedScreeningItem {
   itemId: string;
   label: string;

@@ -3,27 +3,25 @@ import {
   DiabetesManagementData,
   DiabetesScreeningRecord,
   DiabetesAssessmentResult,
+  DiabetesStandaloneParticipant,
+  RiskLevel,
 } from '../types';
-import { HealthArchive } from '../services/dataService';
 import {
   createEmptyDiabetesManagement,
   createScreeningId,
-  evaluateDiabetesScreening,
-  isDiabetesCohort,
 } from '../services/diabetesAssessmentService';
 import { importDiabetesScreeningExcel } from '../services/diabetesScreeningImportService';
+import {
+  reevaluateStandalone,
+  saveStandaloneParticipant,
+} from '../services/diabetesStandaloneService';
 import { DiabetesAssessmentReport } from './DiabetesAssessmentReport';
 
 interface Props {
-  archives: HealthArchive[];
-  currentArchive: HealthArchive | null;
-  onSelectArchive: (archive: HealthArchive) => void;
-  onSave: (
-    dm: DiabetesManagementData,
-    screening: DiabetesScreeningRecord,
-    result: DiabetesAssessmentResult
-  ) => Promise<void>;
-  onImportComplete?: () => void | Promise<void>;
+  participants: DiabetesStandaloneParticipant[];
+  currentParticipant: DiabetesStandaloneParticipant | null;
+  onSelectParticipant: (p: DiabetesStandaloneParticipant) => void;
+  onRefresh: () => void | Promise<void>;
   isSaving?: boolean;
 }
 
@@ -35,69 +33,94 @@ const emptyScreening = (): DiabetesScreeningRecord => ({
   glucoseUnit: 'mmol/L',
 });
 
+const riskLabel = (level?: RiskLevel) =>
+  level === RiskLevel.RED ? '高风险' : level === RiskLevel.YELLOW ? '中风险' : level === RiskLevel.GREEN ? '低风险' : '—';
+
 export const DiabetesManagementModule: React.FC<Props> = ({
-  archives,
-  currentArchive,
-  onSelectArchive,
-  onSave,
-  onImportComplete,
+  participants,
+  currentParticipant,
+  onSelectParticipant,
+  onRefresh,
   isSaving = false,
 }) => {
   const [dmData, setDmData] = useState<DiabetesManagementData>(createEmptyDiabetesManagement());
   const [screening, setScreening] = useState<DiabetesScreeningRecord>(emptyScreening());
   const [result, setResult] = useState<DiabetesAssessmentResult | null>(null);
-  const [cohortFilter, setCohortFilter] = useState<'all' | 'cohort'>('cohort');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [riskFilter, setRiskFilter] = useState<'ALL' | RiskLevel>('ALL');
   const [importLogs, setImportLogs] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
+  const [localSaving, setLocalSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!currentArchive) return;
-    const dm = currentArchive.health_record.diabetesManagement || createEmptyDiabetesManagement();
+    if (!currentParticipant) {
+      setDmData(createEmptyDiabetesManagement());
+      setScreening(emptyScreening());
+      setResult(null);
+      return;
+    }
+    const dm = currentParticipant.diabetesManagement || createEmptyDiabetesManagement();
     setDmData(dm);
     const latest = [...(dm.screenings || [])].sort((a, b) =>
       (b.screeningDate || '').localeCompare(a.screeningDate || '')
     )[0];
     setScreening(latest || emptyScreening());
-    setResult(currentArchive.assessment_data.diabetesReport || null);
-  }, [currentArchive?.checkup_id]);
+    setResult(currentParticipant.diabetesReport || null);
+  }, [currentParticipant?.id]);
 
-  const filteredArchives = useMemo(() => {
-    let list = [...archives];
-    if (cohortFilter === 'cohort') {
-      list = list.filter((a) => isDiabetesCohort(a.health_record));
+  const filteredParticipants = useMemo(() => {
+    let list = [...participants];
+    const term = searchTerm.trim().toLowerCase();
+    if (term) {
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(term) ||
+          (p.checkupId || '').includes(term) ||
+          (p.phone || '').includes(term) ||
+          (p.idCard || '').includes(term)
+      );
     }
-    return list.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
-  }, [archives, cohortFilter]);
+    if (riskFilter !== 'ALL') {
+      list = list.filter((p) => p.diabetesReport?.riskLevel === riskFilter);
+    }
+    return list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  }, [participants, searchTerm, riskFilter]);
 
-  const checkup = currentArchive?.health_record.checkup;
-
-  const patchScreening = <K extends keyof DiabetesScreeningRecord>(key: K, value: DiabetesScreeningRecord[K]) => {
-    setScreening((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handleEvaluate = () => {
-    if (!currentArchive) return;
+  const buildParticipantDraft = (): DiabetesStandaloneParticipant | null => {
+    if (!currentParticipant) return null;
     const mergedDm: DiabetesManagementData = {
       ...dmData,
       screenings: appendOrUpdateScreening(dmData.screenings || [], screening),
+      annualCheckupLinked: false,
     };
-    const record = {
-      ...currentArchive.health_record,
+    return {
+      ...currentParticipant,
       diabetesManagement: mergedDm,
+      updatedAt: new Date().toISOString(),
     };
-    const next = evaluateDiabetesScreening(record);
-    setResult(next);
-    setDmData(mergedDm);
+  };
+
+  const handleEvaluate = async () => {
+    const draft = buildParticipantDraft();
+    if (!draft) return;
+    setDmData(draft.diabetesManagement);
+    const report = await reevaluateStandalone(draft);
+    setResult(report);
+    await onRefresh();
   };
 
   const handleSave = async () => {
-    if (!result) return;
-    const mergedDm: DiabetesManagementData = {
-      ...dmData,
-      screenings: appendOrUpdateScreening(dmData.screenings || [], screening),
-    };
-    await onSave(mergedDm, screening, result);
+    const draft = buildParticipantDraft();
+    if (!draft || !result) return;
+    setLocalSaving(true);
+    try {
+      await saveStandaloneParticipant({ ...draft, diabetesReport: result });
+      await onRefresh();
+      alert('专项评估已保存');
+    } finally {
+      setLocalSaving(false);
+    }
   };
 
   const handleImport = async (file: File) => {
@@ -109,8 +132,8 @@ export const DiabetesManagementModule: React.FC<Props> = ({
       });
       setImportLogs((prev) => [...prev, res.message || '完成']);
       if (res.success) {
-        await onImportComplete?.();
-      } else {
+        await onRefresh();
+      } else if (res.imported === 0) {
         alert(res.message || '导入失败');
       }
     } finally {
@@ -122,65 +145,76 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-800 mb-4">糖尿病管理专栏</h3>
+        <h3 className="text-lg font-bold text-slate-800 mb-2">糖尿病专项筛查评估</h3>
         <p className="text-sm text-slate-500 mb-4">
-          针对血糖偏高及糖尿病人群，录入或导入社区并发症筛查数据，关联健康体检档案，生成首次评估报告与健康管理方案。
+          独立于健康档案的专项评估模块。参与者<strong>无需预先建档</strong>，上传筛查 Excel 后 AI 逐行解析并生成分域评估报告；数据保存在专项筛查库中。
         </p>
         <div className="flex flex-wrap gap-3 items-center">
+          <input
+            type="text"
+            placeholder="搜索姓名、体检编号、电话…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-w-[200px]"
+          />
           <select
-            value={cohortFilter}
-            onChange={(e) => setCohortFilter(e.target.value as 'all' | 'cohort')}
+            value={riskFilter}
+            onChange={(e) => setRiskFilter(e.target.value as 'ALL' | RiskLevel)}
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
           >
-            <option value="cohort">仅显示专栏目标人群</option>
-            <option value="all">显示全部档案</option>
+            <option value="ALL">全部风险等级</option>
+            <option value={RiskLevel.RED}>高风险</option>
+            <option value={RiskLevel.YELLOW}>中风险</option>
+            <option value={RiskLevel.GREEN}>低风险</option>
           </select>
           <select
-            value={currentArchive?.checkup_id || ''}
+            value={currentParticipant?.id || ''}
             onChange={(e) => {
-              const next = archives.find((a) => a.checkup_id === e.target.value);
-              if (next) onSelectArchive(next);
+              const next = participants.find((p) => p.id === e.target.value);
+              if (next) onSelectParticipant(next);
             }}
-            className="flex-1 min-w-[240px] border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm"
+            className="flex-1 min-w-[260px] border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm"
           >
             <option value="" disabled>
-              请选择档案
+              请选择筛查参与者（{filteredParticipants.length} 人）
             </option>
-            {filteredArchives.map((a) => (
-              <option key={a.id} value={a.checkup_id}>
-                {a.name} | {a.checkup_id} | {a.department}
+            {filteredParticipants.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} | {p.checkupId || p.phone || p.participantKey.slice(0, 12)} |{' '}
+                {riskLabel(p.diabetesReport?.riskLevel)}
               </option>
             ))}
           </select>
         </div>
+        <p className="text-xs text-teal-700 mt-3">
+          已入库 {participants.length} 人 · 本模块不写入 health_archives，后续正式建档时可另行关联
+        </p>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
         <h3 className="text-lg font-bold text-slate-800 mb-2">上传筛查汇总 Excel</h3>
         <p className="text-sm text-slate-500 mb-3">
-          直接上传并发症初筛 Excel 汇总表（含空腹血糖、餐后随机血糖、心电图、动脉硬化 ABI/baPWV、眼底评估、InBody 体成分等列）。AI 逐行解析后自动生成五项分域评估报告。
+          直接上传并发症初筛汇总表。识别体检编号、身份证或联系电话即可入库，无需系统中已有健康档案。
         </p>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={isImporting}
-            className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
-          >
-            {isImporting ? 'AI 解析生成中...' : '上传 Excel 汇总表'}
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleImport(f);
-            }}
-          />
-        </div>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={isImporting}
+          className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50"
+        >
+          {isImporting ? 'AI 解析生成中...' : '上传 Excel 汇总表'}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleImport(f);
+          }}
+        />
         {importLogs.length > 0 && (
-          <div className="mt-3 max-h-32 overflow-y-auto bg-slate-50 rounded-lg p-3 text-xs text-slate-600 font-mono space-y-0.5">
+          <div className="mt-3 max-h-40 overflow-y-auto bg-slate-50 rounded-lg p-3 text-xs text-slate-600 font-mono space-y-0.5">
             {importLogs.map((l, i) => (
               <div key={i}>{l}</div>
             ))}
@@ -188,68 +222,39 @@ export const DiabetesManagementModule: React.FC<Props> = ({
         )}
       </div>
 
-      {currentArchive && (
+      {currentParticipant && (
         <>
-          <div className="bg-slate-50 rounded-xl border border-slate-200 p-5">
-            <h3 className="text-sm font-bold text-slate-700 mb-2">关联年度体检摘要（只读）</h3>
-            <div className="grid sm:grid-cols-3 gap-3 text-sm text-slate-600">
-              <div>空腹血糖：{checkup?.labBasic?.glucose?.fasting || '—'}</div>
-              <div>HbA1c：{checkup?.optional?.hba1c || '—'}</div>
-              <div>血脂 TC/LDL：{checkup?.labBasic?.lipids?.tc || '—'} / {checkup?.labBasic?.lipids?.ldl || '—'}</div>
-              <div>肌酐：{checkup?.labBasic?.renal?.creatinine || '—'}</div>
-              <div>尿蛋白：{checkup?.labBasic?.urineRoutine?.protein || '—'}</div>
-              <div>心电图：{checkup?.imagingBasic?.ecg || '—'}</div>
-            </div>
-            {!checkup?.labBasic?.glucose?.fasting && !checkup?.optional?.hba1c && (
-              <p className="text-xs text-amber-700 mt-2">尚未关联年度体检报告，评估时将提示补检相关项目。</p>
-            )}
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-            <h3 className="text-lg font-bold text-slate-800">并发症筛查数据录入</h3>
-            <div className="grid md:grid-cols-3 gap-4">
-              <TextField label="筛查日期" value={screening.screeningDate} onChange={(v) => patchScreening('screeningDate', v)} />
-              <TextField label="活动名称" value={screening.activityName} onChange={(v) => patchScreening('activityName', v)} />
-              <SelectField
-                label="血糖类型"
-                value={screening.glucoseType}
-                options={[
-                  { value: 'fasting', label: '空腹' },
-                  { value: 'postprandial', label: '餐后' },
-                ]}
-                onChange={(v) => patchScreening('glucoseType', v as DiabetesScreeningRecord['glucoseType'])}
-              />
-              <NumberField label="血糖 (mmol/L)" value={screening.glucoseValue} onChange={(v) => patchScreening('glucoseValue', v)} />
-              <NumberField label="右臂收缩压" value={screening.rightArmSbp} onChange={(v) => patchScreening('rightArmSbp', v)} />
-              <NumberField label="右臂舒张压" value={screening.rightArmDbp} onChange={(v) => patchScreening('rightArmDbp', v)} />
-              <NumberField label="ABI" value={screening.abi} onChange={(v) => patchScreening('abi', v)} />
-              <NumberField label="PWV" value={screening.pwv} onChange={(v) => patchScreening('pwv', v)} />
-              <TextField label="动脉硬化结论" value={screening.arteriosclerosisConclusion} onChange={(v) => patchScreening('arteriosclerosisConclusion', v)} />
-              <TextField label="心电图结论" value={screening.ecgResult} onChange={(v) => patchScreening('ecgResult', v)} />
-              <TextField label="眼底结论" value={screening.fundusResult} onChange={(v) => patchScreening('fundusResult', v)} />
-              <TextField label="眼底分级" value={screening.fundusGrade} onChange={(v) => patchScreening('fundusGrade', v)} />
-              <NumberField label="体脂率 (%)" value={screening.bodyFatRate} onChange={(v) => patchScreening('bodyFatRate', v)} />
-              <NumberField label="内脏脂肪等级" value={screening.visceralFatLevel} onChange={(v) => patchScreening('visceralFatLevel', v)} />
-              <NumberField label="肌肉量 (kg)" value={screening.muscleMass} onChange={(v) => patchScreening('muscleMass', v)} />
-              <NumberField label="BMI" value={screening.bmi} onChange={(v) => patchScreening('bmi', v)} />
+          <div className="bg-slate-50 rounded-xl border border-slate-200 p-5 grid sm:grid-cols-4 gap-3 text-sm text-slate-600">
+            <div>姓名：{currentParticipant.name}</div>
+            <div>体检编号：{currentParticipant.checkupId || '—'}</div>
+            <div>性别/年龄：{currentParticipant.gender || '—'} / {currentParticipant.age ?? '—'}</div>
+            <div>联系电话：{currentParticipant.phone || '—'}</div>
+            <div className="sm:col-span-4 text-xs text-amber-700">
+              专项筛查模式：未关联年度健康体检档案。评估报告中的「年度体检/HbA1c/血脂」等补检建议属正常提示。
             </div>
           </div>
 
           {(dmData.screenings?.length ?? 0) > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-              <h3 className="text-sm font-bold text-slate-800 mb-2">历次筛查记录（{dmData.screenings.length} 次）</h3>
+              <h3 className="text-sm font-bold text-slate-800 mb-2">
+                筛查记录（{dmData.screenings.length} 次）
+              </h3>
               <ul className="text-sm text-slate-600 space-y-1">
                 {[...dmData.screenings]
                   .sort((a, b) => (b.screeningDate || '').localeCompare(a.screeningDate || ''))
                   .map((s, i) => (
                     <li key={s.id || i}>
                       {s.screeningDate} — {s.activityName}
-                      {s.glucoseValue != null ? ` | 血糖 ${s.glucoseValue}` : ''}
+                      {s.fastingGlucose != null ? ` | 空腹 ${s.fastingGlucose}` : ''}
+                      {s.postprandialRandomGlucose != null
+                        ? ` | 餐后 ${s.postprandialRandomGlucose}`
+                        : ''}
                       <button
+                        type="button"
                         className="ml-2 text-teal-600 text-xs"
                         onClick={() => setScreening(s)}
                       >
-                        载入编辑
+                        查看
                       </button>
                     </li>
                   ))}
@@ -259,29 +264,46 @@ export const DiabetesManagementModule: React.FC<Props> = ({
 
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={handleEvaluate}
-              disabled={!currentArchive}
+              disabled={isSaving || localSaving}
               className="bg-teal-600 text-white px-5 py-2 rounded-lg font-bold disabled:opacity-50"
             >
-              生成首次评估报告
+              重新生成评估报告
             </button>
             <button
+              type="button"
               onClick={handleSave}
-              disabled={!currentArchive || !result || isSaving}
+              disabled={!result || isSaving || localSaving}
               className="bg-slate-800 text-white px-5 py-2 rounded-lg font-bold disabled:opacity-50"
             >
-              {isSaving ? '保存中...' : '保存到档案'}
+              {localSaving ? '保存中...' : '保存专项评估'}
             </button>
           </div>
 
           {result && (
             <DiabetesAssessmentReport
               report={result}
-              patientName={currentArchive.name}
-              profile={currentArchive.health_record.profile}
+              patientName={currentParticipant.name}
+              profile={{
+                checkupId: currentParticipant.checkupId || '',
+                name: currentParticipant.name,
+                gender: currentParticipant.gender || '',
+                age: currentParticipant.age,
+                department: '糖尿病专项筛查',
+                phone: currentParticipant.phone,
+              }}
             />
           )}
         </>
+      )}
+
+      {!currentParticipant && participants.length > 0 && (
+        <p className="text-sm text-slate-500 text-center py-8">请从上方下拉列表选择参与者查看评估报告</p>
+      )}
+
+      {participants.length === 0 && (
+        <p className="text-sm text-slate-500 text-center py-8">暂无专项筛查数据，请上传 Excel 汇总表开始导入</p>
       )}
     </div>
   );
@@ -303,58 +325,3 @@ const appendOrUpdateScreening = (
   }
   return [...list, item];
 };
-
-const NumberField: React.FC<{
-  label: string;
-  value?: number;
-  onChange: (v?: number) => void;
-}> = ({ label, value, onChange }) => (
-  <label className="text-sm text-slate-700">
-    <div className="mb-1">{label}</div>
-    <input
-      type="number"
-      value={value ?? ''}
-      onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
-      className="w-full border border-slate-300 rounded-lg px-3 py-2"
-    />
-  </label>
-);
-
-const TextField: React.FC<{
-  label: string;
-  value?: string;
-  onChange: (v?: string) => void;
-}> = ({ label, value, onChange }) => (
-  <label className="text-sm text-slate-700">
-    <div className="mb-1">{label}</div>
-    <input
-      type="text"
-      value={value ?? ''}
-      onChange={(e) => onChange(e.target.value || undefined)}
-      className="w-full border border-slate-300 rounded-lg px-3 py-2"
-    />
-  </label>
-);
-
-const SelectField: React.FC<{
-  label: string;
-  value?: string;
-  options: { value: string; label: string }[];
-  onChange: (v?: string) => void;
-}> = ({ label, value, options, onChange }) => (
-  <label className="text-sm text-slate-700">
-    <div className="mb-1">{label}</div>
-    <select
-      value={value || ''}
-      onChange={(e) => onChange(e.target.value || undefined)}
-      className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
-    >
-      <option value="">未选择</option>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  </label>
-);

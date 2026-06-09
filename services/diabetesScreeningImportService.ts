@@ -1,24 +1,13 @@
 /**
- * 社区糖尿病并发症筛查 Excel 汇总导入：AI 逐行解析并生成评估报告
+ * 社区糖尿病并发症筛查 Excel 汇总导入：AI 逐行解析 → 独立专项评估（无需健康档案）
  */
 // @ts-ignore
 import * as XLSX from 'xlsx';
 import type { DiabetesScreeningRecord } from '../types';
-import {
-  findArchiveByCheckupId,
-  saveArchive,
-  updateHealthRecordOnly,
-} from './dataService';
-import {
-  applyScreeningToHealthRecord,
-  createScreeningId,
-  evaluateDiabetesScreening,
-  mergeDiabetesResultToAssessment,
-} from './diabetesAssessmentService';
-import { observationsFromHealthRecord, observationsFromDiabetesScreening } from './observationMapper';
-import { upsertObservations } from './observationService';
+import { createScreeningId } from './diabetesAssessmentService';
 import { formatCheckupId } from './checkupIdUtils';
 import { parseDiabetesScreeningRowWithAI } from './geminiService';
+import { upsertStandaloneFromScreening } from './diabetesStandaloneService';
 
 export type DiabetesImportResult = {
   success: boolean;
@@ -29,23 +18,6 @@ export type DiabetesImportResult = {
 };
 
 export type DiabetesImportProgress = (line: string) => void;
-
-const appendScreening = (
-  existing: DiabetesScreeningRecord[],
-  incoming: DiabetesScreeningRecord
-): DiabetesScreeningRecord[] => {
-  const dup = existing.find(
-    (s) => s.screeningDate === incoming.screeningDate && s.activityName === incoming.activityName
-  );
-  if (dup) {
-    return existing.map((s) =>
-      s.screeningDate === incoming.screeningDate && s.activityName === incoming.activityName
-        ? { ...s, ...incoming, id: s.id || incoming.id }
-        : s
-    );
-  }
-  return [...existing, incoming];
-};
 
 const rowToReadableText = (headers: string[], row: unknown[]): string => {
   const pairs = headers
@@ -67,7 +39,7 @@ const toScreeningRecord = (
   meta: { fileName: string; rowIndex: number }
 ): DiabetesScreeningRecord => ({
   id: createScreeningId(),
-  screeningDate: partial.screeningDate || new Date().toISOString().slice(0, 10),
+  screeningDate: partial.screeningDate || partial.registrationDate || new Date().toISOString().slice(0, 10),
   activityName: partial.activityName || '社区糖尿病并发症筛查',
   source: 'excel_import',
   glucoseUnit: 'mmol/L',
@@ -75,7 +47,13 @@ const toScreeningRecord = (
   importMeta: { fileName: meta.fileName, rowIndex: meta.rowIndex },
 });
 
-/** 上传已整理的 Excel 汇总表，AI 逐行读取并自动生成评估报告 */
+const num = (v: unknown): number | undefined => {
+  if (v == null || v === '') return undefined;
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/** 上传 Excel 汇总表，AI 逐行读取并写入独立专项评估库 */
 export const importDiabetesScreeningExcel = async (
   file: File,
   options?: { onProgress?: DiabetesImportProgress }
@@ -109,7 +87,7 @@ export const importDiabetesScreeningExcel = async (
       return { success: false, message: 'Excel 表头为空', imported: 0, skipped: 0, logs };
     }
 
-    log(`📂 开始处理 ${file.name}，共 ${rows.length - 1} 行，AI 逐行解析并生成评估报告…`);
+    log(`📂 专项筛查独立导入 ${file.name}，共 ${rows.length - 1} 行（无需预先建档）…`);
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i] as unknown[];
@@ -136,61 +114,49 @@ export const importDiabetesScreeningExcel = async (
         continue;
       }
 
-      const checkupId = formatCheckupId(parsed.checkupId);
-      if (!checkupId) {
-        skipped++;
-        log(`第 ${i + 1} 行：跳过（未识别到 6 位体检编号）`);
-        continue;
-      }
+      const participantName = parsed.name || '未命名';
 
-      const archive = await findArchiveByCheckupId(checkupId);
-      if (!archive) {
+      const checkupId = formatCheckupId(parsed.checkupId) || undefined;
+      const idCard = parsed.screening?.idCard;
+      const phone = parsed.screening?.screeningPhone;
+
+      if (!checkupId && !idCard && !phone && participantName === '未命名') {
         skipped++;
-        log(`第 ${i + 1} 行：跳过（未找到档案 ${checkupId}${parsed.name ? ` / ${parsed.name}` : ''}）`);
+        log(`第 ${i + 1} 行：跳过（无法识别参与者：需体检编号、身份证或联系电话）`);
         continue;
       }
 
       const screening = toScreeningRecord(parsed.screening, { fileName: file.name, rowIndex: i + 1 });
-      const dm = archive.health_record.diabetesManagement || { screenings: [] };
-      const mergedDm = {
-        ...dm,
-        screenings: appendScreening(dm.screenings || [], screening),
-      };
-      const mergedRecord = applyScreeningToHealthRecord(archive.health_record, mergedDm);
 
-      const examIso = `${screening.screeningDate}T08:00:00.000Z`;
-      const obs = [
-        ...observationsFromHealthRecord(
-          mergedRecord,
-          'checkup_import',
-          examIso,
-          `diabetes_screening:${file.name}`,
-          'manager'
-        ),
-        ...observationsFromDiabetesScreening(screening, examIso, `diabetes_screening:${file.name}`),
-      ];
-      await upsertObservations(checkupId, obs);
-      await updateHealthRecordOnly(checkupId, mergedRecord, 'checkup_import', { skipPipeline: true });
+      try {
+        const { participant, report } = await upsertStandaloneFromScreening({
+          checkupId: checkupId || parsed.checkupId,
+          name: participantName,
+          gender: parsed.gender,
+          age: num(parsed.age),
+          phone,
+          idCard,
+          checkupCount: num(parsed.screening?.checkupCount),
+          checkStatus: parsed.screening?.checkStatus,
+          activityName: screening.activityName,
+          screening,
+        });
 
-      const result = evaluateDiabetesScreening(mergedRecord);
-      const mergedAssessment = mergeDiabetesResultToAssessment(archive.assessment_data, result);
-      await saveArchive(
-        mergedRecord,
-        mergedAssessment,
-        archive.follow_up_schedule || [],
-        archive.follow_ups || [],
-        archive.risk_analysis
-      );
-
-      imported++;
-      log(
-        `第 ${i + 1} 行：✅ ${archive.name}（${checkupId}）已导入并生成评估 — ${result.riskLevel === 'RED' ? '高风险' : result.riskLevel === 'YELLOW' ? '中风险' : '低风险'}`
-      );
+        imported++;
+        log(
+          `第 ${i + 1} 行：✅ ${participant.name}（${participant.checkupId || participant.participantKey}）专项评估已生成 — ${
+            report.riskLevel === 'RED' ? '高风险' : report.riskLevel === 'YELLOW' ? '中风险' : '低风险'
+          }`
+        );
+      } catch (e) {
+        skipped++;
+        log(`第 ${i + 1} 行：保存失败 — ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
 
     return {
       success: imported > 0,
-      message: `处理完成：成功 ${imported} 条，跳过 ${skipped} 条`,
+      message: `处理完成：成功 ${imported} 条，跳过 ${skipped} 条（独立专项评估，未写入健康档案）`,
       imported,
       skipped,
       logs,

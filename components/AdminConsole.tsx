@@ -617,7 +617,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                     <td className="p-4 text-xs text-slate-400 font-mono">{new Date(archive.updated_at || archive.created_at).toLocaleDateString()}</td>
                                     <td className="p-4 flex justify-center gap-2 opacity-80 group-hover:opacity-100">
                                         <button onClick={(e) => { e.stopPropagation(); onSelectPatient(archive, 'assessment'); }} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded hover:bg-indigo-100 font-bold">查看</button>
-                                        <button onClick={(e) => { e.stopPropagation(); onSelectPatient(archive, 'diabetes'); }} className="text-xs bg-teal-50 text-teal-700 px-3 py-1.5 rounded hover:bg-teal-100 font-bold">糖尿病专栏</button>
+                                        <button onClick={(e) => { e.stopPropagation(); onTabChange?.('diabetes_management'); }} className="text-xs bg-teal-50 text-teal-700 px-3 py-1.5 rounded hover:bg-teal-100 font-bold">专项筛查</button>
                                         <button onClick={(e) => { e.stopPropagation(); handleEditClick(archive); }} className="text-xs bg-slate-50 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-100">编辑</button>
                                         <button onClick={(e) => { e.stopPropagation(); handleDelete(archive.id, archive.name); }} className="text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded hover:bg-red-100">删除</button>
                                     </td>

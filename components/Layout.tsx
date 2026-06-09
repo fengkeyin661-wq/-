@@ -30,7 +30,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'survey', label: '健康调查建档', icon: '📝', roles: ['admin', 'doctor'] },
     { id: 'assessment', label: '风险评估与方案', icon: '📋', roles: ['admin', 'doctor'] },
     { id: 'elderly_assessment', label: '老年专项评估', icon: '👵', roles: ['admin', 'doctor'] },
-    { id: 'diabetes_management', label: '糖尿病管理专栏', icon: '🩸', roles: ['admin', 'doctor'] },
+    { id: 'diabetes_management', label: '糖尿病专项筛查', icon: '🩸', roles: ['admin', 'doctor'] },
     { id: 'risk_portrait', label: '危急值随访管理', icon: '🛡️', roles: ['admin', 'doctor'] }, // Renamed & New Icon
     { id: 'followup', label: '随访监测', icon: '📅', roles: ['admin', 'doctor'] },
     { id: 'doctor_messages', label: '消息', icon: '💬', roles: ['doctor'] },
