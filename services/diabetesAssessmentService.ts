@@ -18,6 +18,7 @@ import {
   getExerciseGuidance,
   getIndicatorEducation,
   GUIDELINE_NOTES,
+  CORE_INDICATOR_EDUCATION_IDS,
 } from './diabetesEducationContent';
 import {
   evaluateAllScreeningDomains,
@@ -227,16 +228,8 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
         screeningFindings.push(`【${d.label}】本次未检测`);
         continue;
       }
-      const prefix =
-        d.status === 'critical'
-          ? '🔴'
-          : d.status === 'abnormal'
-            ? '🟠'
-            : d.status === 'borderline'
-              ? '🟡'
-              : '🟢';
       for (const f of d.findings) {
-        screeningFindings.push(`${prefix} 【${d.label}】${f}`);
+        screeningFindings.push(`【${d.label}】${f}`);
       }
       complicationAlerts.push(...d.alerts);
       retestAdvice.push(...d.retest);
@@ -244,7 +237,7 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
 
     const doneDomains = domains.filter((d) => d.status !== 'not_done');
     if (doneDomains.length && doneDomains.every((d) => d.status === 'normal')) {
-      screeningFindings.push('🟢 初筛已完成项目未见显著异常，请继续保持健康生活方式并定期复查');
+      screeningFindings.push('初筛已完成项目未见显著异常，请继续保持健康生活方式并定期复查');
     }
   }
 
@@ -255,13 +248,8 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
   ).map((i) => i.id);
   const eduIds = [
     ...new Set([
+      ...CORE_INDICATOR_EDUCATION_IDS,
       ...testedIds,
-      'glucose_fasting',
-      'glucose_postprandial',
-      'ecg',
-      'arteriosclerosis',
-      'fundus',
-      'body_composition',
       ...missedItems.map((m) => m.itemId),
     ]),
   ].filter((id) => id !== 'annual_checkup');
@@ -297,9 +285,7 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
 
   return {
     riskLevel,
-    summary: `${cohortLabel}社区并发症初筛评估：综合分级${
-      riskLevel === RiskLevel.RED ? '高风险' : riskLevel === RiskLevel.YELLOW ? '中风险' : '低风险'
-    }。初筛五项完成 ${doneCount}/5，${abnormalDomains} 项提示异常，${missedItems.length} 项待补检/完善。`,
+    summary: `${cohortLabel}社区并发症初筛评估：初筛五项完成 ${doneCount}/5，${abnormalDomains} 项需关注，${missedItems.length} 项建议补检或完善。`,
     screeningDomains,
     initialScreeningCoverage,
     screeningFindings,

@@ -4,7 +4,6 @@ import {
   DiabetesScreeningRecord,
   DiabetesAssessmentResult,
   DiabetesStandaloneParticipant,
-  RiskLevel,
 } from '../types';
 import {
   createEmptyDiabetesManagement,
@@ -33,9 +32,6 @@ const emptyScreening = (): DiabetesScreeningRecord => ({
   glucoseUnit: 'mmol/L',
 });
 
-const riskLabel = (level?: RiskLevel) =>
-  level === RiskLevel.RED ? '高风险' : level === RiskLevel.YELLOW ? '中风险' : level === RiskLevel.GREEN ? '低风险' : '—';
-
 export const DiabetesManagementModule: React.FC<Props> = ({
   participants,
   currentParticipant,
@@ -47,7 +43,6 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   const [screening, setScreening] = useState<DiabetesScreeningRecord>(emptyScreening());
   const [result, setResult] = useState<DiabetesAssessmentResult | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [riskFilter, setRiskFilter] = useState<'ALL' | RiskLevel>('ALL');
   const [importLogs, setImportLogs] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [localSaving, setLocalSaving] = useState(false);
@@ -81,11 +76,8 @@ export const DiabetesManagementModule: React.FC<Props> = ({
           (p.idCard || '').includes(term)
       );
     }
-    if (riskFilter !== 'ALL') {
-      list = list.filter((p) => p.diabetesReport?.riskLevel === riskFilter);
-    }
     return list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-  }, [participants, searchTerm, riskFilter]);
+  }, [participants, searchTerm]);
 
   const buildParticipantDraft = (): DiabetesStandaloneParticipant | null => {
     if (!currentParticipant) return null;
@@ -158,16 +150,6 @@ export const DiabetesManagementModule: React.FC<Props> = ({
             className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-w-[200px]"
           />
           <select
-            value={riskFilter}
-            onChange={(e) => setRiskFilter(e.target.value as 'ALL' | RiskLevel)}
-            className="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
-          >
-            <option value="ALL">全部风险等级</option>
-            <option value={RiskLevel.RED}>高风险</option>
-            <option value={RiskLevel.YELLOW}>中风险</option>
-            <option value={RiskLevel.GREEN}>低风险</option>
-          </select>
-          <select
             value={currentParticipant?.id || ''}
             onChange={(e) => {
               const next = participants.find((p) => p.id === e.target.value);
@@ -180,8 +162,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
             </option>
             {filteredParticipants.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} | {p.checkupId || p.phone || p.participantKey.slice(0, 12)} |{' '}
-                {riskLabel(p.diabetesReport?.riskLevel)}
+                {p.name} | {p.checkupId || p.phone || p.participantKey.slice(0, 12)}
               </option>
             ))}
           </select>

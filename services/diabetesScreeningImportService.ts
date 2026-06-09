@@ -143,11 +143,7 @@ export const importDiabetesScreeningExcel = async (
         });
 
         imported++;
-        log(
-          `第 ${i + 1} 行：✅ ${participant.name}（${participant.checkupId || participant.participantKey}）专项评估已生成 — ${
-            report.riskLevel === 'RED' ? '高风险' : report.riskLevel === 'YELLOW' ? '中风险' : '低风险'
-          }`
-        );
+        log(`第 ${i + 1} 行：✅ ${participant.name}（${participant.checkupId || participant.participantKey}）专项评估已生成`);
       } catch (e) {
         skipped++;
         log(`第 ${i + 1} 行：保存失败 — ${e instanceof Error ? e.message : String(e)}`);

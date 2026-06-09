@@ -92,6 +92,96 @@ export const INDICATOR_EDUCATION: Record<string, IndicatorEdu> = {
     clinicalMeaning: '微量白蛋白尿是糖尿病肾病最早标志，此阶段可逆转',
     retestCycle: '每年',
   },
+  c_peptide: {
+    itemId: 'c_peptide',
+    label: '胰岛素C肽',
+    concept: '与胰岛素等摩尔分泌的内源性肽段，反映自身β细胞分泌功能',
+    principle: 'C肽与胰岛素同步分泌、半衰期较长，测定结果基本不受外源性胰岛素注射干扰',
+    referenceRange: '空腹C肽约0.8–4.0 ng/mL（因检测方法而异）；空腹<0.6 ng/mL提示分泌不足',
+    clinicalMeaning: '用于鉴别1型与2型糖尿病、评估胰岛功能、指导是否需胰岛素或调整口服药方案',
+    retestCycle: '初诊或方案调整时检测；病情稳定后可随年度复查',
+  },
+  ogtt: {
+    itemId: 'ogtt',
+    label: '口服葡萄糖耐量试验（OGTT）',
+    concept: '口服75g无水葡萄糖后，按时间点测定血糖，评估机体处理葡萄糖的能力',
+    principle: '观察糖负荷后血糖动态变化，可发现仅空腹或仅餐后异常时难以判定的糖代谢紊乱',
+    referenceRange: '空腹<7.0 mmol/L；2小时<7.8 mmol/L为正常；7.8–11.0为糖耐量减低；≥11.1符合糖尿病诊断',
+    clinicalMeaning: '确诊糖尿病及糖尿病前期的重要依据，适用于空腹血糖正常但疑有糖耐量异常者',
+    retestCycle: '诊断不明确时完善；糖尿病前期建议每1–3年复查',
+  },
+  blood_pressure: {
+    itemId: 'blood_pressure',
+    label: '血压',
+    concept: '收缩压与舒张压，反映循环系统负荷与血管状态',
+    principle: '糖尿病常与高血压并存，二者协同增加心、脑、肾及眼底并发症风险',
+    referenceRange: '一般人群<140/90 mmHg；糖尿病人群建议<130/80 mmHg（个体化）',
+    clinicalMeaning: '血压控制是糖尿病综合管理的重要一环，与血糖、血脂同等重要',
+    retestCycle: '家庭自测每周2–3次；门诊每3个月复查',
+  },
+  waist_bmi: {
+    itemId: 'waist_bmi',
+    label: '体重指数与腰围',
+    concept: 'BMI=体重(kg)/身高(m)²；腰围反映腹部脂肪堆积',
+    principle: '超重、肥胖及中心性肥胖与胰岛素抵抗、2型糖尿病发生密切相关',
+    referenceRange: 'BMI 18.5–24 kg/m²；男腰围<90 cm、女<85 cm',
+    clinicalMeaning: '体重管理是糖尿病预防和治疗的基石，减重5–10%可显著改善血糖',
+    retestCycle: '每月监测体重；每3–6个月评估腰围与BMI',
+  },
+  foot_exam: {
+    itemId: 'foot_exam',
+    label: '糖尿病足筛查',
+    concept: '检查足部皮肤、溃疡、畸形及血供、感觉功能',
+    principle: '神经病变与血管病变导致足部损伤感知差、愈合慢，易进展为溃疡甚至截肢',
+    referenceRange: '无溃疡、无显著畸形；足背动脉搏动可触及；10g尼龙丝试验阴性',
+    clinicalMeaning: '早期发现高危足，可显著降低糖尿病足溃疡与截肢风险',
+    retestCycle: '每年1次（无病变）；有病变者每次就诊评估',
+  },
+  neuropathy: {
+    itemId: 'neuropathy',
+    label: '糖尿病神经病变筛查',
+    concept: '评估周围神经感觉与反射，常用10g尼龙丝、震动觉、针刺痛觉等',
+    principle: '长期高血糖损伤周围神经，表现为感觉减退、疼痛或自主神经症状',
+    referenceRange: '10g尼龙丝试验各点均感知；震动觉正常',
+    clinicalMeaning: '周围神经病变是糖尿病足的重要危险因素，也是常见慢性并发症',
+    retestCycle: '每年1次',
+  },
+  carotid_us: {
+    itemId: 'carotid_us',
+    label: '颈动脉彩超',
+    concept: '超声观察颈动脉内膜厚度、斑块及狭窄程度',
+    principle: '反映大动脉粥样硬化负荷，斑块不稳定可引发缺血性卒中',
+    referenceRange: '内膜光滑，无显著斑块或狭窄（IMT通常<1.0 mm，因年龄调整）',
+    clinicalMeaning: '糖尿病患者卒中风险增高，颈动脉斑块提示需强化心血管风险管理',
+    retestCycle: '每1–2年（高危或已有斑块者缩短间隔）',
+  },
+};
+
+/** 报告科普部分默认展示的核心指标（含指南建议年度筛查项） */
+export const CORE_INDICATOR_EDUCATION_IDS = [
+  'glucose_fasting',
+  'glucose_postprandial',
+  'hba1c',
+  'ogtt',
+  'c_peptide',
+  'blood_pressure',
+  'waist_bmi',
+  'lipids',
+  'renal',
+  'urine_albumin',
+  'ecg',
+  'arteriosclerosis',
+  'carotid_us',
+  'fundus',
+  'foot_exam',
+  'neuropathy',
+  'body_composition',
+];
+
+export const DIABETES_CLINIC_CONTACT = {
+  workHours: '每周一至周五 上午8:30–12:00，下午14:30–18:00',
+  phone: '0371-67739261',
+  inviteText: '欢迎有血糖管理需求的职工联系咨询。',
 };
 
 export const HENAN_GI_FOODS: DietGuidance['henangiFoods'] = [
@@ -105,7 +195,7 @@ export const HENAN_GI_FOODS: DietGuidance['henangiFoods'] = [
   { name: '胡辣汤（不加油馍头）', gi: 'medium', note: '注意勾芡与粉条用量，搭配鸡蛋或豆腐' },
   { name: '绿豆', gi: 'low', note: '夏季绿豆汤少加糖，可作杂粮搭配' },
   { name: '玉米（煮）', gi: 'medium', note: '河南常见，整粒玉米优于玉米糊' },
-  { name: '南瓜（蒸）', gi: 'low', note: '老南瓜升糖较低，嫩南瓜偏高需注意' },
+  { name: '南瓜（蒸）', gi: 'medium', note: '老南瓜糖分与淀粉较高，升糖相对更快；嫩南瓜相对较低，均需控制份量，不宜大量替代主食' },
   { name: '豆腐', gi: 'low', note: '优质蛋白来源，河南家常菜可常选用' },
 ];
 
@@ -205,7 +295,11 @@ export const getExerciseGuidance = (riskLevel: RiskLevel): ExerciseGuidance => {
   };
 };
 
-export const getIndicatorEducation = (itemIds: string[]): IndicatorEdu[] =>
-  itemIds
+export const getIndicatorEducation = (itemIds: string[]): IndicatorEdu[] => {
+  const order = new Map(CORE_INDICATOR_EDUCATION_IDS.map((id, index) => [id, index]));
+  const uniqueIds = [...new Set(itemIds)];
+  uniqueIds.sort((a, b) => (order.get(a) ?? 999) - (order.get(b) ?? 999));
+  return uniqueIds
     .map((id) => INDICATOR_EDUCATION[id])
     .filter((e): e is IndicatorEdu => !!e);
+};
