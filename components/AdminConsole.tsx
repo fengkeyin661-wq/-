@@ -9,6 +9,7 @@ import { fetchContent, fetchInteractions, saveInteraction } from '../services/co
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { extractTextFromFile } from '../services/fileParseService';
 import { importCheckupReportsBatch, sortArchivesByExamDate } from '../services/checkupImportService';
+import { isDiabetesCohort } from '../services/diabetesAssessmentService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -17,7 +18,7 @@ import * as mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 
 interface Props {
-    onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup' | 'assessment') => void;
+    onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes') => void;
     onDataUpdate?: () => void;
     isAuthenticated: boolean;
     onTabChange?: (tab: string) => void;
@@ -397,6 +398,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             let matchRisk = false;
             if (filterRisk === 'ALL') matchRisk = true;
             else if (filterRisk === 'CRITICAL') matchRisk = !!((archive.assessment_data?.isCritical === true || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived');
+            else if (filterRisk === 'DIABETES') matchRisk = isDiabetesCohort(archive.health_record);
+            else if (filterRisk === 'DIABETES_REPORT') matchRisk = !!archive.assessment_data?.diabetesReport;
             else matchRisk = archive.risk_level === filterRisk;
             return matchSearch && matchRisk;
         });
@@ -534,6 +537,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <option value="YELLOW">🟡 中风险</option>
                         <option value="GREEN">🟢 低风险</option>
                         <option value="CRITICAL">🚨 待处理危急值</option>
+                        <option value="DIABETES">🩸 糖尿病专栏人群</option>
+                        <option value="DIABETES_REPORT">📋 已有糖尿病评估</option>
                     </select>
                 </div>
                 <div className="flex gap-2 items-center">
@@ -612,6 +617,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                     <td className="p-4 text-xs text-slate-400 font-mono">{new Date(archive.updated_at || archive.created_at).toLocaleDateString()}</td>
                                     <td className="p-4 flex justify-center gap-2 opacity-80 group-hover:opacity-100">
                                         <button onClick={(e) => { e.stopPropagation(); onSelectPatient(archive, 'assessment'); }} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded hover:bg-indigo-100 font-bold">查看</button>
+                                        <button onClick={(e) => { e.stopPropagation(); onSelectPatient(archive, 'diabetes'); }} className="text-xs bg-teal-50 text-teal-700 px-3 py-1.5 rounded hover:bg-teal-100 font-bold">糖尿病专栏</button>
                                         <button onClick={(e) => { e.stopPropagation(); handleEditClick(archive); }} className="text-xs bg-slate-50 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-100">编辑</button>
                                         <button onClick={(e) => { e.stopPropagation(); handleDelete(archive.id, archive.name); }} className="text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded hover:bg-red-100">删除</button>
                                     </td>

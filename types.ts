@@ -306,12 +306,102 @@ export interface ElderlyAssessmentData {
   };
 }
 
+// --- 糖尿病管理专栏数据 ---
+export interface DiabetesScreeningRecord {
+  id?: string;
+  screeningDate?: string;
+  activityName?: string;
+  source?: 'manual' | 'excel_import' | 'checkup_import';
+  glucoseType?: 'fasting' | 'postprandial';
+  glucoseValue?: number;
+  glucoseUnit?: string;
+  rightArmSbp?: number;
+  rightArmDbp?: number;
+  abi?: number;
+  pwv?: number;
+  arteriosclerosisGrade?: string;
+  arteriosclerosisConclusion?: string;
+  ecgResult?: string;
+  ecgAbnormal?: boolean;
+  fundusResult?: string;
+  fundusGrade?: string;
+  referralNeeded?: boolean;
+  bodyFatRate?: number;
+  muscleMass?: number;
+  visceralFatLevel?: number;
+  bmi?: number;
+  weight?: number;
+  importMeta?: { fileName?: string; rowIndex?: number };
+}
+
+export interface DiabetesManagementData {
+  cohortTag?: 'prediabetes' | 'diabetes' | 'high_glucose';
+  screenings: DiabetesScreeningRecord[];
+  annualCheckupLinked?: boolean;
+  notes?: string;
+}
+
+export interface MissedScreeningItem {
+  itemId: string;
+  label: string;
+  priority: 'high' | 'medium' | 'low';
+  reason: string;
+  recommendedCycle: string;
+}
+
+export interface RetestAdviceItem {
+  itemId: string;
+  label: string;
+  currentFinding: string;
+  advice: string;
+  urgency: 'routine' | 'soon' | 'urgent';
+}
+
+export interface IndicatorEdu {
+  itemId: string;
+  label: string;
+  concept: string;
+  principle: string;
+  referenceRange: string;
+  clinicalMeaning: string;
+  retestCycle: string;
+}
+
+export interface DietGuidance {
+  principles: string[];
+  henangiFoods: { name: string; gi: 'low' | 'medium' | 'high'; note: string }[];
+  cookingTips: string[];
+  eatingTips: string[];
+}
+
+export interface ExerciseGuidance {
+  summary: string;
+  weeklyPlan: { day: string; activity: string; duration: string; intensity: string }[];
+  precautions: string[];
+}
+
+export interface DiabetesAssessmentResult {
+  riskLevel: RiskLevel;
+  summary: string;
+  screeningFindings: string[];
+  missedItems: MissedScreeningItem[];
+  retestAdvice: RetestAdviceItem[];
+  indicatorEducation: IndicatorEdu[];
+  dietPlan: DietGuidance;
+  exercisePlan: ExerciseGuidance;
+  complicationAlerts: string[];
+  guidelineNotes: string[];
+  generatedAt: string;
+  basedOnScreeningId?: string;
+}
+
 // --- 4. 聚合数据对象 ---
 export interface HealthRecord {
   profile: HealthProfile;
   checkup: CheckupData;
   questionnaire: QuestionnaireData;
   elderlyAssessment?: ElderlyAssessmentData;
+  diabetesManagement?: DiabetesManagementData;
   // 用于存储模型计算时的补充变量 (如父母髋骨骨折史等不在常规问卷中的)
   riskModelExtras?: { [key: string]: any }; 
 }
@@ -357,6 +447,8 @@ export interface HealthAssessment {
     psychosocial: string[];
     followup: string[];
   };
+  diabetesRiskLevel?: RiskLevel;
+  diabetesReport?: DiabetesAssessmentResult;
 }
 
 // Timeline item

@@ -1,4 +1,4 @@
-import type { HealthRecord, FollowUpRecord } from '../types';
+import type { HealthRecord, FollowUpRecord, DiabetesScreeningRecord } from '../types';
 import type { HomeMonitoringLog } from './dataService';
 import type { ObservationSource } from './metricCatalog';
 
@@ -56,8 +56,42 @@ export const observationsFromHealthRecord = (
   push('core.waist', num(b.waist), 'cm');
   push('core.creatinine', num(l.renal?.creatinine), 'μmol/L');
   push('core.body_fat_rate', num(record.riskModelExtras?.bodyFatRate), '%');
+  push('core.postprandial_glucose', num(record.riskModelExtras?.postprandialGlucose), 'mmol/L');
   if (!onlyMetricCodes?.length) return out;
   return out.filter((o) => onlyMetricCodes.includes(o.metricCode));
+};
+
+/** 从糖尿病专栏筛查记录提取时序观测 */
+export const observationsFromDiabetesScreening = (
+  screening: DiabetesScreeningRecord,
+  observedAt: string,
+  sourceRef?: string
+): ObservationInput[] => {
+  const out: ObservationInput[] = [];
+  const push = (metricCode: string, value: number | undefined, unit: string) => {
+    if (value == null) return;
+    out.push({
+      metricCode,
+      valueNumeric: value,
+      unit,
+      observedAt,
+      source: 'checkup_import',
+      sourceRef,
+      enteredByRole: 'manager',
+    });
+  };
+
+  if (screening.glucoseType === 'postprandial') {
+    push('core.postprandial_glucose', num(screening.glucoseValue), 'mmol/L');
+  } else {
+    push('core.fasting_glucose', num(screening.glucoseValue), 'mmol/L');
+  }
+  push('core.sbp', num(screening.rightArmSbp), 'mmHg');
+  push('core.dbp', num(screening.rightArmDbp), 'mmHg');
+  push('core.bmi', num(screening.bmi), 'kg/m2');
+  push('core.weight', num(screening.weight), 'kg');
+  push('core.body_fat_rate', num(screening.bodyFatRate), '%');
+  return out;
 };
 
 export type UserMetricKey =

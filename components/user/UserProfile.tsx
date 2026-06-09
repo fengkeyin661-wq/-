@@ -15,6 +15,8 @@ import { UserMetricEntryModal } from './UserMetricEntryModal';
 import { fetchLatestAssessmentRun } from '../../services/assessmentPipelineService';
 import type { UserMetricKey } from '../../services/observationMapper';
 
+// 用户端预留：assessment.diabetesReport / record.diabetesManagement 由管理端糖尿病专栏写入，后续可在此展示「我的糖尿病管理」
+
 const MANAGER_RESOURCE_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
 const MANAGER_CHAT_DEEP_LINK_KEY = 'user_manager_chat_deeplink';
 const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;

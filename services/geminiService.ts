@@ -1,5 +1,5 @@
 
-import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
+import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics, DiabetesScreeningRecord } from "../types";
 import { HabitRecord } from "./dataService";
 import { normalizeCheckupId as normalizeCheckupIdStrict } from './checkupIdUtils';
 
@@ -919,4 +919,50 @@ export const generateDailyIntegratedPlan = async (userProfileStr: string, resour
             tips: '生成服务繁忙，请参考通用建议。'
         };
     }
+};
+
+/** AI 解析 Excel 汇总表中的单行筛查数据（列名不固定） */
+export type ParsedDiabetesScreeningRow = {
+  checkupId: string;
+  name?: string;
+  screening: Partial<DiabetesScreeningRecord>;
+};
+
+export const parseDiabetesScreeningRowWithAI = async (
+  rowText: string
+): Promise<ParsedDiabetesScreeningRow> => {
+  const systemPrompt = `你是医疗数据结构化专家。用户上传的是「社区糖尿病并发症筛查」Excel 汇总表中的一行数据（列名可能不固定）。
+请从该行文本中提取结构化信息，严格返回 JSON，不要包含注释。
+
+提取规则：
+1. checkupId：必须是恰好 6 位纯数字的体检编号；从「体检编号」「编号」「体检号」等列识别；无法识别则返回空字符串。
+2. name：姓名（如有）。
+3. screening 对象字段（未找到则省略或 null）：
+   - screeningDate: YYYY-MM-DD
+   - activityName: 活动/批次名称，默认「社区糖尿病并发症筛查」
+   - glucoseType: "fasting"（空腹血糖）或 "postprandial"（餐后血糖），根据列名或数值上下文判断
+   - glucoseValue: 数字 mmol/L
+   - rightArmSbp, rightArmDbp: 右臂血压 mmHg（若仅写收缩压/舒张压也填入）
+   - abi, pwv: 动脉硬化相关数值
+   - arteriosclerosisGrade, arteriosclerosisConclusion: 动脉硬化分级/结论
+   - ecgResult: 心电图结论原文
+   - ecgAbnormal: boolean，是否异常
+   - fundusResult, fundusGrade: 眼底照相结论与分级
+   - referralNeeded: boolean，是否需眼科转诊
+   - bodyFatRate, visceralFatLevel, muscleMass, bmi, weight: 人体成分相关
+
+目标 JSON：
+{
+  "checkupId": "6位数字或空",
+  "name": "string",
+  "screening": { ... }
+}`;
+
+  const jsonText = await callDeepSeek(systemPrompt, rowText);
+  if (!jsonText) throw new Error('AI 返回为空');
+
+  const parsed = JSON.parse(jsonText) as ParsedDiabetesScreeningRow;
+  if (!parsed.screening) parsed.screening = {};
+  if (!parsed.checkupId) parsed.checkupId = '';
+  return parsed;
 };

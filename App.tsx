@@ -16,14 +16,16 @@ import { DoctorPatients } from './components/DoctorPatients';
 import { DoctorMessageCenter } from './components/DoctorMessageCenter';
 import { CriticalFollowUpManager } from './components/CriticalFollowUpManager'; // New Import
 import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
+import { DiabetesManagementModule } from './components/DiabetesManagementModule';
 
-import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData } from './types';
+import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesManagementData, DiabetesScreeningRecord, DiabetesAssessmentResult } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
 import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions, getDoctorSigningUnreadTotal } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
+import { applyScreeningToHealthRecord, mergeDiabetesResultToAssessment } from './services/diabetesAssessmentService';
 import { supabase, isSupabaseConfigured } from './services/supabaseClient';
 
 type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
@@ -161,6 +163,7 @@ export const App: React.FC = () => {
   
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingElderly, setIsSavingElderly] = useState(false);
+  const [isSavingDiabetes, setIsSavingDiabetes] = useState(false);
 
   const ensureSupabaseSessionForStaff = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
     if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
@@ -380,16 +383,17 @@ export const App: React.FC = () => {
       if (portalMode === 'doctor') openLoginFor('doctor');
   }, [portalMode, isAuthenticated, showLoginModal]);
 
-  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' | 'assessment' = 'view') => {
+  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' = 'view') => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
       setFollowUps(archive.follow_ups || []);
       setSchedule(archive.follow_up_schedule || []);
       setRiskAnalysis(archive.risk_analysis);
-      
+
       if (mode === 'followup') setActiveTab('followup');
       else if (mode === 'assessment') setActiveTab('assessment');
-      else if (mode === 'edit') setActiveTab('survey'); 
+      else if (mode === 'edit') setActiveTab('survey');
+      else if (mode === 'diabetes') setActiveTab('diabetes_management');
       else setActiveTab('dashboard');
   };
 
@@ -580,6 +584,33 @@ export const App: React.FC = () => {
       setRiskAnalysis(archive.risk_analysis);
   };
 
+  const handleSaveDiabetesAssessment = async (
+    dm: DiabetesManagementData,
+    _screening: DiabetesScreeningRecord,
+    result: DiabetesAssessmentResult
+  ) => {
+      if (!healthRecord || !assessment) {
+          alert("请先选择一个已建档用户");
+          return;
+      }
+      setIsSavingDiabetes(true);
+      try {
+          const mergedRecord = applyScreeningToHealthRecord(healthRecord, dm);
+          const mergedAssessment = mergeDiabetesResultToAssessment(assessment, result);
+          const res = await saveArchive(mergedRecord, mergedAssessment, schedule, followUps, riskAnalysis);
+          if (res.success) {
+              setHealthRecord(mergedRecord);
+              setAssessment(mergedAssessment);
+              alert("糖尿病专栏评估已保存");
+              await refreshArchives();
+          } else {
+              alert("保存失败: " + res.message);
+          }
+      } finally {
+          setIsSavingDiabetes(false);
+      }
+  };
+
   const handleSaveElderlyAssessment = async (data: ElderlyAssessmentData, result: ElderlyAssessmentResult) => {
       if (!healthRecord || !assessment) {
           alert("请先选择一个已建档用户");
@@ -721,6 +752,16 @@ export const App: React.FC = () => {
                     onSelectArchive={handleSelectArchiveWithoutNavigation}
                     onSave={handleSaveElderlyAssessment}
                     isSaving={isSavingElderly}
+                />
+            )}
+            {activeTab === 'diabetes_management' && (
+                <DiabetesManagementModule
+                    archives={archives}
+                    currentArchive={healthRecord ? archives.find(a => a.checkup_id === healthRecord.profile.checkupId) || null : null}
+                    onSelectArchive={handleSelectArchiveWithoutNavigation}
+                    onSave={handleSaveDiabetesAssessment}
+                    onImportComplete={refreshArchives}
+                    isSaving={isSavingDiabetes}
                 />
             )}
             

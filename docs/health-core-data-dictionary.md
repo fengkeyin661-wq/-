@@ -20,6 +20,16 @@
 | 甘油三酯 | `health_record.checkup.labBasic.lipids.tg` | mmol/L | string(number) | 0.1-20.0 |
 | 低密度脂蛋白 | `health_record.checkup.labBasic.lipids.ldl` | mmol/L | string(number) | 0.1-15.0 |
 | 高密度脂蛋白 | `health_record.checkup.labBasic.lipids.hdl` | mmol/L | string(number) | 0.1-10.0 |
+| 餐后2小时血糖 | `health_record.riskModelExtras.postprandialGlucose` | mmol/L | number | 1.0-35.0 |
+
+## 2.1 糖尿病管理专栏字段（JSONB 扩展）
+
+| 数据 | 字段路径 | 说明 |
+|---|---|---|
+| 专栏档案 | `health_record.diabetesManagement` | 含 `screenings[]`、`cohortTag`、`annualCheckupLinked` |
+| 筛查记录 | `health_record.diabetesManagement.screenings[]` | 社区并发症筛查历次记录 |
+| 评估报告 | `assessment_data.diabetesReport` | 八段式首次评估报告 |
+| 专栏风险分级 | `assessment_data.diabetesRiskLevel` | GREEN / YELLOW / RED |
 
 ## 3. 来源规则
 - `doctor_followup`：医生/健康管家随访写入

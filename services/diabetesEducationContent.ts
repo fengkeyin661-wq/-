@@ -1,0 +1,211 @@
+import type { IndicatorEdu, DietGuidance, ExerciseGuidance } from '../types';
+import { RiskLevel } from '../types';
+
+export const INDICATOR_EDUCATION: Record<string, IndicatorEdu> = {
+  glucose_fasting: {
+    itemId: 'glucose_fasting',
+    label: '空腹血糖',
+    concept: '空腹8–10小时后测定的静脉血浆葡萄糖浓度',
+    principle: '反映肝脏糖输出与基础胰岛素敏感性，受前一晚饮食与睡眠影响',
+    referenceRange: '正常 3.9–6.1 mmol/L；糖尿病前期 6.1–6.9；≥7.0 需进一步诊断',
+    clinicalMeaning: '升高提示胰岛素分泌不足或胰岛素抵抗，需结合餐后血糖与HbA1c综合判断',
+    retestCycle: '高危人群每年1次；确诊后每3个月',
+  },
+  glucose_postprandial: {
+    itemId: 'glucose_postprandial',
+    label: '餐后2小时血糖',
+    concept: '进食标准餐或75g葡萄糖后2小时测定的血糖',
+    principle: '反映餐后胰岛素分泌与组织利用葡萄糖的能力',
+    referenceRange: '正常 <7.8 mmol/L；糖尿病前期 7.8–11.0；≥11.1 符合糖尿病诊断标准之一',
+    clinicalMeaning: '餐后高血糖与心血管并发症风险密切相关，控餐后血糖同样重要',
+    retestCycle: '每3–6个月',
+  },
+  hba1c: {
+    itemId: 'hba1c',
+    label: '糖化血红蛋白（HbA1c）',
+    concept: '血红蛋白与葡萄糖非酶促结合的产物，反映近2–3个月平均血糖',
+    principle: '红细胞寿命约120天，HbA1c综合反映短期血糖波动',
+    referenceRange: '正常 <6.0%；一般控制目标 <7.0%（个体化调整）',
+    clinicalMeaning: '是评估长期血糖控制的金标准，与微血管并发症风险直接相关',
+    retestCycle: '每3个月',
+  },
+  ecg: {
+    itemId: 'ecg',
+    label: '心电图',
+    concept: '记录心脏电活动，无创筛查心律失常与心肌缺血',
+    principle: '心肌缺血或梗死时可见ST-T改变、病理性Q波等',
+    referenceRange: '窦性心律，无显著ST-T异常',
+    clinicalMeaning: '糖尿病患者冠心病风险增高，心电图异常需进一步心脏评估',
+    retestCycle: '每年',
+  },
+  arteriosclerosis: {
+    itemId: 'arteriosclerosis',
+    label: '动脉硬化检测（ABI/PWV）',
+    concept: 'ABI为踝臂血压指数；PWV为脉搏波传导速度',
+    principle: 'ABI反映下肢动脉阻塞；PWV反映大动脉弹性与硬化程度',
+    referenceRange: 'ABI 0.9–1.3；PWV因年龄与设备而异',
+    clinicalMeaning: 'ABI<0.9提示外周动脉疾病；PWV升高提示血管硬化，心血管事件风险增加',
+    retestCycle: '每年',
+  },
+  fundus: {
+    itemId: 'fundus',
+    label: '眼底照相',
+    concept: '通过眼底成像观察视网膜微血管病变',
+    principle: '长期高血糖损伤视网膜毛细血管，出现微动脉瘤、渗出、出血等',
+    referenceRange: '无糖尿病视网膜病变（DR 0级）',
+    clinicalMeaning: 'DR是糖尿病特异性并发症，III级及以上需眼科专科治疗',
+    retestCycle: '无病变每年1次；有病变每3–6个月',
+  },
+  body_composition: {
+    itemId: 'body_composition',
+    label: '人体成分分析',
+    concept: '通过生物电阻抗等方法测定体脂率、肌肉量、内脏脂肪等',
+    principle: '不同组织对电流阻抗不同，推算体成分分布',
+    referenceRange: '体脂率男15–20%、女20–25%为参考；内脏脂肪等级≤9',
+    clinicalMeaning: '内脏脂肪升高与胰岛素抵抗密切相关，减重可改善血糖',
+    retestCycle: '每3–6个月',
+  },
+  lipids: {
+    itemId: 'lipids',
+    label: '血脂四项',
+    concept: '总胆固醇、甘油三酯、高密度脂蛋白、低密度脂蛋白',
+    principle: 'LDL-C是动脉粥样硬化的主要致病脂蛋白',
+    referenceRange: 'LDL-C <2.6 mmol/L（合并ASCVD <1.8）',
+    clinicalMeaning: '糖尿病患者常合并血脂异常，需强化降脂治疗',
+    retestCycle: '每年',
+  },
+  renal: {
+    itemId: 'renal',
+    label: '肾功能',
+    concept: '血肌酐、尿素氮及估算肾小球滤过率（eGFR）',
+    principle: '肾小球滤过功能下降时肌酐升高、eGFR降低',
+    referenceRange: 'eGFR ≥60 mL/min/1.73m²',
+    clinicalMeaning: '糖尿病肾病是主要微血管并发症，需早期筛查与干预',
+    retestCycle: '每年',
+  },
+  urine_albumin: {
+    itemId: 'urine_albumin',
+    label: '尿微量白蛋白',
+    concept: '尿液中微量白蛋白排泄量',
+    principle: '肾小球滤过屏障损伤时白蛋白漏出增加',
+    referenceRange: 'UACR <30 mg/g为正常；30–300为微量白蛋白尿',
+    clinicalMeaning: '微量白蛋白尿是糖尿病肾病最早标志，此阶段可逆转',
+    retestCycle: '每年',
+  },
+};
+
+export const HENAN_GI_FOODS: DietGuidance['henangiFoods'] = [
+  { name: '荞麦面', gi: 'low', note: '河南伏牛山地区常见，富含膳食纤维，推荐替代部分白面' },
+  { name: '小米粥', gi: 'low', note: '升糖较慢，适合早餐，不宜煮得过烂' },
+  { name: '红薯（蒸）', gi: 'low', note: '河南主产，蒸食优于烤食，每次100–150g' },
+  { name: '全麦馒头', gi: 'medium', note: '优于白馒头，建议搭配蔬菜与蛋白质' },
+  { name: '白馒头', gi: 'high', note: '河南主食，建议减量，搭配蔬菜先吃' },
+  { name: '烩面', gi: 'high', note: '汤面升糖快，建议少喝汤、多加蔬菜、控制份量' },
+  { name: '油条', gi: 'high', note: '高油高糖，不宜经常食用' },
+  { name: '胡辣汤（不加油馍头）', gi: 'medium', note: '注意勾芡与粉条用量，搭配鸡蛋或豆腐' },
+  { name: '绿豆', gi: 'low', note: '夏季绿豆汤少加糖，可作杂粮搭配' },
+  { name: '玉米（煮）', gi: 'medium', note: '河南常见，整粒玉米优于玉米糊' },
+  { name: '南瓜（蒸）', gi: 'low', note: '老南瓜升糖较低，嫩南瓜偏高需注意' },
+  { name: '豆腐', gi: 'low', note: '优质蛋白来源，河南家常菜可常选用' },
+];
+
+export const COOKING_TIPS = [
+  '烹调方式优先：蒸、煮、炖、凉拌，减少油炸、煎炒',
+  '控制勾芡与酱料，烩菜少放淀粉勾芡',
+  '植物油每日25–30g，避免反复煎炸',
+  '主食粗细搭配，杂粮占1/3以上',
+  '先吃蔬菜再吃主食，延缓血糖上升',
+  '细嚼慢咽，每餐进食时间不少于20分钟',
+  '少食多餐，避免暴饮暴食',
+  '限制含糖饮料，白开水或淡茶为佳',
+];
+
+export const EATING_TIPS = [
+  '固定三餐时间，避免跳过早餐',
+  '每餐保证蔬菜占餐盘1/2',
+  '每餐搭配优质蛋白（鱼、禽、豆、蛋）',
+  '外出就餐时少点糖醋、红烧类高糖菜肴',
+  '加餐选择坚果（每日约10g）、酸奶（无糖）或低GI水果',
+  '睡前2小时避免大量进食',
+  '记录饮食日记，便于发现升糖食物',
+];
+
+export const GUIDELINE_NOTES = [
+  '《中国2型糖尿病防治指南（2024版）》：确诊后应每年至少进行1次全面并发症筛查',
+  '血糖控制目标个体化：一般HbA1c<7.0%，老年或合并症多者可适当放宽至<8.0%',
+  '生活方式干预是糖尿病管理的基础：合理膳食、规律运动、戒烟限酒、心理平衡',
+  '每年筛查：眼底、尿白蛋白/肾功能、血脂、足部、心电图',
+  '血压控制目标<130/80 mmHg（无禁忌时），合并肾病者需个体化',
+  'LDL-C控制目标：无ASCVD <2.6 mmol/L，有ASCVD <1.8 mmol/L',
+  '规律监测血糖：口服药治疗者每月至少4次；胰岛素治疗者每日监测',
+  '出现视力骤降、足部破溃、胸闷胸痛等症状应立即就医',
+];
+
+export const getDietGuidance = (): DietGuidance => ({
+  principles: [
+    '总能量摄入与体重目标匹配，超重/肥胖者适度减少总热量',
+    '碳水化合物占总能量45–60%，优先低GI食物',
+    '增加膳食纤维摄入，每日25–30g',
+    '限制饱和脂肪，增加不饱和脂肪（橄榄油、坚果、鱼）',
+    '钠盐每日不超过5g',
+  ],
+  henangiFoods: HENAN_GI_FOODS,
+  cookingTips: COOKING_TIPS,
+  eatingTips: EATING_TIPS,
+});
+
+export const getExerciseGuidance = (riskLevel: RiskLevel): ExerciseGuidance => {
+  const isHighRisk = riskLevel === RiskLevel.RED;
+  const isMediumRisk = riskLevel === RiskLevel.YELLOW;
+
+  const weeklyPlan = isHighRisk
+    ? [
+        { day: '周一', activity: '散步（平地）', duration: '20分钟', intensity: '低' },
+        { day: '周二', activity: '休息/拉伸', duration: '10分钟', intensity: '低' },
+        { day: '周三', activity: '散步或八段锦', duration: '20分钟', intensity: '低' },
+        { day: '周四', activity: '休息', duration: '-', intensity: '-' },
+        { day: '周五', activity: '散步', duration: '20分钟', intensity: '低' },
+        { day: '周六', activity: '太极拳/舒缓操', duration: '25分钟', intensity: '低' },
+        { day: '周日', activity: '休息', duration: '-', intensity: '-' },
+      ]
+    : isMediumRisk
+      ? [
+          { day: '周一', activity: '快走', duration: '30分钟', intensity: '中' },
+          { day: '周二', activity: '弹力带抗阻训练', duration: '20分钟', intensity: '中' },
+          { day: '周三', activity: '快走或骑车', duration: '30分钟', intensity: '中' },
+          { day: '周四', activity: '拉伸与平衡训练', duration: '15分钟', intensity: '低' },
+          { day: '周五', activity: '快走', duration: '30分钟', intensity: '中' },
+          { day: '周六', activity: '游泳/骑车（选一）', duration: '40分钟', intensity: '中' },
+          { day: '周日', activity: '散步放松', duration: '20分钟', intensity: '低' },
+        ]
+      : [
+          { day: '周一', activity: '快走/慢跑', duration: '40分钟', intensity: '中' },
+          { day: '周二', activity: '哑铃/自重抗阻', duration: '30分钟', intensity: '中' },
+          { day: '周三', activity: '骑车或游泳', duration: '40分钟', intensity: '中' },
+          { day: '周四', activity: '抗阻训练', duration: '30分钟', intensity: '中' },
+          { day: '周五', activity: '快走', duration: '40分钟', intensity: '中' },
+          { day: '周六', activity: '有氧运动（任选）', duration: '50分钟', intensity: '中' },
+          { day: '周日', activity: '拉伸与放松', duration: '20分钟', intensity: '低' },
+        ];
+
+  return {
+    summary: isHighRisk
+      ? '当前存在较高健康风险，建议在医生指导下从低强度运动开始，每周累计约90分钟'
+      : isMediumRisk
+        ? '建议每周至少150分钟中等强度有氧运动，配合2次抗阻训练'
+        : '建议每周至少150分钟中等强度有氧运动，配合2–3次抗阻训练，维持代谢健康',
+    weeklyPlan,
+    precautions: [
+      '运动前监测血糖，<5.6 mmol/L时适量加餐，>16.7 mmol/L暂缓运动',
+      '避免空腹剧烈运动，防止低血糖',
+      '穿合适鞋袜，运动后检查足部',
+      '出现胸痛、气短、头晕立即停止运动并就医',
+      '高血压未控制者避免憋气用力动作',
+    ],
+  };
+};
+
+export const getIndicatorEducation = (itemIds: string[]): IndicatorEdu[] =>
+  itemIds
+    .map((id) => INDICATOR_EDUCATION[id])
+    .filter((e): e is IndicatorEdu => !!e);
