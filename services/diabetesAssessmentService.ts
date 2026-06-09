@@ -25,6 +25,10 @@ import {
   computeOverallRiskFromDomains,
   INITIAL_SCREENING_CHECKS,
 } from './diabetesScreeningRules';
+import {
+  buildScreeningFindingRows,
+  screeningFindingRowsToStrings,
+} from './diabetesScreeningFindingRows';
 
 const INITIAL_SCREENING_CLINICAL_MEANING: Record<string, string> = {
   glucose: '反映空腹及餐后糖代谢状态，是糖尿病诊断与监测的核心指标',
@@ -222,6 +226,7 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
   }));
 
   const screeningFindings: string[] = [];
+  let screeningFindingRows: DiabetesAssessmentResult['screeningFindingRows'] = [];
   const complicationAlerts: string[] = [];
   const retestAdvice: DiabetesAssessmentResult['retestAdvice'] = [];
   let screeningDomains: DiabetesAssessmentResult['screeningDomains'] = [];
@@ -237,14 +242,10 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
       findings: d.findings,
     }));
 
+    screeningFindingRows = buildScreeningFindingRows(screeningDomains);
+    screeningFindings.push(...screeningFindingRowsToStrings(screeningFindingRows));
+
     for (const d of domains) {
-      if (d.status === 'not_done') {
-        screeningFindings.push(`【${d.label}】本次未检测`);
-        continue;
-      }
-      for (const f of d.findings) {
-        screeningFindings.push(`【${d.label}】${f}`);
-      }
       complicationAlerts.push(...d.alerts);
       retestAdvice.push(...d.retest);
     }
@@ -303,6 +304,7 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
     screeningDomains,
     initialScreeningCoverage,
     screeningFindings,
+    screeningFindingRows,
     missedItems,
     retestAdvice,
     indicatorEducation: getIndicatorEducation(eduIds),

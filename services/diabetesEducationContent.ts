@@ -43,7 +43,7 @@ export const INDICATOR_EDUCATION: Record<string, IndicatorEdu> = {
     label: '动脉硬化检测（ABI/baPWV/cfPWV）',
     concept: 'ABI为踝臂血压指数；baPWV为臂踝脉搏波传导速度；cfPWV为颈股脉搏波传导速度',
     principle: 'ABI反映下肢动脉血供；PWV反映动脉壁弹性与硬化程度，值越高硬化越重',
-    referenceRange: 'ABI 0.9–1.3；baPWV 通常<1400 cm/s；cfPWV 通常<10 m/s（因年龄设备调整）',
+    referenceRange: 'ABI 0.9–1.3；臂踝 PWV（baPWV）<1400 cm/s；颈股 PWV（cfPWV）<10 m/s（boso 动脉硬化检测参考）',
     clinicalMeaning: 'ABI<0.9提示外周动脉疾病；baPWV/cfPWV升高提示大动脉硬化，糖尿病合并高血压者需重点关注',
     retestCycle: '每年',
   },

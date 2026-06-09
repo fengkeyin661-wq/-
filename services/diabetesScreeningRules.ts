@@ -373,7 +373,7 @@ export const evaluateArteriosclerosisDomain = (
   const evalBaPWV = (pwv: number, side: string) => {
     if (pwv >= 1800) {
       status = mergeStatus(status, 'abnormal');
-      result.findings.push(`${side}臂踝 PWV ${pwv} cm/s，动脉硬化程度偏高`);
+      result.findings.push(`${side}臂踝 PWV ${pwv} cm/s，未在正常范围，动脉硬化程度偏高`);
       result.retest.push({
         itemId: 'arteriosclerosis',
         label: '臂踝脉搏波传导速度',
@@ -383,9 +383,9 @@ export const evaluateArteriosclerosisDomain = (
       });
     } else if (pwv >= 1400) {
       status = mergeStatus(status, 'borderline');
-      result.findings.push(`${side}臂踝 PWV ${pwv} cm/s，弹性减退`);
+      result.findings.push(`${side}臂踝 PWV ${pwv} cm/s，未在正常范围，弹性减退`);
     } else {
-      result.findings.push(`${side}臂踝 PWV ${pwv} cm/s`);
+      result.findings.push(`${side}臂踝 PWV ${pwv} cm/s，在正常范围`);
     }
   };
 
@@ -395,12 +395,12 @@ export const evaluateArteriosclerosisDomain = (
   if (cfPWV != null) {
     if (cfPWV >= 12) {
       status = mergeStatus(status, 'abnormal');
-      result.findings.push(`颈股 PWV ${cfPWV} m/s，大动脉硬化`);
+      result.findings.push(`颈股 PWV ${cfPWV} m/s，未在正常范围，大动脉硬化`);
     } else if (cfPWV >= 10) {
       status = mergeStatus(status, 'borderline');
-      result.findings.push(`颈股 PWV ${cfPWV} m/s，动脉弹性减退`);
+      result.findings.push(`颈股 PWV ${cfPWV} m/s，未在正常范围，动脉弹性减退`);
     } else {
-      result.findings.push(`颈股 PWV ${cfPWV} m/s`);
+      result.findings.push(`颈股 PWV ${cfPWV} m/s，在正常范围`);
     }
   }
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DiabetesAssessmentResult, HealthProfile, IndicatorEdu } from '../types';
+import type { DiabetesAssessmentResult, HealthProfile, IndicatorEdu, ScreeningFindingRow } from '../types';
 import { DIABETES_CLINIC_CONTACT } from '../services/diabetesEducationContent';
 
 interface Props {
@@ -7,6 +7,67 @@ interface Props {
   patientName?: string;
   profile?: HealthProfile;
 }
+
+const getScreeningFindingRows = (report: DiabetesAssessmentResult): ScreeningFindingRow[] => {
+  if (report.screeningFindingRows?.length) return report.screeningFindingRows;
+  return report.screeningFindings
+    .filter((f) => !f.startsWith('初筛已完成') && !f.startsWith('暂无社区'))
+    .map((f) => {
+      const m = f.match(/^【([^】]+)】(.+)$/);
+      return {
+        domainLabel: m?.[1] ?? '—',
+        itemLabel: '—',
+        result: m?.[2] ?? f,
+        referenceRange: '—',
+      };
+    });
+};
+
+const screeningSummaryNote = (report: DiabetesAssessmentResult) =>
+  report.screeningFindings.find(
+    (f) => f.startsWith('初筛已完成') || f.startsWith('暂无社区')
+  );
+
+const ScreeningFindingTable: React.FC<{ rows: ScreeningFindingRow[] }> = ({ rows }) => {
+  if (!rows.length) {
+    return <p className="text-sm text-slate-500">暂无</p>;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border border-slate-200">
+        <thead>
+          <tr className="bg-slate-50 text-slate-700">
+            <th className="border border-slate-200 px-3 py-2 text-left font-bold">检查项目</th>
+            <th className="border border-slate-200 px-3 py-2 text-left font-bold">检测指标</th>
+            <th className="border border-slate-200 px-3 py-2 text-left font-bold">本次结果</th>
+            <th className="border border-slate-200 px-3 py-2 text-left font-bold">正常参考范围</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="text-slate-700">
+              <td className="border border-slate-200 px-3 py-2 font-medium whitespace-nowrap">{r.domainLabel}</td>
+              <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{r.itemLabel}</td>
+              <td className="border border-slate-200 px-3 py-2">{r.result}</td>
+              <td className="border border-slate-200 px-3 py-2">{r.referenceRange}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+const screeningFindingTableHtml = (rows: ScreeningFindingRow[]) => {
+  if (!rows.length) return '<p class="muted">暂无</p>';
+  const body = rows
+    .map(
+      (r) =>
+        `<tr><td>${r.domainLabel}</td><td>${r.itemLabel}</td><td>${r.result}</td><td>${r.referenceRange}</td></tr>`
+    )
+    .join('');
+  return `<table><thead><tr><th>检查项目</th><th>检测指标</th><th>本次结果</th><th>正常参考范围</th></tr></thead><tbody>${body}</tbody></table>`;
+};
 
 const IndicatorEducationTable: React.FC<{ items: IndicatorEdu[] }> = ({ items }) => {
   if (!items.length) {
@@ -67,6 +128,9 @@ const indicatorEducationTableHtml = (items: IndicatorEdu[]) => {
 };
 
 export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName, profile }) => {
+  const screeningRows = getScreeningFindingRows(report);
+  const screeningNote = screeningSummaryNote(report);
+
   const handlePrint = () => {
     const printWindow = window.open('', '_blank', 'height=900,width=800');
     if (!printWindow) {
@@ -135,7 +199,7 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
       </div>
       <div class="summary-box"><p>${report.summary}</p></div>
       ${alertsHtml}
-      <div class="section"><h3>一、本次检查风险提示</h3>${listHtml(report.screeningFindings)}</div>
+      <div class="section"><h3>一、本次检查风险提示</h3>${screeningNote ? `<p>${screeningNote}</p>` : ''}${screeningFindingTableHtml(screeningRows)}</div>
       <div class="section"><h3>二、项目补检建议</h3>${missedHtml}</div>
       <div class="section"><h3>三、已检项目复检与进一步检查建议</h3>${retestHtml}</div>
       <div class="section"><h3>四、膳食指导</h3>
@@ -191,27 +255,6 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
         </div>
       )}
 
-      {report.screeningDomains && report.screeningDomains.length > 0 && (
-        <div className="space-y-3">
-          {report.screeningDomains
-            .filter((d) => d.status !== 'not_done')
-            .map((d) => (
-              <div key={d.domainId} className="rounded-lg p-3 text-sm border border-slate-200 bg-slate-50">
-                <p className="font-bold text-slate-800 mb-1">{d.label}</p>
-                {d.findings.length > 0 ? (
-                  <ul className="list-disc pl-4 text-slate-700 space-y-0.5">
-                    {d.findings.map((f, i) => (
-                      <li key={i}>{f}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-slate-500">无数据</p>
-                )}
-              </div>
-            ))}
-        </div>
-      )}
-
       {report.complicationAlerts.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800 text-sm space-y-1">
           {report.complicationAlerts.map((a, i) => (
@@ -220,7 +263,10 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
         </div>
       )}
 
-      <Section title="一、本次检查风险提示" items={report.screeningFindings} />
+      <Section title="一、本次检查风险提示">
+        {screeningNote && <p className="text-sm text-slate-600 mb-2">{screeningNote}</p>}
+        <ScreeningFindingTable rows={screeningRows} />
+      </Section>
       <Section title="二、项目补检建议">
         {report.missedItems.length ? (
           <div className="overflow-x-auto">
