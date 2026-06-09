@@ -26,6 +26,22 @@ import {
   INITIAL_SCREENING_CHECKS,
 } from './diabetesScreeningRules';
 
+const INITIAL_SCREENING_CLINICAL_MEANING: Record<string, string> = {
+  glucose: '反映空腹及餐后糖代谢状态，是糖尿病诊断与监测的核心指标',
+  ecg: '筛查心脏并发症及心律失常风险',
+  arteriosclerosis: '评估外周动脉及大血管硬化程度，预测心血管事件风险',
+  fundus: '筛查糖尿病视网膜病变，早期干预可防失明',
+  body_composition: '评估体脂分布、内脏脂肪与骨骼肌，指导体重与代谢管理',
+};
+
+const getMissedItemClinicalMeaning = (itemId: string): string => {
+  if (INITIAL_SCREENING_CLINICAL_MEANING[itemId]) return INITIAL_SCREENING_CLINICAL_MEANING[itemId];
+  if (itemId === 'annual_checkup') {
+    return '完善年度体检可补充 HbA1c、血脂、肾功能等数据，全面评估并发症风险';
+  }
+  return DIABETES_SCREENING_CATALOG.find((i) => i.id === itemId)?.clinicalMeaning ?? '';
+};
+
 export interface MergedDiabetesContext {
   dm: DiabetesManagementData;
   checkup: CheckupData;
@@ -153,7 +169,7 @@ const buildMissedItems = (
         itemId: check.id,
         label: check.label,
         priority: 'high',
-        reason: '本次社区并发症初筛活动中未完成该项检测',
+        clinicalMeaning: getMissedItemClinicalMeaning(check.id),
         recommendedCycle: '建议补检',
       });
     }
@@ -169,9 +185,7 @@ const buildMissedItems = (
       itemId: item.id,
       label: item.label,
       priority: item.priority,
-      reason: item.isCoreForDiabetes
-        ? '糖尿病人群年度管理应检项目，当前档案中未见有效记录'
-        : '建议完善以全面评估并发症风险',
+      clinicalMeaning: item.clinicalMeaning,
       recommendedCycle: item.retestCycle,
     });
   }
@@ -181,7 +195,7 @@ const buildMissedItems = (
       itemId: 'annual_checkup',
       label: '年度健康体检报告',
       priority: 'high',
-      reason: '尚未关联年度体检，HbA1c、血脂、肾功能等数据可能不完整',
+      clinicalMeaning: getMissedItemClinicalMeaning('annual_checkup'),
       recommendedCycle: '每年至少1次',
     });
   }

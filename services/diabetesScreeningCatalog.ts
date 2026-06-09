@@ -88,7 +88,7 @@ export const DIABETES_SCREENING_CATALOG: ScreeningCatalogItem[] = [
   {
     id: 'body_composition',
     label: '人体成分分析（InBody）',
-    referenceRange: 'BMI 18.5–24；内脏脂肪面积<80 cm²；体脂率因性别而异',
+    referenceRange: 'BMI 18.5–24；内脏脂肪面积<100 cm²；体脂率因性别而异',
     clinicalMeaning: '评估体脂分布、内脏脂肪与骨骼肌，指导体重与代谢管理',
     retestCycle: '每3–6个月',
     isCoreForDiabetes: true,

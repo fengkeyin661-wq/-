@@ -61,7 +61,7 @@ export const INDICATOR_EDUCATION: Record<string, IndicatorEdu> = {
     label: '人体成分分析（InBody）',
     concept: '通过生物电阻抗测定体脂率、骨骼肌质量、内脏脂肪面积、腰臀比等',
     principle: '区分脂肪、肌肉、水分分布，InBody评分综合反映体成分健康度',
-    referenceRange: 'BMI 18.5–24；男体脂率10–20%、女18–28%；内脏脂肪面积<80 cm²；腰臀比男<0.9女<0.85',
+    referenceRange: 'BMI 18.5–24；男体脂率10–20%、女18–28%；内脏脂肪面积<100 cm²；腰臀比男<0.9女<0.85',
     clinicalMeaning: '内脏脂肪面积增大与胰岛素抵抗、代谢综合征密切相关；肌少型肥胖需兼顾增肌减脂',
     retestCycle: '每3–6个月',
   },

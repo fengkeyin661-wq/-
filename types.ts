@@ -417,7 +417,7 @@ export interface MissedScreeningItem {
   itemId: string;
   label: string;
   priority: 'high' | 'medium' | 'low';
-  reason: string;
+  clinicalMeaning: string;
   recommendedCycle: string;
 }
 

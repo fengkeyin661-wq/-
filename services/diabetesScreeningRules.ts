@@ -602,11 +602,8 @@ export const evaluateBodyCompositionDomain = (
         advice: '3个月复测，强化减重与有氧运动',
         urgency: 'routine',
       });
-    } else if (vfa >= 80) {
-      status = mergeStatus(status, 'borderline');
-      result.findings.push(`内脏脂肪面积 ${vfa} cm²，临界偏高`);
     } else {
-      result.findings.push(`内脏脂肪面积 ${vfa} cm²`);
+      result.findings.push(`内脏脂肪面积 ${vfa} cm²，在正常范围`);
     }
   }
 

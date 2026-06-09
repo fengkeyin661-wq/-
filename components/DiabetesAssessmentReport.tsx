@@ -89,10 +89,10 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
       : '';
 
     const missedHtml = report.missedItems.length
-      ? `<table><thead><tr><th>项目</th><th>说明</th><th>建议周期</th></tr></thead><tbody>${report.missedItems
-          .map((m) => `<tr><td>${m.label}</td><td>${m.reason}</td><td>${m.recommendedCycle}</td></tr>`)
+      ? `<table><thead><tr><th>项目</th><th>临床意义</th><th>建议周期</th></tr></thead><tbody>${report.missedItems
+          .map((m) => `<tr><td>${m.label}</td><td>${m.clinicalMeaning}</td><td>${m.recommendedCycle}</td></tr>`)
           .join('')}</tbody></table>`
-      : '<p class="muted">暂无漏检项目</p>';
+      : '<p class="muted">暂无项目补检建议</p>';
 
     const retestHtml = report.retestAdvice.length
       ? `<table><thead><tr><th>项目</th><th>当前发现</th><th>建议</th></tr></thead><tbody>${report.retestAdvice
@@ -136,7 +136,7 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
       <div class="summary-box"><p>${report.summary}</p></div>
       ${alertsHtml}
       <div class="section"><h3>一、本次检查风险提示</h3>${listHtml(report.screeningFindings)}</div>
-      <div class="section"><h3>二、漏检项目补检建议</h3>${missedHtml}</div>
+      <div class="section"><h3>二、项目补检建议</h3>${missedHtml}</div>
       <div class="section"><h3>三、已检项目复检与进一步检查建议</h3>${retestHtml}</div>
       <div class="section"><h3>四、膳食指导</h3>
         <p><strong>原则：</strong></p>${listHtml(report.dietPlan.principles)}
@@ -221,17 +221,30 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
       )}
 
       <Section title="一、本次检查风险提示" items={report.screeningFindings} />
-      <Section title="二、漏检项目补检建议">
+      <Section title="二、项目补检建议">
         {report.missedItems.length ? (
-          <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
-            {report.missedItems.map((m, i) => (
-              <li key={i}>
-                <strong>{m.label}</strong> — {m.reason}，建议周期：{m.recommendedCycle}
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border border-slate-200">
+              <thead>
+                <tr className="bg-slate-50 text-slate-700">
+                  <th className="border border-slate-200 px-3 py-2 text-left font-bold">项目</th>
+                  <th className="border border-slate-200 px-3 py-2 text-left font-bold">临床意义</th>
+                  <th className="border border-slate-200 px-3 py-2 text-left font-bold">建议周期</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.missedItems.map((m, i) => (
+                  <tr key={i} className="text-slate-700">
+                    <td className="border border-slate-200 px-3 py-2 font-medium whitespace-nowrap">{m.label}</td>
+                    <td className="border border-slate-200 px-3 py-2">{m.clinicalMeaning}</td>
+                    <td className="border border-slate-200 px-3 py-2 whitespace-nowrap">{m.recommendedCycle}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
-          <p className="text-sm text-slate-500">暂无漏检项目</p>
+          <p className="text-sm text-slate-500">暂无项目补检建议</p>
         )}
       </Section>
       <Section title="三、复检与进一步检查建议">
