@@ -312,26 +312,76 @@ export interface DiabetesScreeningRecord {
   screeningDate?: string;
   activityName?: string;
   source?: 'manual' | 'excel_import' | 'checkup_import';
+  /** 登记/筛查日期（Excel 登记日期） */
+  registrationDate?: string;
+  checkupCount?: number;
+  checkStatus?: string;
+  idCard?: string;
+  screeningPhone?: string;
+  /** 血糖 */
+  fastingGlucose?: number;
+  postprandialRandomGlucose?: number;
   glucoseType?: 'fasting' | 'postprandial';
   glucoseValue?: number;
   glucoseUnit?: string;
+  glucoseMetabolismRisk?: string;
+  /** 心电图 */
+  ecgHeartRate?: number;
+  ecgPrInterval?: number;
+  ecgQrsWidth?: number;
+  ecgQtQtc?: string;
+  ecgQrsAxis?: number;
+  ecgRv5sv1?: string;
+  ecgDiagnosisHint?: string;
+  ecgResult?: string;
+  ecgAbnormal?: boolean;
+  /** 动脉硬化 */
+  leftBaPWV?: number;
+  rightBaPWV?: number;
+  cfPWV?: number;
+  leftABI?: number;
+  rightABI?: number;
+  leftArmSbp?: number;
+  leftArmDbp?: number;
+  leftArmPulse?: number;
   rightArmSbp?: number;
   rightArmDbp?: number;
+  rightArmPulse?: number;
+  leftAnkleSbp?: number;
+  leftAnkleDbp?: number;
+  rightAnkleSbp?: number;
+  rightAnkleDbp?: number;
   abi?: number;
   pwv?: number;
   arteriosclerosisGrade?: string;
   arteriosclerosisConclusion?: string;
-  ecgResult?: string;
-  ecgAbnormal?: boolean;
+  arteriosclerosisRisk?: string;
+  specialNote?: string;
+  /** 眼底 */
+  rightEyeAssessment?: string;
+  leftEyeAssessment?: string;
   fundusResult?: string;
   fundusGrade?: string;
   referralNeeded?: boolean;
-  bodyFatRate?: number;
-  muscleMass?: number;
-  visceralFatLevel?: number;
-  bmi?: number;
+  /** 人体成分（InBody 等） */
+  height?: number;
   weight?: number;
+  bmi?: number;
+  bodyFatRate?: number;
+  bodyFatMass?: number;
+  leanBodyMass?: number;
+  skeletalMuscleMass?: number;
+  muscleMass?: number;
+  visceralFatArea?: number;
+  visceralFatLevel?: number;
+  waistHipRatio?: number;
+  inbodyScore?: number;
+  obesityDegree?: number;
+  bmr?: number;
+  targetWeight?: number;
   importMeta?: { fileName?: string; rowIndex?: number };
+  /** AI 解析保留的原始列 */
+  rawColumns?: Record<string, string | number>;
 }
 
 export interface DiabetesManagementData {
@@ -380,9 +430,20 @@ export interface ExerciseGuidance {
   precautions: string[];
 }
 
+export interface ScreeningDomainSummary {
+  domainId: string;
+  label: string;
+  status: 'normal' | 'borderline' | 'abnormal' | 'critical' | 'not_done';
+  findings: string[];
+}
+
 export interface DiabetesAssessmentResult {
   riskLevel: RiskLevel;
   summary: string;
+  /** 初筛五项分域评估 */
+  screeningDomains?: ScreeningDomainSummary[];
+  /** 初筛五项完成度 */
+  initialScreeningCoverage?: { itemId: string; label: string; done: boolean }[];
   screeningFindings: string[];
   missedItems: MissedScreeningItem[];
   retestAdvice: RetestAdviceItem[];

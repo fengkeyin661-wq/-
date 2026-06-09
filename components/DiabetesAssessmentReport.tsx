@@ -166,6 +166,66 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
 
       <p className="text-sm text-slate-600">{report.summary}</p>
 
+      {report.initialScreeningCoverage && report.initialScreeningCoverage.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {report.initialScreeningCoverage.map((c) => (
+            <span
+              key={c.itemId}
+              className={`text-xs px-2 py-1 rounded-full ${
+                c.done ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {c.done ? '✓' : '○'} {c.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {report.screeningDomains && report.screeningDomains.length > 0 && (
+        <div className="space-y-3">
+          {report.screeningDomains.map((d) => (
+            <div
+              key={d.domainId}
+              className={`rounded-lg p-3 text-sm border ${
+                d.status === 'critical'
+                  ? 'bg-red-50 border-red-200'
+                  : d.status === 'abnormal'
+                    ? 'bg-orange-50 border-orange-200'
+                    : d.status === 'borderline'
+                      ? 'bg-yellow-50 border-yellow-200'
+                      : d.status === 'not_done'
+                        ? 'bg-slate-50 border-slate-200'
+                        : 'bg-green-50 border-green-200'
+              }`}
+            >
+              <p className="font-bold text-slate-800 mb-1">
+                {d.label}
+                <span className="ml-2 text-xs font-normal text-slate-500">
+                  {d.status === 'critical'
+                    ? '严重异常'
+                    : d.status === 'abnormal'
+                      ? '异常'
+                      : d.status === 'borderline'
+                        ? '临界'
+                        : d.status === 'not_done'
+                          ? '未检测'
+                          : '未见明显异常'}
+                </span>
+              </p>
+              {d.findings.length > 0 ? (
+                <ul className="list-disc pl-4 text-slate-700 space-y-0.5">
+                  {d.findings.map((f, i) => (
+                    <li key={i}>{f}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-slate-500">无数据</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {report.complicationAlerts.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800 text-sm space-y-1">
           {report.complicationAlerts.map((a, i) => (

@@ -81,13 +81,14 @@ export const observationsFromDiabetesScreening = (
     });
   };
 
-  if (screening.glucoseType === 'postprandial') {
-    push('core.postprandial_glucose', num(screening.glucoseValue), 'mmol/L');
-  } else {
-    push('core.fasting_glucose', num(screening.glucoseValue), 'mmol/L');
-  }
-  push('core.sbp', num(screening.rightArmSbp), 'mmHg');
-  push('core.dbp', num(screening.rightArmDbp), 'mmHg');
+  const fasting = num(screening.fastingGlucose) ?? (screening.glucoseType === 'fasting' ? num(screening.glucoseValue) : undefined);
+  const post =
+    num(screening.postprandialRandomGlucose) ??
+    (screening.glucoseType === 'postprandial' ? num(screening.glucoseValue) : undefined);
+  push('core.fasting_glucose', fasting, 'mmol/L');
+  push('core.postprandial_glucose', post, 'mmol/L');
+  push('core.sbp', num(screening.rightArmSbp ?? screening.leftArmSbp), 'mmHg');
+  push('core.dbp', num(screening.rightArmDbp ?? screening.leftArmDbp), 'mmHg');
   push('core.bmi', num(screening.bmi), 'kg/m2');
   push('core.weight', num(screening.weight), 'kg');
   push('core.body_fat_rate', num(screening.bodyFatRate), '%');

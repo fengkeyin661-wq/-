@@ -40,11 +40,11 @@ export const INDICATOR_EDUCATION: Record<string, IndicatorEdu> = {
   },
   arteriosclerosis: {
     itemId: 'arteriosclerosis',
-    label: '动脉硬化检测（ABI/PWV）',
-    concept: 'ABI为踝臂血压指数；PWV为脉搏波传导速度',
-    principle: 'ABI反映下肢动脉阻塞；PWV反映大动脉弹性与硬化程度',
-    referenceRange: 'ABI 0.9–1.3；PWV因年龄与设备而异',
-    clinicalMeaning: 'ABI<0.9提示外周动脉疾病；PWV升高提示血管硬化，心血管事件风险增加',
+    label: '动脉硬化检测（ABI/baPWV/cfPWV）',
+    concept: 'ABI为踝臂血压指数；baPWV为臂踝脉搏波传导速度；cfPWV为颈股脉搏波传导速度',
+    principle: 'ABI反映下肢动脉血供；PWV反映动脉壁弹性与硬化程度，值越高硬化越重',
+    referenceRange: 'ABI 0.9–1.3；baPWV 通常<1400 cm/s；cfPWV 通常<10 m/s（因年龄设备调整）',
+    clinicalMeaning: 'ABI<0.9提示外周动脉疾病；baPWV/cfPWV升高提示大动脉硬化，糖尿病合并高血压者需重点关注',
     retestCycle: '每年',
   },
   fundus: {
@@ -58,11 +58,11 @@ export const INDICATOR_EDUCATION: Record<string, IndicatorEdu> = {
   },
   body_composition: {
     itemId: 'body_composition',
-    label: '人体成分分析',
-    concept: '通过生物电阻抗等方法测定体脂率、肌肉量、内脏脂肪等',
-    principle: '不同组织对电流阻抗不同，推算体成分分布',
-    referenceRange: '体脂率男15–20%、女20–25%为参考；内脏脂肪等级≤9',
-    clinicalMeaning: '内脏脂肪升高与胰岛素抵抗密切相关，减重可改善血糖',
+    label: '人体成分分析（InBody）',
+    concept: '通过生物电阻抗测定体脂率、骨骼肌质量、内脏脂肪面积、腰臀比等',
+    principle: '区分脂肪、肌肉、水分分布，InBody评分综合反映体成分健康度',
+    referenceRange: 'BMI 18.5–24；男体脂率10–20%、女18–28%；内脏脂肪面积<80 cm²；腰臀比男<0.9女<0.85',
+    clinicalMeaning: '内脏脂肪面积增大与胰岛素抵抗、代谢综合征密切相关；肌少型肥胖需兼顾增肌减脂',
     retestCycle: '每3–6个月',
   },
   lipids: {

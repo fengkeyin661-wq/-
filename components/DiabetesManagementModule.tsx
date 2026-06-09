@@ -158,7 +158,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
         <h3 className="text-lg font-bold text-slate-800 mb-2">上传筛查汇总 Excel</h3>
         <p className="text-sm text-slate-500 mb-3">
-          直接上传已整理的 Excel 汇总表（列名可自定义）。系统将 AI 逐行读取筛查数据，自动匹配体检编号、写入档案并生成首次评估报告。
+          直接上传并发症初筛 Excel 汇总表（含空腹血糖、餐后随机血糖、心电图、动脉硬化 ABI/baPWV、眼底评估、InBody 体成分等列）。AI 逐行解析后自动生成五项分域评估报告。
         </p>
         <div className="flex flex-wrap gap-3">
           <button
