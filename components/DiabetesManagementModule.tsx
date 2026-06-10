@@ -14,6 +14,7 @@ import {
   reevaluateStandalone,
   saveStandaloneParticipant,
   deleteStandaloneParticipant,
+  deleteStandaloneParticipants,
   updateStandaloneProfile,
   type StandaloneProfileInput,
 } from '../services/diabetesStandaloneService';
@@ -61,6 +62,8 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   const [isImporting, setIsImporting] = useState(false);
   const [localSaving, setLocalSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<StandaloneProfileInput>({ name: '' });
   const [profileSaving, setProfileSaving] = useState(false);
@@ -106,6 +109,35 @@ export const DiabetesManagementModule: React.FC<Props> = ({
     }
     return list.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
   }, [participants, searchTerm]);
+
+  const allFilteredSelected =
+    filteredParticipants.length > 0 &&
+    filteredParticipants.every((p) => selectedIds.has(p.id));
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = () => {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredParticipants.forEach((p) => next.delete(p.id));
+        return next;
+      });
+      return;
+    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      filteredParticipants.forEach((p) => next.add(p.id));
+      return next;
+    });
+  };
 
   const buildParticipantDraft = (): DiabetesStandaloneParticipant | null => {
     if (!currentParticipant) return null;
@@ -166,6 +198,42 @@ export const DiabetesManagementModule: React.FC<Props> = ({
     }
   };
 
+  const handleBatchDelete = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+
+    const picked = filteredParticipants.filter((p) => selectedIds.has(p.id));
+    const preview = picked
+      .slice(0, 5)
+      .map((p) => p.name || p.checkupId || '未命名')
+      .join('、');
+    const previewSuffix = ids.length > 5 ? ` 等 ${ids.length} 人` : '';
+
+    if (
+      !window.confirm(
+        `确定批量删除 ${ids.length} 份专项筛查评估报告？\n\n${preview}${previewSuffix}\n\n将清除筛查记录与评估报告，此操作不可恢复。`
+      )
+    ) {
+      return;
+    }
+
+    setBatchDeleting(true);
+    try {
+      const res = await deleteStandaloneParticipants(ids);
+      if (!res.success) {
+        alert(res.message || '批量删除失败');
+        return;
+      }
+      if (currentParticipant && selectedIds.has(currentParticipant.id)) {
+        onSelectParticipant(null);
+      }
+      setSelectedIds(new Set());
+      await onRefresh();
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
   const handleDeleteParticipant = async (p: DiabetesStandaloneParticipant) => {
     const label = p.name || p.checkupId || '该参与者';
     if (
@@ -185,6 +253,11 @@ export const DiabetesManagementModule: React.FC<Props> = ({
       if (currentParticipant?.id === p.id) {
         onSelectParticipant(null);
       }
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(p.id);
+        return next;
+      });
       await onRefresh();
     } finally {
       setDeletingId(null);
@@ -249,10 +322,33 @@ export const DiabetesManagementModule: React.FC<Props> = ({
 
         {filteredParticipants.length > 0 && (
           <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
+              <span className="text-xs text-slate-600">
+                已选 {selectedIds.size} / {filteredParticipants.length} 人
+              </span>
+              <button
+                type="button"
+                onClick={handleBatchDelete}
+                disabled={selectedIds.size === 0 || batchDeleting || isImporting}
+                className="text-red-600 hover:text-red-800 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {batchDeleting ? '批量删除中…' : '批量删除评估报告'}
+              </button>
+            </div>
             <div className="max-h-56 overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-600 sticky top-0">
                   <tr>
+                    <th className="px-3 py-2 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={toggleSelectAllFiltered}
+                        disabled={batchDeleting || isImporting}
+                        aria-label="全选当前列表"
+                        className="rounded border-slate-300"
+                      />
+                    </th>
                     <th className="text-left px-3 py-2 font-medium">姓名</th>
                     <th className="text-left px-3 py-2 font-medium">体检编号</th>
                     <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">电话</th>
@@ -268,6 +364,16 @@ export const DiabetesManagementModule: React.FC<Props> = ({
                         key={p.id}
                         className={`border-t border-slate-100 ${selected ? 'bg-teal-50' : 'hover:bg-slate-50'}`}
                       >
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(p.id)}
+                            onChange={() => toggleSelectOne(p.id)}
+                            disabled={batchDeleting || isImporting}
+                            aria-label={`选择 ${p.name || '未命名'}`}
+                            className="rounded border-slate-300"
+                          />
+                        </td>
                         <td className="px-3 py-2 font-medium text-slate-800">{p.name || '未命名'}</td>
                         <td className="px-3 py-2 text-slate-600">{p.checkupId || '—'}</td>
                         <td className="px-3 py-2 text-slate-600 hidden sm:table-cell">{p.phone || '—'}</td>
@@ -285,7 +391,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
                           <button
                             type="button"
                             onClick={() => handleDeleteParticipant(p)}
-                            disabled={deletingId === p.id || isImporting}
+                            disabled={deletingId === p.id || batchDeleting || isImporting}
                             className="text-red-600 hover:text-red-800 text-xs font-medium disabled:opacity-50"
                           >
                             {deletingId === p.id ? '删除中…' : '删除'}

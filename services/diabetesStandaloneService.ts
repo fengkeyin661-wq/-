@@ -219,12 +219,30 @@ export const saveStandaloneParticipant = async (
 export const deleteStandaloneParticipant = async (
   id: string
 ): Promise<{ success: boolean; message?: string }> => {
-  const list = readLocal().filter((p) => p.id !== id);
-  writeLocal(list);
-  if (isSupabaseConfigured()) {
-    await supabase.from('diabetes_standalone_participants').delete().eq('id', id);
+  const res = await deleteStandaloneParticipants([id]);
+  return { success: res.success, message: res.message };
+};
+
+export const deleteStandaloneParticipants = async (
+  ids: string[]
+): Promise<{ success: boolean; message?: string; deleted: number }> => {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) {
+    return { success: false, message: '未选择要删除的档案', deleted: 0 };
   }
-  return { success: true };
+
+  const idSet = new Set(unique);
+  writeLocal(readLocal().filter((p) => !idSet.has(p.id)));
+
+  if (isSupabaseConfigured()) {
+    const { error } = await supabase
+      .from('diabetes_standalone_participants')
+      .delete()
+      .in('id', unique);
+    if (error) return { success: false, message: error.message, deleted: 0 };
+  }
+
+  return { success: true, deleted: unique.length };
 };
 
 export type UpsertStandaloneInput = {
