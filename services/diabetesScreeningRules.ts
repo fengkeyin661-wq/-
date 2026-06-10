@@ -47,8 +47,8 @@ const judgeInbodyRange = (
 
 const inbodyRangeSuffix = (verdict: InbodyRangeVerdict): string => {
   if (verdict === 'in') return '，在正常范围';
-  if (verdict === 'low') return '，未在正常范围，偏低';
-  if (verdict === 'high') return '，未在正常范围，偏高';
+  if (verdict === 'low') return '，偏低';
+  if (verdict === 'high') return '，偏高';
   return '';
 };
 
