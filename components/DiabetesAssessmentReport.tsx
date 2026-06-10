@@ -295,7 +295,7 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
       ${alertsHtml}
       <div class="section"><h3>一、本次检查风险提示</h3>${screeningNote ? `<p>${screeningNote}</p>` : ''}${screeningFindingSectionsHtml(screeningSections)}</div>
       <div class="section"><h3>二、项目补检建议</h3>${missedHtml}</div>
-      <div class="section"><h3>三、已检项目复检与进一步检查建议</h3>${retestHtml}</div>
+      <div class="section"><h3>三、复检建议</h3>${retestHtml}</div>
       <div class="section"><h3>四、膳食指导</h3>
         <p><strong>原则：</strong></p>${listHtml(report.dietPlan.principles)}
         <p><strong>升糖指数（GI）科普：</strong></p>${giEducationHtml(giEducation)}
@@ -390,7 +390,7 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
           <p className="text-sm text-slate-500">暂无项目补检建议</p>
         )}
       </Section>
-      <Section title="三、复检与进一步检查建议">
+      <Section title="三、复检建议">
         {report.retestAdvice.length ? (
           <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
             {report.retestAdvice.map((r, i) => (
