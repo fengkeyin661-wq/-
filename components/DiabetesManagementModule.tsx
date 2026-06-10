@@ -19,6 +19,7 @@ import {
   type StandaloneProfileInput,
 } from '../services/diabetesStandaloneService';
 import { DiabetesAssessmentReport } from './DiabetesAssessmentReport';
+import { DiabetesReportEditor } from './DiabetesReportEditor';
 
 interface Props {
   participants: DiabetesStandaloneParticipant[];
@@ -67,6 +68,8 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<StandaloneProfileInput>({ name: '' });
   const [profileSaving, setProfileSaving] = useState(false);
+  const [reportEditing, setReportEditing] = useState(false);
+  const [reportSaving, setReportSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -93,6 +96,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
     }
     setProfileForm(profileFromParticipant(currentParticipant));
     setProfileEditing(false);
+    setReportEditing(false);
   }, [currentParticipant?.id]);
 
   const filteredParticipants = useMemo(() => {
@@ -156,10 +160,30 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   const handleEvaluate = async () => {
     const draft = buildParticipantDraft();
     if (!draft) return;
+    if (!window.confirm('重新生成将覆盖当前报告内容（含手工修改），是否继续？')) {
+      return;
+    }
+    setReportEditing(false);
     setDmData(draft.diabetesManagement);
     const report = await reevaluateStandalone(draft);
     setResult(report);
     await onRefresh();
+  };
+
+  const handleSaveReportEdit = async (updated: DiabetesAssessmentResult) => {
+    if (!currentParticipant) return;
+    setReportSaving(true);
+    try {
+      const draft = buildParticipantDraft();
+      if (!draft) return;
+      await saveStandaloneParticipant({ ...draft, diabetesReport: updated });
+      setResult(updated);
+      setReportEditing(false);
+      await onRefresh();
+      alert('报告修改已保存');
+    } finally {
+      setReportSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -617,26 +641,45 @@ export const DiabetesManagementModule: React.FC<Props> = ({
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={handleEvaluate}
-              disabled={isSaving || localSaving}
+              disabled={isSaving || localSaving || reportSaving}
               className="bg-teal-600 text-white px-5 py-2 rounded-lg font-bold disabled:opacity-50"
             >
               重新生成评估报告
             </button>
+            {result && !reportEditing && (
+              <button
+                type="button"
+                onClick={() => setReportEditing(true)}
+                disabled={isSaving || localSaving || reportSaving}
+                className="border border-teal-600 text-teal-700 px-5 py-2 rounded-lg font-bold disabled:opacity-50"
+              >
+                修改报告
+              </button>
+            )}
             <button
               type="button"
               onClick={handleSave}
-              disabled={!result || isSaving || localSaving}
+              disabled={!result || isSaving || localSaving || reportEditing || reportSaving}
               className="bg-slate-800 text-white px-5 py-2 rounded-lg font-bold disabled:opacity-50"
             >
               {localSaving ? '保存中...' : '保存专项评估'}
             </button>
           </div>
 
-          {result && (
+          {result && reportEditing && (
+            <DiabetesReportEditor
+              report={result}
+              saving={reportSaving}
+              onCancel={() => setReportEditing(false)}
+              onSave={handleSaveReportEdit}
+            />
+          )}
+
+          {result && !reportEditing && (
             <DiabetesAssessmentReport
               report={result}
               patientName={currentParticipant.name}
