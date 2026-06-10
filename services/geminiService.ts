@@ -940,7 +940,7 @@ export const parseDiabetesScreeningRowWithAI = async (
 【心电图】心率(bpm)、PR间期(ms)、QRS宽度(ms)、QT/QTc(ms)、QRS电轴(°)、RV5/SV1(mV)、诊断提示
 【动脉硬化】左/右臂踝脉搏波传导速度(baPWV,cm/s)、颈股脉搏波传导速度(cfPWV,m/s)、左/右踝臂指数(ABI)、左/右上肢收缩压/舒张压/脉率、左/右踝收缩压/舒张压、动脉硬化风险、特别提示
 【眼底】右眼评估、左眼评估
-【人体成分 InBody】身高、体重、BMI、体脂率、内脏脂肪面积、骨骼肌质量、腰臀比、InBody评分、肥胖度、基础代谢率、身体脂肪量、去脂体重等
+【人体成分 InBody】身高、体重、BMI、体脂率、内脏脂肪面积、骨骼肌质量、腰臀比、InBody评分、肥胖度、基础代谢率、身体脂肪量、去脂体重、下限（骨骼肌质量正常范围）、上限（骨骼肌质量正常范围）、下限（身体脂肪量正常范围）、上限（身体脂肪量正常范围）等
 
 请提取为 JSON（数值字段用 number，文本保留原文，缺失则省略）：
 
@@ -995,6 +995,10 @@ export const parseDiabetesScreeningRowWithAI = async (
     "bodyFatMass": number,
     "leanBodyMass": number,
     "skeletalMuscleMass": number,
+    "skeletalMuscleRefLow": number,
+    "skeletalMuscleRefHigh": number,
+    "bodyFatMassRefLow": number,
+    "bodyFatMassRefHigh": number,
     "visceralFatArea": number,
     "waistHipRatio": number,
     "inbodyScore": number,
@@ -1004,7 +1008,8 @@ export const parseDiabetesScreeningRowWithAI = async (
   }
 }
 
-规则：体检编号仅取6位数字；空腹血糖/餐后随机血糖单位 mmol/L；baPWV 单位 cm/s；cfPWV 单位 m/s；血压 mmHg。`;
+规则：体检编号仅取6位数字；空腹血糖/餐后随机血糖单位 mmol/L；baPWV 单位 cm/s；cfPWV 单位 m/s；血压 mmHg。
+InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正常范围）→ skeletalMuscleRefLow、上限（骨骼肌质量正常范围）→ skeletalMuscleRefHigh、下限（身体脂肪量正常范围）→ bodyFatMassRefLow、上限（身体脂肪量正常范围）→ bodyFatMassRefHigh，单位 kg。`;
 
   const jsonText = await callDeepSeek(systemPrompt, rowText);
   if (!jsonText) throw new Error('AI 返回为空');

@@ -242,7 +242,12 @@ export const evaluateDiabetesScreening = (record: HealthRecord): DiabetesAssessm
       findings: d.findings,
     }));
 
-    screeningFindingSections = buildScreeningFindingSections(screeningDomains);
+    screeningFindingSections = buildScreeningFindingSections(screeningDomains, {
+      skeletalMuscleRefLow: latestScreening?.skeletalMuscleRefLow,
+      skeletalMuscleRefHigh: latestScreening?.skeletalMuscleRefHigh,
+      bodyFatMassRefLow: latestScreening?.bodyFatMassRefLow,
+      bodyFatMassRefHigh: latestScreening?.bodyFatMassRefHigh,
+    });
     screeningFindings.push(...screeningSectionsToStrings(screeningFindingSections));
 
     for (const d of domains) {

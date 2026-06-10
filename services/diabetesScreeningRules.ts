@@ -92,7 +92,8 @@ export const INITIAL_SCREENING_CHECKS = [
       s?.bodyFatRate != null ||
       s?.inbodyScore != null ||
       s?.visceralFatArea != null ||
-      s?.skeletalMuscleMass != null,
+      s?.skeletalMuscleMass != null ||
+      s?.bodyFatMass != null,
   },
 ] as const;
 
@@ -585,12 +586,14 @@ export const evaluateBodyCompositionDomain = (
   const bfr = num(screening?.bodyFatRate);
   const vfa = num(screening?.visceralFatArea);
   const smm = num(screening?.skeletalMuscleMass);
+  const bfm = num(screening?.bodyFatMass);
   const whr = num(screening?.waistHipRatio);
   const inbody = num(screening?.inbodyScore);
   const weight = num(screening?.weight);
   const height = num(screening?.height);
 
-  if (bmi == null && bfr == null && vfa == null && smm == null && inbody == null) return result;
+  if (bmi == null && bfr == null && vfa == null && smm == null && bfm == null && inbody == null)
+    return result;
 
   let status: DomainStatus = 'normal';
   const isMale = gender === '男' || gender === 'MALE';
@@ -646,9 +649,21 @@ export const evaluateBodyCompositionDomain = (
 
   if (smm != null) {
     result.findings.push(`骨骼肌质量 ${smm} kg`);
-    if (bmi != null && bmi >= 24 && smm < (isMale ? 28 : 20)) {
+    const smmLow = num(screening?.skeletalMuscleRefLow);
+    if (smmLow != null && smm < smmLow) {
       status = mergeStatus(status, 'borderline');
       result.findings.push('骨骼肌质量相对偏低，存在肌少症风险');
+    } else if (bmi != null && bmi >= 24 && smm < (isMale ? 28 : 20)) {
+      status = mergeStatus(status, 'borderline');
+      result.findings.push('骨骼肌质量相对偏低，存在肌少症风险');
+    }
+  }
+
+  if (bfm != null) {
+    result.findings.push(`身体脂肪量 ${bfm} kg`);
+    const bfmHigh = num(screening?.bodyFatMassRefHigh);
+    if (bfmHigh != null && bfm > bfmHigh) {
+      status = mergeStatus(status, 'borderline');
     }
   }
 

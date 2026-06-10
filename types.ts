@@ -371,6 +371,14 @@ export interface DiabetesScreeningRecord {
   bodyFatMass?: number;
   leanBodyMass?: number;
   skeletalMuscleMass?: number;
+  /** InBody 报告：下限（骨骼肌质量正常范围） */
+  skeletalMuscleRefLow?: number;
+  /** InBody 报告：上限（骨骼肌质量正常范围） */
+  skeletalMuscleRefHigh?: number;
+  /** InBody 报告：下限（身体脂肪量正常范围） */
+  bodyFatMassRefLow?: number;
+  /** InBody 报告：上限（身体脂肪量正常范围） */
+  bodyFatMassRefHigh?: number;
   muscleMass?: number;
   visceralFatArea?: number;
   visceralFatLevel?: number;
