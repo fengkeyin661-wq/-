@@ -63,7 +63,15 @@ export const DiabetesManagementModule: React.FC<Props> = ({
       (b.screeningDate || '').localeCompare(a.screeningDate || '')
     )[0];
     setScreening(latest || emptyScreening());
-    setResult(currentParticipant.diabetesReport || null);
+    const cachedReport = currentParticipant.diabetesReport || null;
+    setResult(cachedReport);
+
+    if (!cachedReport && (dm.screenings?.length ?? 0) > 0) {
+      void reevaluateStandalone(currentParticipant).then((report) => {
+        setResult(report);
+        void onRefresh();
+      });
+    }
   }, [currentParticipant?.id]);
 
   const filteredParticipants = useMemo(() => {

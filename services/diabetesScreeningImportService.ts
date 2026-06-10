@@ -128,6 +128,17 @@ export const importDiabetesScreeningExcel = async (
 
       const screening = toScreeningRecord(parsed.screening, { fileName: file.name, rowIndex: i + 1 });
 
+const formatImportSaveError = (e: unknown): string => {
+  const msg = e instanceof Error ? e.message : String(e);
+  const quota =
+    (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22)) ||
+    /quota|QuotaExceeded/i.test(msg);
+  if (quota) {
+    return '浏览器本地存储空间已满（非 AI 解析失败）。评估已计算但未能写入本地；请删除部分旧档案、清空浏览器本站数据，或启用云端存储后重试';
+  }
+  return msg;
+};
+
       try {
         const { participant, report } = await upsertStandaloneFromScreening({
           checkupId: checkupId || parsed.checkupId,
@@ -146,7 +157,7 @@ export const importDiabetesScreeningExcel = async (
         log(`第 ${i + 1} 行：✅ ${participant.name}（${participant.checkupId || participant.participantKey}）专项评估已生成`);
       } catch (e) {
         skipped++;
-        log(`第 ${i + 1} 行：保存失败 — ${e instanceof Error ? e.message : String(e)}`);
+        log(`第 ${i + 1} 行：保存失败 — ${formatImportSaveError(e)}`);
       }
     }
 

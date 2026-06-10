@@ -92,8 +92,24 @@ const readLocal = (): DiabetesStandaloneParticipant[] => {
   }
 };
 
+const isQuotaError = (e: unknown): boolean =>
+  e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22);
+
+/** 本地仅存筛查数据，完整评估报告从云端加载或按需重新生成，避免占满浏览器配额 */
+const compactForLocal = (p: DiabetesStandaloneParticipant): DiabetesStandaloneParticipant => {
+  const { diabetesReport: _report, ...rest } = p;
+  return rest;
+};
+
 const writeLocal = (list: DiabetesStandaloneParticipant[]): void => {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(list));
+  const compact = list.map(compactForLocal);
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(compact));
+  } catch (e) {
+    if (!isQuotaError(e) || compact.length <= 1) throw e;
+    const reduced = compact.slice(0, Math.max(1, Math.floor(compact.length * 0.6)));
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(reduced));
+  }
 };
 
 const upsertLocal = (item: DiabetesStandaloneParticipant): DiabetesStandaloneParticipant => {
@@ -147,7 +163,11 @@ export const fetchStandaloneParticipants = async (): Promise<DiabetesStandaloneP
           }
         }
         local = [...map.values()].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
-        writeLocal(local);
+        try {
+          writeLocal(local);
+        } catch {
+          /* 云端数据可用时忽略本地缓存写入失败 */
+        }
       }
     } catch {
       /* 降级本地 */
@@ -168,9 +188,28 @@ export const saveStandaloneParticipant = async (
   participant: DiabetesStandaloneParticipant
 ): Promise<{ success: boolean; message?: string }> => {
   const item = { ...participant, updatedAt: new Date().toISOString() };
-  upsertLocal(item);
   const cloud = await upsertCloud(item);
-  if (!cloud.success) console.warn('[diabetesStandalone]', cloud.message);
+  if (!cloud.success) {
+    return { success: false, message: cloud.message || '云端保存失败' };
+  }
+  try {
+    upsertLocal(item);
+  } catch (e) {
+    if (isQuotaError(e)) {
+      if (isSupabaseConfigured()) {
+        return {
+          success: true,
+          message: '已保存至云端；浏览器本地缓存空间不足，列表刷新后将从云端加载完整报告。',
+        };
+      }
+      return {
+        success: false,
+        message:
+          '浏览器本地存储空间已满（约 5MB）。请删除部分旧档案后重试，或配置 Supabase 云端存储。',
+      };
+    }
+    throw e;
+  }
   return { success: true };
 };
 
@@ -247,7 +286,10 @@ export const upsertStandaloneFromScreening = async (
   const report = evaluateDiabetesScreening(record);
   participant.diabetesReport = report;
 
-  await saveStandaloneParticipant(participant);
+  const saveRes = await saveStandaloneParticipant(participant);
+  if (!saveRes.success) {
+    throw new Error(saveRes.message || '保存失败');
+  }
   return { participant, report };
 };
 
