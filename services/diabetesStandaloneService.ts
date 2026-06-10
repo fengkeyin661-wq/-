@@ -107,8 +107,11 @@ const writeLocal = (list: DiabetesStandaloneParticipant[]): void => {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(compact));
   } catch (e) {
     if (!isQuotaError(e) || compact.length <= 1) throw e;
-    const reduced = compact.slice(0, Math.max(1, Math.floor(compact.length * 0.6)));
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(reduced));
+    // 空间不足时保留最近更新的档案，避免新导入把旧数据挤掉
+    const sorted = [...compact].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    const keep = Math.max(1, Math.floor(sorted.length * 0.6));
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(sorted.slice(0, keep)));
+    console.warn(`[diabetesStandalone] 本地存储空间不足，已保留最近 ${keep} 条专项筛查档案`);
   }
 };
 
@@ -257,8 +260,11 @@ export const upsertStandaloneFromScreening = async (
       s.screeningDate === input.screening.screeningDate &&
       s.activityName === input.screening.activityName
   );
-  if (dupIdx >= 0) screenings[dupIdx] = { ...screenings[dupIdx], ...input.screening };
-  else screenings.push(input.screening);
+  if (dupIdx >= 0) {
+    screenings[dupIdx] = { ...screenings[dupIdx], ...input.screening };
+  } else {
+    screenings.push(input.screening);
+  }
 
   const participant: DiabetesStandaloneParticipant = {
     id: existing?.id || `dsp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
