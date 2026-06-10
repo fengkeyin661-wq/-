@@ -100,7 +100,10 @@ const getReferenceForFinding = (
   m = finding.match(/^颈股 PWV /);
   if (m) return REF.cfPWV;
 
-  m = finding.match(/^身高 |^BMI /);
+  m = finding.match(/^身高 .+，BMI /);
+  if (m) return REF.bmi;
+
+  m = finding.match(/^BMI /);
   if (m) return REF.bmi;
 
   m = finding.match(/^体脂率 /);

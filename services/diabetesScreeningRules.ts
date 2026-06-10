@@ -623,22 +623,25 @@ export const evaluateBodyCompositionDomain = (
   let status: DomainStatus = 'normal';
   const isMale = gender === '男' || gender === 'MALE';
 
-  if (height != null && weight != null) {
-    result.findings.push(`身高 ${height} cm，体重 ${weight} kg`);
-  }
+  const bmiAssessment = (value: number): { label: string; bmiStatus: DomainStatus } => {
+    if (value >= 28) return { label: '肥胖', bmiStatus: 'abnormal' };
+    if (value >= 24) return { label: '超重', bmiStatus: 'borderline' };
+    if (value < 18.5) return { label: '偏瘦', bmiStatus: 'borderline' };
+    return { label: '正常范围', bmiStatus: 'normal' };
+  };
 
-  if (bmi != null) {
-    if (bmi >= 28) {
-      status = mergeStatus(status, 'abnormal');
-      result.findings.push(`BMI ${bmi} kg/m²，肥胖`);
-    } else if (bmi >= 24) {
-      status = mergeStatus(status, 'borderline');
-      result.findings.push(`BMI ${bmi} kg/m²，超重`);
-    } else if (bmi < 18.5) {
-      status = mergeStatus(status, 'borderline');
-      result.findings.push(`BMI ${bmi} kg/m²，偏瘦`);
-    } else {
-      result.findings.push(`BMI ${bmi} kg/m²，正常范围`);
+  if (height != null && weight != null && bmi != null) {
+    const { label, bmiStatus } = bmiAssessment(bmi);
+    if (bmiStatus !== 'normal') status = mergeStatus(status, bmiStatus);
+    result.findings.push(`身高 ${height} cm，体重 ${weight} kg，BMI ${bmi} kg/m²，${label}`);
+  } else {
+    if (height != null && weight != null) {
+      result.findings.push(`身高 ${height} cm，体重 ${weight} kg`);
+    }
+    if (bmi != null) {
+      const { label, bmiStatus } = bmiAssessment(bmi);
+      if (bmiStatus !== 'normal') status = mergeStatus(status, bmiStatus);
+      result.findings.push(`BMI ${bmi} kg/m²，${label}`);
     }
   }
 
