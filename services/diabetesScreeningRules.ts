@@ -730,15 +730,39 @@ export const evaluateBodyCompositionDomain = (
     const smmLow = num(screening?.skeletalMuscleRefLow);
     const smmHigh = num(screening?.skeletalMuscleRefHigh);
     const smmVerdict = judgeInbodyRange(smm, smmLow, smmHigh);
+    const smmRef =
+      smmLow != null && smmHigh != null ? `（参考 ${smmLow}–${smmHigh} kg）` : '';
+    let smmNeedsRetest = false;
+
     if (smmVerdict === 'unknown') {
       result.findings.push(`骨骼肌质量 ${smm} kg`);
       if (bmi != null && bmi >= 24 && smm < (isMale ? 28 : 20)) {
         status = mergeStatus(status, 'borderline');
         result.findings.push('骨骼肌质量相对偏低，存在肌少症风险');
+        smmNeedsRetest = true;
       }
     } else {
       result.findings.push(`骨骼肌质量 ${smm} kg${inbodyRangeSuffix(smmVerdict)}`);
-      if (smmVerdict !== 'in') status = mergeStatus(status, 'borderline');
+      if (smmVerdict !== 'in') {
+        status = mergeStatus(status, 'borderline');
+        smmNeedsRetest = true;
+      }
+    }
+
+    if (smmNeedsRetest) {
+      const verdictText =
+        smmVerdict === 'low'
+          ? '，偏低'
+          : smmVerdict === 'high'
+            ? '，偏高'
+            : '，相对偏低，存在肌少症风险';
+      result.retest.push({
+        itemId: 'body_composition',
+        label: '骨骼肌质量',
+        currentFinding: `实测 ${smm} kg${verdictText}${smmRef}`,
+        advice: '3–6个月复测体成分，增加抗阻训练与优质蛋白摄入',
+        urgency: 'routine',
+      });
     }
   }
 
@@ -746,11 +770,23 @@ export const evaluateBodyCompositionDomain = (
     const bfmLow = num(screening?.bodyFatMassRefLow);
     const bfmHigh = num(screening?.bodyFatMassRefHigh);
     const bfmVerdict = judgeInbodyRange(bfm, bfmLow, bfmHigh);
+    const bfmRef =
+      bfmLow != null && bfmHigh != null ? `（参考 ${bfmLow}–${bfmHigh} kg）` : '';
+
     if (bfmVerdict === 'unknown') {
       result.findings.push(`身体脂肪量 ${bfm} kg`);
     } else {
       result.findings.push(`身体脂肪量 ${bfm} kg${inbodyRangeSuffix(bfmVerdict)}`);
-      if (bfmVerdict !== 'in') status = mergeStatus(status, 'borderline');
+      if (bfmVerdict !== 'in') {
+        status = mergeStatus(status, 'borderline');
+        result.retest.push({
+          itemId: 'body_composition',
+          label: '身体脂肪量',
+          currentFinding: `实测 ${bfm} kg${inbodyRangeSuffix(bfmVerdict)}${bfmRef}`,
+          advice: '3–6个月复测体成分，配合膳食控制与有氧运动',
+          urgency: 'routine',
+        });
+      }
     }
   }
 
@@ -766,19 +802,45 @@ export const evaluateBodyCompositionDomain = (
     if (inbody < 70) {
       status = mergeStatus(status, 'borderline');
       result.findings.push(`InBody 评分 ${inbody}，体成分综合评分偏低`);
+      result.retest.push({
+        itemId: 'body_composition',
+        label: 'InBody 评分',
+        currentFinding: `实测 ${inbody} 分（参考 ≥70 分）`,
+        advice: '3–6个月复测体成分，配合膳食运动干预',
+        urgency: 'routine',
+      });
     } else {
       result.findings.push(`InBody 评分 ${inbody}`);
     }
   }
 
-  if (status !== 'normal' && status !== 'not_done') {
-    result.retest.push({
-      itemId: 'body_composition',
-      label: '人体成分分析',
-      currentFinding: result.findings.join('；').slice(0, 80),
-      advice: '3–6个月复测体成分，配合膳食运动干预',
-      urgency: 'routine',
-    });
+  if (bmi != null) {
+    const { label, bmiStatus } = bmiAssessment(bmi);
+    if (bmiStatus !== 'normal' && !result.retest.some((r) => r.label === 'BMI')) {
+      result.retest.push({
+        itemId: 'body_composition',
+        label: 'BMI',
+        currentFinding:
+          height != null && weight != null
+            ? `身高 ${height} cm，体重 ${weight} kg，BMI ${bmi} kg/m²，${label}`
+            : `BMI ${bmi} kg/m²，${label}`,
+        advice: '3–6个月复测体成分，控制体重与腰围',
+        urgency: 'routine',
+      });
+    }
+  }
+
+  if (bfr != null) {
+    const high = isMale ? 25 : 30;
+    if (bfr >= high && !result.retest.some((r) => r.label === '体脂率')) {
+      result.retest.push({
+        itemId: 'body_composition',
+        label: '体脂率',
+        currentFinding: `实测 ${bfr}%，偏高`,
+        advice: '3–6个月复测体成分，配合膳食控制与有氧运动',
+        urgency: 'routine',
+      });
+    }
   }
 
   result.status = status;
