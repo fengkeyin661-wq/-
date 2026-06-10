@@ -135,7 +135,7 @@ const upsertCloud = async (item: DiabetesStandaloneParticipant): Promise<{ succe
         payload: item,
         updated_at: item.updatedAt,
       },
-      { onConflict: 'participant_key' }
+      { onConflict: 'id' }
     );
     if (error) return { success: false, message: error.message };
     return { success: true };
@@ -306,4 +306,80 @@ export const reevaluateStandalone = async (
   const report = evaluateDiabetesScreening(record);
   await saveStandaloneParticipant({ ...participant, diabetesReport: report });
   return report;
+};
+
+export type StandaloneProfileInput = {
+  name: string;
+  checkupId?: string;
+  gender?: string;
+  age?: number;
+  phone?: string;
+  idCard?: string;
+  checkupCount?: number;
+  checkStatus?: string;
+};
+
+export const updateStandaloneProfile = async (
+  id: string,
+  profile: StandaloneProfileInput
+): Promise<{ success: boolean; message?: string; participant?: DiabetesStandaloneParticipant }> => {
+  const list = await fetchStandaloneParticipants();
+  const existing = list.find((p) => p.id === id);
+  if (!existing) return { success: false, message: '未找到该参与者' };
+
+  const name = profile.name.trim();
+  if (!name) return { success: false, message: '姓名不能为空' };
+
+  const checkupId = formatCheckupId(profile.checkupId || '') || profile.checkupId?.trim() || undefined;
+  const phone = profile.phone?.trim() || undefined;
+  const idCard = profile.idCard?.trim() || undefined;
+  const gender = profile.gender?.trim() || undefined;
+  const checkStatus = profile.checkStatus?.trim() || undefined;
+
+  const participantKey = resolveParticipantKey({ checkupId, idCard, phone, name });
+  if (participantKey !== existing.participantKey) {
+    const conflict = list.find((p) => p.participantKey === participantKey && p.id !== id);
+    if (conflict) {
+      return {
+        success: false,
+        message: '修改后的体检编号、身份证或电话与已有档案重复，请核对后重试',
+      };
+    }
+  }
+
+  const now = new Date().toISOString();
+  let dm = existing.diabetesManagement;
+  if (dm?.screenings?.length && (idCard || phone)) {
+    dm = {
+      ...dm,
+      screenings: dm.screenings.map((s) => ({
+        ...s,
+        ...(idCard ? { idCard } : {}),
+        ...(phone ? { screeningPhone: phone } : {}),
+      })),
+    };
+  }
+
+  const updated: DiabetesStandaloneParticipant = {
+    ...existing,
+    participantKey,
+    name,
+    checkupId,
+    gender,
+    age: profile.age,
+    phone,
+    idCard,
+    checkupCount: profile.checkupCount,
+    checkStatus,
+    diabetesManagement: dm,
+    updatedAt: now,
+  };
+
+  const report = evaluateDiabetesScreening(toEvaluationHealthRecord(updated));
+  const saveRes = await saveStandaloneParticipant({ ...updated, diabetesReport: report });
+  if (!saveRes.success) {
+    return { success: false, message: saveRes.message || '保存失败' };
+  }
+
+  return { success: true, participant: { ...updated, diabetesReport: report } };
 };

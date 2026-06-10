@@ -14,6 +14,8 @@ import {
   reevaluateStandalone,
   saveStandaloneParticipant,
   deleteStandaloneParticipant,
+  updateStandaloneProfile,
+  type StandaloneProfileInput,
 } from '../services/diabetesStandaloneService';
 import { DiabetesAssessmentReport } from './DiabetesAssessmentReport';
 
@@ -33,6 +35,17 @@ const emptyScreening = (): DiabetesScreeningRecord => ({
   glucoseUnit: 'mmol/L',
 });
 
+const profileFromParticipant = (p: DiabetesStandaloneParticipant): StandaloneProfileInput => ({
+  name: p.name || '',
+  checkupId: p.checkupId || '',
+  gender: p.gender || '',
+  age: p.age,
+  phone: p.phone || '',
+  idCard: p.idCard || '',
+  checkupCount: p.checkupCount,
+  checkStatus: p.checkStatus || '',
+});
+
 export const DiabetesManagementModule: React.FC<Props> = ({
   participants,
   currentParticipant,
@@ -48,6 +61,9 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   const [isImporting, setIsImporting] = useState(false);
   const [localSaving, setLocalSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileForm, setProfileForm] = useState<StandaloneProfileInput>({ name: '' });
+  const [profileSaving, setProfileSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -72,6 +88,8 @@ export const DiabetesManagementModule: React.FC<Props> = ({
         void onRefresh();
       });
     }
+    setProfileForm(profileFromParticipant(currentParticipant));
+    setProfileEditing(false);
   }, [currentParticipant?.id]);
 
   const filteredParticipants = useMemo(() => {
@@ -122,6 +140,29 @@ export const DiabetesManagementModule: React.FC<Props> = ({
       alert('专项评估已保存');
     } finally {
       setLocalSaving(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!currentParticipant) return;
+    setProfileSaving(true);
+    try {
+      const res = await updateStandaloneProfile(currentParticipant.id, {
+        ...profileForm,
+        name: profileForm.name.trim(),
+      });
+      if (!res.success || !res.participant) {
+        alert(res.message || '保存失败');
+        return;
+      }
+      onSelectParticipant(res.participant);
+      setResult(res.participant.diabetesReport || null);
+      setProfileForm(profileFromParticipant(res.participant));
+      setProfileEditing(false);
+      await onRefresh();
+      alert('基本信息已更新，评估报告已按新信息重新生成');
+    } finally {
+      setProfileSaving(false);
     }
   };
 
@@ -293,14 +334,153 @@ export const DiabetesManagementModule: React.FC<Props> = ({
 
       {currentParticipant && (
         <>
-          <div className="bg-slate-50 rounded-xl border border-slate-200 p-5 grid sm:grid-cols-4 gap-3 text-sm text-slate-600">
-            <div>姓名：{currentParticipant.name}</div>
-            <div>体检编号：{currentParticipant.checkupId || '—'}</div>
-            <div>性别/年龄：{currentParticipant.gender || '—'} / {currentParticipant.age ?? '—'}</div>
-            <div>联系电话：{currentParticipant.phone || '—'}</div>
-            <div className="sm:col-span-4 text-xs text-amber-700">
-              专项筛查模式：未关联年度健康体检档案。评估报告中的「年度体检/HbA1c/血脂」等补检建议属正常提示。
+          <div className="bg-slate-50 rounded-xl border border-slate-200 p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h3 className="text-sm font-bold text-slate-800">个人基本信息</h3>
+              {!profileEditing ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProfileForm(profileFromParticipant(currentParticipant));
+                    setProfileEditing(true);
+                  }}
+                  className="text-teal-700 hover:text-teal-900 text-sm font-medium"
+                >
+                  修改基本信息
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileForm(profileFromParticipant(currentParticipant));
+                      setProfileEditing(false);
+                    }}
+                    disabled={profileSaving}
+                    className="text-slate-600 hover:text-slate-800 text-sm disabled:opacity-50"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveProfile}
+                    disabled={profileSaving || !profileForm.name.trim()}
+                    className="bg-teal-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold disabled:opacity-50"
+                  >
+                    {profileSaving ? '保存中…' : '保存基本信息'}
+                  </button>
+                </div>
+              )}
             </div>
+
+            {!profileEditing ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm text-slate-600">
+                <div>姓名：{currentParticipant.name}</div>
+                <div>体检编号：{currentParticipant.checkupId || '—'}</div>
+                <div>性别：{currentParticipant.gender || '—'}</div>
+                <div>年龄：{currentParticipant.age ?? '—'}</div>
+                <div>联系电话：{currentParticipant.phone || '—'}</div>
+                <div>身份证号：{currentParticipant.idCard || '—'}</div>
+                <div>体检次数：{currentParticipant.checkupCount ?? '—'}</div>
+                <div>检查状态：{currentParticipant.checkStatus || '—'}</div>
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <label className="text-sm">
+                  <span className="block text-slate-600 mb-1">姓名 *</span>
+                  <input
+                    type="text"
+                    value={profileForm.name}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, name: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-slate-600 mb-1">体检编号</span>
+                  <input
+                    type="text"
+                    value={profileForm.checkupId || ''}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, checkupId: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    placeholder="6 位数字"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-slate-600 mb-1">性别</span>
+                  <select
+                    value={profileForm.gender || ''}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, gender: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">未填写</option>
+                    <option value="男">男</option>
+                    <option value="女">女</option>
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="block text-slate-600 mb-1">年龄</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={120}
+                    value={profileForm.age ?? ''}
+                    onChange={(e) =>
+                      setProfileForm((f) => ({
+                        ...f,
+                        age: e.target.value === '' ? undefined : Number(e.target.value),
+                      }))
+                    }
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-slate-600 mb-1">联系电话</span>
+                  <input
+                    type="tel"
+                    value={profileForm.phone || ''}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-sm sm:col-span-2 lg:col-span-1">
+                  <span className="block text-slate-600 mb-1">身份证号</span>
+                  <input
+                    type="text"
+                    value={profileForm.idCard || ''}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, idCard: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-slate-600 mb-1">体检次数</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={profileForm.checkupCount ?? ''}
+                    onChange={(e) =>
+                      setProfileForm((f) => ({
+                        ...f,
+                        checkupCount: e.target.value === '' ? undefined : Number(e.target.value),
+                      }))
+                    }
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="block text-slate-600 mb-1">检查状态</span>
+                  <input
+                    type="text"
+                    value={profileForm.checkStatus || ''}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, checkStatus: e.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+            )}
+
+            <p className="text-xs text-amber-700 mt-4">
+              专项筛查模式：未关联年度健康体检档案。修改性别等信息后将自动重新生成评估报告。体检编号/身份证/电话变更后请勿与已有档案重复。
+            </p>
           </div>
 
           {(dmData.screenings?.length ?? 0) > 0 && (
