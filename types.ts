@@ -356,12 +356,17 @@ export interface DiabetesScreeningRecord {
   arteriosclerosisGrade?: string;
   arteriosclerosisConclusion?: string;
   arteriosclerosisRisk?: string;
+  /** 动脉硬化设备/报告特别提示 */
+  arteriosclerosisSpecialNote?: string;
+  /** @deprecated 兼容旧导入，将按内容分流至眼底或动脉硬化 */
   specialNote?: string;
   /** 眼底 */
   rightEyeAssessment?: string;
   leftEyeAssessment?: string;
   fundusResult?: string;
   fundusGrade?: string;
+  /** 眼底照相特别提示（如小瞳孔、白内障致图像模糊等） */
+  fundusSpecialNote?: string;
   referralNeeded?: boolean;
   /** 人体成分（InBody 等） */
   height?: number;

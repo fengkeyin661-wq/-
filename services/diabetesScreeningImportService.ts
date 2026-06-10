@@ -7,6 +7,7 @@ import type { DiabetesScreeningRecord } from '../types';
 import { createScreeningId } from './diabetesAssessmentService';
 import { formatCheckupId } from './checkupIdUtils';
 import { parseDiabetesScreeningRowWithAI } from './geminiService';
+import { isFundusSpecialNote } from './diabetesScreeningRules';
 import { upsertStandaloneFromScreening } from './diabetesStandaloneService';
 
 export type DiabetesImportResult = {
@@ -77,6 +78,31 @@ const applyInbodyRefColumns = (
     if (!key) return;
     const n = num(row[i]);
     if (n != null) screening[key] = n;
+  });
+};
+
+const applySpecialNoteColumns = (
+  headers: string[],
+  row: unknown[],
+  screening: Partial<DiabetesScreeningRecord>
+): void => {
+  headers.forEach((h, i) => {
+    const header = String(h).trim();
+    const val = String(row[i] ?? '').trim();
+    if (!val || /^(未查|无|正常|-+|—)$/i.test(val)) return;
+
+    if (/眼底.*特别提示|特别提示.*眼底|照相.*特别提示|眼底照相.*提示/.test(header)) {
+      screening.fundusSpecialNote = val;
+      return;
+    }
+    if (/动脉.*特别提示|硬化.*特别提示|特别提示.*动脉|特别提示.*硬化/.test(header)) {
+      screening.arteriosclerosisSpecialNote = val;
+      return;
+    }
+    if (header === '特别提示' || header.includes('特别提示')) {
+      if (isFundusSpecialNote(val)) screening.fundusSpecialNote = val;
+      else screening.arteriosclerosisSpecialNote = val;
+    }
   });
 };
 
@@ -154,6 +180,7 @@ export const importDiabetesScreeningExcel = async (
       }
 
       applyInbodyRefColumns(headers, row, parsed.screening);
+      applySpecialNoteColumns(headers, row, parsed.screening);
       const screening = toScreeningRecord(parsed.screening, { fileName: file.name, rowIndex: i + 1 });
 
 const formatImportSaveError = (e: unknown): string => {

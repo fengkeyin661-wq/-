@@ -2,6 +2,7 @@
 import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics, DiabetesScreeningRecord } from "../types";
 import { HabitRecord } from "./dataService";
 import { normalizeCheckupId as normalizeCheckupIdStrict } from './checkupIdUtils';
+import { isFundusSpecialNote } from './diabetesScreeningRules';
 
 // Helper to safely access environment variables
 const getEnvVar = (key: string): string => {
@@ -938,8 +939,8 @@ export const parseDiabetesScreeningRowWithAI = async (
 【基本信息】体检编号、体检次数、姓名、性别、年龄、身份证号、联系电话、检查状态、登记日期
 【血糖】空腹血糖、餐后随机血糖、糖代谢风险
 【心电图】心率(bpm)、PR间期(ms)、QRS宽度(ms)、QT/QTc(ms)、QRS电轴(°)、RV5/SV1(mV)、诊断提示
-【动脉硬化】左/右臂踝脉搏波传导速度(baPWV,cm/s)、颈股脉搏波传导速度(cfPWV,m/s)、左/右踝臂指数(ABI)、左/右上肢收缩压/舒张压/脉率、左/右踝收缩压/舒张压、动脉硬化风险、特别提示
-【眼底】右眼评估、左眼评估
+【动脉硬化】左/右臂踝脉搏波传导速度(baPWV,cm/s)、颈股脉搏波传导速度(cfPWV,m/s)、左/右踝臂指数(ABI)、左/右上肢收缩压/舒张压/脉率、左/右踝收缩压/舒张压、动脉硬化风险、动脉硬化结论、动脉硬化特别提示
+【眼底】右眼评估、左眼评估、眼底特别提示（如小瞳孔/白内障致图像模糊等）
 【人体成分 InBody】身高、体重、BMI、体脂率、内脏脂肪面积、骨骼肌质量、腰臀比、InBody评分、肥胖度、基础代谢率、身体脂肪量、去脂体重、下限（骨骼肌质量正常范围）、上限（骨骼肌质量正常范围）、下限（身体脂肪量正常范围）、上限（身体脂肪量正常范围）等
 
 请提取为 JSON（数值字段用 number，文本保留原文，缺失则省略）：
@@ -984,9 +985,10 @@ export const parseDiabetesScreeningRowWithAI = async (
     "rightAnkleDbp": number,
     "arteriosclerosisRisk": "string",
     "arteriosclerosisConclusion": "string",
-    "specialNote": "特别提示",
+    "arteriosclerosisSpecialNote": "动脉硬化特别提示",
     "rightEyeAssessment": "string",
     "leftEyeAssessment": "string",
+    "fundusSpecialNote": "眼底照相特别提示",
     "referralNeeded": boolean,
     "height": number,
     "weight": number,
@@ -1009,7 +1011,8 @@ export const parseDiabetesScreeningRowWithAI = async (
 }
 
 规则：体检编号仅取6位数字；空腹血糖/餐后随机血糖单位 mmol/L；baPWV 单位 cm/s；cfPWV 单位 m/s；血压 mmHg。
-InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正常范围）→ skeletalMuscleRefLow、上限（骨骼肌质量正常范围）→ skeletalMuscleRefHigh、下限（身体脂肪量正常范围）→ bodyFatMassRefLow、上限（身体脂肪量正常范围）→ bodyFatMassRefHigh，单位 kg。`;
+InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正常范围）→ skeletalMuscleRefLow、上限（骨骼肌质量正常范围）→ skeletalMuscleRefHigh、下限（身体脂肪量正常范围）→ bodyFatMassRefLow、上限（身体脂肪量正常范围）→ bodyFatMassRefHigh，单位 kg。
+特别提示分流：与眼/瞳孔/白内障/视网膜/眼底/照相/图片模糊相关 → fundusSpecialNote；与动脉/血管/PWV/ABI/硬化相关 → arteriosclerosisSpecialNote；勿混用。`;
 
   const jsonText = await callDeepSeek(systemPrompt, rowText);
   if (!jsonText) throw new Error('AI 返回为空');
@@ -1035,6 +1038,12 @@ InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正�
   }
   if (!s.screeningDate && s.registrationDate) s.screeningDate = s.registrationDate;
   if (!s.activityName) s.activityName = '社区糖尿病并发症筛查';
+
+  const legacyNote = (s as { specialNote?: string }).specialNote;
+  if (legacyNote && !s.fundusSpecialNote && !s.arteriosclerosisSpecialNote) {
+    if (isFundusSpecialNote(legacyNote)) s.fundusSpecialNote = legacyNote;
+    else s.arteriosclerosisSpecialNote = legacyNote;
+  }
 
   return parsed;
 };

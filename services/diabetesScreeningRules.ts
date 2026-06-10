@@ -27,6 +27,55 @@ const num = (v: unknown): number | undefined => {
 const hasText = (v: unknown): boolean =>
   v != null && String(v).trim().length > 0 && !/^(未查|无|正常|-+|—)$/i.test(String(v).trim());
 
+/** 判断「特别提示」是否属于眼底照相（而非动脉硬化） */
+export const isFundusSpecialNote = (note: string): boolean => {
+  const t = note.trim();
+  if (!t) return false;
+  const fundusHints = /眼|瞳孔|白内障|视网膜|眼底|照相|图片|散瞳|视力|模糊|DR|NPDR|PDR|OCT|晶状体|屈光|小瞳孔/;
+  const arterioHints = /动脉|血管|ABI|PWV|硬化|脉搏|踝臂|外周|baPWV|cfPWV|袖带|波形|颈股|臂踝/;
+  if (fundusHints.test(t) && !arterioHints.test(t)) return true;
+  if (arterioHints.test(t) && !fundusHints.test(t)) return false;
+  if (/左.?眼|右.?眼|双眼/.test(t)) return true;
+  return false;
+};
+
+export const resolveSpecialNotes = (
+  screening: DiabetesScreeningRecord | null
+): { fundusNote: string; arterioNote: string } => {
+  const fundusFromField = String(screening?.fundusSpecialNote || '').trim();
+  const arterioFromField = String(screening?.arteriosclerosisSpecialNote || '').trim();
+  const legacy = String(screening?.specialNote || '').trim();
+
+  let fundusNote = fundusFromField;
+  let arterioNote = arterioFromField;
+
+  if (legacy) {
+    if (isFundusSpecialNote(legacy)) {
+      if (!fundusNote) fundusNote = legacy;
+    } else if (!arterioNote) {
+      arterioNote = legacy;
+    }
+  }
+
+  return { fundusNote, arterioNote };
+};
+
+const appendSpecialNoteFinding = (
+  result: ScreeningDomainResult,
+  note: string,
+  status: DomainStatus,
+  domain: 'fundus' | 'arteriosclerosis'
+): DomainStatus => {
+  result.findings.push(`特别提示：${note}`);
+  if (!/紧急|立即|转诊|严重/.test(note)) return status;
+  if (domain === 'arteriosclerosis') {
+    result.alerts.push(`动脉硬化检测特别提示：${note}`);
+    return mergeStatus(status, 'critical');
+  }
+  result.alerts.push(`眼底照相特别提示：${note}`);
+  return mergeStatus(status, 'borderline');
+};
+
 type InbodyRangeVerdict = 'in' | 'low' | 'high' | 'unknown';
 
 const judgeInbodyRange = (
@@ -441,12 +490,9 @@ export const evaluateArteriosclerosisDomain = (
     }
   }
 
-  if (hasText(screening?.specialNote)) {
-    result.findings.push(`特别提示：${screening!.specialNote}`);
-    if (/紧急|立即|转诊|严重/.test(String(screening!.specialNote))) {
-      status = mergeStatus(status, 'critical');
-      result.alerts.push(`动脉硬化检测特别提示：${screening!.specialNote}`);
-    }
+  const { arterioNote } = resolveSpecialNotes(screening);
+  if (hasText(arterioNote)) {
+    status = appendSpecialNoteFinding(result, arterioNote, status, 'arteriosclerosis');
   }
 
   result.status = status;
@@ -537,7 +583,8 @@ export const evaluateFundusDomain = (screening: DiabetesScreeningRecord | null):
   const right = screening?.rightEyeAssessment || '';
   const left = screening?.leftEyeAssessment || '';
   const legacy = screening?.fundusResult || '';
-  if (!hasText(right) && !hasText(left) && !hasText(legacy)) return result;
+  const { fundusNote } = resolveSpecialNotes(screening);
+  if (!hasText(right) && !hasText(left) && !hasText(legacy) && !hasText(fundusNote)) return result;
 
   let status: DomainStatus = 'normal';
 
@@ -586,6 +633,10 @@ export const evaluateFundusDomain = (screening: DiabetesScreeningRecord | null):
 
   if (hasText(right) && hasText(left) && /异常|病变/.test(right) !== /异常|病变/.test(left)) {
     result.findings.push('双眼评估结果不对称，建议眼科进一步检查');
+  }
+
+  if (hasText(fundusNote)) {
+    status = appendSpecialNoteFinding(result, fundusNote, status, 'fundus');
   }
 
   result.status = status;
