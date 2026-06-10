@@ -27,6 +27,31 @@ const num = (v: unknown): number | undefined => {
 const hasText = (v: unknown): boolean =>
   v != null && String(v).trim().length > 0 && !/^(未查|无|正常|-+|—)$/i.test(String(v).trim());
 
+type InbodyRangeVerdict = 'in' | 'low' | 'high' | 'unknown';
+
+const judgeInbodyRange = (
+  value: number,
+  low?: number,
+  high?: number
+): InbodyRangeVerdict => {
+  if (low != null && high != null) {
+    if (value < low) return 'low';
+    if (value > high) return 'high';
+    return 'in';
+  }
+  if (low != null && value < low) return 'low';
+  if (high != null && value > high) return 'high';
+  if (low != null || high != null) return 'in';
+  return 'unknown';
+};
+
+const inbodyRangeSuffix = (verdict: InbodyRangeVerdict): string => {
+  if (verdict === 'in') return '，在正常范围';
+  if (verdict === 'low') return '，未在正常范围，偏低';
+  if (verdict === 'high') return '，未在正常范围，偏高';
+  return '';
+};
+
 const statusScore = (s: DomainStatus): number =>
   s === 'critical' ? 4 : s === 'abnormal' ? 3 : s === 'borderline' ? 2 : s === 'normal' ? 0 : -1;
 
@@ -648,22 +673,30 @@ export const evaluateBodyCompositionDomain = (
   }
 
   if (smm != null) {
-    result.findings.push(`骨骼肌质量 ${smm} kg`);
     const smmLow = num(screening?.skeletalMuscleRefLow);
-    if (smmLow != null && smm < smmLow) {
-      status = mergeStatus(status, 'borderline');
-      result.findings.push('骨骼肌质量相对偏低，存在肌少症风险');
-    } else if (bmi != null && bmi >= 24 && smm < (isMale ? 28 : 20)) {
-      status = mergeStatus(status, 'borderline');
-      result.findings.push('骨骼肌质量相对偏低，存在肌少症风险');
+    const smmHigh = num(screening?.skeletalMuscleRefHigh);
+    const smmVerdict = judgeInbodyRange(smm, smmLow, smmHigh);
+    if (smmVerdict === 'unknown') {
+      result.findings.push(`骨骼肌质量 ${smm} kg`);
+      if (bmi != null && bmi >= 24 && smm < (isMale ? 28 : 20)) {
+        status = mergeStatus(status, 'borderline');
+        result.findings.push('骨骼肌质量相对偏低，存在肌少症风险');
+      }
+    } else {
+      result.findings.push(`骨骼肌质量 ${smm} kg${inbodyRangeSuffix(smmVerdict)}`);
+      if (smmVerdict !== 'in') status = mergeStatus(status, 'borderline');
     }
   }
 
   if (bfm != null) {
-    result.findings.push(`身体脂肪量 ${bfm} kg`);
+    const bfmLow = num(screening?.bodyFatMassRefLow);
     const bfmHigh = num(screening?.bodyFatMassRefHigh);
-    if (bfmHigh != null && bfm > bfmHigh) {
-      status = mergeStatus(status, 'borderline');
+    const bfmVerdict = judgeInbodyRange(bfm, bfmLow, bfmHigh);
+    if (bfmVerdict === 'unknown') {
+      result.findings.push(`身体脂肪量 ${bfm} kg`);
+    } else {
+      result.findings.push(`身体脂肪量 ${bfm} kg${inbodyRangeSuffix(bfmVerdict)}`);
+      if (bfmVerdict !== 'in') status = mergeStatus(status, 'borderline');
     }
   }
 
