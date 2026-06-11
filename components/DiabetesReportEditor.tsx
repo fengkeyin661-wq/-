@@ -8,6 +8,7 @@ import {
   linesToList,
   listToLines,
 } from '../services/diabetesReportEditUtils';
+import { COMPLICATION_CARE_GUIDE, GUIDELINE_NOTES } from '../services/diabetesEducationContent';
 
 interface Props {
   report: DiabetesAssessmentResult;
@@ -314,23 +315,21 @@ export const DiabetesReportEditor: React.FC<Props> = ({ report, saving = false, 
       </Block>
 
       <Block title="六、并发症就医提醒">
-        <textarea
-          rows={4}
-          value={listToLines(draft.complicationAlerts)}
-          onChange={(e) => setDraft((p) => ({ ...p, complicationAlerts: linesToList(e.target.value) }))}
-          className={inputClass}
-          placeholder="每行一条；留空则显示默认提示"
-        />
+        <p className="text-xs text-slate-500 mb-2">本节为系统固定科普，不在此单独编辑；展示以最新模板为准。</p>
+        <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1.5">
+          {COMPLICATION_CARE_GUIDE.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
       </Block>
 
       <Block title="七、指南与系统建议">
-        <textarea
-          rows={4}
-          value={listToLines(draft.guidelineNotes)}
-          onChange={(e) => setDraft((p) => ({ ...p, guidelineNotes: linesToList(e.target.value) }))}
-          className={inputClass}
-          placeholder="每行一条"
-        />
+        <p className="text-xs text-slate-500 mb-2">本节为系统固定建议，不在此单独编辑；展示以最新模板为准。</p>
+        <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1.5">
+          {GUIDELINE_NOTES.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
       </Block>
 
       <p className="text-xs text-slate-500">

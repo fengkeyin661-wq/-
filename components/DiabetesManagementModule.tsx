@@ -15,9 +15,11 @@ import {
   saveStandaloneParticipant,
   deleteStandaloneParticipant,
   deleteStandaloneParticipants,
+  batchReevaluateStandaloneReports,
   updateStandaloneProfile,
   type StandaloneProfileInput,
 } from '../services/diabetesStandaloneService';
+import { COMPLICATION_CARE_GUIDE, GUIDELINE_NOTES } from '../services/diabetesEducationContent';
 import { DiabetesAssessmentReport } from './DiabetesAssessmentReport';
 import { DiabetesReportEditor } from './DiabetesReportEditor';
 
@@ -65,6 +67,8 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const [batchUpdating, setBatchUpdating] = useState(false);
+  const [batchUpdateLogs, setBatchUpdateLogs] = useState<string[]>([]);
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<StandaloneProfileInput>({ name: '' });
   const [profileSaving, setProfileSaving] = useState(false);
@@ -222,6 +226,37 @@ export const DiabetesManagementModule: React.FC<Props> = ({
     }
   };
 
+  const handleBatchUpdateReports = async () => {
+    const ids = selectedIds.size > 0 ? [...selectedIds] : participants.map((p) => p.id);
+    if (!ids.length) {
+      alert('暂无专项筛查档案');
+      return;
+    }
+
+    const scope = selectedIds.size > 0 ? `所选 ${ids.length} 人` : `全部 ${ids.length} 人`;
+    if (
+      !window.confirm(
+        `确定批量更新 ${scope} 的评估报告？\n\n将按最新规则重新生成报告（含检查结论、复检建议等）。手工修改的内容将被覆盖；第六、七节固定科普以系统最新模板为准。`
+      )
+    ) {
+      return;
+    }
+
+    setBatchUpdating(true);
+    setBatchUpdateLogs([]);
+    setReportEditing(false);
+    try {
+      const res = await batchReevaluateStandaloneReports({
+        ids,
+        onProgress: (line) => setBatchUpdateLogs((prev) => [...prev, line]),
+      });
+      await onRefresh();
+      alert(`批量更新完成：成功 ${res.updated} 人，失败 ${res.failed} 人`);
+    } finally {
+      setBatchUpdating(false);
+    }
+  };
+
   const handleBatchDelete = async () => {
     const ids = [...selectedIds];
     if (!ids.length) return;
@@ -350,14 +385,26 @@ export const DiabetesManagementModule: React.FC<Props> = ({
               <span className="text-xs text-slate-600">
                 已选 {selectedIds.size} / {filteredParticipants.length} 人
               </span>
-              <button
-                type="button"
-                onClick={handleBatchDelete}
-                disabled={selectedIds.size === 0 || batchDeleting || isImporting}
-                className="text-red-600 hover:text-red-800 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {batchDeleting ? '批量删除中…' : '批量删除评估报告'}
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleBatchUpdateReports}
+                  disabled={
+                    participants.length === 0 || batchUpdating || batchDeleting || isImporting
+                  }
+                  className="text-teal-700 hover:text-teal-900 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {batchUpdating ? '批量更新中…' : '批量更新已生成报告'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBatchDelete}
+                  disabled={selectedIds.size === 0 || batchDeleting || batchUpdating || isImporting}
+                  className="text-red-600 hover:text-red-800 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {batchDeleting ? '批量删除中…' : '批量删除评估报告'}
+                </button>
+              </div>
             </div>
             <div className="max-h-56 overflow-y-auto">
               <table className="w-full text-sm">
@@ -393,7 +440,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
                             type="checkbox"
                             checked={selectedIds.has(p.id)}
                             onChange={() => toggleSelectOne(p.id)}
-                            disabled={batchDeleting || isImporting}
+                            disabled={batchDeleting || batchUpdating || isImporting}
                             aria-label={`选择 ${p.name || '未命名'}`}
                             className="rounded border-slate-300"
                           />
@@ -427,6 +474,14 @@ export const DiabetesManagementModule: React.FC<Props> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {batchUpdateLogs.length > 0 && (
+          <div className="mt-3 max-h-32 overflow-y-auto bg-slate-50 rounded-lg p-3 text-xs text-slate-600 font-mono space-y-0.5">
+            {batchUpdateLogs.map((l, i) => (
+              <div key={i}>{l}</div>
+            ))}
           </div>
         )}
       </div>

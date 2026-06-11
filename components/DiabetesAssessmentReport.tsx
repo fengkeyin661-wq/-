@@ -1,6 +1,6 @@
 import React from 'react';
 import type { DiabetesAssessmentResult, HealthProfile, IndicatorEdu, ScreeningFindingSection, DietGuidance, GiFoodItem, GiEducationGuide } from '../types';
-import { DIABETES_CLINIC_CONTACT, GI_EDUCATION, formatGiLevel, REPORT_ENCOURAGEMENT } from '../services/diabetesEducationContent';
+import { DIABETES_CLINIC_CONTACT, GI_EDUCATION, formatGiLevel, REPORT_ENCOURAGEMENT, COMPLICATION_CARE_GUIDE, GUIDELINE_NOTES } from '../services/diabetesEducationContent';
 
 interface Props {
   report: DiabetesAssessmentResult;
@@ -166,6 +166,11 @@ const IndicatorEducationTable: React.FC<{ items: IndicatorEdu[] }> = ({ items })
   );
 };
 
+const complicationCareGuideHtml = () => {
+  const [intro, ...items] = COMPLICATION_CARE_GUIDE;
+  return `<p>${intro}</p><ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`;
+};
+
 const contactSectionHtml = () =>
   `<div class="contact-box">
     <p><strong>健康咨询</strong></p>
@@ -181,6 +186,22 @@ const encouragementHtml = () =>
     ${REPORT_ENCOURAGEMENT.paragraphs.map((p) => `<p>${p}</p>`).join('')}
     <p class="encourage-signature">${REPORT_ENCOURAGEMENT.signature}</p>
   </div>`;
+
+const ComplicationCareGuideBlock: React.FC = () => {
+  const [intro, ...items] = COMPLICATION_CARE_GUIDE;
+  return (
+    <div className="text-sm text-slate-700 space-y-2">
+      <p className="leading-relaxed">{intro}</p>
+      <ul className="list-disc pl-5 space-y-1.5">
+        {items.map((item, i) => (
+          <li key={i} className="leading-relaxed">
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
 
 const EncouragementBlock: React.FC = () => (
   <div className="rounded-xl border border-teal-200 bg-gradient-to-br from-teal-50 to-emerald-50 p-5 text-sm text-slate-700 space-y-3">
@@ -309,10 +330,8 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
         <table><thead><tr><th>星期</th><th>活动</th><th>时长</th><th>强度</th></tr></thead><tbody>${exerciseHtml}</tbody></table>
         <p><strong>注意事项：</strong></p>${listHtml(report.exercisePlan.precautions)}
       </div>
-      <div class="section"><h3>六、并发症就医提醒</h3>
-        ${report.complicationAlerts.length ? listHtml(report.complicationAlerts) : '<p class="muted">本次未见需及时就医的并发症相关信号，请继续保持定期筛查。</p>'}
-      </div>
-      <div class="section"><h3>七、指南与系统建议</h3>${listHtml(report.guidelineNotes)}</div>
+      <div class="section"><h3>六、并发症就医提醒</h3>${complicationCareGuideHtml()}</div>
+      <div class="section"><h3>七、指南与系统建议</h3>${listHtml(GUIDELINE_NOTES)}</div>
       <div class="section"><h3>八、糖尿病常见检测指标科普</h3>${indicatorEducationTableHtml(report.indicatorEducation)}</div>
       <div class="section"><h3>九、健康咨询与联系方式</h3>${contactSectionHtml()}</div>
       </body></html>`);
@@ -419,15 +438,10 @@ export const DiabetesAssessmentReport: React.FC<Props> = ({ report, patientName,
       <Section title="五、运动指导">
         <p className="text-sm text-slate-600">{report.exercisePlan.summary}</p>
       </Section>
-      <Section
-        title="六、并发症就医提醒"
-        items={
-          report.complicationAlerts.length
-            ? report.complicationAlerts
-            : ['本次未见需及时就医的并发症相关信号，请继续保持定期筛查。']
-        }
-      />
-      <Section title="七、指南与系统建议" items={report.guidelineNotes.slice(0, 4)} />
+      <Section title="六、并发症就医提醒">
+        <ComplicationCareGuideBlock />
+      </Section>
+      <Section title="七、指南与系统建议" items={GUIDELINE_NOTES} />
       <Section title="八、糖尿病常见检测指标科普">
         <IndicatorEducationTable items={report.indicatorEducation} />
       </Section>

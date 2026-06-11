@@ -326,6 +326,41 @@ export const reevaluateStandalone = async (
   return report;
 };
 
+export type BatchReevaluateProgress = (line: string) => void;
+
+export const batchReevaluateStandaloneReports = async (options?: {
+  ids?: string[];
+  onProgress?: BatchReevaluateProgress;
+}): Promise<{ updated: number; failed: number; logs: string[] }> => {
+  const list = await fetchStandaloneParticipants();
+  const idSet = options?.ids?.length ? new Set(options.ids) : null;
+  const targets = idSet ? list.filter((p) => idSet.has(p.id)) : list;
+
+  const logs: string[] = [];
+  const log = (line: string) => {
+    logs.push(line);
+    options?.onProgress?.(line);
+  };
+
+  let updated = 0;
+  let failed = 0;
+
+  for (const p of targets) {
+    const label = p.name || p.checkupId || p.id;
+    try {
+      await reevaluateStandalone(p);
+      updated++;
+      log(`✓ ${label}：报告已更新`);
+    } catch (e) {
+      failed++;
+      const msg = e instanceof Error ? e.message : String(e);
+      log(`✗ ${label}：失败 — ${msg}`);
+    }
+  }
+
+  return { updated, failed, logs };
+};
+
 export type StandaloneProfileInput = {
   name: string;
   checkupId?: string;
