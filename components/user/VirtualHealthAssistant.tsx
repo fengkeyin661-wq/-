@@ -84,12 +84,13 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
 
   const archiveSummary = buildArchiveSummary(record, assessment);
   const quickQuestions = [
-    '请结合我的健康档案，给我3条最优先的干预建议',
-    '请解读我的血压、血糖和血脂风险，并告诉我本周怎么做',
-    '根据我的体检异常项，给出饮食和运动的具体执行清单',
-    '我最需要优先复查哪些项目？分别建议多久复查一次？',
-    '请把建议按“今天-本周-本月”三个阶段拆解给我',
+    { label: '档案总览与行动计划', prompt: '请根据我的健康档案，给出今天、本周、本月的可执行健康计划。' },
+    { label: '3条优先干预建议', prompt: '请结合我的健康档案，给出3条最优先的干预建议。' },
+    { label: '解读血压血糖血脂', prompt: '请解读我的血压、血糖和血脂风险，并给出本周行动建议。' },
+    { label: '异常项饮食运动建议', prompt: '根据我的体检异常项，给出饮食和运动建议。' },
+    { label: '该复查哪些项目', prompt: '我最需要优先复查哪些项目？分别建议多久复查一次？' },
   ];
+  const hasUserMessage = messages.some((m) => m.role === 'user');
 
   const handleSend = async () => {
     if (isLoading) return;
@@ -237,21 +238,26 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
           )}
         </div>
 
-        {/* Quick Questions */}
-        <div className="flex gap-2 overflow-x-auto px-4 py-2 scrollbar-hide">
-          {quickQuestions.map((q) => (
-            <button
-              key={q}
-              onClick={() => setInput(q)}
-              className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 transition-colors hover:border-teal-300 hover:bg-teal-50"
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-
         {/* Input Area */}
         <div className="border-t border-slate-100 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+          {!hasUserMessage && (
+            <div className="mb-3">
+              <div className="mb-2 text-xs text-slate-400">您可以这样问</div>
+              <div className="flex flex-col gap-2">
+                {quickQuestions.map(({ label, prompt }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setInput(prompt)}
+                    disabled={isLoading}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm text-slate-600 transition-colors hover:border-teal-300 hover:bg-teal-50 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {error && (
             <div className="mb-2 px-1 text-sm text-rose-500">{error}</div>
           )}
