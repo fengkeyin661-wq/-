@@ -26,7 +26,7 @@ export const loginUserDualPath = async (
     reason: legacy.reason,
     message:
       legacy.reason === 'archive_not_found'
-        ? '未找到与该手机号关联的体检档案，请核对手机号或联系健康管理中心'
+        ? '未找到与该手机号关联的体检档案，请先联系健康管家完成建档'
         : legacy.message,
   };
 };

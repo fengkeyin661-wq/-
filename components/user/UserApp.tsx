@@ -5,6 +5,7 @@ import { UserHabits } from './UserHabits';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserProfileShell } from './UserProfileShell';
+import { ForcePasswordChangeModal } from './ForcePasswordChangeModal';
 import { UserCommunity } from './UserCommunity';
 import { UserDoctors } from './UserDoctors';
 import {
@@ -12,6 +13,7 @@ import {
   findArchiveByCheckupId,
   syncArchiveToLocal,
   getLocalArchiveByCheckupIdSync,
+  isDefaultPortalPassword,
 } from '../../services/dataService';
 import { getUnreadCount } from '../../services/contentService';
 import { supabase, isSupabaseConfigured } from '../../services/supabaseClient';
@@ -380,6 +382,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   }
 
   return (
+    <>
     <UserLayout
       activeTab={activeTab}
       onTabChange={handleTabChange}
@@ -444,5 +447,13 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
             <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />
         ))}
     </UserLayout>
+    {userArchive && isDefaultPortalPassword(userArchive) ? (
+      <ForcePasswordChangeModal
+        open
+        checkupId={userArchive.checkup_id}
+        onSuccess={() => loadArchiveById(userArchive.checkup_id, true)}
+      />
+    ) : null}
+    </>
   );
 };

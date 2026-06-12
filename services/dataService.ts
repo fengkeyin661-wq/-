@@ -349,6 +349,10 @@ export const updatePortalPassword = async (
     return { success: true };
 };
 
+/** 仍使用体检编号作为初始密码，尚未修改过 */
+export const isDefaultPortalPassword = (archive: HealthArchive): boolean =>
+    !archive.password_hash || String(archive.password_hash).length === 0;
+
 export type ArchivePortalMetaPatch = Partial<{
     profile_complete: boolean;
     health_manager_content_id: string | null;

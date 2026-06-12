@@ -19,7 +19,7 @@ import type { UserMetricKey } from '../../services/observationMapper';
 // 用户端预留：assessment.diabetesReport / record.diabetesManagement 由管理端糖尿病专栏写入，后续可在此展示「我的糖尿病管理」
 
 const PROFILE_MENU_TIP =
-    '建议每周更新基础指标，便于健康管理团队调整方案；若有待审核建议或评估更新，请留意页面提示。疑问请拨打健康管家固定电话咨询。';
+    '尚未建档请联系健康管家；初始登录密码为体检编号，首次登录后须修改密码。建议每周更新基础指标，疑问请拨打健康管家固定电话咨询。';
 
 interface Props {
   record: HealthRecord;

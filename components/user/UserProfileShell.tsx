@@ -8,7 +8,7 @@ interface Props {
 }
 
 const PROFILE_SHELL_TIP =
-  '使用体检登记手机号与密码登录，不提供自助注册；预约挂号可在各栏目直接提交，查看电子档案与随访需先完成体检建档。若忘记密码或尚未建档，请拨打健康管家电话咨询。';
+  '尚未建档请先联系健康管家；首次登录密码为体检编号（6位数字），登录后须立即修改密码。预约挂号可在各栏目直接提交，若忘记密码请联系健康管家。';
 
 export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
   const [phone, setPhone] = useState('');
@@ -55,7 +55,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
         onLoginSuccess(result.archive);
       } else {
         if (result.reason === 'archive_not_found') {
-          setError(result.message);
+          setError('未找到与该手机号关联的档案，请先联系健康管家完成建档。');
         } else if (result.reason === 'invalid_password') {
           setError('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
         } else if (result.reason === 'permission_denied') {
@@ -119,7 +119,7 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
               type="password"
               autoComplete="current-password"
               className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="请输入密码"
+              placeholder="初始密码为体检编号"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
