@@ -8,6 +8,7 @@ import {
     updateInteractionStatus,
     fetchContent,
     ContentItem,
+    isHealthManagerContent,
 } from '../../services/contentService';
 import { HealthTrendCharts } from '../HealthTrendCharts';
 import { UserMetricPreferences } from './UserMetricPreferences';
@@ -17,9 +18,8 @@ import type { UserMetricKey } from '../../services/observationMapper';
 
 // 用户端预留：assessment.diabetesReport / record.diabetesManagement 由管理端糖尿病专栏写入，后续可在此展示「我的糖尿病管理」
 
-const MANAGER_RESOURCE_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
-const MANAGER_CHAT_DEEP_LINK_KEY = 'user_manager_chat_deeplink';
-const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
+const PROFILE_MENU_TIP =
+    '建议每周更新基础指标，便于健康管理团队调整方案；若有待审核建议或评估更新，请留意页面提示。疑问请拨打健康管家固定电话咨询。';
 
 interface Props {
   record: HealthRecord;
@@ -48,18 +48,13 @@ export const UserProfile: React.FC<Props> = ({
     onNavigate,
     onArchiveRefresh,
 }) => {
-    const syncSourceLabel: Record<string, string> = {
-        doctor_followup: '健康管家随访',
-        user_profile_edit: '用户自主更新',
-        checkup_import: '体检报告导入',
-        system: '系统同步',
-    };
     const [subView, setSubView] = useState<
         'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager'
     >('menu');
     // ... (keep existing state/effects) ...
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     const [healthManager, setHealthManager] = useState<ContentItem | null>(null);
+    const [fallbackManagerPhone, setFallbackManagerPhone] = useState('');
     const [pwdOld, setPwdOld] = useState('');
     const [pwdNew, setPwdNew] = useState('');
     const [pwdConfirm, setPwdConfirm] = useState('');
@@ -112,6 +107,26 @@ export const UserProfile: React.FC<Props> = ({
             cancelled = true;
         };
     }, [archive.health_manager_content_id]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const doctors = await fetchContent('doctor', 'active');
+                const landline = doctors
+                    .filter(isHealthManagerContent)
+                    .map((d) => String(d.details?.phone || '').trim())
+                    .find(Boolean);
+                if (!cancelled) setFallbackManagerPhone(landline || '');
+            } catch {
+                if (!cancelled) setFallbackManagerPhone('');
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const loadInteractions = async () => { const all = await fetchInteractions(); setInteractions(all.filter(i => i.userId === userId)); };
     const handleMetricSave = async (payload: {
         metric: UserMetricKey;
@@ -151,46 +166,6 @@ export const UserProfile: React.FC<Props> = ({
             await updateInteractionStatus(id, 'cancelled');
             loadInteractions();
         }
-    };
-
-    const handleManagerQuickEntry = () => {
-        const managerId = archive.health_manager_content_id || healthManager?.id || '';
-        const signedManager = managerId
-            ? interactions.some(
-                  (i) =>
-                      i.type === 'doctor_signing' &&
-                      i.status === 'confirmed' &&
-                      i.targetId === managerId
-              )
-            : false;
-        if (signedManager && managerId) {
-            try {
-                sessionStorage.setItem(
-                    MANAGER_CHAT_DEEP_LINK_KEY,
-                    JSON.stringify({ managerId, at: Date.now(), ttlMs: MANAGER_DEEP_LINK_TTL_MS })
-                );
-            } catch {
-                // ignore
-            }
-            onNavigate('message');
-            return;
-        }
-        if (managerId) {
-            try {
-                sessionStorage.setItem(
-                    MANAGER_RESOURCE_DEEP_LINK_KEY,
-                    JSON.stringify({
-                        resourceId: managerId,
-                        resourceType: 'doctor',
-                        at: Date.now(),
-                        ttlMs: MANAGER_DEEP_LINK_TTL_MS,
-                    })
-                );
-            } catch {
-                // ignore
-            }
-        }
-        onNavigate('doctor');
     };
 
     const historyRecords = [
@@ -593,45 +568,26 @@ export const UserProfile: React.FC<Props> = ({
         );
     };
 
+    const managerLandline =
+        String(healthManager?.details?.phone || fallbackManagerPhone || '').trim();
+
     const renderManagerView = () => (
         <div className="space-y-4 p-4 pb-24 animate-slideInRight">
             <h2 className="text-lg font-bold text-slate-800">我的健康管家</h2>
-            {healthManager ? (
-                <div className="rounded-2xl border border-teal-100 bg-white p-5 shadow-sm">
-                    <div className="flex items-center gap-3 mb-3">
-                        {healthManager.image && /^https?:\/\//i.test(healthManager.image) ? (
-                            <img
-                                src={healthManager.image}
-                                alt=""
-                                className="h-14 w-14 rounded-full border border-slate-100 object-cover"
-                            />
-                        ) : (
-                            <div className="text-3xl">{healthManager.image || '🧑‍⚕️'}</div>
-                        )}
-                        <div>
-                            <div className="font-black text-slate-800 text-lg">{healthManager.title}</div>
-                            {healthManager.details?.dept && (
-                                <div className="text-xs text-slate-500">{healthManager.details.dept}</div>
-                            )}
-                        </div>
-                    </div>
-                    {healthManager.description && (
-                        <p className="text-sm text-slate-600 leading-relaxed mb-3">{healthManager.description}</p>
-                    )}
-                    {(healthManager.details?.phone || healthManager.details?.mobile) && (
-                        <p className="text-sm font-bold text-teal-700">
-                            联系电话：{healthManager.details?.phone || healthManager.details?.mobile}
-                        </p>
-                    )}
-                    {!healthManager.details?.phone && !healthManager.details?.mobile && (
-                        <p className="text-xs text-slate-400">联系方式请咨询健康管理中心</p>
-                    )}
-                </div>
+            {managerLandline ? (
+                <a
+                    href={`tel:${managerLandline.replace(/\s/g, '')}`}
+                    className="block rounded-2xl border border-teal-200 bg-teal-50 p-6 text-center shadow-sm transition-colors hover:bg-teal-100/80"
+                >
+                    <p className="text-xs font-bold text-teal-700">健康管家固定电话</p>
+                    <p className="mt-2 text-2xl font-black tracking-wide text-teal-900">{managerLandline}</p>
+                </a>
             ) : (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-slate-500 text-sm">
-                    暂未分配健康管家。请等待签约医生或健康管理中心为您指定，或联系健康管家完成建档。
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
+                    暂未维护固定电话，请咨询健康管理中心。
                 </div>
             )}
+            <p className="text-center text-xs leading-relaxed text-slate-500">{PROFILE_MENU_TIP}</p>
         </div>
     );
 
@@ -727,6 +683,15 @@ export const UserProfile: React.FC<Props> = ({
 
                 {subView === 'menu' && (
                     <div className="flex-1 space-y-3 p-4">
+                        {managerLandline ? (
+                            <a
+                                href={`tel:${managerLandline.replace(/\s/g, '')}`}
+                                className="block rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3.5 text-center shadow-sm transition-colors hover:bg-teal-100/80"
+                            >
+                                <p className="text-xs font-bold text-teal-700">健康管家固定电话</p>
+                                <p className="mt-0.5 text-lg font-black tracking-wide text-teal-900">{managerLandline}</p>
+                            </a>
+                        ) : null}
                         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
                             <div className="mb-3 flex items-center justify-between">
                                 <h3 className="font-bold text-slate-800">基础身体指标</h3>
@@ -785,21 +750,6 @@ export const UserProfile: React.FC<Props> = ({
                                 </div>
                             )}
                             {recomputeHint && <p className="mt-2 text-xs text-blue-600">{recomputeHint}</p>}
-                            <p className="mt-3 text-xs text-slate-500">
-                                建议每周至少更新一次基础指标，便于健康管理团队动态调整干预方案。
-                            </p>
-                            <p className="mt-1 text-[11px] text-slate-400">
-                                最近同步：
-                                {archive.updated_at
-                                    ? new Date(archive.updated_at).toLocaleString()
-                                    : '暂无'}
-                            </p>
-                            <p className="mt-1 text-[11px] text-slate-400">
-                                写入来源：
-                                {archive.last_sync_source
-                                    ? syncSourceLabel[archive.last_sync_source] || archive.last_sync_source
-                                    : '未知来源'}
-                            </p>
                         </div>
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
                         <MenuButton
@@ -811,7 +761,7 @@ export const UserProfile: React.FC<Props> = ({
                         <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
                         <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
                         <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请历史" onClick={() => setSubView('apps')} />
-                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="未签约直达签约，已签约直达消息" onClick={handleManagerQuickEntry} />
+                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="查看固定电话" onClick={() => setSubView('manager')} />
                         <MenuButton icon="💬" label="我的消息" desc="进入消息中心与医生/管家沟通" onClick={() => onNavigate('message')} />
                         <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
                     </div>
@@ -827,7 +777,8 @@ export const UserProfile: React.FC<Props> = ({
 
                 {/* Logout Button (Only on Menu) */}
                 {subView === 'menu' && (
-                    <div className="mt-auto p-6 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+                    <div className="mt-auto space-y-4 p-6 pb-[calc(env(safe-area-inset-bottom)+12px)]">
+                        <p className="text-center text-xs leading-relaxed text-slate-500">{PROFILE_MENU_TIP}</p>
                         <button 
                             onClick={onLogout}
                             className="w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold border border-red-100 hover:bg-red-100 hover:shadow-md transition-all active:scale-95"

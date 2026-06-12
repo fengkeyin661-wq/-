@@ -20,7 +20,7 @@ interface EventWithStatus extends ContentItem {
     signupStatus: 'open' | 'full' | 'joined' | 'pending' | 'ended';
 }
 
-type TabType = 'events' | 'meals' | 'services';
+type TabType = 'services' | 'events';
 const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
 const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
@@ -79,11 +79,10 @@ const formatEventSchedule = (details?: Record<string, any>) => {
 export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContactPhone = '', assessment }) => {
     const [allEvents, setAllEvents] = useState<EventWithStatus[]>([]);
     const [allCircles, setAllCircles] = useState<ContentItem[]>([]);
-    const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
     const [allServices, setAllServices] = useState<ContentItem[]>([]);
     const [allInteractions, setAllInteractions] = useState<InteractionItem[]>([]);
     
-    const [activeTab, setActiveTab] = useState<TabType>('events');
+    const [activeTab, setActiveTab] = useState<TabType>('services');
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -126,15 +125,6 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                     return;
                 }
             }
-            if (resourceType === 'meal') {
-                const item = allMeals.find((x) => x.id === resourceId);
-                if (item) {
-                    setActiveTab('meals');
-                    setSelectedItem(item);
-                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
-                    return;
-                }
-            }
             if (resourceType === 'event' || resourceType === 'circle') {
                 const pool = resourceType === 'circle' ? allCircles : allEvents;
                 const item = pool.find((x) => x.id === resourceId);
@@ -148,12 +138,11 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
         } catch {
             // ignore
         }
-    }, [loading, allServices, allMeals, allEvents, allCircles]);
+    }, [loading, allServices, allEvents, allCircles]);
 
     const applyContentToState = (
         eventsData: ContentItem[],
         circlesData: ContentItem[],
-        mealsData: ContentItem[],
         servicesData: ContentItem[],
         interactions: InteractionItem[]
     ) => {
@@ -176,7 +165,6 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
         });
         setAllEvents(processedEvents);
         setAllCircles(circlesData);
-        setAllMeals(mealsData);
         setAllServices(servicesData);
         setAllInteractions(interactions);
     };
@@ -184,20 +172,18 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
     const loadData = async () => {
         const le = readLocalContent('event', 'active');
         const lc = readLocalContent('circle', 'active');
-        const lm = readLocalContent('meal', 'active');
         const ls = readLocalContent('service', 'active');
         const li = readLocalInteractions();
-        applyContentToState(le, lc, lm, ls, li);
-        setLoading(!(le.length || lc.length || lm.length || ls.length));
+        applyContentToState(le, lc, ls, li);
+        setLoading(!(le.length || lc.length || ls.length));
         try {
-            const [eventsData, circlesData, mealsData, servicesData, interactions] = await Promise.all([
+            const [eventsData, circlesData, servicesData, interactions] = await Promise.all([
                 fetchContent('event', 'active'),
                 fetchContent('circle', 'active'),
-                fetchContent('meal', 'active'),
                 fetchContent('service', 'active'),
                 fetchInteractions(),
             ]);
-            applyContentToState(eventsData, circlesData, mealsData, servicesData, interactions);
+            applyContentToState(eventsData, circlesData, servicesData, interactions);
         } catch (e) {
             console.error(e);
         } finally {
@@ -310,12 +296,6 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
         return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks)).slice(0, 10);
     }, [allEvents, searchTerm, risks]);
 
-    const filteredMeals = useMemo(() => {
-        let list = allMeals;
-        if (searchTerm) list = list.filter(m => m.title.includes(searchTerm));
-        return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks)).slice(0, 12);
-    }, [allMeals, searchTerm, risks]);
-
     const filteredServices = useMemo(() => {
         let list = allServices;
         if (searchTerm) list = list.filter(s => s.title.includes(searchTerm));
@@ -353,7 +333,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
             <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 backdrop-blur-md">
                 <div className="px-5 py-4">
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">发现</h1>
-                    <p className="text-sm text-slate-500">健康活动 · 膳食食谱 · 医疗服务</p>
+                    <p className="text-sm text-slate-500">医疗服务 · 健康活动</p>
                 </div>
                 
                 {/* Search */}
@@ -361,7 +341,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                     <div className="relative">
                         <input 
                             className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 transition-all outline-none"
-                            placeholder="搜索活动、食谱、服务..."
+                            placeholder="搜索服务、活动..."
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                         />
@@ -372,9 +352,8 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                 {/* Tabs */}
                 <div className="px-5 pb-3 flex gap-2">
                     {[
-                        { id: 'events', label: '健康活动', icon: '🎉' },
-                        { id: 'meals', label: '饮食食谱', icon: '🥗' },
                         { id: 'services', label: '医疗服务', icon: '🏥' },
+                        { id: 'events', label: '健康活动', icon: '🎉' },
                     ].map(tab => (
                         <button
                             key={tab.id}
@@ -397,28 +376,40 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                     <div className="text-center py-16 text-slate-400">加载中...</div>
                 ) : (
                     <>
-                        {/* Circles (Always Show) */}
-                        {filteredCircles.length > 0 && (
+                        {/* Services Tab — 优先展示 */}
+                        {activeTab === 'services' && (
                             <section>
-                                <h2 className="font-bold text-slate-800 mb-3 px-1">加入圈子</h2>
-                                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
-                                    {filteredCircles.map(g => (
-                                        <div 
-                                            key={g.id} 
-                                            onClick={() => setSelectedItem(g)}
-                                            className="flex-shrink-0 flex flex-col items-center justify-center w-24 h-28 bg-white border border-slate-100 shadow-sm rounded-2xl cursor-pointer active:scale-95 transition-transform"
-                                        >
-                                            <ResourceCover
-                                                item={g}
-                                                fallback={<span className="text-2xl">{getCommunityIcon(g.title, 'circle')}</span>}
-                                                className="mb-2 h-14 w-14 rounded-xl bg-slate-50 text-2xl"
-                                                imgClassName="h-full w-full object-cover rounded-xl"
-                                            />
-                                            <span className="text-xs font-bold text-slate-700 text-center px-1 line-clamp-1">{g.title}</span>
-                                            <span className="text-xs text-slate-400 mt-1">{g.details?.memberCount || 0} 成员</span>
-                                            {g.details?.leader && <span className="text-xs text-slate-400 line-clamp-1">负责人: {g.details.leader}</span>}
-                                        </div>
-                                    ))}
+                                <h2 className="font-bold text-slate-800 mb-3 px-1">医疗服务</h2>
+                                <div className="space-y-3">
+                                    {filteredServices.length === 0 ? (
+                                        <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无服务</div>
+                                    ) : (
+                                        filteredServices.map(svc => (
+                                            <div 
+                                                key={svc.id}
+                                                onClick={() => setSelectedItem(svc)}
+                                                className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
+                                            >
+                                                <ResourceCover
+                                                    item={svc}
+                                                    fallback={<span className="text-2xl">{getCommunityIcon(svc.title, 'service')}</span>}
+                                                    className="h-14 w-14 shrink-0 rounded-xl bg-blue-50 text-2xl"
+                                                    imgClassName="h-full w-full object-cover rounded-xl"
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <h3 className="font-bold text-slate-800 line-clamp-1 mb-1">{svc.title}</h3>
+                                                    <p className="text-xs text-slate-500 line-clamp-2 mb-2">{svc.description || '暂无简介'}</p>
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-sm font-bold text-blue-600">
+                                                            {svc.details?.price ? `¥${svc.details.price}` : '免费'}
+                                                        </span>
+                                                        <span className="text-xs text-slate-400">{svc.details?.categoryL1 || '便民服务'}</span>
+                                                    </div>
+                                                    <div className="mt-1 text-[11px] font-semibold text-blue-600 line-clamp-1">{getServiceEarliestSlotLabel(svc)}</div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
                             </section>
                         )}
@@ -475,74 +466,28 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                             </section>
                         )}
 
-                        {/* Meals Tab */}
-                        {activeTab === 'meals' && (
+                        {/* Circles */}
+                        {filteredCircles.length > 0 && (
                             <section>
-                                <h2 className="font-bold text-slate-800 mb-3 px-1">健康饮食食谱</h2>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {filteredMeals.length === 0 ? (
-                                        <div className="col-span-2 text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无食谱</div>
-                                    ) : (
-                                        filteredMeals.map(meal => (
-                                            <div 
-                                                key={meal.id}
-                                                onClick={() => setSelectedItem(meal)}
-                                                className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer active:scale-95 transition-transform"
-                                            >
-                                                <ResourceCover
-                                                    item={meal}
-                                                    fallback={<span className="text-3xl">{getCommunityIcon(meal.title, 'meal')}</span>}
-                                                    className="mb-2 h-20 w-full rounded-xl bg-slate-50 text-3xl"
-                                                    imgClassName="h-full w-full object-cover rounded-xl"
-                                                />
-                                                <h3 className="font-bold text-slate-800 text-sm text-center line-clamp-1 mb-1">{meal.title}</h3>
-                                                <div className="text-xs text-orange-600 font-bold text-center">{meal.details?.cal || 0} kcal</div>
-                                                <div className="flex flex-wrap justify-center gap-1 mt-2">
-                                                    {meal.tags.slice(0, 2).map(t => (
-                                                        <span key={t} className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t}</span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </section>
-                        )}
-
-                        {/* Services Tab */}
-                        {activeTab === 'services' && (
-                            <section>
-                                <h2 className="font-bold text-slate-800 mb-3 px-1">医疗服务</h2>
-                                <div className="space-y-3">
-                                    {filteredServices.length === 0 ? (
-                                        <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无服务</div>
-                                    ) : (
-                                        filteredServices.map(svc => (
-                                            <div 
-                                                key={svc.id}
-                                                onClick={() => setSelectedItem(svc)}
-                                                className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
-                                            >
-                                                <ResourceCover
-                                                    item={svc}
-                                                    fallback={<span className="text-2xl">{getCommunityIcon(svc.title, 'service')}</span>}
-                                                    className="h-14 w-14 shrink-0 rounded-xl bg-blue-50 text-2xl"
-                                                    imgClassName="h-full w-full object-cover rounded-xl"
-                                                />
-                                                <div className="flex-1 min-w-0">
-                                                    <h3 className="font-bold text-slate-800 line-clamp-1 mb-1">{svc.title}</h3>
-                                                    <p className="text-xs text-slate-500 line-clamp-2 mb-2">{svc.description || '暂无简介'}</p>
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-sm font-bold text-blue-600">
-                                                            {svc.details?.price ? `¥${svc.details.price}` : '免费'}
-                                                        </span>
-                                                        <span className="text-xs text-slate-400">{svc.details?.categoryL1 || '便民服务'}</span>
-                                                    </div>
-                                                    <div className="mt-1 text-[11px] font-semibold text-blue-600 line-clamp-1">{getServiceEarliestSlotLabel(svc)}</div>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
+                                <h2 className="font-bold text-slate-800 mb-3 px-1">加入圈子</h2>
+                                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
+                                    {filteredCircles.map(g => (
+                                        <div 
+                                            key={g.id} 
+                                            onClick={() => setSelectedItem(g)}
+                                            className="flex-shrink-0 flex flex-col items-center justify-center w-24 h-28 bg-white border border-slate-100 shadow-sm rounded-2xl cursor-pointer active:scale-95 transition-transform"
+                                        >
+                                            <ResourceCover
+                                                item={g}
+                                                fallback={<span className="text-2xl">{getCommunityIcon(g.title, 'circle')}</span>}
+                                                className="mb-2 h-14 w-14 rounded-xl bg-slate-50 text-2xl"
+                                                imgClassName="h-full w-full object-cover rounded-xl"
+                                            />
+                                            <span className="text-xs font-bold text-slate-700 text-center px-1 line-clamp-1">{g.title}</span>
+                                            <span className="text-xs text-slate-400 mt-1">{g.details?.memberCount || 0} 成员</span>
+                                            {g.details?.leader && <span className="text-xs text-slate-400 line-clamp-1">负责人: {g.details.leader}</span>}
+                                        </div>
+                                    ))}
                                 </div>
                             </section>
                         )}

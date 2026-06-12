@@ -458,10 +458,9 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
                     <div className="space-y-4">
                         <div className="rounded-2xl border border-slate-100 bg-white p-4">
                             <h2 className="font-bold text-slate-800">社区支持</h2>
-                            <div className="mt-3 grid grid-cols-3 gap-2">
-                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-blue-50 px-2 py-2 text-xs font-bold text-blue-700">活动</button>
-                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-emerald-50 px-2 py-2 text-xs font-bold text-emerald-700">饮食</button>
-                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-purple-50 px-2 py-2 text-xs font-bold text-purple-700">服务</button>
+                            <div className="mt-3 grid grid-cols-2 gap-2">
+                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-blue-50 px-2 py-2 text-xs font-bold text-blue-700">医疗服务</button>
+                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-purple-50 px-2 py-2 text-xs font-bold text-purple-700">健康活动</button>
                             </div>
                         </div>
                         <div className="pt-1">

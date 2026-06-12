@@ -7,23 +7,28 @@ interface Props {
   onLoginSuccess: (archive: HealthArchive) => void;
 }
 
+const PROFILE_SHELL_TIP =
+  '使用体检登记手机号与密码登录，不提供自助注册；预约挂号可在各栏目直接提交，查看电子档案与随访需先完成体检建档。若忘记密码或尚未建档，请拨打健康管家电话咨询。';
+
 export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [managers, setManagers] = useState<ContentItem[]>([]);
-  const [previewQr, setPreviewQr] = useState<string | null>(null);
+  const [managerPhone, setManagerPhone] = useState('');
 
   React.useEffect(() => {
     let cancel = false;
     (async () => {
       try {
         const doctors = await fetchContent('doctor', 'active');
-        const rows = doctors.filter(isHealthManagerContent);
-        if (!cancel) setManagers(rows);
+        const landline = doctors
+          .filter(isHealthManagerContent)
+          .map((m) => String(m.details?.phone || '').trim())
+          .find(Boolean);
+        if (!cancel) setManagerPhone(landline || '');
       } catch {
-        if (!cancel) setManagers([]);
+        if (!cancel) setManagerPhone('');
       }
     })();
     return () => {
@@ -76,45 +81,22 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
               👤
             </div>
             <h1 className="text-2xl font-black tracking-tight text-slate-800">个人服务登录</h1>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">使用体检档案登记的手机号与密码登录。不提供自助注册。</p>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left">
-            <p className="text-xs font-bold text-blue-800">说明</p>
-            <p className="mt-1 text-xs leading-relaxed text-blue-700">预约挂号等可在各栏目直接填写联系信息提交；需查看个人电子档案、随访时请先完成体检建档。</p>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left">
-            <p className="mb-3 text-xs font-black tracking-wide text-slate-700">健康管家联系方式</p>
-            {managers.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-slate-300 bg-white px-3 py-3 text-xs text-slate-600">
-                请联系健康管理中心获取健康管家电话与微信。
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {managers.slice(0, 3).map((m) => (
-                  <div key={m.id} className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
-                    <div className="font-black text-slate-800">{m.title}</div>
-                    <div className="mt-1 text-slate-600">电话：{m.details?.phone || m.details?.mobile || '未维护'}</div>
-                    {m.details?.wechat_qr &&
-                      (/^https?:\/\//i.test(String(m.details.wechat_qr)) || String(m.details.wechat_qr).startsWith('data:image')) && (
-                        <div className="mt-2 flex items-center justify-between">
-                          <span className="text-[11px] text-slate-500">微信二维码（点击放大）</span>
-                          <button
-                            type="button"
-                            className="rounded-lg border border-slate-200 bg-white p-1.5 transition-colors hover:bg-slate-50"
-                            onClick={() => setPreviewQr(String(m.details?.wechat_qr))}
-                            title="点击放大二维码"
-                          >
-                            <img src={String(m.details.wechat_qr)} alt="微信二维码" className="h-16 w-16 rounded object-cover" />
-                          </button>
-                        </div>
-                      )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {managerPhone ? (
+            <a
+              href={`tel:${managerPhone.replace(/\s/g, '')}`}
+              className="mt-5 block rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-center transition-colors hover:bg-teal-100/80"
+            >
+              <p className="text-xs font-bold text-teal-700">健康管家固定电话</p>
+              <p className="mt-1 text-xl font-black tracking-wide text-teal-900">{managerPhone}</p>
+            </a>
+          ) : (
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-center">
+              <p className="text-xs font-bold text-slate-500">健康管家固定电话</p>
+              <p className="mt-1 text-sm text-slate-400">暂未维护，请咨询健康管理中心</p>
+            </div>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
@@ -142,7 +124,6 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
             />
-            <p className="mt-1.5 text-[11px] text-slate-400">若您已修改密码，请输入新密码登录。</p>
           </div>
           {error ? (
             <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-center text-sm font-bold text-red-600">
@@ -157,17 +138,9 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             {loading ? '验证中...' : '登录'}
           </button>
         </form>
+
+        <p className="mt-5 px-1 text-center text-xs leading-relaxed text-slate-500">{PROFILE_SHELL_TIP}</p>
       </div>
-      {previewQr && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4"
-          onClick={() => setPreviewQr(null)}
-        >
-          <div className="rounded-xl bg-white p-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <img src={previewQr} alt="微信二维码预览" className="max-h-[80vh] max-w-[80vw] rounded" />
-          </div>
-        </div>
-      )}
     </div>
   );
 };
