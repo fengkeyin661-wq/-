@@ -198,7 +198,7 @@ export const UserMetricEntryModal: React.FC<Props> = ({
                     <XAxis dataKey="label" fontSize={9} />
                     <YAxis fontSize={9} domain={['auto', 'auto']} />
                     <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="#0d9488" strokeWidth={2} dot={{ r: 2 }} />
+                    <Line type="monotone" dataKey="value" stroke="#0d9488" strokeWidth={2} dot={{ r: 2 }} connectNulls />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

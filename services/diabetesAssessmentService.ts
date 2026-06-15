@@ -430,6 +430,49 @@ export const applyScreeningToHealthRecord = (
     next.riskModelExtras = { ...next.riskModelExtras, bodyFatRate: latest.bodyFatRate };
   }
 
+  next.checkup.bodyComposition = {
+    ...(next.checkup.bodyComposition || {}),
+    bodyFatRate: latest.bodyFatRate ?? next.checkup.bodyComposition?.bodyFatRate,
+    bodyFatMass: latest.bodyFatMass ?? next.checkup.bodyComposition?.bodyFatMass,
+    leanBodyMass: latest.leanBodyMass ?? next.checkup.bodyComposition?.leanBodyMass,
+    skeletalMuscleMass: latest.skeletalMuscleMass ?? next.checkup.bodyComposition?.skeletalMuscleMass,
+    muscleMass: latest.muscleMass ?? next.checkup.bodyComposition?.muscleMass,
+    visceralFatArea: latest.visceralFatArea ?? next.checkup.bodyComposition?.visceralFatArea,
+    visceralFatLevel: latest.visceralFatLevel ?? next.checkup.bodyComposition?.visceralFatLevel,
+    waistHipRatio: latest.waistHipRatio ?? next.checkup.bodyComposition?.waistHipRatio,
+    inbodyScore: latest.inbodyScore ?? next.checkup.bodyComposition?.inbodyScore,
+    obesityDegree: latest.obesityDegree ?? next.checkup.bodyComposition?.obesityDegree,
+    bmr: latest.bmr ?? next.checkup.bodyComposition?.bmr,
+    targetWeight: latest.targetWeight ?? next.checkup.bodyComposition?.targetWeight,
+  };
+
+  const abi = latest.abi ?? latest.rightABI ?? latest.leftABI;
+  const pwv = latest.pwv ?? latest.rightBaPWV ?? latest.leftBaPWV ?? latest.cfPWV;
+  if (
+    abi != null ||
+    pwv != null ||
+    latest.arteriosclerosisGrade ||
+    latest.arteriosclerosisConclusion
+  ) {
+    next.checkup.optional = {
+      ...next.checkup.optional,
+      arteriosclerosis: {
+        ...(next.checkup.optional?.arteriosclerosis || {}),
+        leftBaPWV: latest.leftBaPWV,
+        rightBaPWV: latest.rightBaPWV,
+        cfPWV: latest.cfPWV,
+        leftABI: latest.leftABI,
+        rightABI: latest.rightABI,
+        abi,
+        pwv,
+        grade: latest.arteriosclerosisGrade,
+        conclusion: latest.arteriosclerosisConclusion,
+        risk: latest.arteriosclerosisRisk,
+        specialNote: latest.arteriosclerosisSpecialNote ?? latest.specialNote,
+      },
+    };
+  }
+
   const ecgText = latest.ecgDiagnosisHint || latest.ecgResult;
   if (ecgText) {
     next.checkup.imagingBasic = { ...next.checkup.imagingBasic, ecg: ecgText };

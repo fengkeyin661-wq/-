@@ -13,8 +13,15 @@ import { CORE_METRICS } from '../services/metricCatalog';
 import {
   fetchObservationSeries,
   buildBpChartData,
-  buildChartSeries,
+  buildContinuousChartSeries,
 } from '../services/observationService';
+
+const TREND_LINE_PROPS = {
+  type: 'monotone' as const,
+  connectNulls: true,
+  strokeWidth: 2,
+  dot: { r: 3 },
+};
 
 interface Props {
   checkupId: string;
@@ -54,6 +61,8 @@ const UI = {
 const metricLabel = (code: string): string =>
   CORE_METRICS.find((m) => m.code === code)?.label ?? code;
 
+const hasSeriesData = (data: { value: number | null }[]) => data.some((p) => p.value != null);
+
 const CHART_COLORS: Record<string, string> = {
   'core.tc': '#0d9488',
   'core.tg': '#f59e0b',
@@ -81,15 +90,15 @@ export const HealthTrendCharts: React.FC<Props> = ({
   const isAdminDashboard = variant === 'admin';
   const isCompactDashboard = isUserDashboard || isAdminDashboard;
   const [bpData, setBpData] = useState<{ date: string; label: string; sbp?: number; dbp?: number }[]>([]);
-  const [weightData, setWeightData] = useState<{ label: string; value: number }[]>([]);
-  const [glucoseData, setGlucoseData] = useState<{ label: string; value: number }[]>([]);
+  const [weightData, setWeightData] = useState<{ label: string; value: number | null }[]>([]);
+  const [glucoseData, setGlucoseData] = useState<{ label: string; value: number | null }[]>([]);
   const [lipidData, setLipidData] = useState<
-    Record<(typeof LIPID_VARIANTS)[number], { label: string; value: number }[]>
+    Record<(typeof LIPID_VARIANTS)[number], { label: string; value: number | null }[]>
   >({ tc: [], tg: [], ldl: [], hdl: [] });
-  const [waistData, setWaistData] = useState<{ label: string; value: number }[]>([]);
-  const [bodyFatData, setBodyFatData] = useState<{ label: string; value: number }[]>([]);
-  const [creatinineData, setCreatinineData] = useState<{ label: string; value: number }[]>([]);
-  const [optionalSeries, setOptionalSeries] = useState<{ label: string; value: number }[]>([]);
+  const [waistData, setWaistData] = useState<{ label: string; value: number | null }[]>([]);
+  const [bodyFatData, setBodyFatData] = useState<{ label: string; value: number | null }[]>([]);
+  const [creatinineData, setCreatinineData] = useState<{ label: string; value: number | null }[]>([]);
+  const [optionalSeries, setOptionalSeries] = useState<{ label: string; value: number | null }[]>([]);
   const [optionalLoading, setOptionalLoading] = useState(false);
   const [selectedOptional, setSelectedOptional] = useState('');
   const [loading, setLoading] = useState(true);
@@ -119,31 +128,23 @@ export const HealthTrendCharts: React.FC<Props> = ({
       const rows = await fetchObservationSeries(checkupId, codes, 200);
       if (cancelled) return;
       setBpData(buildBpChartData(rows));
-      setWeightData(
-        buildChartSeries(rows, 'core.weight').map((p) => ({ label: p.label, value: p.value }))
-      );
-      setGlucoseData(
-        buildChartSeries(rows, 'core.fasting_glucose').map((p) => ({
-          label: p.label,
-          value: p.value,
-        }))
-      );
+      const toSeries = (code: string) =>
+        buildContinuousChartSeries(rows, code).map((p) => ({ label: p.label, value: p.value }));
+
+      setWeightData(toSeries('core.weight'));
+      setGlucoseData(toSeries('core.fasting_glucose'));
       if (isAdminDashboard || !isCompactDashboard) {
         setLipidData({
-          tc: buildChartSeries(rows, 'core.tc').map((p) => ({ label: p.label, value: p.value })),
-          tg: buildChartSeries(rows, 'core.tg').map((p) => ({ label: p.label, value: p.value })),
-          ldl: buildChartSeries(rows, 'core.ldl').map((p) => ({ label: p.label, value: p.value })),
-          hdl: buildChartSeries(rows, 'core.hdl').map((p) => ({ label: p.label, value: p.value })),
+          tc: toSeries('core.tc'),
+          tg: toSeries('core.tg'),
+          ldl: toSeries('core.ldl'),
+          hdl: toSeries('core.hdl'),
         });
       }
       if (!isCompactDashboard) {
-        setWaistData(buildChartSeries(rows, 'core.waist').map((p) => ({ label: p.label, value: p.value })));
-        setBodyFatData(
-          buildChartSeries(rows, 'core.body_fat_rate').map((p) => ({ label: p.label, value: p.value }))
-        );
-        setCreatinineData(
-          buildChartSeries(rows, 'core.creatinine').map((p) => ({ label: p.label, value: p.value }))
-        );
+        setWaistData(toSeries('core.waist'));
+        setBodyFatData(toSeries('core.body_fat_rate'));
+        setCreatinineData(toSeries('core.creatinine'));
       }
       setLoading(false);
     })();
@@ -160,10 +161,17 @@ export const HealthTrendCharts: React.FC<Props> = ({
     let cancelled = false;
     setOptionalLoading(true);
     (async () => {
-      const rows = await fetchObservationSeries(checkupId, [selectedOptional], 200);
+      const rows = await fetchObservationSeries(
+        checkupId,
+        [...new Set([...DEFAULT_CODES, ...LIPID_CODES, selectedOptional])],
+        200
+      );
       if (cancelled) return;
       setOptionalSeries(
-        buildChartSeries(rows, selectedOptional).map((p) => ({ label: p.label, value: p.value }))
+        buildContinuousChartSeries(rows, selectedOptional).map((p) => ({
+          label: p.label,
+          value: p.value,
+        }))
       );
       setOptionalLoading(false);
     })();
@@ -185,7 +193,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
 
   const renderLipidChart = (key: (typeof LIPID_VARIANTS)[number]) => {
     const data = lipidData[key];
-    if (!data.length) return null;
+    if (!hasSeriesData(data)) return null;
     const meta = LIPID_META[key];
     const title = metricLabel(meta.code);
     return (
@@ -199,12 +207,10 @@ export const HealthTrendCharts: React.FC<Props> = ({
               <YAxis fontSize={10} domain={['dataMin - 0.5', 'dataMax + 0.5']} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
               <Line
-                type="monotone"
+                {...TREND_LINE_PROPS}
                 dataKey="value"
                 name="mmol/L"
                 stroke={meta.color}
-                strokeWidth={2}
-                dot={{ r: 3 }}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -214,10 +220,13 @@ export const HealthTrendCharts: React.FC<Props> = ({
   };
 
   if (isCompactDashboard) {
-    const hasLipidCharts = isAdminDashboard && LIPID_VARIANTS.some((k) => lipidData[k].length > 0);
+    const hasLipidCharts = isAdminDashboard && LIPID_VARIANTS.some((k) => hasSeriesData(lipidData[k]));
     const hasDefault =
-      bpData.length > 0 || weightData.length > 0 || glucoseData.length > 0 || hasLipidCharts;
-    const hasOptional = selectedOptional && optionalSeries.length > 0;
+      bpData.length > 0 ||
+      hasSeriesData(weightData) ||
+      hasSeriesData(glucoseData) ||
+      hasLipidCharts;
+    const hasOptional = selectedOptional && hasSeriesData(optionalSeries);
 
     if (!hasDefault && !hasOptional && !optionalLoading) {
       return (
@@ -241,27 +250,23 @@ export const HealthTrendCharts: React.FC<Props> = ({
                   <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
                   <Legend wrapperStyle={{ fontSize: '10px' }} />
                   <Line
-                    type="monotone"
+                    {...TREND_LINE_PROPS}
                     dataKey="sbp"
                     name={metricLabel('core.sbp')}
                     stroke="#ef4444"
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
                   />
                   <Line
-                    type="monotone"
+                    {...TREND_LINE_PROPS}
                     dataKey="dbp"
                     name={metricLabel('core.dbp')}
                     stroke="#f97316"
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
-        {weightData.length > 0 && (
+        {hasSeriesData(weightData) && (
           <div>
             <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.weight}</h4>
             <div className="h-40 w-full">
@@ -272,19 +277,17 @@ export const HealthTrendCharts: React.FC<Props> = ({
                   <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
                   <Tooltip />
                   <Line
-                    type="monotone"
+                    {...TREND_LINE_PROPS}
                     dataKey="value"
                     name={`${metricLabel('core.weight')}(kg)`}
                     stroke="#0d9488"
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
-        {glucoseData.length > 0 && (
+        {hasSeriesData(glucoseData) && (
           <div>
             <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.glucose}</h4>
             <div className="h-40 w-full">
@@ -295,12 +298,10 @@ export const HealthTrendCharts: React.FC<Props> = ({
                   <YAxis fontSize={10} />
                   <Tooltip />
                   <Line
-                    type="monotone"
+                    {...TREND_LINE_PROPS}
                     dataKey="value"
                     name="mmol/L"
                     stroke="#8b5cf6"
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -335,7 +336,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
         {optionalLoading && (
           <div className="text-center text-xs text-slate-400 py-4">{UI.optLoading}</div>
         )}
-        {!optionalLoading && selectedOptional && optionalSeries.length === 0 && (
+        {!optionalLoading && selectedOptional && !hasSeriesData(optionalSeries) && (
           <div className="text-center text-xs text-slate-400 py-4">{UI.optEmpty}</div>
         )}
         {!optionalLoading && hasOptional && optionalMeta && (
@@ -349,12 +350,10 @@ export const HealthTrendCharts: React.FC<Props> = ({
                   <YAxis fontSize={10} domain={['auto', 'auto']} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
                   <Line
-                    type="monotone"
+                    {...TREND_LINE_PROPS}
                     dataKey="value"
                     name={optionalMeta.unit}
                     stroke={CHART_COLORS[selectedOptional] || '#0d9488'}
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -380,16 +379,16 @@ export const HealthTrendCharts: React.FC<Props> = ({
         ? [variant as (typeof LIPID_VARIANTS)[number]]
         : [];
 
-  const hasLipid = lipidKeysToShow.some((k) => lipidData[k].length > 0);
+  const hasLipid = lipidKeysToShow.some((k) => hasSeriesData(lipidData[k]));
   const showExtra = variant === 'all';
   const hasAny =
     (showBp && bpData.length > 0) ||
-    (showWeight && weightData.length > 0) ||
-    (showGlucose && glucoseData.length > 0) ||
+    (showWeight && hasSeriesData(weightData)) ||
+    (showGlucose && hasSeriesData(glucoseData)) ||
     (showLipids && hasLipid) ||
-    (showExtra && waistData.length > 0) ||
-    (showExtra && bodyFatData.length > 0) ||
-    (showExtra && creatinineData.length > 0);
+    (showExtra && hasSeriesData(waistData)) ||
+    (showExtra && hasSeriesData(bodyFatData)) ||
+    (showExtra && hasSeriesData(creatinineData));
 
   if (!hasAny) {
     return (
@@ -413,27 +412,23 @@ export const HealthTrendCharts: React.FC<Props> = ({
                 <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
                 <Legend wrapperStyle={{ fontSize: '10px' }} />
                 <Line
-                  type="monotone"
+                  {...TREND_LINE_PROPS}
                   dataKey="sbp"
                   name={metricLabel('core.sbp')}
                   stroke="#ef4444"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
                 />
                 <Line
-                  type="monotone"
+                  {...TREND_LINE_PROPS}
                   dataKey="dbp"
                   name={metricLabel('core.dbp')}
                   stroke="#f97316"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
-      {showWeight && weightData.length > 0 && (
+      {showWeight && hasSeriesData(weightData) && (
         <div>
             <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.weight}</h4>
             <div className="h-40 w-full">
@@ -444,19 +439,17 @@ export const HealthTrendCharts: React.FC<Props> = ({
                 <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
                 <Tooltip />
                 <Line
-                  type="monotone"
+                  {...TREND_LINE_PROPS}
                   dataKey="value"
                   name={`${metricLabel('core.weight')}(kg)`}
                   stroke="#0d9488"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
-      {showGlucose && glucoseData.length > 0 && (
+      {showGlucose && hasSeriesData(glucoseData) && (
         <div>
             <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.glucose}</h4>
           <div className="h-40 w-full">
@@ -466,14 +459,14 @@ export const HealthTrendCharts: React.FC<Props> = ({
                 <XAxis dataKey="label" fontSize={10} />
                 <YAxis fontSize={10} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" name="mmol/L" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                <Line {...TREND_LINE_PROPS} dataKey="value" name="mmol/L" stroke="#8b5cf6" />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
       {showLipids && lipidKeysToShow.map(renderLipidChart)}
-      {showExtra && waistData.length > 0 && (
+      {showExtra && hasSeriesData(waistData) && (
         <div>
           <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.waist')}??</h4>
           <div className="h-40 w-full">
@@ -483,13 +476,13 @@ export const HealthTrendCharts: React.FC<Props> = ({
                 <XAxis dataKey="label" fontSize={10} />
                 <YAxis fontSize={10} domain={['dataMin - 5', 'dataMax + 5']} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" name="cm" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
+                <Line {...TREND_LINE_PROPS} dataKey="value" name="cm" stroke="#6366f1" />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
-      {showExtra && bodyFatData.length > 0 && (
+      {showExtra && hasSeriesData(bodyFatData) && (
         <div>
           <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.body_fat_rate')}??</h4>
           <div className="h-40 w-full">
@@ -499,13 +492,13 @@ export const HealthTrendCharts: React.FC<Props> = ({
                 <XAxis dataKey="label" fontSize={10} />
                 <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
                 <Tooltip />
-                <Line type="monotone" dataKey="value" name="%" stroke="#ec4899" strokeWidth={2} dot={{ r: 3 }} />
+                <Line {...TREND_LINE_PROPS} dataKey="value" name="%" stroke="#ec4899" />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
-      {showExtra && creatinineData.length > 0 && (
+      {showExtra && hasSeriesData(creatinineData) && (
         <div>
           <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.creatinine')}{UI.renal}</h4>
           <div className="h-40 w-full">
@@ -516,12 +509,10 @@ export const HealthTrendCharts: React.FC<Props> = ({
                 <YAxis fontSize={10} domain={['auto', 'auto']} />
                 <Tooltip />
                 <Line
-                  type="monotone"
+                  {...TREND_LINE_PROPS}
                   dataKey="value"
                   name={CORE_METRICS.find((m) => m.code === 'core.creatinine')?.unit ?? '?mol/L'}
                   stroke="#14b8a6"
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
                 />
               </LineChart>
             </ResponsiveContainer>

@@ -109,9 +109,10 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
     profile: { checkupId: '', name: '', gender: '', department: '', age: 0 },
     checkup: {
         basics: {},
+        bodyComposition: {},
         labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} },
         imagingBasic: { ultrasound: {} },
-        optional: { tumorMarkers4: {}, tumorMarkers2: {}, rheumatoid: {} },
+        optional: { tumorMarkers4: {}, tumorMarkers2: {}, rheumatoid: {}, arteriosclerosis: {} },
         abnormalities: []
     },
     questionnaire: {
@@ -350,14 +351,37 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
       "profile": { "checkupId": "6位数字字符串或空", "name": "string", "gender": "string", "age": number, "department": "string", "phone": "string", "checkupDate": "string" },
       "checkup": {
          "basics": { "height": number, "weight": number, "bmi": number, "sbp": number, "dbp": number, "waist": number },
+         "bodyComposition": {
+            "bodyFatRate": number, "bodyFatMass": number, "leanBodyMass": number, "skeletalMuscleMass": number,
+            "muscleMass": number, "visceralFatArea": number, "visceralFatLevel": number, "waistHipRatio": number,
+            "inbodyScore": number, "obesityDegree": number, "bmr": number, "targetWeight": number
+         },
          "labBasic": { 
             "glucose": { "fasting": "string" },
             "lipids": { "tc": "string", "tg": "string", "ldl": "string", "hdl": "string" },
             "liver": { "alt": "string", "ast": "string", "ggt": "string" },
-            "renal": { "creatinine": "string", "ua": "string" },
-            "tumorMarkers": { "cea": "string", "afp": "string" } 
+            "renal": { "creatinine": "string", "ua": "string", "urea": "string" },
+            "bloodRoutine": { "wbc": "string", "rbc": "string", "hgb": "string", "plt": "string", "neut": "string", "summary": "string" },
+            "urineRoutine": { "protein": "string", "glucose": "string", "blood": "string", "summary": "string" },
+            "thyroidFunction": { "t3": "string", "t4": "string", "tsh": "string" },
+            "hba1c": "string",
+            "homocysteine": "string",
+            "ck": "string"
          },
-         "imagingBasic": { "ultrasound": { "thyroid": "string", "abdomen": "string", "breast": "string" } },
+         "imagingBasic": {
+            "ecg": "string",
+            "ultrasound": { "thyroid": "string", "abdomen": "string", "breast": "string", "uterusAdnexa": "string", "prostate": "string" }
+         },
+         "optional": {
+            "carotidUltrasound": "string", "heartUltrasound": "string", "ct": "string",
+            "tct": "string", "hpv": "string", "boneDensity": "string", "fundusPhoto": "string",
+            "mammography": "string", "tcd": "string", "c13": "string",
+            "arteriosclerosis": {
+               "leftABI": number, "rightABI": number, "abi": number,
+               "leftBaPWV": number, "rightBaPWV": number, "cfPWV": number, "pwv": number,
+               "grade": "string", "conclusion": "string", "risk": "string", "specialNote": "string"
+            }
+         },
          "abnormalities": [ { "item": "string", "result": "string", "clinicalSig": "string" } ]
       },
       "questionnaire": {
@@ -406,16 +430,36 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
                 ...DEFAULT_HEALTH_RECORD.checkup,
                 ...result?.checkup,
                 basics: { ...DEFAULT_HEALTH_RECORD.checkup.basics, ...result?.checkup?.basics },
+                bodyComposition: {
+                    ...DEFAULT_HEALTH_RECORD.checkup.bodyComposition,
+                    ...result?.checkup?.bodyComposition,
+                },
                 labBasic: { 
                     ...DEFAULT_HEALTH_RECORD.checkup.labBasic, 
                     ...result?.checkup?.labBasic,
                     lipids: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.lipids, ...result?.checkup?.labBasic?.lipids },
-                    glucose: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.glucose, ...result?.checkup?.labBasic?.glucose }
+                    glucose: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.glucose, ...result?.checkup?.labBasic?.glucose },
+                    renal: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.renal, ...result?.checkup?.labBasic?.renal },
+                    liver: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.liver, ...result?.checkup?.labBasic?.liver },
+                    bloodRoutine: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.bloodRoutine, ...result?.checkup?.labBasic?.bloodRoutine },
+                    urineRoutine: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.urineRoutine, ...result?.checkup?.labBasic?.urineRoutine },
+                    thyroidFunction: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.thyroidFunction, ...result?.checkup?.labBasic?.thyroidFunction },
                 },
                 imagingBasic: {
                     ...DEFAULT_HEALTH_RECORD.checkup.imagingBasic,
                     ...result?.checkup?.imagingBasic,
                     ultrasound: { ...DEFAULT_HEALTH_RECORD.checkup.imagingBasic.ultrasound, ...result?.checkup?.imagingBasic?.ultrasound }
+                },
+                optional: {
+                    ...DEFAULT_HEALTH_RECORD.checkup.optional,
+                    ...result?.checkup?.optional,
+                    arteriosclerosis: {
+                        ...DEFAULT_HEALTH_RECORD.checkup.optional.arteriosclerosis,
+                        ...result?.checkup?.optional?.arteriosclerosis,
+                    },
+                    tumorMarkers4: { ...DEFAULT_HEALTH_RECORD.checkup.optional.tumorMarkers4, ...result?.checkup?.optional?.tumorMarkers4 },
+                    tumorMarkers2: { ...DEFAULT_HEALTH_RECORD.checkup.optional.tumorMarkers2, ...result?.checkup?.optional?.tumorMarkers2 },
+                    rheumatoid: { ...DEFAULT_HEALTH_RECORD.checkup.optional.rheumatoid, ...result?.checkup?.optional?.rheumatoid },
                 },
                 abnormalities: result?.checkup?.abnormalities || []
             },

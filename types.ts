@@ -24,6 +24,38 @@ export interface HealthProfile {
 }
 
 // --- 2. 结构化体检数据 (Objective Data) ---
+
+/** 人体成分分析（InBody 等，对齐糖尿病专项筛查） */
+export interface BodyCompositionData {
+  bodyFatRate?: number;
+  bodyFatMass?: number;
+  leanBodyMass?: number;
+  skeletalMuscleMass?: number;
+  muscleMass?: number;
+  visceralFatArea?: number;
+  visceralFatLevel?: number;
+  waistHipRatio?: number;
+  inbodyScore?: number;
+  obesityDegree?: number;
+  bmr?: number;
+  targetWeight?: number;
+}
+
+/** 动脉硬化检测（ABI/PWV，对齐糖尿病专项筛查） */
+export interface ArteriosclerosisData {
+  leftBaPWV?: number;
+  rightBaPWV?: number;
+  cfPWV?: number;
+  leftABI?: number;
+  rightABI?: number;
+  abi?: number;
+  pwv?: number;
+  grade?: string;
+  conclusion?: string;
+  risk?: string;
+  specialNote?: string;
+}
+
 export interface CheckupData {
   // 1. 基础项目
   basics: {
@@ -35,16 +67,33 @@ export interface CheckupData {
     waist?: number; // 腰围 (China-PAR需要)
   };
 
+  /** 人体成分分析（InBody 等） */
+  bodyComposition?: BodyCompositionData;
+
   // 2-8, 11. 实验室检查 (基础)
   labBasic: {
     liver?: { [key: string]: string }; // 2. 肝功能九项
     ck?: string; // 3. 肌酸激酶
     lipids?: { tc?: string; tg?: string; hdl?: string; ldl?: string; }; // 4. 血脂四项
     renal?: { urea?: string; creatinine?: string; ua?: string; }; // 5. 肾功能三项
-    bloodRoutine?: { wbc?: string; hgb?: string; plt?: string; summary?: string }; // 6. 血常规
+    bloodRoutine?: {
+      wbc?: string;
+      rbc?: string;
+      hgb?: string;
+      plt?: string;
+      neut?: string;
+      summary?: string;
+    }; // 6. 血常规
     glucose?: { fasting?: string; }; // 7. 血糖
-    urineRoutine?: { protein?: string; summary?: string }; // 8. 尿常规 (蛋白定性用于KDIGO)
+    urineRoutine?: {
+      protein?: string;
+      glucose?: string;
+      blood?: string;
+      summary?: string;
+    }; // 8. 尿常规 (蛋白定性用于KDIGO)
     thyroidFunction?: { t3?: string; t4?: string; tsh?: string; }; // 11. 甲功三项
+    hba1c?: string; // 糖化血红蛋白
+    homocysteine?: string; // 同型半胱氨酸
   };
 
   // 9-10. 影像与功能 (基础)
@@ -82,6 +131,8 @@ export interface CheckupData {
     gastrin?: string; // 18. 胃功能
     adiponectin?: string; // 19. 脂联素
     vitD?: string; // 20. 25羟基维生素D
+    /** 动脉硬化检测（ABI/PWV） */
+    arteriosclerosis?: ArteriosclerosisData;
   };
 
   // 异常项汇总 (AI 提取)

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
+import { ensureHealthRecordShape } from '../services/healthRecordDefaults';
 
 // @ts-ignore
 import * as mammoth from 'mammoth';
@@ -68,7 +69,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   }, []);
 
   useEffect(() => {
-    setData(initialData || null);
+    setData(initialData ? ensureHealthRecordShape(initialData) : null);
     if (initialData) {
         setMode('review');
     } else {
@@ -87,7 +88,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
         if (result.profile.name && result.profile.name.includes('解析失败')) {
             alert(`错误: ${result.profile.name}`);
         } else {
-            setData(result);
+            setData(ensureHealthRecordShape(result));
             setMode('review');
             setIsEditing(false); 
         }
@@ -364,6 +365,46 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                             <Field label="腰围(cm)" value={data.checkup.basics.waist} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, basics: {...data.checkup.basics, waist: Number(v)}}})} />
                         </div>
                     </div>
+
+                    <div className="col-span-full border-t border-slate-100 pt-4 mt-2">
+                        <h4 className="font-bold text-slate-700 mb-4">人体成分分析（InBody 等）</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {([
+                                ['bodyFatRate', '体脂率(%)'],
+                                ['bodyFatMass', '体脂肪量(kg)'],
+                                ['leanBodyMass', '去脂体重(kg)'],
+                                ['skeletalMuscleMass', '骨骼肌质量(kg)'],
+                                ['muscleMass', '肌肉量(kg)'],
+                                ['visceralFatArea', '内脏脂肪面积(cm²)'],
+                                ['visceralFatLevel', '内脏脂肪等级'],
+                                ['waistHipRatio', '腰臀比'],
+                                ['inbodyScore', 'InBody评分'],
+                                ['obesityDegree', '肥胖度(%)'],
+                                ['bmr', '基础代谢(kcal)'],
+                                ['targetWeight', '目标体重(kg)'],
+                            ] as const).map(([key, label]) => (
+                                <Field
+                                    key={key}
+                                    label={label}
+                                    value={data.checkup.bodyComposition?.[key]}
+                                    isEditing={isEditing}
+                                    onChange={v => setData({
+                                        ...data,
+                                        checkup: {
+                                            ...data.checkup,
+                                            bodyComposition: {
+                                                ...data.checkup.bodyComposition,
+                                                [key]: Number(v),
+                                            },
+                                        },
+                                        riskModelExtras: key === 'bodyFatRate'
+                                            ? { ...data.riskModelExtras, bodyFatRate: Number(v) }
+                                            : data.riskModelExtras,
+                                    })}
+                                />
+                            ))}
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -413,24 +454,113 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                             <div className="grid grid-cols-2 gap-6">
                                 <Field label="肌酸激酶" value={data.checkup.labBasic.ck} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, ck: v}}})} />
                                 <Field label="空腹血糖" value={data.checkup.labBasic.glucose?.fasting} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, glucose: {...data.checkup.labBasic.glucose, fasting: v}}}})} />
+                                <Field label="糖化血红蛋白(HbA1c)" value={data.checkup.labBasic.hba1c ?? data.checkup.optional.hba1c} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, hba1c: v}, optional: {...data.checkup.optional, hba1c: v}}})} />
+                                <Field label="同型半胱氨酸" value={data.checkup.labBasic.homocysteine ?? data.checkup.optional.homocysteine} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, homocysteine: v}, optional: {...data.checkup.optional, homocysteine: v}}})} />
                             </div>
+                            <Section
+                                title="血常规"
+                                data={data.checkup.labBasic.bloodRoutine}
+                                isEditing={isEditing}
+                                onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, bloodRoutine: {...data.checkup.labBasic.bloodRoutine, [k]: v}}}})}
+                            />
+                            <Section
+                                title="尿常规"
+                                data={data.checkup.labBasic.urineRoutine}
+                                isEditing={isEditing}
+                                onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, labBasic: {...data.checkup.labBasic, urineRoutine: {...data.checkup.labBasic.urineRoutine, [k]: v}}}})}
+                            />
                         </div>
                     )}
                     {/* ... Imaging and Optional tabs ... */}
                     {clinicalSubTab === 'imaging' && (
                         <div className="grid grid-cols-2 gap-6">
                             <Field label="心电图" value={data.checkup.imagingBasic.ecg} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ecg: v}}})} />
-                            <Field label="甲状腺彩超" value={data.checkup.imagingBasic.ultrasound.thyroid} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, thyroid: v}}}})} />
-                            <Field label="腹部彩超" value={data.checkup.imagingBasic.ultrasound.abdomen} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, abdomen: v}}}})} />
-                            <Field label="乳腺彩超" value={data.checkup.imagingBasic.ultrasound.breast} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, breast: v}}}})} />
+                            <Field label="甲状腺彩超" value={data.checkup.imagingBasic.ultrasound?.thyroid} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, thyroid: v}}}})} />
+                            <Field label="腹部彩超" value={data.checkup.imagingBasic.ultrasound?.abdomen} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, abdomen: v}}}})} />
+                            <Field label="乳腺彩超" value={data.checkup.imagingBasic.ultrasound?.breast} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, breast: v}}}})} />
+                            <Field label="子宫附件彩超" value={data.checkup.imagingBasic.ultrasound?.uterusAdnexa} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, uterusAdnexa: v}}}})} />
+                            <Field label="前列腺彩超" value={data.checkup.imagingBasic.ultrasound?.prostate} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, imagingBasic: {...data.checkup.imagingBasic, ultrasound: {...data.checkup.imagingBasic.ultrasound, prostate: v}}}})} />
+                            <Field label="颈动脉彩超" value={data.checkup.optional.carotidUltrasound} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, carotidUltrasound: v}}})} />
+                            <Field label="心脏彩超" value={data.checkup.optional.heartUltrasound} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, heartUltrasound: v}}})} />
+                            <Field label="CT检查" value={data.checkup.optional.ct} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, ct: v}}})} />
+                            <Field label="乳腺钼靶" value={data.checkup.optional.mammography} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, mammography: v}}})} />
+                            <Field label="颅内多普勒(TCD)" value={data.checkup.optional.tcd} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, tcd: v}}})} />
+                            <Field label="眼底照相" value={data.checkup.optional.fundusPhoto} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, fundusPhoto: v}}})} />
                         </div>
                     )}
                     {clinicalSubTab === 'optional' && (
-                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <Field label="TCT" value={data.checkup.optional.tct} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, tct: v}}})} />
-                                <Field label="HPV" value={data.checkup.optional.hpv} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, hpv: v}}})} />
-                                <Field label="骨密度" value={data.checkup.optional.boneDensity} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, boneDensity: v}}})} />
+                         <div className="space-y-6">
+                            <div>
+                                <h4 className="font-bold text-slate-700 mb-3">动脉硬化检测（ABI/PWV）</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    {([
+                                        ['leftABI', '左ABI'],
+                                        ['rightABI', '右ABI'],
+                                        ['abi', 'ABI'],
+                                        ['leftBaPWV', '左baPWV'],
+                                        ['rightBaPWV', '右baPWV'],
+                                        ['cfPWV', 'cfPWV'],
+                                        ['pwv', 'PWV'],
+                                    ] as const).map(([key, label]) => (
+                                        <Field
+                                            key={key}
+                                            label={label}
+                                            value={data.checkup.optional.arteriosclerosis?.[key]}
+                                            isEditing={isEditing}
+                                            onChange={v => setData({
+                                                ...data,
+                                                checkup: {
+                                                    ...data.checkup,
+                                                    optional: {
+                                                        ...data.checkup.optional,
+                                                        arteriosclerosis: {
+                                                            ...data.checkup.optional.arteriosclerosis,
+                                                            [key]: Number(v),
+                                                        },
+                                                    },
+                                                },
+                                            })}
+                                        />
+                                    ))}
+                                </div>
+                                <div className="mt-4 grid grid-cols-1 gap-4">
+                                    <Field label="动脉硬化分级" value={data.checkup.optional.arteriosclerosis?.grade} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, arteriosclerosis: {...data.checkup.optional.arteriosclerosis, grade: v}}}})} />
+                                    <Field label="动脉硬化结论" value={data.checkup.optional.arteriosclerosis?.conclusion} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, arteriosclerosis: {...data.checkup.optional.arteriosclerosis, conclusion: v}}}})} />
+                                    <Field label="风险提示" value={data.checkup.optional.arteriosclerosis?.risk} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, arteriosclerosis: {...data.checkup.optional.arteriosclerosis, risk: v}}}})} />
+                                    <Field label="特别提示" value={data.checkup.optional.arteriosclerosis?.specialNote} fullWidth isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, arteriosclerosis: {...data.checkup.optional.arteriosclerosis, specialNote: v}}}})} />
+                                </div>
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-slate-700 mb-3">肿瘤/风湿/其他自选</h4>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Field label="TCT" value={data.checkup.optional.tct} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, tct: v}}})} />
+                                    <Field label="HPV" value={data.checkup.optional.hpv} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, hpv: v}}})} />
+                                    <Field label="骨密度" value={data.checkup.optional.boneDensity} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, boneDensity: v}}})} />
+                                    <Field label="碳13呼气" value={data.checkup.optional.c13} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, c13: v}}})} />
+                                    <Field label="AFP/CEA定量" value={data.checkup.optional.afpCeaQuant} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, afpCeaQuant: v}}})} />
+                                    <Field label="免疫全套" value={data.checkup.optional.immuneSet} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, immuneSet: v}}})} />
+                                    <Field label="胃功能" value={data.checkup.optional.gastrin} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, gastrin: v}}})} />
+                                    <Field label="脂联素" value={data.checkup.optional.adiponectin} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, adiponectin: v}}})} />
+                                    <Field label="25羟基维生素D" value={data.checkup.optional.vitD} isEditing={isEditing} onChange={v => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, vitD: v}}})} />
+                                </div>
+                                <Section
+                                    title="肿瘤标志物（四项）"
+                                    data={data.checkup.optional.tumorMarkers4}
+                                    isEditing={isEditing}
+                                    onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, tumorMarkers4: {...data.checkup.optional.tumorMarkers4, [k]: v}}}})}
+                                />
+                                <Section
+                                    title="肿瘤标志物（二项）"
+                                    data={data.checkup.optional.tumorMarkers2}
+                                    isEditing={isEditing}
+                                    onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, tumorMarkers2: {...data.checkup.optional.tumorMarkers2, [k]: v}}}})}
+                                />
+                                <Section
+                                    title="类风湿三项"
+                                    data={data.checkup.optional.rheumatoid}
+                                    isEditing={isEditing}
+                                    onItemChange={(k, v) => setData({...data, checkup: {...data.checkup, optional: {...data.checkup.optional, rheumatoid: {...data.checkup.optional.rheumatoid, [k]: v}}}})}
+                                />
                             </div>
                         </div>
                     )}

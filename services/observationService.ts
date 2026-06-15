@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { validateMetricValue, CORE_METRICS, type ObservationSource } from './metricCatalog';
+import { validateMetricValue, ALL_METRICS, CORE_METRICS, type ObservationSource } from './metricCatalog';
 import type { ObservationInput } from './observationMapper';
 import { findArchiveByCheckupId } from './dataService';
 
@@ -72,7 +72,7 @@ export const upsertObservations = async (
   for (const inp of inputs) {
     const v = validateMetricValue(inp.metricCode, inp.valueNumeric);
     if (!v.ok) continue;
-    const def = CORE_METRICS.find((m) => m.code === inp.metricCode);
+    const def = ALL_METRICS.find((m) => m.code === inp.metricCode);
     validRows.push({
       archive_id: archive.id,
       checkup_id: checkupId,
@@ -189,6 +189,12 @@ export const fetchObservationSeries = async (
   return rows;
 };
 
+const CHECKUP_TIMELINE_SOURCES = new Set([
+  'checkup_import',
+  'doctor_followup',
+  'system',
+]);
+
 export const buildChartSeries = (
   rows: HealthObservationRow[],
   metricCode: string
@@ -200,7 +206,35 @@ export const buildChartSeries = (
       label: formatObservationChartLabel(r.observed_at),
       value: Number(r.value_numeric),
       source: r.source,
-    }));
+    }))
+    .filter((p) => Number.isFinite(p.value));
+};
+
+/** 对齐历次体检日期：某年未检查该指标时填 null，配合 connectNulls 平滑连接 */
+export const buildContinuousChartSeries = (
+  allRows: HealthObservationRow[],
+  metricCode: string
+): { date: string; label: string; value: number | null }[] => {
+  const checkupDates = new Set(
+    allRows
+      .filter((r) => CHECKUP_TIMELINE_SOURCES.has(r.source))
+      .map((r) => r.observed_at.slice(0, 10))
+  );
+
+  const metricByDate = new Map<string, number>();
+  for (const r of allRows) {
+    if (r.metric_code !== metricCode || r.value_numeric == null) continue;
+    const value = Number(r.value_numeric);
+    if (!Number.isFinite(value)) continue;
+    metricByDate.set(r.observed_at.slice(0, 10), value);
+  }
+
+  const timeline = new Set([...checkupDates, ...metricByDate.keys()]);
+  return [...timeline].sort().map((date) => ({
+    date,
+    label: formatObservationChartLabel(`${date}T12:00:00`),
+    value: metricByDate.get(date) ?? null,
+  }));
 };
 
 export const buildBpChartData = (
@@ -220,7 +254,7 @@ export const buildBpChartData = (
 
 /** 按指标汇总历次观测，供 AI 结合趋势分析 */
 export const buildObservationTrendsSummary = async (checkupId: string): Promise<string> => {
-  const codes = CORE_METRICS.map((m) => m.code);
+  const codes = ALL_METRICS.map((m) => m.code);
   const rows = await fetchObservationSeries(checkupId, codes, 500);
   if (!rows.length) return '';
 
@@ -237,7 +271,7 @@ export const buildObservationTrendsSummary = async (checkupId: string): Promise<
   }
 
   const lines: string[] = [];
-  for (const def of CORE_METRICS) {
+  for (const def of ALL_METRICS) {
     const points = byMetric.get(def.code);
     if (!points?.length) continue;
     const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));

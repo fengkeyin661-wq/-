@@ -114,9 +114,64 @@ Deno.serve(async (req) => {
           labBasic.renal = renal;
           break;
         }
-        case 'core.body_fat_rate':
+        case 'core.body_fat_rate': {
           record.riskModelExtras = { ...(record.riskModelExtras as object || {}), bodyFatRate: v };
+          const bc = (checkup.bodyComposition as Record<string, unknown>) || {};
+          bc.bodyFatRate = v;
+          checkup.bodyComposition = bc;
           break;
+        }
+        case 'core.hba1c': {
+          labBasic.hba1c = String(v);
+          break;
+        }
+        case 'core.homocysteine': {
+          labBasic.homocysteine = String(v);
+          break;
+        }
+        case 'core.wbc': {
+          const br = (labBasic.bloodRoutine as Record<string, unknown>) || {};
+          br.wbc = String(v);
+          labBasic.bloodRoutine = br;
+          break;
+        }
+        case 'core.hgb': {
+          const br = (labBasic.bloodRoutine as Record<string, unknown>) || {};
+          br.hgb = String(v);
+          labBasic.bloodRoutine = br;
+          break;
+        }
+        case 'core.plt': {
+          const br = (labBasic.bloodRoutine as Record<string, unknown>) || {};
+          br.plt = String(v);
+          labBasic.bloodRoutine = br;
+          break;
+        }
+        case 'core.visceral_fat_level':
+        case 'core.skeletal_muscle_mass':
+        case 'core.waist_hip_ratio':
+        case 'core.inbody_score': {
+          const bc = (checkup.bodyComposition as Record<string, unknown>) || {};
+          const keyMap: Record<string, string> = {
+            'core.visceral_fat_level': 'visceralFatLevel',
+            'core.skeletal_muscle_mass': 'skeletalMuscleMass',
+            'core.waist_hip_ratio': 'waistHipRatio',
+            'core.inbody_score': 'inbodyScore',
+          };
+          bc[keyMap[row.metric_code]] = v;
+          checkup.bodyComposition = bc;
+          break;
+        }
+        case 'core.abi':
+        case 'core.ba_pwv': {
+          const opt = (checkup.optional as Record<string, unknown>) || {};
+          const art = (opt.arteriosclerosis as Record<string, unknown>) || {};
+          if (row.metric_code === 'core.abi') art.abi = v;
+          else art.pwv = v;
+          opt.arteriosclerosis = art;
+          checkup.optional = opt;
+          break;
+        }
       }
     }
     checkup.basics = basics;

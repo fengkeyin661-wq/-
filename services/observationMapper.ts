@@ -1,4 +1,4 @@
-import type { HealthRecord, FollowUpRecord, DiabetesScreeningRecord } from '../types';
+import type { HealthRecord, FollowUpRecord, DiabetesScreeningRecord, BodyCompositionData } from '../types';
 import type { HomeMonitoringLog } from './dataService';
 import type { ObservationSource } from './metricCatalog';
 
@@ -18,6 +18,19 @@ const num = (v: unknown): number | undefined => {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 };
 
+const bodyCompositionOf = (record: HealthRecord): BodyCompositionData => ({
+  ...(record.checkup?.bodyComposition || {}),
+  ...(record.riskModelExtras?.bodyFatRate != null
+    ? { bodyFatRate: Number(record.riskModelExtras.bodyFatRate) }
+    : {}),
+});
+
+const labHba1c = (record: HealthRecord): number | undefined =>
+  num(record.checkup?.labBasic?.hba1c) ?? num(record.checkup?.optional?.hba1c);
+
+const labHomocysteine = (record: HealthRecord): number | undefined =>
+  num(record.checkup?.labBasic?.homocysteine) ?? num(record.checkup?.optional?.homocysteine);
+
 /** 从 health_record 快照提取核心指标观测 */
 export const observationsFromHealthRecord = (
   record: HealthRecord,
@@ -31,6 +44,9 @@ export const observationsFromHealthRecord = (
   const b = record.checkup?.basics || {};
   const l = record.checkup?.labBasic || {};
   const lipids = l.lipids || {};
+  const blood = l.bloodRoutine || {};
+  const bc = bodyCompositionOf(record);
+  const art = record.checkup?.optional?.arteriosclerosis || {};
   const push = (metricCode: string, value: number | undefined, unit: string) => {
     if (value == null) return;
     out.push({
@@ -55,8 +71,19 @@ export const observationsFromHealthRecord = (
   push('core.hdl', num(lipids.hdl), 'mmol/L');
   push('core.waist', num(b.waist), 'cm');
   push('core.creatinine', num(l.renal?.creatinine), 'μmol/L');
-  push('core.body_fat_rate', num(record.riskModelExtras?.bodyFatRate), '%');
+  push('core.body_fat_rate', num(bc.bodyFatRate), '%');
   push('core.postprandial_glucose', num(record.riskModelExtras?.postprandialGlucose), 'mmol/L');
+  push('core.hba1c', labHba1c(record), '%');
+  push('core.homocysteine', labHomocysteine(record), 'μmol/L');
+  push('core.wbc', num(blood.wbc), '10^9/L');
+  push('core.hgb', num(blood.hgb), 'g/L');
+  push('core.plt', num(blood.plt), '10^9/L');
+  push('core.visceral_fat_level', num(bc.visceralFatLevel), '级');
+  push('core.skeletal_muscle_mass', num(bc.skeletalMuscleMass), 'kg');
+  push('core.waist_hip_ratio', num(bc.waistHipRatio), '');
+  push('core.inbody_score', num(bc.inbodyScore), '分');
+  push('core.abi', num(art.abi ?? art.rightABI ?? art.leftABI), '');
+  push('core.ba_pwv', num(art.pwv ?? art.rightBaPWV ?? art.leftBaPWV ?? art.cfPWV), 'cm/s');
   if (!onlyMetricCodes?.length) return out;
   return out.filter((o) => onlyMetricCodes.includes(o.metricCode));
 };
@@ -92,6 +119,16 @@ export const observationsFromDiabetesScreening = (
   push('core.bmi', num(screening.bmi), 'kg/m2');
   push('core.weight', num(screening.weight), 'kg');
   push('core.body_fat_rate', num(screening.bodyFatRate), '%');
+  push('core.visceral_fat_level', num(screening.visceralFatLevel), '级');
+  push('core.skeletal_muscle_mass', num(screening.skeletalMuscleMass), 'kg');
+  push('core.waist_hip_ratio', num(screening.waistHipRatio), '');
+  push('core.inbody_score', num(screening.inbodyScore), '分');
+  push('core.abi', num(screening.abi ?? screening.rightABI ?? screening.leftABI), '');
+  push(
+    'core.ba_pwv',
+    num(screening.pwv ?? screening.rightBaPWV ?? screening.leftBaPWV ?? screening.cfPWV),
+    'cm/s'
+  );
   return out;
 };
 
@@ -329,6 +366,12 @@ export const applyLatestObservationsToRecord = (
   const lab = next.checkup.labBasic || ({} as HealthRecord['checkup']['labBasic']);
   lab.lipids = lab.lipids || {};
   lab.glucose = lab.glucose || {};
+  lab.bloodRoutine = lab.bloodRoutine || {};
+  next.checkup.bodyComposition = next.checkup.bodyComposition || {};
+  next.checkup.optional = next.checkup.optional || {};
+  next.checkup.optional.arteriosclerosis = next.checkup.optional.arteriosclerosis || {};
+  const bc = next.checkup.bodyComposition;
+  const art = next.checkup.optional.arteriosclerosis;
 
   const set = (code: string, v: number) => {
     switch (code) {
@@ -367,7 +410,41 @@ export const applyLatestObservationsToRecord = (
         lab.renal.creatinine = String(v);
         break;
       case 'core.body_fat_rate':
+        bc.bodyFatRate = v;
         next.riskModelExtras = { ...(next.riskModelExtras || {}), bodyFatRate: v };
+        break;
+      case 'core.hba1c':
+        lab.hba1c = String(v);
+        break;
+      case 'core.homocysteine':
+        lab.homocysteine = String(v);
+        break;
+      case 'core.wbc':
+        lab.bloodRoutine!.wbc = String(v);
+        break;
+      case 'core.hgb':
+        lab.bloodRoutine!.hgb = String(v);
+        break;
+      case 'core.plt':
+        lab.bloodRoutine!.plt = String(v);
+        break;
+      case 'core.visceral_fat_level':
+        bc.visceralFatLevel = v;
+        break;
+      case 'core.skeletal_muscle_mass':
+        bc.skeletalMuscleMass = v;
+        break;
+      case 'core.waist_hip_ratio':
+        bc.waistHipRatio = v;
+        break;
+      case 'core.inbody_score':
+        bc.inbodyScore = v;
+        break;
+      case 'core.abi':
+        art.abi = v;
+        break;
+      case 'core.ba_pwv':
+        art.pwv = v;
         break;
       default:
         break;
