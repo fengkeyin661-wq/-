@@ -47,7 +47,7 @@ export const DIABETES_SCREENING_CATALOG: ScreeningCatalogItem[] = [
     retestCycle: '每3个月',
     isCoreForDiabetes: true,
     priority: 'high',
-    checkupPaths: ['checkup.optional.hba1c'],
+    checkupPaths: ['checkup.labBasic.hba1c', 'checkup.optional.hba1c'],
   },
   {
     id: 'ecg',

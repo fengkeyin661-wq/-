@@ -4,6 +4,7 @@ import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { HealthTrendCharts } from './HealthTrendCharts';
+import { HighGlucoseTag } from './HighGlucoseTag';
 
 interface Props {
   records: FollowUpRecord[];
@@ -17,6 +18,7 @@ interface Props {
   isAuthenticated?: boolean;
   healthRecord?: HealthRecord | null;
   onRefresh?: () => void;
+  onNavigateDiabetes?: (archive: HealthArchive) => void;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -30,7 +32,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onUpdateData,
     isAuthenticated = false,
     healthRecord,
-    onRefresh
+    onRefresh,
+    onNavigateDiabetes,
 }) => {
   const [isEntryExpanded, setIsEntryExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -617,6 +620,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm">
                               <span>📋</span> 档案基本信息与评估结果
                           </h3>
+                          <div className="flex items-center gap-2">
+                            {healthRecord && onNavigateDiabetes && currentArchive && (
+                              <HighGlucoseTag
+                                record={healthRecord}
+                                onClick={() => onNavigateDiabetes(currentArchive)}
+                              />
+                            )}
                           {assessment && (
                               <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
                                   assessment.riskLevel === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
@@ -626,6 +636,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   {assessment.riskLevel === 'RED' ? '高风险' : assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
                               </span>
                           )}
+                          </div>
                       </div>
                       <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
                           {/* Profile Table-like list */}
@@ -645,6 +656,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               <div className="flex flex-col">
                                   <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">部门 / 单位</span>
                                   <span className="text-slate-700 truncate" title={healthRecord.profile.department}>{healthRecord.profile.department}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">空腹血糖 / HbA1c</span>
+                                  <span className="text-slate-700">
+                                    {healthRecord.checkup.labBasic.glucose?.fasting || '-'}
+                                    {' / '}
+                                    {healthRecord.checkup.labBasic.hba1c ?? healthRecord.checkup.optional.hba1c ?? '-'}
+                                  </span>
                               </div>
                               <div className="flex flex-col col-span-2">
                                   <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">联系电话</span>

@@ -21,7 +21,7 @@ import { DiabetesManagementModule } from './components/DiabetesManagementModule'
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
-import { fetchStandaloneParticipants } from './services/diabetesStandaloneService';
+import { fetchStandaloneParticipants, ensureStandaloneFromArchive } from './services/diabetesStandaloneService';
 import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions, getDoctorSigningUnreadTotal } from './services/contentService';
@@ -391,7 +391,10 @@ export const App: React.FC = () => {
       if (portalMode === 'doctor') openLoginFor('doctor');
   }, [portalMode, isAuthenticated, showLoginModal]);
 
-  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' = 'view') => {
+  const handleSelectPatient = (
+    archive: HealthArchive,
+    mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' = 'view'
+  ) => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
       setFollowUps(archive.follow_ups || []);
@@ -401,8 +404,23 @@ export const App: React.FC = () => {
       if (mode === 'followup') setActiveTab('followup');
       else if (mode === 'assessment') setActiveTab('assessment');
       else if (mode === 'edit') setActiveTab('survey');
-      else if (mode === 'diabetes') setActiveTab('diabetes_management');
-      else setActiveTab('dashboard');
+      else if (mode === 'diabetes') {
+        setActiveTab('diabetes_management');
+        void (async () => {
+          try {
+            const { participant } = await ensureStandaloneFromArchive(archive);
+            await refreshStandaloneParticipants();
+            setCurrentStandalone(participant);
+          } catch (e) {
+            console.error(e);
+            alert(
+              e instanceof Error
+                ? `跳转糖尿病专项筛查失败：${e.message}`
+                : '跳转糖尿病专项筛查失败，请在专栏中手动检索该职工'
+            );
+          }
+        })();
+      } else setActiveTab('dashboard');
   };
 
   const handleHealthSurveySubmit = async (data: HealthRecord) => {
@@ -752,7 +770,22 @@ export const App: React.FC = () => {
                 />
             )}
             
-            {activeTab === 'followup' && <FollowUpDashboard records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp} onUpdateData={handleManualDataUpdate} allArchives={archives} onPatientChange={(arch) => handleSelectPatient(arch, 'followup')} currentPatientId={healthRecord?.profile.checkupId} isAuthenticated={isAuthenticated} healthRecord={healthRecord} onRefresh={refreshArchives} />}
+            {activeTab === 'followup' && (
+              <FollowUpDashboard
+                records={followUps}
+                assessment={assessment}
+                schedule={schedule}
+                onAddRecord={handleAddFollowUp}
+                onUpdateData={handleManualDataUpdate}
+                allArchives={archives}
+                onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
+                onNavigateDiabetes={(arch) => handleSelectPatient(arch, 'diabetes')}
+                currentPatientId={healthRecord?.profile.checkupId}
+                isAuthenticated={isAuthenticated}
+                healthRecord={healthRecord}
+                onRefresh={refreshArchives}
+              />
+            )}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
             {activeTab === 'admin' && currentUserRole === 'admin' && <AdminConsole onSelectPatient={handleSelectPatient} onDataUpdate={refreshArchives} isAuthenticated={isAuthenticated} onTabChange={setActiveTab} />}
             {activeTab === 'doctor_messages' && currentUserRole === 'doctor' && currentDoctor && (

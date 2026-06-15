@@ -13,6 +13,7 @@ import {
   COMMUNITY_SCREENING_IDS,
   ScreeningCatalogItem,
 } from './diabetesScreeningCatalog';
+import { detectHighGlucoseTag } from './glucoseTagService';
 import {
   getDietGuidance,
   getExerciseGuidance,
@@ -365,6 +366,8 @@ export const mergeDiabetesResultToAssessment = (
 };
 
 export const isDiabetesCohort = (record: HealthRecord): boolean => {
+  if (detectHighGlucoseTag(record).show) return true;
+
   const diseases = record.questionnaire?.history?.diseases || [];
   if (diseases.some((d) => /糖尿病|血糖/.test(d))) return true;
 

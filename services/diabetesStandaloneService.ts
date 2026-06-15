@@ -8,10 +8,12 @@ import type {
   DiabetesStandaloneParticipant,
   HealthRecord,
 } from '../types';
+import type { HealthArchive } from './dataService';
 import { formatCheckupId } from './checkupIdUtils';
 import {
   applyScreeningToHealthRecord,
   createEmptyDiabetesManagement,
+  createScreeningId,
   evaluateDiabetesScreening,
 } from './diabetesAssessmentService';
 
@@ -435,4 +437,93 @@ export const updateStandaloneProfile = async (
   }
 
   return { success: true, participant: { ...updated, diabetesReport: report } };
+};
+
+const numFromArchive = (v: unknown): number | undefined => {
+  if (v == null || v === '') return undefined;
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+/** 按体检编号查找专项筛查参与者 */
+export const findStandaloneByCheckupId = async (
+  checkupId: string
+): Promise<DiabetesStandaloneParticipant | null> => {
+  const cid = formatCheckupId(checkupId) || checkupId;
+  const list = await fetchStandaloneParticipants();
+  return (
+    list.find(
+      (p) =>
+        p.checkupId === cid ||
+        p.linkedArchiveCheckupId === cid ||
+        p.participantKey === `ck_${cid}`
+    ) || null
+  );
+};
+
+/**
+ * 从 health_archives 关联/创建专项筛查参与者，供「高血糖」标签跳转使用。
+ * 若档案有空腹血糖，写入一条年度体检关联筛查记录。
+ */
+export const ensureStandaloneFromArchive = async (
+  archive: HealthArchive
+): Promise<{ participant: DiabetesStandaloneParticipant; created: boolean }> => {
+  const cid = formatCheckupId(archive.checkup_id) || archive.checkup_id;
+  const existing = await findStandaloneByCheckupId(cid);
+  if (existing) {
+    if (!existing.linkedArchiveCheckupId) {
+      const linked = { ...existing, linkedArchiveCheckupId: cid };
+      await saveStandaloneParticipant(linked);
+      return { participant: linked, created: false };
+    }
+    return { participant: existing, created: false };
+  }
+
+  const participantKey = resolveParticipantKey({
+    checkupId: cid,
+    name: archive.name,
+    phone: archive.phone,
+  });
+  const byKey = await findStandaloneByKey(participantKey);
+  if (byKey) {
+    const linked = { ...byKey, linkedArchiveCheckupId: cid, checkupId: byKey.checkupId || cid };
+    await saveStandaloneParticipant(linked);
+    return { participant: linked, created: false };
+  }
+
+  const now = new Date().toISOString();
+  const hr = archive.health_record;
+  const dm = createEmptyDiabetesManagement();
+  const fasting = numFromArchive(hr?.checkup?.labBasic?.glucose?.fasting);
+  const hba1c = numFromArchive(hr?.checkup?.labBasic?.hba1c ?? hr?.checkup?.optional?.hba1c);
+  if (fasting != null || hba1c != null) {
+    dm.screenings.push({
+      id: createScreeningId(),
+      screeningDate: hr?.profile?.checkupDate || now.slice(0, 10),
+      activityName: '年度体检关联',
+      source: 'checkup_import',
+      fastingGlucose: fasting,
+    });
+    dm.annualCheckupLinked = true;
+  }
+
+  const participant: DiabetesStandaloneParticipant = {
+    id: `dsp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    participantKey,
+    checkupId: cid,
+    name: archive.name,
+    gender: archive.gender,
+    age: archive.age,
+    phone: archive.phone,
+    diabetesManagement: dm,
+    linkedArchiveCheckupId: cid,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const saveRes = await saveStandaloneParticipant(participant);
+  if (!saveRes.success) {
+    throw new Error(saveRes.message || '创建专项筛查档案失败');
+  }
+  return { participant, created: true };
 };
