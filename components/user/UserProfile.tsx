@@ -11,6 +11,7 @@ import {
     isHealthManagerContent,
 } from '../../services/contentService';
 import { HealthTrendCharts } from '../HealthTrendCharts';
+import { HealthArchiveReadView } from './HealthArchiveReadView';
 import { UserMetricPreferences } from './UserMetricPreferences';
 import { UserMetricEntryModal } from './UserMetricEntryModal';
 import { fetchLatestAssessmentRun } from '../../services/assessmentPipelineService';
@@ -209,6 +210,16 @@ export const UserProfile: React.FC<Props> = ({
                     <div className="text-4xl opacity-30">
                         {assessment?.riskLevel === 'RED' ? '🚨' : assessment?.riskLevel === 'YELLOW' ? '⚠️' : '🛡️'}
                     </div>
+                </div>
+            </div>
+
+            {/* 2. Health Archive Details */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="bg-slate-50 px-5 py-3 border-b border-slate-100 font-bold text-slate-700">
+                    体检指标详情
+                </div>
+                <div className="p-4">
+                    <HealthArchiveReadView record={record} />
                 </div>
             </div>
 
@@ -729,6 +740,29 @@ export const UserProfile: React.FC<Props> = ({
                                     <div className="mb-1 text-xs text-slate-400">血糖</div>
                                     <div className="text-lg font-black text-slate-700">
                                         {record.checkup.labBasic.glucose?.fasting || '-'}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">HbA1c</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {record.checkup.labBasic.hba1c ?? record.checkup.optional.hba1c ?? '-'}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">ABI</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {record.checkup.optional.arteriosclerosis?.abi
+                                            ?? record.checkup.optional.arteriosclerosis?.rightABI
+                                            ?? record.checkup.optional.arteriosclerosis?.leftABI
+                                            ?? '-'}
+                                    </div>
+                                </div>
+                                <div className="rounded-lg bg-slate-50 p-3">
+                                    <div className="mb-1 text-xs text-slate-400">体脂率</div>
+                                    <div className="text-lg font-black text-slate-700">
+                                        {(record.checkup.bodyComposition?.bodyFatRate ?? record.riskModelExtras?.bodyFatRate)
+                                            ? `${record.checkup.bodyComposition?.bodyFatRate ?? record.riskModelExtras?.bodyFatRate}%`
+                                            : '-'}
                                     </div>
                                 </div>
                             </div>

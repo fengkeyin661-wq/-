@@ -2,6 +2,7 @@
 import React from 'react';
 import { HealthRecord, HealthAssessment, RiskAnalysisData } from '../../types';
 import { HealthTrendCharts } from '../HealthTrendCharts';
+import { HealthArchiveReadView } from './HealthArchiveReadView';
 
 interface Props {
   record: HealthRecord;
@@ -11,34 +12,57 @@ interface Props {
 }
 
 export const UserHealth: React.FC<Props> = ({ record, assessment, riskAnalysis, checkupId }) => {
+  const c = record.checkup;
+  const hba1c = c.labBasic?.hba1c ?? c.optional?.hba1c;
+  const abi = c.optional?.arteriosclerosis?.abi ?? c.optional?.arteriosclerosis?.rightABI ?? c.optional?.arteriosclerosis?.leftABI;
+  const bodyFatRate = c.bodyComposition?.bodyFatRate ?? record.riskModelExtras?.bodyFatRate;
+
   return (
     <div className="p-4 space-y-6 animate-fadeIn bg-slate-50 min-h-full">
       <h1 className="text-xl font-bold text-slate-800">我的健康档案</h1>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <h3 className="font-bold text-slate-700 mb-4">基础指标</h3>
-        <div className="grid grid-cols-3 gap-4 text-center">
+        <div className="grid grid-cols-3 gap-3 text-center">
           <div>
             <div className="text-xs text-slate-400 mb-1">BMI</div>
-            <div className="text-lg font-black text-slate-800">{record.checkup.basics.bmi || '-'}</div>
+            <div className="text-lg font-black text-slate-800">{c.basics.bmi || '-'}</div>
           </div>
           <div>
             <div className="text-xs text-slate-400 mb-1">血压</div>
             <div className="text-lg font-black text-slate-800">
-              {record.checkup.basics.sbp}/{record.checkup.basics.dbp}
+              {c.basics.sbp}/{c.basics.dbp}
             </div>
           </div>
           <div>
             <div className="text-xs text-slate-400 mb-1">空腹血糖</div>
             <div className="text-lg font-black text-slate-800">
-              {record.checkup.labBasic.glucose?.fasting || '-'}
+              {c.labBasic.glucose?.fasting || '-'}
             </div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 mb-1">HbA1c</div>
+            <div className="text-lg font-black text-slate-800">{hba1c || '-'}</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 mb-1">ABI</div>
+            <div className="text-lg font-black text-slate-800">{abi || '-'}</div>
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 mb-1">体脂率</div>
+            <div className="text-lg font-black text-slate-800">{bodyFatRate ? `${bodyFatRate}%` : '-'}</div>
           </div>
         </div>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <h3 className="font-bold text-slate-700 mb-3">指标趋势</h3>
         <HealthTrendCharts checkupId={checkupId} variant="dashboard" />
+      </div>
+
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <h3 className="font-bold text-slate-700 mb-3">体检指标详情</h3>
+        <HealthArchiveReadView record={record} />
       </div>
 
       {riskAnalysis && (

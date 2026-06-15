@@ -131,6 +131,47 @@ cross join lateral (
 where public.parse_health_numeric(v.val) is not null
 on conflict do nothing;
 
+-- 扩展指标：HbA1c、同型半胱氨酸、血常规、人体成分、动脉硬化
+insert into public.health_observations (
+  archive_id, checkup_id, metric_code, value_numeric, value_text, unit, observed_at, source, source_ref, entered_by_role
+)
+select ha.id, ha.checkup_id, v.code,
+  public.parse_health_numeric(v.val),
+  v.val,
+  v.unit,
+  coalesce(ha.updated_at, ha.created_at, now()),
+  coalesce(ha.last_sync_source, 'system'), 'backfill:health_record', 'system'
+from public.health_archives ha
+cross join lateral (
+  values
+    ('core.hba1c', coalesce(ha.health_record->'checkup'->'labBasic'->>'hba1c', ha.health_record->'checkup'->'optional'->>'hba1c'), '%'),
+    ('core.homocysteine', coalesce(ha.health_record->'checkup'->'labBasic'->>'homocysteine', ha.health_record->'checkup'->'optional'->>'homocysteine'), 'μmol/L'),
+    ('core.wbc', ha.health_record->'checkup'->'labBasic'->'bloodRoutine'->>'wbc', '10^9/L'),
+    ('core.hgb', ha.health_record->'checkup'->'labBasic'->'bloodRoutine'->>'hgb', 'g/L'),
+    ('core.plt', ha.health_record->'checkup'->'labBasic'->'bloodRoutine'->>'plt', '10^9/L'),
+    ('core.visceral_fat_level', ha.health_record->'checkup'->'bodyComposition'->>'visceralFatLevel', '级'),
+    ('core.skeletal_muscle_mass', ha.health_record->'checkup'->'bodyComposition'->>'skeletalMuscleMass', 'kg'),
+    ('core.waist_hip_ratio', ha.health_record->'checkup'->'bodyComposition'->>'waistHipRatio', ''),
+    ('core.inbody_score', ha.health_record->'checkup'->'bodyComposition'->>'inbodyScore', '分'),
+    ('core.abi', coalesce(
+      ha.health_record->'checkup'->'optional'->'arteriosclerosis'->>'abi',
+      ha.health_record->'checkup'->'optional'->'arteriosclerosis'->>'rightABI',
+      ha.health_record->'checkup'->'optional'->'arteriosclerosis'->>'leftABI'
+    ), ''),
+    ('core.ba_pwv', coalesce(
+      ha.health_record->'checkup'->'optional'->'arteriosclerosis'->>'pwv',
+      ha.health_record->'checkup'->'optional'->'arteriosclerosis'->>'rightBaPWV',
+      ha.health_record->'checkup'->'optional'->'arteriosclerosis'->>'leftBaPWV'
+    ), 'cm/s'),
+    ('core.body_fat_rate', coalesce(
+      ha.health_record->'checkup'->'bodyComposition'->>'bodyFatRate',
+      ha.health_record->'riskModelExtras'->>'bodyFatRate'
+    ), '%')
+) as v(code, val, unit)
+where public.parse_health_numeric(v.val) is not null
+  and public.parse_health_numeric(v.val) > 0
+on conflict do nothing;
+
 -- 2) follow_ups 指标
 insert into public.health_observations (
   archive_id, checkup_id, metric_code, value_numeric, value_text, unit, observed_at, source, source_ref, entered_by_role

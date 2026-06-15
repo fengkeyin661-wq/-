@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { CORE_METRICS } from '../services/metricCatalog';
+import { ALL_METRICS, CORE_METRICS } from '../services/metricCatalog';
 import {
   fetchObservationSeries,
   buildBpChartData,
@@ -30,11 +30,38 @@ interface Props {
 }
 
 const DEFAULT_CODES = ['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose'];
+const USER_PRIMARY_CHART_CODES = ['core.hba1c', 'core.abi', 'core.ba_pwv'] as const;
+const USER_DASHBOARD_FETCH_CODES = [
+  ...DEFAULT_CODES,
+  ...USER_PRIMARY_CHART_CODES,
+  'core.tc',
+  'core.tg',
+  'core.ldl',
+  'core.hdl',
+  'core.waist',
+  'core.body_fat_rate',
+  'core.creatinine',
+  'core.homocysteine',
+  'core.wbc',
+  'core.hgb',
+  'core.plt',
+  'core.visceral_fat_level',
+  'core.skeletal_muscle_mass',
+  'core.waist_hip_ratio',
+  'core.inbody_score',
+];
 const LIPID_CODES = ['core.tc', 'core.tg', 'core.ldl', 'core.hdl'] as const;
 
-const OPTIONAL_METRICS = CORE_METRICS.filter(
-  (m) => !['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose', 'core.bmi'].includes(m.code)
-);
+const DASHBOARD_EXCLUDED_OPTIONAL = new Set([
+  'core.sbp',
+  'core.dbp',
+  'core.weight',
+  'core.fasting_glucose',
+  'core.bmi',
+  ...USER_PRIMARY_CHART_CODES,
+]);
+
+const OPTIONAL_METRICS = ALL_METRICS.filter((m) => !DASHBOARD_EXCLUDED_OPTIONAL.has(m.code));
 
 /** Admin optional metrics exclude lipids (shown as separate charts). */
 const ADMIN_OPTIONAL_METRICS = OPTIONAL_METRICS.filter(
@@ -47,6 +74,9 @@ const UI = {
   bp: '\u8840\u538b\u8d8b\u52bf',
   weight: '\u4f53\u91cd\u8d8b\u52bf',
   glucose: '\u7a7a\u8179\u8840\u7cd6\u8d8b\u52bf',
+  hba1c: '\u7cd6\u5316\u8840\u7ea2\u86cb\u767d\u8d8b\u52bf',
+  abi: 'ABI\u8d8b\u52bf',
+  pwv: 'PWV\u8d8b\u52bf',
   lipidSection: '\u8840\u8102\u6307\u6807\uff08\u5206\u9879\u5c55\u793a\uff0c\u542b\u9ad8\u5bc6\u5ea6\u8102\u86cb\u767d\uff09',
   moreAdmin: '\u67e5\u770b\u66f4\u591a\u6307\u6807\u8d8b\u52bf',
   moreUser: '\u67e5\u770b\u66f4\u591a\u5b9a\u91cf\u6307\u6807\u8d8b\u52bf',
@@ -59,7 +89,10 @@ const UI = {
 } as const;
 
 const metricLabel = (code: string): string =>
-  CORE_METRICS.find((m) => m.code === code)?.label ?? code;
+  ALL_METRICS.find((m) => m.code === code)?.label ?? code;
+
+const metricUnit = (code: string): string =>
+  ALL_METRICS.find((m) => m.code === code)?.unit ?? '';
 
 const hasSeriesData = (data: { value: number | null }[]) => data.some((p) => p.value != null);
 
@@ -71,6 +104,12 @@ const CHART_COLORS: Record<string, string> = {
   'core.waist': '#6366f1',
   'core.body_fat_rate': '#ec4899',
   'core.creatinine': '#14b8a6',
+  'core.hba1c': '#dc2626',
+  'core.abi': '#2563eb',
+  'core.ba_pwv': '#7c3aed',
+  'core.homocysteine': '#0891b2',
+  'core.visceral_fat_level': '#ea580c',
+  'core.inbody_score': '#059669',
 };
 
 const LIPID_VARIANTS = ['tc', 'tg', 'ldl', 'hdl'] as const;
@@ -79,6 +118,33 @@ const LIPID_META: Record<(typeof LIPID_VARIANTS)[number], { code: string; color:
   tg: { code: 'core.tg', color: '#f59e0b' },
   ldl: { code: 'core.ldl', color: '#ef4444' },
   hdl: { code: 'core.hdl', color: '#3b82f6' },
+};
+
+const renderMetricChart = (
+  title: string,
+  data: { label: string; value: number | null }[],
+  code: string,
+  yDomain: [string, string] | ['auto', 'auto'] = ['auto', 'auto']
+) => {
+  if (!hasSeriesData(data)) return null;
+  const unit = metricUnit(code);
+  const stroke = CHART_COLORS[code] || '#0d9488';
+  return (
+    <div>
+      <h4 className="text-sm font-bold text-slate-700 mb-2">{title}</h4>
+      <div className="h-40 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
+            <YAxis fontSize={10} domain={yDomain} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
+            <Line {...TREND_LINE_PROPS} dataKey="value" name={unit || metricLabel(code)} stroke={stroke} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
 };
 
 export const HealthTrendCharts: React.FC<Props> = ({
@@ -92,6 +158,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
   const [bpData, setBpData] = useState<{ date: string; label: string; sbp?: number; dbp?: number }[]>([]);
   const [weightData, setWeightData] = useState<{ label: string; value: number | null }[]>([]);
   const [glucoseData, setGlucoseData] = useState<{ label: string; value: number | null }[]>([]);
+  const [hba1cData, setHba1cData] = useState<{ label: string; value: number | null }[]>([]);
+  const [abiData, setAbiData] = useState<{ label: string; value: number | null }[]>([]);
+  const [pwvData, setPwvData] = useState<{ label: string; value: number | null }[]>([]);
   const [lipidData, setLipidData] = useState<
     Record<(typeof LIPID_VARIANTS)[number], { label: string; value: number | null }[]>
   >({ tc: [], tg: [], ldl: [], hdl: [] });
@@ -109,9 +178,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
       if (!checkupId) return;
       setLoading(true);
       const codes = isUserDashboard
-        ? DEFAULT_CODES
+        ? USER_DASHBOARD_FETCH_CODES
         : isAdminDashboard
-          ? [...DEFAULT_CODES, ...LIPID_CODES]
+          ? [...DEFAULT_CODES, ...LIPID_CODES, ...USER_PRIMARY_CHART_CODES]
           : [
               'core.sbp',
               'core.dbp',
@@ -124,6 +193,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
               'core.waist',
               'core.body_fat_rate',
               'core.creatinine',
+              'core.hba1c',
+              'core.abi',
+              'core.ba_pwv',
             ];
       const rows = await fetchObservationSeries(checkupId, codes, 200);
       if (cancelled) return;
@@ -133,6 +205,11 @@ export const HealthTrendCharts: React.FC<Props> = ({
 
       setWeightData(toSeries('core.weight'));
       setGlucoseData(toSeries('core.fasting_glucose'));
+      if (isCompactDashboard) {
+        setHba1cData(toSeries('core.hba1c'));
+        setAbiData(toSeries('core.abi'));
+        setPwvData(toSeries('core.ba_pwv'));
+      }
       if (isAdminDashboard || !isCompactDashboard) {
         setLipidData({
           tc: toSeries('core.tc'),
@@ -163,7 +240,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
     (async () => {
       const rows = await fetchObservationSeries(
         checkupId,
-        [...new Set([...DEFAULT_CODES, ...LIPID_CODES, selectedOptional])],
+        [...new Set([...USER_DASHBOARD_FETCH_CODES, ...LIPID_CODES, selectedOptional])],
         200
       );
       if (cancelled) return;
@@ -225,6 +302,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
       bpData.length > 0 ||
       hasSeriesData(weightData) ||
       hasSeriesData(glucoseData) ||
+      hasSeriesData(hba1cData) ||
+      hasSeriesData(abiData) ||
+      hasSeriesData(pwvData) ||
       hasLipidCharts;
     const hasOptional = selectedOptional && hasSeriesData(optionalSeries);
 
@@ -308,6 +388,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
             </div>
           </div>
         )}
+        {renderMetricChart(UI.hba1c, hba1cData, 'core.hba1c', ['dataMin - 0.3', 'dataMax + 0.3'])}
+        {renderMetricChart(UI.abi, abiData, 'core.abi', ['dataMin - 0.05', 'dataMax + 0.05'])}
+        {renderMetricChart(UI.pwv, pwvData, 'core.ba_pwv', ['dataMin - 50', 'dataMax + 50'])}
         {isAdminDashboard && hasLipidCharts && (
           <div className="space-y-4 border-t border-slate-100 pt-4">
             <p className="text-xs font-bold text-slate-600">{UI.lipidSection}</p>
