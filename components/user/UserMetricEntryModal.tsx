@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { HealthRecord } from '../../types';
 import type { UserMetricKey } from '../../services/observationMapper';
 import { buildChartSeries, fetchObservationSeries } from '../../services/observationService';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { MetricTrendChart } from '../MetricTrendChart';
 
 /** 身高/体重/血压/血糖 → 血脂四项 → 腰围/体脂率 */
 const METRIC_OPTIONS: { key: UserMetricKey; label: string; hint: string }[] = [
@@ -189,18 +189,16 @@ export const UserMetricEntryModal: React.FC<Props> = ({
                 onChange={(e) => setMeasuredAt(e.target.value)}
               />
             </div>
-            {trend.length > 0 && (
-              <div className="mb-4 h-32 w-full rounded-lg border border-slate-100 bg-slate-50 p-2">
-                <div className="mb-1 text-[11px] text-slate-500">{selectedMeta?.label} 历史趋势</div>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trend}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" fontSize={9} />
-                    <YAxis fontSize={9} domain={['auto', 'auto']} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="#0d9488" strokeWidth={2} dot={{ r: 2 }} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
+            {trend.length > 0 && METRIC_CODE[selected] && (
+              <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 p-2">
+                <MetricTrendChart
+                  title={`${selectedMeta?.label} 历史趋势`}
+                  data={trend.map((p) => ({ label: p.label, value: p.value }))}
+                  metricCode={METRIC_CODE[selected]!}
+                  stroke="#0d9488"
+                  valueName={selectedMeta?.hint}
+                  height={120}
+                />
               </div>
             )}
             <div className="mb-4 grid grid-cols-2 gap-3 text-sm">

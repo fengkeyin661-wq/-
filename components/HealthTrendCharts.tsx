@@ -1,27 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from 'recharts';
 import { ALL_METRICS, CORE_METRICS } from '../services/metricCatalog';
 import {
   fetchObservationSeries,
   buildBpChartData,
   buildContinuousChartSeries,
 } from '../services/observationService';
-
-const TREND_LINE_PROPS = {
-  type: 'monotone' as const,
-  connectNulls: true,
-  strokeWidth: 2,
-  dot: { r: 3 },
-};
+import { BpTrendChart, MetricTrendChart } from './MetricTrendChart';
 
 interface Props {
   checkupId: string;
@@ -63,29 +47,28 @@ const DASHBOARD_EXCLUDED_OPTIONAL = new Set([
 
 const OPTIONAL_METRICS = ALL_METRICS.filter((m) => !DASHBOARD_EXCLUDED_OPTIONAL.has(m.code));
 
-/** Admin optional metrics exclude lipids (shown as separate charts). */
 const ADMIN_OPTIONAL_METRICS = OPTIONAL_METRICS.filter(
   (m) => !LIPID_CODES.includes(m.code as (typeof LIPID_CODES)[number])
 );
 
 const UI = {
-  loading: '\u52a0\u8f7d\u8d8b\u52bf\u6570\u636e\u2026',
-  empty: '\u6682\u65e0\u5386\u53f2\u89c2\u6d4b\uff0c\u66f4\u65b0\u6307\u6807\u540e\u5c06\u81ea\u52a8\u751f\u6210\u8d8b\u52bf',
-  bp: '\u8840\u538b\u8d8b\u52bf',
-  weight: '\u4f53\u91cd\u8d8b\u52bf',
-  glucose: '\u7a7a\u8179\u8840\u7cd6\u8d8b\u52bf',
-  hba1c: '\u7cd6\u5316\u8840\u7ea2\u86cb\u767d\u8d8b\u52bf',
-  abi: 'ABI\u8d8b\u52bf',
-  pwv: 'PWV\u8d8b\u52bf',
-  lipidSection: '\u8840\u8102\u6307\u6807\uff08\u5206\u9879\u5c55\u793a\uff0c\u542b\u9ad8\u5bc6\u5ea6\u8102\u86cb\u767d\uff09',
-  moreAdmin: '\u67e5\u770b\u66f4\u591a\u6307\u6807\u8d8b\u52bf',
-  moreUser: '\u67e5\u770b\u66f4\u591a\u5b9a\u91cf\u6307\u6807\u8d8b\u52bf',
-  phAdmin: '\u8bf7\u9009\u62e9\u6307\u6807\uff08\u8170\u56f4\u3001\u4f53\u8102\u7387\u3001\u80be\u529f\u80fd\u7b49\uff09',
-  phUser: '\u8bf7\u9009\u62e9\u6307\u6807\uff08\u8840\u8102\u3001\u8170\u56f4\u3001\u80be\u529f\u80fd\u7b49\uff09',
-  optLoading: '\u52a0\u8f7d\u6307\u6807\u8d8b\u52bf\u2026',
-  optEmpty: '\u8be5\u6307\u6807\u6682\u65e0\u5386\u53f2\u6570\u636e',
-  trend: '\u8d8b\u52bf',
-  renal: '\u8d8b\u52bf\uff08\u80be\u529f\u80fd\uff09',
+  loading: '加载趋势数据…',
+  empty: '暂无历史观测，更新指标后将自动生成趋势',
+  bp: '血压趋势',
+  weight: '体重趋势',
+  glucose: '空腹血糖趋势',
+  hba1c: '糖化血红蛋白趋势',
+  abi: 'ABI趋势',
+  pwv: 'PWV趋势',
+  lipidSection: '血脂指标（分项展示，含高密度脂蛋白）',
+  moreAdmin: '查看更多指标趋势',
+  moreUser: '查看更多定量指标趋势',
+  phAdmin: '请选择指标（腰围、体脂率、肾功能等）',
+  phUser: '请选择指标（血脂、腰围、肾功能等）',
+  optLoading: '加载指标趋势…',
+  optEmpty: '该指标暂无历史数据',
+  trend: '趋势',
+  renal: '趋势（肾功能）',
 } as const;
 
 const metricLabel = (code: string): string =>
@@ -107,9 +90,8 @@ const CHART_COLORS: Record<string, string> = {
   'core.hba1c': '#dc2626',
   'core.abi': '#2563eb',
   'core.ba_pwv': '#7c3aed',
-  'core.homocysteine': '#0891b2',
-  'core.visceral_fat_level': '#ea580c',
-  'core.inbody_score': '#059669',
+  'core.fasting_glucose': '#8b5cf6',
+  'core.weight': '#0d9488',
 };
 
 const LIPID_VARIANTS = ['tc', 'tg', 'ldl', 'hdl'] as const;
@@ -118,33 +100,6 @@ const LIPID_META: Record<(typeof LIPID_VARIANTS)[number], { code: string; color:
   tg: { code: 'core.tg', color: '#f59e0b' },
   ldl: { code: 'core.ldl', color: '#ef4444' },
   hdl: { code: 'core.hdl', color: '#3b82f6' },
-};
-
-const renderMetricChart = (
-  title: string,
-  data: { label: string; value: number | null }[],
-  code: string,
-  yDomain: [string, string] | ['auto', 'auto'] = ['auto', 'auto']
-) => {
-  if (!hasSeriesData(data)) return null;
-  const unit = metricUnit(code);
-  const stroke = CHART_COLORS[code] || '#0d9488';
-  return (
-    <div>
-      <h4 className="text-sm font-bold text-slate-700 mb-2">{title}</h4>
-      <div className="h-40 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-            <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
-            <YAxis fontSize={10} domain={yDomain} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-            <Line {...TREND_LINE_PROPS} dataKey="value" name={unit || metricLabel(code)} stroke={stroke} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
 };
 
 export const HealthTrendCharts: React.FC<Props> = ({
@@ -270,29 +225,16 @@ export const HealthTrendCharts: React.FC<Props> = ({
 
   const renderLipidChart = (key: (typeof LIPID_VARIANTS)[number]) => {
     const data = lipidData[key];
-    if (!hasSeriesData(data)) return null;
     const meta = LIPID_META[key];
-    const title = metricLabel(meta.code);
     return (
-      <div key={key}>
-        <h4 className="text-sm font-bold text-slate-700 mb-2">{title}</h4>
-        <div className="h-40 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
-              <YAxis fontSize={10} domain={['dataMin - 0.5', 'dataMax + 0.5']} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-              <Line
-                {...TREND_LINE_PROPS}
-                dataKey="value"
-                name="mmol/L"
-                stroke={meta.color}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      <MetricTrendChart
+        key={key}
+        title={metricLabel(meta.code)}
+        data={data}
+        metricCode={meta.code}
+        stroke={meta.color}
+        valueName="mmol/L"
+      />
     );
   };
 
@@ -318,79 +260,46 @@ export const HealthTrendCharts: React.FC<Props> = ({
 
     return (
       <div className={`space-y-4 ${className}`}>
-        {bpData.length > 0 && (
-          <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.bp}</h4>
-            <div className="h-48 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={bpData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
-                  <YAxis fontSize={10} domain={['dataMin - 10', 'dataMax + 10']} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-                  <Legend wrapperStyle={{ fontSize: '10px' }} />
-                  <Line
-                    {...TREND_LINE_PROPS}
-                    dataKey="sbp"
-                    name={metricLabel('core.sbp')}
-                    stroke="#ef4444"
-                  />
-                  <Line
-                    {...TREND_LINE_PROPS}
-                    dataKey="dbp"
-                    name={metricLabel('core.dbp')}
-                    stroke="#f97316"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-        {hasSeriesData(weightData) && (
-          <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.weight}</h4>
-            <div className="h-40 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={weightData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="label" fontSize={10} />
-                  <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
-                  <Tooltip />
-                  <Line
-                    {...TREND_LINE_PROPS}
-                    dataKey="value"
-                    name={`${metricLabel('core.weight')}(kg)`}
-                    stroke="#0d9488"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-        {hasSeriesData(glucoseData) && (
-          <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.glucose}</h4>
-            <div className="h-40 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={glucoseData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" fontSize={10} />
-                  <YAxis fontSize={10} />
-                  <Tooltip />
-                  <Line
-                    {...TREND_LINE_PROPS}
-                    dataKey="value"
-                    name="mmol/L"
-                    stroke="#8b5cf6"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-        {renderMetricChart(UI.hba1c, hba1cData, 'core.hba1c', ['dataMin - 0.3', 'dataMax + 0.3'])}
-        {renderMetricChart(UI.abi, abiData, 'core.abi', ['dataMin - 0.05', 'dataMax + 0.05'])}
-        {renderMetricChart(UI.pwv, pwvData, 'core.ba_pwv', ['dataMin - 50', 'dataMax + 50'])}
+        <BpTrendChart
+          title={UI.bp}
+          data={bpData}
+          sbpName={metricLabel('core.sbp')}
+          dbpName={metricLabel('core.dbp')}
+        />
+        <MetricTrendChart
+          title={UI.weight}
+          data={weightData}
+          metricCode="core.weight"
+          stroke={CHART_COLORS['core.weight']}
+          valueName={`${metricLabel('core.weight')}(kg)`}
+        />
+        <MetricTrendChart
+          title={UI.glucose}
+          data={glucoseData}
+          metricCode="core.fasting_glucose"
+          stroke={CHART_COLORS['core.fasting_glucose']}
+          valueName="mmol/L"
+        />
+        <MetricTrendChart
+          title={UI.hba1c}
+          data={hba1cData}
+          metricCode="core.hba1c"
+          stroke={CHART_COLORS['core.hba1c']}
+          valueName="%"
+        />
+        <MetricTrendChart
+          title={UI.abi}
+          data={abiData}
+          metricCode="core.abi"
+          stroke={CHART_COLORS['core.abi']}
+        />
+        <MetricTrendChart
+          title={UI.pwv}
+          data={pwvData}
+          metricCode="core.ba_pwv"
+          stroke={CHART_COLORS['core.ba_pwv']}
+          valueName="cm/s"
+        />
         {isAdminDashboard && hasLipidCharts && (
           <div className="space-y-4 border-t border-slate-100 pt-4">
             <p className="text-xs font-bold text-slate-600">{UI.lipidSection}</p>
@@ -423,25 +332,13 @@ export const HealthTrendCharts: React.FC<Props> = ({
           <div className="text-center text-xs text-slate-400 py-4">{UI.optEmpty}</div>
         )}
         {!optionalLoading && hasOptional && optionalMeta && (
-          <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{optionalMeta.label}{UI.trend}</h4>
-            <div className="h-40 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={optionalSeries}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
-                  <YAxis fontSize={10} domain={['auto', 'auto']} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-                  <Line
-                    {...TREND_LINE_PROPS}
-                    dataKey="value"
-                    name={optionalMeta.unit}
-                    stroke={CHART_COLORS[selectedOptional] || '#0d9488'}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          <MetricTrendChart
+            title={`${optionalMeta.label}${UI.trend}`}
+            data={optionalSeries}
+            metricCode={selectedOptional}
+            stroke={CHART_COLORS[selectedOptional] || '#0d9488'}
+            valueName={optionalMeta.unit}
+          />
         )}
       </div>
     );
@@ -484,123 +381,58 @@ export const HealthTrendCharts: React.FC<Props> = ({
   return (
     <div className={`space-y-4 ${className}`}>
       {showBp && bpData.length > 0 && (
-        <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.bp}</h4>
-          <div className="h-48 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={bpData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} />
-                <YAxis fontSize={10} domain={['dataMin - 10', 'dataMax + 10']} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
-                <Legend wrapperStyle={{ fontSize: '10px' }} />
-                <Line
-                  {...TREND_LINE_PROPS}
-                  dataKey="sbp"
-                  name={metricLabel('core.sbp')}
-                  stroke="#ef4444"
-                />
-                <Line
-                  {...TREND_LINE_PROPS}
-                  dataKey="dbp"
-                  name={metricLabel('core.dbp')}
-                  stroke="#f97316"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <BpTrendChart
+          title={UI.bp}
+          data={bpData}
+          sbpName={metricLabel('core.sbp')}
+          dbpName={metricLabel('core.dbp')}
+        />
       )}
       {showWeight && hasSeriesData(weightData) && (
-        <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.weight}</h4>
-            <div className="h-40 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={weightData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="label" fontSize={10} />
-                <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
-                <Tooltip />
-                <Line
-                  {...TREND_LINE_PROPS}
-                  dataKey="value"
-                  name={`${metricLabel('core.weight')}(kg)`}
-                  stroke="#0d9488"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <MetricTrendChart
+          title={UI.weight}
+          data={weightData}
+          metricCode="core.weight"
+          stroke={CHART_COLORS['core.weight']}
+          valueName={`${metricLabel('core.weight')}(kg)`}
+        />
       )}
       {showGlucose && hasSeriesData(glucoseData) && (
-        <div>
-            <h4 className="text-sm font-bold text-slate-700 mb-2">{UI.glucose}</h4>
-          <div className="h-40 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={glucoseData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" fontSize={10} />
-                <YAxis fontSize={10} />
-                <Tooltip />
-                <Line {...TREND_LINE_PROPS} dataKey="value" name="mmol/L" stroke="#8b5cf6" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <MetricTrendChart
+          title={UI.glucose}
+          data={glucoseData}
+          metricCode="core.fasting_glucose"
+          stroke={CHART_COLORS['core.fasting_glucose']}
+          valueName="mmol/L"
+        />
       )}
       {showLipids && lipidKeysToShow.map(renderLipidChart)}
       {showExtra && hasSeriesData(waistData) && (
-        <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.waist')}??</h4>
-          <div className="h-40 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={waistData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" fontSize={10} />
-                <YAxis fontSize={10} domain={['dataMin - 5', 'dataMax + 5']} />
-                <Tooltip />
-                <Line {...TREND_LINE_PROPS} dataKey="value" name="cm" stroke="#6366f1" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <MetricTrendChart
+          title={`${metricLabel('core.waist')}趋势`}
+          data={waistData}
+          metricCode="core.waist"
+          stroke={CHART_COLORS['core.waist']}
+          valueName="cm"
+        />
       )}
       {showExtra && hasSeriesData(bodyFatData) && (
-        <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.body_fat_rate')}??</h4>
-          <div className="h-40 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={bodyFatData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" fontSize={10} />
-                <YAxis fontSize={10} domain={['dataMin - 2', 'dataMax + 2']} />
-                <Tooltip />
-                <Line {...TREND_LINE_PROPS} dataKey="value" name="%" stroke="#ec4899" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <MetricTrendChart
+          title={`${metricLabel('core.body_fat_rate')}趋势`}
+          data={bodyFatData}
+          metricCode="core.body_fat_rate"
+          stroke={CHART_COLORS['core.body_fat_rate']}
+          valueName="%"
+        />
       )}
       {showExtra && hasSeriesData(creatinineData) && (
-        <div>
-          <h4 className="text-sm font-bold text-slate-700 mb-2">{metricLabel('core.creatinine')}{UI.renal}</h4>
-          <div className="h-40 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={creatinineData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" fontSize={10} />
-                <YAxis fontSize={10} domain={['auto', 'auto']} />
-                <Tooltip />
-                <Line
-                  {...TREND_LINE_PROPS}
-                  dataKey="value"
-                  name={CORE_METRICS.find((m) => m.code === 'core.creatinine')?.unit ?? '?mol/L'}
-                  stroke="#14b8a6"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        <MetricTrendChart
+          title={`${metricLabel('core.creatinine')}${UI.renal}`}
+          data={creatinineData}
+          metricCode="core.creatinine"
+          stroke={CHART_COLORS['core.creatinine']}
+          valueName={CORE_METRICS.find((m) => m.code === 'core.creatinine')?.unit ?? 'μmol/L'}
+        />
       )}
     </div>
   );
