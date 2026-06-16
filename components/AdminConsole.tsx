@@ -171,17 +171,13 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         const selected = resolveSelectedArchive();
         const selectedCheckupId = selected?.checkup_id;
 
-        if (selectedIds.size > 1) {
-            alert('已勾选多人，历年报告导入仅支持单人。请只保留一行勾选后再上传。');
-            return;
-        }
-
         setIsCheckUploadModalOpen(true);
         setCheckUploadLogs([
+            `共 ${files.length} 个文件，支持多人混传`,
             selectedCheckupId
-                ? `已关联档案 ${selected?.name}（${selectedCheckupId}），共 ${files.length} 个文件`
-                : `未勾选档案：请勾选左侧复选框，或确保报告含 6 位体检编号（共 ${files.length} 个文件）`,
-            '提示：仅点「查看」不会关联人员，需勾选该行复选框。',
+                ? `已勾选 ${selected?.name}（${selectedCheckupId}）作为编号识别失败时的兜底`
+                : '未勾选档案：将完全依赖报告中的 6 位体检编号自动匹配现有档案',
+            '流程：依次 AI 解析 → 按编号匹配/建档 → 按检查日期入库 → 每人统一评估',
         ]);
         setIsCheckUploadProcessing(true);
 
@@ -566,8 +562,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <button onClick={() => questionnaireImportRef.current?.click()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1" title="批量AI识别问卷并更新">
                         📝 导入问卷更新
                     </button>
-                    <button onClick={handleManagerUploadClick} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm flex items-center gap-1" title="支持多选历年 PDF/报告，自动识别检查日期与体检编号">
-                        🧾 上传历年体检报告
+                    <button onClick={handleManagerUploadClick} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm flex items-center gap-1" title="支持一次选择多人历年 PDF/Word，AI 识别体检编号后自动匹配档案">
+                        🧾 批量上传历年体检报告
                     </button>
 
                     {selectedIds.size > 0 && <button onClick={handleBatchDelete} className="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-200">🗑️ 删除选中</button>}
@@ -682,9 +678,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <div className="bg-white w-full max-w-3xl h-[80vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-scaleIn">
                         <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
                             <div>
-                                <h3 className="text-xl font-bold text-slate-800">历年体检报告导入</h3>
+                                <h3 className="text-xl font-bold text-slate-800">批量历年体检报告导入</h3>
                                 <p className="text-xs text-slate-500 mt-1">
-                                    自动识别检查日期与 6 位体检编号；无档案时自动建档；按日期升序入库后统一评估
+                                    支持多人混传：AI 识别 6 位体检编号后自动匹配档案库，按检查日期依次入库，每人完成后自动评估
                                 </p>
                             </div>
                             <button

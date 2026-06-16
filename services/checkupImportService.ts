@@ -68,10 +68,13 @@ export type BatchImportPrepared = {
 export type BatchImportResult = {
   success: boolean;
   message?: string;
+  /** @deprecated 多人批次时为首个人员编号，请用 personSummaries */
   checkupId?: string;
   imported: number;
   skipped: number;
   logs: string[];
+  personCount?: number;
+  personSummaries?: { checkupId: string; name?: string; imported: number }[];
 };
 
 export type BatchImportProgress = (line: string) => void;
@@ -322,11 +325,12 @@ export const importCheckupReportForArchive = async (
 };
 
 /**
- * 批量上传历年体检报告（升序导入，末次统一评估；无档案则首份自动建档）
+ * 批量上传历年体检报告（支持多人混传：AI 识别体检编号后自动匹配档案，按人分组评估）
  */
 export const importCheckupReportsBatch = async (
   items: { fileName: string; text: string }[],
   options: {
+    /** 仅当报告无法识别编号时作为兜底 */
     selectedCheckupId?: string;
     onProgress?: BatchImportProgress;
   }
@@ -341,10 +345,42 @@ export const importCheckupReportsBatch = async (
     return { success: false, message: '未选择文件', imported: 0, skipped: 0, logs };
   }
 
-  log(`开始处理 ${items.length} 个文件…`);
+  log(`开始处理 ${items.length} 个文件（支持多人混传，按体检编号自动匹配档案）…`);
 
-  const prepared: BatchImportPrepared[] = [];
+  const ensureArchive = async (
+    checkupId: string,
+    parsed: HealthRecord,
+    examDateDay: string,
+    fileName: string
+  ): Promise<boolean> => {
+    let archive = await findArchiveByCheckupId(checkupId);
+    if (archive) {
+      log(`🔗 匹配档案：${checkupId}（${archive.name || parsed.profile?.name || '—'}）← ${fileName}`);
+      return true;
+    }
+    parsed.profile.checkupId = checkupId;
+    parsed.profile.checkupDate = examDateDay;
+    log(`📁 自动建档：${checkupId}（${parsed.profile.name || '待完善'}）← ${fileName}`);
+    const assessment = await generateHealthAssessment(parsed);
+    const schedule = generateFollowUpSchedule(assessment);
+    const portraits = generateSystemPortraits(parsed);
+    const models = evaluateRiskModels(parsed);
+    const saveRes = await saveArchive(parsed, assessment, schedule, [], { portraits, models }, {
+      completeProfileOnSave: true,
+    });
+    if (!saveRes.success) {
+      log(`❌ 建档失败 ${checkupId}：${saveRes.message || '未知错误'}`);
+      return false;
+    }
+    return true;
+  };
+
   let skipped = 0;
+  let imported = 0;
+  const examDatesByPerson = new Map<string, Set<string>>();
+  const importedByPerson = new Map<string, number>();
+  const nameByPerson = new Map<string, string>();
+  const createdArchive = new Set<string>();
 
   for (const item of items) {
     log(`📄 解析: ${item.fileName}`);
@@ -354,7 +390,7 @@ export const importCheckupReportsBatch = async (
       const checkupId = normalizeCheckupId(parsed.profile?.checkupId, item.text, fallbackId);
 
       if (!isValidCheckupId(checkupId)) {
-        log(`❌ 跳过 ${item.fileName}：未识别 6 位体检编号`);
+        log(`❌ 跳过 ${item.fileName}：未识别 6 位体检编号（请确认报告封面「体检编号」）`);
         skipped++;
         continue;
       }
@@ -364,18 +400,10 @@ export const importCheckupReportsBatch = async (
         isValidCheckupId(options.selectedCheckupId) &&
         checkupId !== options.selectedCheckupId
       ) {
-        log(
-          `⚠️ ${item.fileName}：报告编号 ${checkupId} 与勾选档案 ${options.selectedCheckupId} 不一致，以报告为准`
-        );
+        log(`ℹ️ ${item.fileName}：报告编号 ${checkupId}，与勾选档案 ${options.selectedCheckupId} 不同，以报告为准`);
       }
 
-      const examIso = resolveExamDateIso(
-        item.text,
-        parsed,
-        item.fileName,
-        options.selectedCheckupId
-      );
-
+      const examIso = resolveExamDateIso(item.text, parsed, item.fileName, checkupId);
       if (!examIso) {
         log(`❌ 跳过 ${item.fileName}：未能识别检查日期`);
         skipped++;
@@ -383,15 +411,35 @@ export const importCheckupReportsBatch = async (
       }
 
       const examDay = examIso.slice(0, 10);
-      log(`✓ ${item.fileName} → 编号 ${checkupId}，检查日 ${examDay}`);
-      prepared.push({
-        fileName: item.fileName,
-        text: item.text,
-        parsed,
-        checkupId,
+      if (parsed.profile?.name) nameByPerson.set(checkupId, parsed.profile.name);
+
+      if (!createdArchive.has(checkupId)) {
+        const ok = await ensureArchive(checkupId, parsed, examDay, item.fileName);
+        if (!ok) {
+          skipped++;
+          continue;
+        }
+        createdArchive.add(checkupId);
+      } else {
+        log(`🔗 ${item.fileName} → 编号 ${checkupId}，检查日 ${examDay}`);
+      }
+
+      log(`📥 入库: ${item.fileName}（${checkupId} · ${examDay}）`);
+      const res = await importCheckupReportObservations(checkupId, parsed, {
         examDateIso: examIso,
-        examDateDay: examDay,
+        fileName: item.fileName,
+        source: 'upload',
       });
+
+      if (res.success) {
+        imported++;
+        importedByPerson.set(checkupId, (importedByPerson.get(checkupId) || 0) + 1);
+        if (!examDatesByPerson.has(checkupId)) examDatesByPerson.set(checkupId, new Set());
+        examDatesByPerson.get(checkupId)!.add(examDay);
+      } else {
+        log(`❌ 入库失败 ${item.fileName}：${res.message}`);
+        skipped++;
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       log(`❌ 跳过 ${item.fileName}：${msg}`);
@@ -399,108 +447,69 @@ export const importCheckupReportsBatch = async (
     }
   }
 
-  if (!prepared.length) {
-    return {
-      success: false,
-      message: '没有可导入的文件（请检查体检编号与检查日期）',
-      imported: 0,
-      skipped,
-      logs,
-    };
-  }
-
-  const checkupIds = new Set(prepared.map((p) => p.checkupId));
-  if (checkupIds.size > 1) {
-    return {
-      success: false,
-      message: `批次内含多个体检编号（${[...checkupIds].join('、')}），请仅上传同一人的历年报告`,
-      imported: 0,
-      skipped,
-      logs,
-    };
-  }
-
-  const checkupId = prepared[0].checkupId;
-  prepared.sort((a, b) => compareExamDates(a.examDateIso, b.examDateIso));
-
-  let archive = await findArchiveByCheckupId(checkupId);
-  if (!archive) {
-    const first = prepared[0];
-    first.parsed.profile.checkupId = checkupId;
-    first.parsed.profile.checkupDate = first.examDateDay;
-    log(`📁 自动建档：${checkupId}（${first.parsed.profile.name || '待完善'}）`);
-    const assessment = await generateHealthAssessment(first.parsed);
-    const schedule = generateFollowUpSchedule(assessment);
-    const portraits = generateSystemPortraits(first.parsed);
-    const models = evaluateRiskModels(first.parsed);
-    const saveRes = await saveArchive(first.parsed, assessment, schedule, [], { portraits, models }, {
-      completeProfileOnSave: true,
-    });
-    if (!saveRes.success) {
-      return {
-        success: false,
-        checkupId,
-        message: saveRes.message || '自动建档失败',
-        imported: 0,
-        skipped,
-        logs,
-      };
-    }
-    archive = await findArchiveByCheckupId(checkupId);
-  }
-
-  let imported = 0;
-  const examDates: string[] = [];
-
-  for (const row of prepared) {
-    log(`📥 入库: ${row.fileName} (${row.examDateDay})`);
-    const res = await importCheckupReportObservations(checkupId, row.parsed, {
-      examDateIso: row.examDateIso,
-      fileName: row.fileName,
-      source: 'upload',
-    });
-    if (res.success) {
-      imported++;
-      examDates.push(row.examDateDay);
-    } else {
-      log(`❌ 入库失败 ${row.fileName}：${res.message}`);
-      skipped++;
-    }
-  }
-
   if (!imported) {
     return {
       success: false,
-      checkupId,
-      message: '观测写入均失败',
+      message: '没有成功导入的文件（请检查体检编号、检查日期或档案匹配）',
       imported: 0,
       skipped,
       logs,
     };
   }
 
-  log('🤖 正在根据历次指标生成风险评估…');
-  const fin = await finalizeCheckupImportBatch(checkupId, [...new Set(examDates)].sort());
+  const personSummaries: { checkupId: string; name?: string; imported: number }[] = [];
+  let finalizeFailed = false;
 
-  if (!fin.success) {
+  for (const [checkupId, count] of importedByPerson) {
+    const dates = [...(examDatesByPerson.get(checkupId) || [])].sort();
+    log(`🤖 ${checkupId}（${nameByPerson.get(checkupId) || '—'}）：根据 ${count} 份报告生成风险评估…`);
+    const fin = await finalizeCheckupImportBatch(checkupId, dates);
+    if (!fin.success) {
+      log(`❌ ${checkupId} 评估发布失败：${fin.message}`);
+      finalizeFailed = true;
+    } else {
+      log(`✅ ${checkupId}：${count} 份报告已归档并完成评估`);
+    }
+    personSummaries.push({
+      checkupId,
+      name: nameByPerson.get(checkupId),
+      imported: count,
+    });
+  }
+
+  personSummaries.sort((a, b) => a.checkupId.localeCompare(b.checkupId));
+
+  const personCount = personSummaries.length;
+  const summaryLines = personSummaries.map(
+    (p) => `${p.checkupId}${p.name ? ` ${p.name}` : ''} ${p.imported}份`
+  );
+
+  if (finalizeFailed) {
     return {
       success: false,
-      checkupId,
-      message: fin.message,
+      message: `部分人员评估失败；已成功入库 ${imported} 份（${personCount} 人：${summaryLines.join('；')}）`,
+      checkupId: personSummaries[0]?.checkupId,
       imported,
       skipped,
       logs,
+      personCount,
+      personSummaries,
     };
   }
 
-  log(`✅ 完成：${imported} 份报告已按时间序入库`);
+  log(`🎉 全部完成：${imported} 份报告，${personCount} 人`);
   return {
     success: true,
-    checkupId,
+    checkupId: personSummaries[0]?.checkupId,
     imported,
     skipped,
     logs,
-    message: `体检编号 ${checkupId}：成功导入 ${imported} 份历年报告${skipped ? `，跳过 ${skipped} 份` : ''}`,
+    personCount,
+    personSummaries,
+    message:
+      personCount === 1
+        ? `体检编号 ${personSummaries[0].checkupId}：成功导入 ${imported} 份历年报告${skipped ? `，跳过 ${skipped} 份` : ''}`
+        : `成功导入 ${imported} 份报告（${personCount} 人：${summaryLines.join('；')}）${skipped ? `，跳过 ${skipped} 份` : ''}`,
   };
 };
 
