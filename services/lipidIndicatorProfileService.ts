@@ -11,6 +11,12 @@ import {
   LipidCatalogItem,
 } from './lipidScreeningCatalog';
 import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './latestCheckupVitalsService';
+import {
+  firstCheckupPathValue,
+  formatLiverEnzymesCheckup,
+  formatRenalCheckup,
+  mergeProfileValues,
+} from './indicatorProfileValueUtils';
 
 const EMPTY = new Set(['', '未查', '无', '—', '-']);
 
@@ -111,6 +117,11 @@ const checkupVal = (item: LipidCatalogItem, record: HealthRecord) => {
   if (CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id)) {
     return getCheckupVitalProfileValue(item.id, record);
   }
+  if (item.id === 'liver_enzymes') return formatLiverEnzymesCheckup(record);
+  if (item.id === 'renal') return formatRenalCheckup(record, ['riskModelExtras.uacr']);
+  if (item.id === 'homocysteine') {
+    return firstCheckupPathValue(record, item.checkupPaths ?? [], item.unit);
+  }
   if (!item.checkupPaths?.length) return { hasCheckup: false as const };
   const values: string[] = [];
   for (const p of item.checkupPaths) {
@@ -133,13 +144,10 @@ const buildItem = (
   const present = fromS.hasScreening || fromC.hasCheckup;
   let dataSource: LipidIndicatorProfileItem['dataSource'];
   if (skipScreening && fromC.hasCheckup) dataSource = 'checkup';
-  else if (fromS.hasScreening && fromC.hasCheckup) dataSource = 'both';
-  else if (fromS.hasScreening) dataSource = 'screening';
   else if (fromC.hasCheckup) dataSource = 'checkup';
+  else if (fromS.hasScreening) dataSource = 'screening';
 
-  const value = skipScreening
-    ? fromC.value
-    : [...new Set([fromS.value, fromC.value].filter(Boolean))].join('；') || undefined;
+  const value = mergeProfileValues(fromS, fromC, skipScreening);
 
   const checkupDate = record.profile?.checkupDate?.trim() || observedDate;
   const itemObservedDate = skipScreening && fromC.hasCheckup ? checkupDate : observedDate;

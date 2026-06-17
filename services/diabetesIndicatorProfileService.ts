@@ -11,6 +11,7 @@ import {
   ScreeningCatalogItem,
 } from './diabetesScreeningCatalog';
 import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './latestCheckupVitalsService';
+import { firstCheckupPathValue, mergeProfileValues } from './indicatorProfileValueUtils';
 
 const EMPTY_MARKERS = new Set(['', '未查', '无', '—', '-', 'N/A', 'n/a']);
 
@@ -226,6 +227,10 @@ const checkupValueForItem = (item: ScreeningCatalogItem, record: HealthRecord): 
     return { hasCheckup: false };
   }
 
+  if (item.id === 'homocysteine' && item.checkupPaths?.length) {
+    return firstCheckupPathValue(record, item.checkupPaths, item.unit);
+  }
+
   const lab = record.checkup?.labBasic || {};
   const labExt = lab as Record<string, unknown>;
   const values: string[] = [];
@@ -269,14 +274,10 @@ const buildProfileItem = (
   const present = fromScreening.hasScreening || fromCheckup.hasCheckup;
   let dataSource: DiabetesIndicatorProfileItem['dataSource'];
   if (skipScreening && fromCheckup.hasCheckup) dataSource = 'checkup';
-  else if (fromScreening.hasScreening && fromCheckup.hasCheckup) dataSource = 'both';
-  else if (fromScreening.hasScreening) dataSource = 'screening';
   else if (fromCheckup.hasCheckup) dataSource = 'checkup';
+  else if (fromScreening.hasScreening) dataSource = 'screening';
 
-  const valueParts = skipScreening
-    ? [fromCheckup.value].filter(Boolean)
-    : [fromScreening.value, fromCheckup.value].filter(Boolean);
-  const value = valueParts.length ? [...new Set(valueParts)].join('；') : undefined;
+  const value = mergeProfileValues(fromScreening, fromCheckup, skipScreening);
 
   const checkupDate = record.profile?.checkupDate?.trim() || observedDate;
   const itemObservedDate = skipScreening && fromCheckup.hasCheckup ? checkupDate : observedDate;

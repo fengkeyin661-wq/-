@@ -244,6 +244,39 @@ export const evaluateLatestCheckupLipids = (
   return { abnormal: severity !== 'normal', severity, reasons };
 };
 
+const BP_PROFILE_NOTES: Record<BloodPressureSeverity, string | undefined> = {
+  normal: undefined,
+  elevated: '正常高值，参考 <120/80 mmHg',
+  stage1: '1级高血压，参考 <140/90 mmHg',
+  stage2: '2级高血压，参考 <140/90 mmHg',
+  crisis: '高血压危象，参考 <180/110 mmHg',
+};
+
+const GLUCOSE_PROFILE_NOTES: Record<GlucoseSeverity, string | undefined> = {
+  normal: undefined,
+  prediabetes: '空腹/HbA1c 达糖尿病前期切点',
+  diabetes: '空腹/HbA1c 达糖尿病切点',
+};
+
+const LIPID_PROFILE_NOTES: Record<LipidSeverity, string | undefined> = {
+  normal: undefined,
+  borderline: '血脂边缘升高',
+  hypercholesterolemia: '胆固醇升高',
+  hypertriglyceridemia: '甘油三酯升高',
+  mixed: '混合型血脂异常',
+  very_high_risk: '极高危血脂异常',
+};
+
+export const formatLatestCheckupLipidsSummary = (lipids: LatestCheckupLipids): string | undefined => {
+  const parts = [
+    lipids.tc != null && `TC ${lipids.tc}`,
+    lipids.tg != null && `TG ${lipids.tg}`,
+    lipids.ldl != null && `LDL ${lipids.ldl}`,
+    lipids.hdl != null && `HDL ${lipids.hdl}`,
+  ].filter(Boolean);
+  return parts.length ? `${parts.join(' / ')} mmol/L` : undefined;
+};
+
 /** 专项指标档案中「仅看最近一次体检」的项目 ID */
 export const CHECKUP_ONLY_VITAL_ITEM_IDS = new Set([
   'office_bp',
@@ -266,16 +299,6 @@ export const formatLatestCheckupBpSummary = (bp: LatestCheckupBloodPressure): st
   return `${bp.sbp ?? '—'}/${bp.dbp ?? '—'} mmHg`;
 };
 
-export const formatLatestCheckupLipidsSummary = (lipids: LatestCheckupLipids): string | undefined => {
-  const parts = [
-    lipids.tc != null && `TC ${lipids.tc}`,
-    lipids.tg != null && `TG ${lipids.tg}`,
-    lipids.ldl != null && `LDL ${lipids.ldl}`,
-    lipids.hdl != null && `HDL ${lipids.hdl}`,
-  ].filter(Boolean);
-  return parts.length ? `${parts.join(' / ')} mmol/L` : undefined;
-};
-
 /** 分项指标档案：仅最近一次体检 + 参考范围判定说明 */
 export const getCheckupVitalProfileValue = (
   itemId: string,
@@ -286,7 +309,8 @@ export const getCheckupVitalProfileValue = (
     const value = formatLatestCheckupBpSummary(bp);
     if (!value) return { hasCheckup: false };
     const eval_ = evaluateLatestCheckupBloodPressure(bp);
-    const suffix = eval_.abnormal ? `（${eval_.reasons[0] ?? '超出参考范围'}）` : '';
+    const note = BP_PROFILE_NOTES[eval_.severity];
+    const suffix = eval_.abnormal && note ? `（${note}）` : '';
     return { value: value + suffix, hasCheckup: true };
   }
   if (itemId === 'lipids' || itemId === 'lipids_panel') {
@@ -294,35 +318,33 @@ export const getCheckupVitalProfileValue = (
     const value = formatLatestCheckupLipidsSummary(lipids);
     if (!value) return { hasCheckup: false };
     const eval_ = evaluateLatestCheckupLipids(lipids, record.profile?.gender);
-    const suffix = eval_.abnormal ? `（${eval_.reasons[0] ?? '超出参考范围'}）` : '';
+    const note = LIPID_PROFILE_NOTES[eval_.severity];
+    const suffix = eval_.abnormal && note ? `（${note}）` : '';
     return { value: value + suffix, hasCheckup: true };
   }
   if (itemId === 'glucose_fasting') {
     const g = getLatestCheckupGlucose(record);
     if (g.fasting == null) return { hasCheckup: false };
     const eval_ = evaluateLatestCheckupGlucose(g);
-    const abnormal =
-      g.fasting >= GLUCOSE_REFERENCE.fastingPrediabetesMin
-        ? `（${eval_.reasons.find((r) => r.includes('空腹')) ?? '超出参考范围'}）`
-        : '';
-    return { value: `空腹 ${g.fasting} mmol/L${abnormal}`, hasCheckup: true };
+    const note = GLUCOSE_PROFILE_NOTES[eval_.severity];
+    const suffix = eval_.abnormal && note ? `（${note}）` : '';
+    return { value: `空腹 ${g.fasting} mmol/L${suffix}`, hasCheckup: true };
   }
   if (itemId === 'glucose_hba1c') {
     const g = getLatestCheckupGlucose(record);
     if (g.hba1c == null) return { hasCheckup: false };
     const eval_ = evaluateLatestCheckupGlucose(g);
-    const abnormal =
-      g.hba1c >= GLUCOSE_REFERENCE.hba1cPrediabetesMin
-        ? `（${eval_.reasons.find((r) => r.includes('HbA1c')) ?? '超出参考范围'}）`
-        : '';
-    return { value: `HbA1c ${g.hba1c}%${abnormal}`, hasCheckup: true };
+    const note = GLUCOSE_PROFILE_NOTES[eval_.severity];
+    const suffix = eval_.abnormal && note ? `（${note}）` : '';
+    return { value: `HbA1c ${g.hba1c}%${suffix}`, hasCheckup: true };
   }
   if (itemId === 'glucose_metabolism') {
     const g = getLatestCheckupGlucose(record);
     const value = formatLatestCheckupGlucoseSummary(g);
     if (!value) return { hasCheckup: false };
     const eval_ = evaluateLatestCheckupGlucose(g);
-    const suffix = eval_.abnormal ? `（${eval_.reasons.join('；')}）` : '';
+    const note = GLUCOSE_PROFILE_NOTES[eval_.severity];
+    const suffix = eval_.abnormal && note ? `（${note}）` : '';
     return { value: value + suffix, hasCheckup: true };
   }
   return { hasCheckup: false };
