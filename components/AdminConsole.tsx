@@ -9,11 +9,13 @@ import { fetchContent, fetchInteractions, saveInteraction } from '../services/co
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { HighGlucoseTag } from './HighGlucoseTag';
 import { HighBloodPressureTag } from './HighBloodPressureTag';
+import { HighLipidTag } from './HighLipidTag';
 import { extractTextFromFile } from '../services/fileParseService';
 import { importCheckupReportsBatch, sortArchivesByExamDate } from '../services/checkupImportService';
 import { isDiabetesCohort } from '../services/diabetesAssessmentService';
 import { detectHighGlucoseTag } from '../services/glucoseTagService';
 import { detectHighBloodPressureTag, isHypertensionCohort } from '../services/bloodPressureTagService';
+import { detectDyslipidemiaTag, isLipidCohort } from '../services/lipidTagService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -22,7 +24,7 @@ import * as mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 
 interface Props {
-  onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' | 'hypertension') => void;
+  onSelectPatient: (archive: HealthArchive, mode?: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' | 'hypertension' | 'lipid') => void;
     onDataUpdate?: () => void;
     isAuthenticated: boolean;
     onTabChange?: (tab: string) => void;
@@ -402,6 +404,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             else if (filterRisk === 'HYPERTENSION') matchRisk = detectHighBloodPressureTag(archive.health_record).show || isHypertensionCohort(archive.health_record);
             else if (filterRisk === 'DIABETES_REPORT') matchRisk = !!archive.assessment_data?.diabetesReport;
             else if (filterRisk === 'HYPERTENSION_REPORT') matchRisk = !!archive.assessment_data?.hypertensionReport;
+            else if (filterRisk === 'LIPID') matchRisk = detectDyslipidemiaTag(archive.health_record).show || isLipidCohort(archive.health_record);
+            else if (filterRisk === 'LIPID_REPORT') matchRisk = !!archive.assessment_data?.lipidReport;
             else matchRisk = archive.risk_level === filterRisk;
             return matchSearch && matchRisk;
         });
@@ -543,6 +547,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <option value="HYPERTENSION">🫀 血压偏高 / 高血压</option>
                         <option value="DIABETES_REPORT">📋 已有糖尿病评估</option>
                         <option value="HYPERTENSION_REPORT">📋 已有高血压评估</option>
+                        <option value="LIPID">🧪 血脂异常</option>
+                        <option value="LIPID_REPORT">📋 已有血脂评估</option>
                     </select>
                 </div>
                 <div className="flex gap-2 items-center">
@@ -621,6 +627,10 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                           <HighBloodPressureTag
                                             record={archive.health_record}
                                             onClick={() => onSelectPatient(archive, 'hypertension')}
+                                          />
+                                          <HighLipidTag
+                                            record={archive.health_record}
+                                            onClick={() => onSelectPatient(archive, 'lipid')}
                                           />
                                           {isCritical && (
                                             <div

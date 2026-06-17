@@ -18,8 +18,9 @@ import { CriticalFollowUpManager } from './components/CriticalFollowUpManager'; 
 import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 import { DiabetesManagementModule } from './components/DiabetesManagementModule';
 import { HypertensionManagementModule } from './components/HypertensionManagementModule';
+import { LipidManagementModule } from './components/LipidManagementModule';
 
-import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant } from './types';
+import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant, LipidStandaloneParticipant } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
 import { fetchStandaloneParticipants, ensureStandaloneFromArchive } from './services/diabetesStandaloneService';
@@ -28,6 +29,10 @@ import {
   ensureHypertensionStandaloneFromArchive,
   autoEnrollHypertensionIfEligible,
 } from './services/hypertensionStandaloneService';
+import {
+  fetchLipidStandaloneParticipants,
+  ensureLipidStandaloneFromArchive,
+} from './services/lipidStandaloneService';
 import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions, getDoctorSigningUnreadTotal } from './services/contentService';
@@ -173,6 +178,8 @@ export const App: React.FC = () => {
   const [currentStandalone, setCurrentStandalone] = useState<DiabetesStandaloneParticipant | null>(null);
   const [hypertensionParticipants, setHypertensionParticipants] = useState<HypertensionStandaloneParticipant[]>([]);
   const [currentHypertension, setCurrentHypertension] = useState<HypertensionStandaloneParticipant | null>(null);
+  const [lipidParticipants, setLipidParticipants] = useState<LipidStandaloneParticipant[]>([]);
+  const [currentLipid, setCurrentLipid] = useState<LipidStandaloneParticipant | null>(null);
 
   const ensureSupabaseSessionForStaff = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
     if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
@@ -205,6 +212,7 @@ export const App: React.FC = () => {
         refreshArchives();
         refreshStandaloneParticipants();
         refreshHypertensionParticipants();
+        refreshLipidParticipants();
     }
   }, [isAuthenticated, currentUserRole, currentDoctor]);
 
@@ -322,6 +330,12 @@ export const App: React.FC = () => {
     setCurrentHypertension((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
   };
 
+  const refreshLipidParticipants = async () => {
+    const list = await fetchLipidStandaloneParticipants();
+    setLipidParticipants(list);
+    setCurrentLipid((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
+  };
+
   const handleLoginSuccess = async (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
     if (portalMode === 'admin' && !['admin', 'home'].includes(role)) {
         alert('当前子域仅允许管理控制台登录');
@@ -408,7 +422,7 @@ export const App: React.FC = () => {
 
   const handleSelectPatient = (
     archive: HealthArchive,
-    mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' | 'hypertension' = 'view'
+    mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' | 'hypertension' | 'lipid' = 'view'
   ) => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
@@ -448,6 +462,22 @@ export const App: React.FC = () => {
               e instanceof Error
                 ? `跳转高血压专项筛查失败：${e.message}`
                 : '跳转高血压专项筛查失败，请在专栏中手动检索该职工'
+            );
+          }
+        })();
+      } else if (mode === 'lipid') {
+        setActiveTab('lipid_management');
+        void (async () => {
+          try {
+            const { participant } = await ensureLipidStandaloneFromArchive(archive);
+            setCurrentLipid(participant);
+            await refreshLipidParticipants();
+          } catch (e) {
+            console.error(e);
+            alert(
+              e instanceof Error
+                ? `跳转血脂异常专项管理失败：${e.message}`
+                : '跳转失败，请在专栏中手动检索该职工'
             );
           }
         })();
@@ -817,6 +847,15 @@ export const App: React.FC = () => {
                     archives={archives}
                 />
             )}
+            {activeTab === 'lipid_management' && (
+                <LipidManagementModule
+                    participants={lipidParticipants}
+                    currentParticipant={currentLipid}
+                    onSelectParticipant={setCurrentLipid}
+                    onRefresh={refreshLipidParticipants}
+                    archives={archives}
+                />
+            )}
             
             {/* TAB REPLACEMENT LOGIC: 危急值随访管理 */}
             {activeTab === 'risk_portrait' && (
@@ -837,6 +876,7 @@ export const App: React.FC = () => {
                 onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
                 onNavigateDiabetes={(arch) => handleSelectPatient(arch, 'diabetes')}
                 onNavigateHypertension={(arch) => handleSelectPatient(arch, 'hypertension')}
+                onNavigateLipid={(arch) => handleSelectPatient(arch, 'lipid')}
                 currentPatientId={healthRecord?.profile.checkupId}
                 isAuthenticated={isAuthenticated}
                 healthRecord={healthRecord}

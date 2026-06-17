@@ -1,5 +1,5 @@
 
-import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics, DiabetesScreeningRecord, HypertensionScreeningRecord } from "../types";
+import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics, DiabetesScreeningRecord, HypertensionScreeningRecord, LipidScreeningRecord } from "../types";
 import { HabitRecord } from "./dataService";
 import { normalizeCheckupId as normalizeCheckupIdStrict } from './checkupIdUtils';
 import { isFundusSpecialNote } from './diabetesScreeningRules';
@@ -13,6 +13,11 @@ import {
   normalizeHypertensionHealthRecordFields,
   normalizeHypertensionScreeningRecord,
 } from './hypertensionFieldMapping';
+import {
+  LIPID_AI_FIELD_GUIDE,
+  normalizeLipidHealthRecordFields,
+  normalizeLipidScreeningRecord,
+} from './lipidFieldMapping';
 
 // Helper to safely access environment variables
 const getEnvVar = (key: string): string => {
@@ -579,7 +584,9 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
         maybePatchMentalScalesFromRaw(raw, merged);
         maybePatchSmokingFromRaw(raw, merged);
 
-        return normalizeHypertensionHealthRecordFields(normalizeDiabetesHealthRecordFields(merged));
+        return normalizeLipidHealthRecordFields(
+          normalizeHypertensionHealthRecordFields(normalizeDiabetesHealthRecordFields(merged))
+        );
     } catch (e: any) {
         console.error("AI Parse Failed", e);
         const errorRecord = JSON.parse(JSON.stringify(DEFAULT_HEALTH_RECORD));
@@ -1254,5 +1261,69 @@ ${HYPERTENSION_AI_FIELD_GUIDE}
 
   normalizeHypertensionScreeningRecord(parsed.screening);
 
+  return parsed;
+};
+
+export type ParsedLipidScreeningRow = {
+  checkupId: string;
+  name?: string;
+  gender?: string;
+  age?: number;
+  screening: Partial<LipidScreeningRecord>;
+};
+
+export const parseLipidScreeningRowWithAI = async (rowText: string): Promise<ParsedLipidScreeningRow> => {
+  const systemPrompt = `你是医疗数据结构化专家。用户上传的是「社区血脂异常专项筛查/年度体检汇总」Excel 中的一行。
+
+${LIPID_AI_FIELD_GUIDE}
+
+【基本信息】体检编号(6位数字)、姓名、性别、年龄、身份证号、联系电话、登记日期
+
+请提取为 JSON：
+
+{
+  "checkupId": "6位数字或空",
+  "name": "string",
+  "gender": "男/女",
+  "age": number,
+  "screening": {
+    "screeningDate": "YYYY-MM-DD",
+    "registrationDate": "YYYY-MM-DD",
+    "idCard": "string",
+    "screeningPhone": "string",
+    "tc": "string或number",
+    "tg": "string或number",
+    "ldl": "string或number",
+    "hdl": "string或number",
+    "nonHdl": "string或number",
+    "apoB": "string",
+    "lpa": "string",
+    "hsCrp": "string",
+    "homocysteine": number,
+    "carotidUltrasound": "string",
+    "carotidImt": "string",
+    "ecgResult": "string",
+    "leftABI": number,
+    "rightABI": number,
+    "fastingGlucose": number,
+    "hba1c": "string或number",
+    "sbp": number,
+    "dbp": number,
+    "alt": "string",
+    "ast": "string",
+    "creatinine": "string",
+    "uacr": "string",
+    "tsh": "string"
+  }
+}
+
+规则：血脂单位 mmol/L；HbA1c 单位 %；同型半胱氨酸 μmol/L。`;
+
+  const jsonText = await callDeepSeek(systemPrompt, rowText);
+  if (!jsonText) throw new Error('AI 返回为空');
+  const parsed = JSON.parse(jsonText) as ParsedLipidScreeningRow;
+  if (!parsed.screening) parsed.screening = {};
+  if (!parsed.checkupId) parsed.checkupId = '';
+  normalizeLipidScreeningRecord(parsed.screening);
   return parsed;
 };

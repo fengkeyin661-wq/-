@@ -810,6 +810,148 @@ export interface HypertensionAssessmentResult {
   indicatorProfile?: HypertensionIndicatorProfile;
 }
 
+// --- 血脂异常专项管理 ---
+
+export type LipidIndicatorCategoryId =
+  | 'basic_lipids'
+  | 'advanced_lipids'
+  | 'cardiovascular_risk'
+  | 'metabolic_monitoring'
+  | 'secondary_screening';
+
+export interface LipidScreeningRecord {
+  id?: string;
+  screeningDate?: string;
+  activityName?: string;
+  source?: 'manual' | 'excel_import' | 'checkup_import' | 'archive_auto';
+  registrationDate?: string;
+  checkupCount?: number;
+  checkStatus?: string;
+  idCard?: string;
+  screeningPhone?: string;
+  /** 基础血脂 */
+  tc?: number | string;
+  tg?: number | string;
+  ldl?: number | string;
+  hdl?: number | string;
+  nonHdl?: number | string;
+  /** 进阶脂代谢 */
+  apoB?: number | string;
+  apoA1?: number | string;
+  lpa?: number | string;
+  sdLdl?: number | string;
+  /** 心血管风险 */
+  hsCrp?: number | string;
+  homocysteine?: number;
+  carotidUltrasound?: string;
+  carotidImt?: number | string;
+  carotidPlaque?: string;
+  ecgResult?: string;
+  abiSummary?: string;
+  leftABI?: number;
+  rightABI?: number;
+  /** 合并症与监测 */
+  fastingGlucose?: number;
+  hba1c?: number | string;
+  sbp?: number;
+  dbp?: number;
+  alt?: number | string;
+  ast?: number | string;
+  creatinine?: number | string;
+  uacr?: number | string;
+  /** 继发性排查 */
+  tsh?: number | string;
+  urineProtein?: string;
+  onLipidLowering?: boolean;
+  importMeta?: { fileName?: string; rowIndex?: number };
+  rawColumns?: Record<string, string | number>;
+}
+
+export interface LipidManagementData {
+  cohortTag?: 'borderline' | 'hypercholesterolemia' | 'hypertriglyceridemia' | 'mixed' | 'very_high_risk';
+  screenings: LipidScreeningRecord[];
+  annualCheckupLinked?: boolean;
+  notes?: string;
+}
+
+export interface LipidStandaloneParticipant {
+  id: string;
+  participantKey: string;
+  checkupId?: string;
+  name: string;
+  gender?: string;
+  age?: number;
+  phone?: string;
+  idCard?: string;
+  checkupCount?: number;
+  checkStatus?: string;
+  activityName?: string;
+  lipidManagement: LipidManagementData;
+  lipidReport?: LipidAssessmentResult;
+  linkedArchiveCheckupId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LipidIndicatorProfileItem {
+  itemId: string;
+  label: string;
+  categoryId: LipidIndicatorCategoryId;
+  categoryLabel: string;
+  status: 'present' | 'missing';
+  value?: string;
+  unit?: string;
+  referenceRange: string;
+  clinicalMeaning: string;
+  retestCycle: string;
+  priority: 'high' | 'medium' | 'low';
+  dataSource?: 'screening' | 'checkup' | 'both';
+  observedDate?: string;
+  retestReminder?: string;
+}
+
+export interface LipidIndicatorCategoryGroup {
+  categoryId: LipidIndicatorCategoryId;
+  label: string;
+  items: LipidIndicatorProfileItem[];
+  presentCount: number;
+  missingCount: number;
+}
+
+export interface LipidIndicatorProfile {
+  categories: LipidIndicatorCategoryGroup[];
+  totalItems: number;
+  presentCount: number;
+  missingCount: number;
+  missingHighPriority: LipidIndicatorProfileItem[];
+  linkedArchiveCheckupId?: string | null;
+  archiveCheckupDate?: string;
+  generatedAt: string;
+}
+
+export interface LipidLifestyleGuidance {
+  principles: string[];
+  dietTips: string[];
+  exerciseTips: string[];
+  monitoringTips: string[];
+  medicationTips: string[];
+}
+
+export interface LipidAssessmentResult {
+  riskLevel: RiskLevel;
+  summary: string;
+  lipidFindings: string[];
+  screeningFindings: string[];
+  ascvdAlerts: string[];
+  missedItems: MissedScreeningItem[];
+  retestAdvice: RetestAdviceItem[];
+  lifestyleGuidance: LipidLifestyleGuidance;
+  guidelineNotes: string[];
+  generatedAt: string;
+  basedOnScreeningId?: string;
+  indicatorProfile?: LipidIndicatorProfile;
+}
+
 // --- 4. 聚合数据对象 ---
 export interface HealthRecord {
   profile: HealthProfile;
@@ -818,6 +960,7 @@ export interface HealthRecord {
   elderlyAssessment?: ElderlyAssessmentData;
   diabetesManagement?: DiabetesManagementData;
   hypertensionManagement?: HypertensionManagementData;
+  lipidManagement?: LipidManagementData;
   // 用于存储模型计算时的补充变量 (如父母髋骨骨折史等不在常规问卷中的)
   riskModelExtras?: { [key: string]: any }; 
 }
@@ -867,6 +1010,8 @@ export interface HealthAssessment {
   diabetesReport?: DiabetesAssessmentResult;
   hypertensionRiskLevel?: RiskLevel;
   hypertensionReport?: HypertensionAssessmentResult;
+  lipidRiskLevel?: RiskLevel;
+  lipidReport?: LipidAssessmentResult;
 }
 
 // Timeline item
