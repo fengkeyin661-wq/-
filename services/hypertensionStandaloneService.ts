@@ -134,35 +134,62 @@ const readLocal = (): HypertensionStandaloneParticipant[] => {
   }
 };
 
+const isQuotaError = (e: unknown): boolean =>
+  e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22);
+
+/** 本地仅存筛查数据；完整报告走云端或按需重新生成，并去掉 Excel 原始列以节省空间 */
 const compactForLocal = (p: HypertensionStandaloneParticipant): HypertensionStandaloneParticipant => {
-  const { hypertensionReport: _r, ...rest } = p;
-  return rest;
+  const { hypertensionReport: _report, ...rest } = p;
+  const hm = rest.hypertensionManagement;
+  if (!hm?.screenings?.length) return rest;
+  return {
+    ...rest,
+    hypertensionManagement: {
+      ...hm,
+      screenings: hm.screenings.map(({ rawColumns: _rc, importMeta: _im, ...s }) => s),
+    },
+  };
 };
 
-const writeLocal = (list: HypertensionStandaloneParticipant[]) => {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(list.map(compactForLocal)));
+const writeLocal = (list: HypertensionStandaloneParticipant[]): void => {
+  const compact = list.map(compactForLocal);
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(compact));
+  } catch (e) {
+    if (!isQuotaError(e) || compact.length <= 1) throw e;
+    const sorted = [...compact].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    const keep = Math.max(1, Math.floor(sorted.length * 0.6));
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(sorted.slice(0, keep)));
+    console.warn(`[hypertensionStandalone] 本地存储空间不足，已保留最近 ${keep} 条专项筛查档案`);
+  }
 };
 
-const upsertLocal = (item: HypertensionStandaloneParticipant) => {
+const upsertLocal = (item: HypertensionStandaloneParticipant): HypertensionStandaloneParticipant => {
   const list = readLocal();
   const idx = list.findIndex((x) => x.participantKey === item.participantKey || x.id === item.id);
-  writeLocal(idx >= 0 ? list.map((x, i) => (i === idx ? item : x)) : [...list, item]);
+  const next = idx >= 0 ? list.map((x, i) => (i === idx ? item : x)) : [...list, item];
+  writeLocal(next);
+  return item;
 };
 
 const upsertCloud = async (item: HypertensionStandaloneParticipant) => {
   if (!isSupabaseConfigured()) return { success: true };
-  const { error } = await supabase.from('hypertension_standalone_participants').upsert(
-    {
-      id: item.id,
-      participant_key: item.participantKey,
-      checkup_id: item.checkupId || null,
-      name: item.name,
-      payload: item,
-      updated_at: item.updatedAt,
-    },
-    { onConflict: 'id' }
-  );
-  return error ? { success: false, message: error.message } : { success: true };
+  try {
+    const { error } = await supabase.from('hypertension_standalone_participants').upsert(
+      {
+        id: item.id,
+        participant_key: item.participantKey,
+        checkup_id: item.checkupId || null,
+        name: item.name,
+        payload: item,
+        updated_at: item.updatedAt,
+      },
+      { onConflict: 'id' }
+    );
+    return error ? { success: false, message: error.message } : { success: true };
+  } catch (e) {
+    return { success: false, message: e instanceof Error ? e.message : String(e) };
+  }
 };
 
 export const fetchHypertensionStandaloneParticipants = async (): Promise<HypertensionStandaloneParticipant[]> => {
@@ -183,11 +210,15 @@ export const fetchHypertensionStandaloneParticipants = async (): Promise<Hyperte
             byKey.set(p.participantKey, p);
           }
         });
-        local = [...byKey.values()];
-        writeLocal(local);
+        local = [...byKey.values()].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+        try {
+          writeLocal(local);
+        } catch {
+          /* 云端数据可用时忽略本地缓存写入失败 */
+        }
       }
     } catch {
-      /* use local */
+      /* 降级本地 */
     }
   }
   return local.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
@@ -213,8 +244,27 @@ export const saveHypertensionStandaloneParticipant = async (
 ): Promise<{ success: boolean; message?: string }> => {
   const item = { ...participant, updatedAt: new Date().toISOString() };
   const cloud = await upsertCloud(item);
-  if (!cloud.success) return { success: false, message: cloud.message };
-  upsertLocal(item);
+  if (!cloud.success) {
+    return { success: false, message: cloud.message || '云端保存失败' };
+  }
+  try {
+    upsertLocal(item);
+  } catch (e) {
+    if (isQuotaError(e)) {
+      if (isSupabaseConfigured()) {
+        return {
+          success: true,
+          message: '已保存至云端；浏览器本地缓存空间不足，列表刷新后将从云端加载。',
+        };
+      }
+      return {
+        success: false,
+        message:
+          '浏览器本地存储空间已满（约 5MB）。请删除部分旧专项档案或清空本站浏览器数据，或配置 Supabase 云端存储。',
+      };
+    }
+    throw e;
+  }
   return { success: true };
 };
 
@@ -311,7 +361,12 @@ export const deleteHypertensionStandaloneParticipants = async (
   }
 
   const idSet = new Set(unique);
-  writeLocal(readLocal().filter((p) => !idSet.has(p.id)));
+  try {
+    writeLocal(readLocal().filter((p) => !idSet.has(p.id)));
+  } catch (e) {
+    if (!isQuotaError(e)) throw e;
+    console.warn('[hypertensionStandalone] 本地删除后仍无法写入缓存，已从云端删除');
+  }
 
   if (isSupabaseConfigured()) {
     const { error } = await supabase

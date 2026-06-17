@@ -440,8 +440,8 @@ export const App: React.FC = () => {
         void (async () => {
           try {
             const { participant } = await ensureHypertensionStandaloneFromArchive(archive);
-            await refreshHypertensionParticipants();
             setCurrentHypertension(participant);
+            await refreshHypertensionParticipants();
           } catch (e) {
             console.error(e);
             alert(
