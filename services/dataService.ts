@@ -2,6 +2,7 @@
 import bcrypt from 'bcryptjs';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { fetchContent, isHealthManagerContent } from './contentService';
+import { autoEnrollHypertensionIfEligible } from './hypertensionStandaloneService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
 
 export interface ExercisePlanData {
@@ -673,6 +674,12 @@ export const saveArchive = async (
         gamification: existingGamification
     };
 
+    const triggerHypertensionAutoEnroll = () => {
+        void autoEnrollHypertensionIfEligible(fullPayload as HealthArchive).catch((e) =>
+            console.warn('[saveArchive] hypertension auto enroll failed', e)
+        );
+    };
+
     // Save to Local Storage
     try {
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
@@ -689,6 +696,7 @@ export const saveArchive = async (
     } catch (e) {}
 
     if (!isSupabaseConfigured()) {
+        triggerHypertensionAutoEnroll();
         return { success: true, message: "已保存到本地" };
     }
 
@@ -715,20 +723,25 @@ export const saveArchive = async (
                 const { error: retryError } = await supabase.from('health_archives').upsert(basicPayload, { onConflict: 'checkup_id' });
                 if (retryError) {
                     if (isPermissionDeniedError(retryError)) {
+                        triggerHypertensionAutoEnroll();
                         return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
                     }
                     throw retryError;
                 }
+                triggerHypertensionAutoEnroll();
                 return { success: true, message: "部分保存成功 (数据库缺少新字段)" };
             }
             if (isPermissionDeniedError(error)) {
+                triggerHypertensionAutoEnroll();
                 return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
             }
             throw error;
         }
+        triggerHypertensionAutoEnroll();
         return { success: true };
     } catch (e: any) {
         if (isPermissionDeniedError(e)) {
+            triggerHypertensionAutoEnroll();
             return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
         }
         return { success: false, message: e.message };

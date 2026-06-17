@@ -17,11 +17,17 @@ import { DoctorMessageCenter } from './components/DoctorMessageCenter';
 import { CriticalFollowUpManager } from './components/CriticalFollowUpManager'; // New Import
 import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 import { DiabetesManagementModule } from './components/DiabetesManagementModule';
+import { HypertensionManagementModule } from './components/HypertensionManagementModule';
 
-import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant } from './types';
+import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
 import { fetchStandaloneParticipants, ensureStandaloneFromArchive } from './services/diabetesStandaloneService';
+import {
+  fetchHypertensionStandaloneParticipants,
+  ensureHypertensionStandaloneFromArchive,
+  autoEnrollHypertensionIfEligible,
+} from './services/hypertensionStandaloneService';
 import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
 import { ContentItem, fetchInteractions, getDoctorSigningUnreadTotal } from './services/contentService';
@@ -165,6 +171,8 @@ export const App: React.FC = () => {
   const [isSavingElderly, setIsSavingElderly] = useState(false);
   const [standaloneParticipants, setStandaloneParticipants] = useState<DiabetesStandaloneParticipant[]>([]);
   const [currentStandalone, setCurrentStandalone] = useState<DiabetesStandaloneParticipant | null>(null);
+  const [hypertensionParticipants, setHypertensionParticipants] = useState<HypertensionStandaloneParticipant[]>([]);
+  const [currentHypertension, setCurrentHypertension] = useState<HypertensionStandaloneParticipant | null>(null);
 
   const ensureSupabaseSessionForStaff = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
     if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
@@ -196,6 +204,7 @@ export const App: React.FC = () => {
     if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) {
         refreshArchives();
         refreshStandaloneParticipants();
+        refreshHypertensionParticipants();
     }
   }, [isAuthenticated, currentUserRole, currentDoctor]);
 
@@ -307,6 +316,12 @@ export const App: React.FC = () => {
     setCurrentStandalone((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
   };
 
+  const refreshHypertensionParticipants = async () => {
+    const list = await fetchHypertensionStandaloneParticipants();
+    setHypertensionParticipants(list);
+    setCurrentHypertension((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
+  };
+
   const handleLoginSuccess = async (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
     if (portalMode === 'admin' && !['admin', 'home'].includes(role)) {
         alert('当前子域仅允许管理控制台登录');
@@ -393,7 +408,7 @@ export const App: React.FC = () => {
 
   const handleSelectPatient = (
     archive: HealthArchive,
-    mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' = 'view'
+    mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' | 'hypertension' = 'view'
   ) => {
       setHealthRecord(archive.health_record);
       setAssessment(archive.assessment_data);
@@ -420,6 +435,22 @@ export const App: React.FC = () => {
             );
           }
         })();
+      } else if (mode === 'hypertension') {
+        setActiveTab('hypertension_management');
+        void (async () => {
+          try {
+            const { participant } = await ensureHypertensionStandaloneFromArchive(archive);
+            await refreshHypertensionParticipants();
+            setCurrentHypertension(participant);
+          } catch (e) {
+            console.error(e);
+            alert(
+              e instanceof Error
+                ? `跳转高血压专项筛查失败：${e.message}`
+                : '跳转高血压专项筛查失败，请在专栏中手动检索该职工'
+            );
+          }
+        })();
       } else setActiveTab('dashboard');
   };
 
@@ -440,6 +471,21 @@ export const App: React.FC = () => {
               setRiskAnalysis(analysis);
               alert("档案保存成功！已生成最新风险评估。");
               refreshArchives();
+              void autoEnrollHypertensionIfEligible({
+                checkup_id: data.profile.checkupId,
+                name: data.profile.name,
+                gender: data.profile.gender,
+                age: data.profile.age,
+                phone: data.profile.phone,
+                department: data.profile.department,
+                health_record: data,
+                assessment_data: newAssessment,
+                follow_ups: followUps,
+                follow_up_schedule: newSchedule,
+                risk_analysis: analysis,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              } as HealthArchive).then(() => refreshHypertensionParticipants());
               setActiveTab('assessment');
           } else {
               alert("保存失败: " + res.message);
@@ -762,6 +808,15 @@ export const App: React.FC = () => {
                     archives={archives}
                 />
             )}
+            {activeTab === 'hypertension_management' && (
+                <HypertensionManagementModule
+                    participants={hypertensionParticipants}
+                    currentParticipant={currentHypertension}
+                    onSelectParticipant={setCurrentHypertension}
+                    onRefresh={refreshHypertensionParticipants}
+                    archives={archives}
+                />
+            )}
             
             {/* TAB REPLACEMENT LOGIC: 危急值随访管理 */}
             {activeTab === 'risk_portrait' && (
@@ -781,6 +836,7 @@ export const App: React.FC = () => {
                 allArchives={archives}
                 onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
                 onNavigateDiabetes={(arch) => handleSelectPatient(arch, 'diabetes')}
+                onNavigateHypertension={(arch) => handleSelectPatient(arch, 'hypertension')}
                 currentPatientId={healthRecord?.profile.checkupId}
                 isAuthenticated={isAuthenticated}
                 healthRecord={healthRecord}

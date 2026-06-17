@@ -5,6 +5,7 @@ import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { HealthTrendCharts } from './HealthTrendCharts';
 import { HighGlucoseTag } from './HighGlucoseTag';
+import { HighBloodPressureTag } from './HighBloodPressureTag';
 
 interface Props {
   records: FollowUpRecord[];
@@ -19,6 +20,7 @@ interface Props {
   healthRecord?: HealthRecord | null;
   onRefresh?: () => void;
   onNavigateDiabetes?: (archive: HealthArchive) => void;
+  onNavigateHypertension?: (archive: HealthArchive) => void;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -34,6 +36,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     healthRecord,
     onRefresh,
     onNavigateDiabetes,
+    onNavigateHypertension,
 }) => {
   const [isEntryExpanded, setIsEntryExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -625,6 +628,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               <HighGlucoseTag
                                 record={healthRecord}
                                 onClick={() => onNavigateDiabetes(currentArchive)}
+                              />
+                            )}
+                            {healthRecord && onNavigateHypertension && currentArchive && (
+                              <HighBloodPressureTag
+                                record={healthRecord}
+                                onClick={() => onNavigateHypertension(currentArchive)}
                               />
                             )}
                           {assessment && (

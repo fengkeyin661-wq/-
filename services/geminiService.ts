@@ -1,5 +1,5 @@
 
-import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics, DiabetesScreeningRecord } from "../types";
+import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics, DiabetesScreeningRecord, HypertensionScreeningRecord } from "../types";
 import { HabitRecord } from "./dataService";
 import { normalizeCheckupId as normalizeCheckupIdStrict } from './checkupIdUtils';
 import { isFundusSpecialNote } from './diabetesScreeningRules';
@@ -8,6 +8,11 @@ import {
   normalizeDiabetesHealthRecordFields,
   normalizeDiabetesScreeningRecord,
 } from './diabetesFieldMapping';
+import {
+  HYPERTENSION_AI_FIELD_GUIDE,
+  normalizeHypertensionHealthRecordFields,
+  normalizeHypertensionScreeningRecord,
+} from './hypertensionFieldMapping';
 
 // Helper to safely access environment variables
 const getEnvVar = (key: string): string => {
@@ -362,6 +367,16 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          - 神经传导速度 → riskModelExtras.ncv（文本结论）
          - 糖尿病神经病变筛查/糖尿病足筛查 → riskModelExtras.neuropathyScreening / footExam
          - 糖化血红蛋白 → checkup.labBasic.hba1c 或 checkup.optional.hba1c
+       - **高血压专项指标**（若报告中有，务必提取）：
+         - 动态血压/ABPM → riskModelExtras.abpmSummary、abpmDaySbp、abpmNightSbp 等
+         - 颈动脉彩超/IMT/斑块 → checkup.optional.carotidUltrasound 或 riskModelExtras.carotidImt
+         - 心脏彩超/左室肥厚/EF → checkup.optional.heartUltrasound、riskModelExtras.echoResult、lvh
+         - 动态心电图/Holter → riskModelExtras.holterResult
+         - 尿微量白蛋白/肌酐比值(UACR) → riskModelExtras.uacr
+         - 颅脑CT → checkup.optional.ct 或 riskModelExtras.brainCtResult
+         - 同型半胱氨酸 → checkup.labBasic.homocysteine
+         - 电解质钾钠氯钙 → riskModelExtras.potassium/sodium/chloride/calcium
+         - 肾素/血管紧张素/醛固酮 → riskModelExtras.renin/angiotensin/aldosterone
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
@@ -419,7 +434,25 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          "nerveConductionVelocity": "string",
          "lowerLimbVascularUltrasound": "string",
          "neuropathyScreening": "string",
-         "footExam": "string"
+         "footExam": "string",
+         "abpmSummary": "string",
+         "abpmDaySbp": number,
+         "abpmDayDbp": number,
+         "abpmNightSbp": number,
+         "abpmNightDbp": number,
+         "holterResult": "string",
+         "echoResult": "string",
+         "lvh": "string",
+         "brainCtResult": "string",
+         "fundusResult": "string",
+         "carotidImt": "string",
+         "potassium": number,
+         "sodium": number,
+         "chloride": number,
+         "calcium": number,
+         "renin": "string",
+         "angiotensin": "string",
+         "aldosterone": "string"
       },
       "questionnaire": {
          "history": { "diseases": ["string"], "details": { "hypertensionYear": "string", "diabetesYear": "string" } },
@@ -546,7 +579,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
         maybePatchMentalScalesFromRaw(raw, merged);
         maybePatchSmokingFromRaw(raw, merged);
 
-        return normalizeDiabetesHealthRecordFields(merged);
+        return normalizeHypertensionHealthRecordFields(normalizeDiabetesHealthRecordFields(merged));
     } catch (e: any) {
         console.error("AI Parse Failed", e);
         const errorRecord = JSON.parse(JSON.stringify(DEFAULT_HEALTH_RECORD));
@@ -1134,6 +1167,92 @@ InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正�
     if (isFundusSpecialNote(legacyNote)) parsed.screening.fundusSpecialNote = legacyNote;
     else parsed.screening.arteriosclerosisSpecialNote = legacyNote;
   }
+
+  return parsed;
+};
+
+/** AI 解析 Excel 汇总表中的单行高血压筛查数据（列名不固定） */
+export type ParsedHypertensionScreeningRow = {
+  checkupId: string;
+  name?: string;
+  gender?: string;
+  age?: number;
+  screening: Partial<HypertensionScreeningRecord>;
+};
+
+export const parseHypertensionScreeningRowWithAI = async (
+  rowText: string
+): Promise<ParsedHypertensionScreeningRow> => {
+  const systemPrompt = `你是医疗数据结构化专家。用户上传的是「社区高血压专项筛查/年度体检汇总」Excel 中的一行，列名可能略有差异，请智能匹配。
+
+${HYPERTENSION_AI_FIELD_GUIDE}
+
+【基本信息】体检编号(6位数字)、体检次数、姓名、性别、年龄、身份证号、联系电话、检查状态、登记日期
+
+请提取为 JSON（数值字段用 number，文本保留原文，缺失则省略）：
+
+{
+  "checkupId": "恰好6位数字或空",
+  "name": "string",
+  "gender": "男/女",
+  "age": number,
+  "screening": {
+    "screeningDate": "登记日期 YYYY-MM-DD",
+    "registrationDate": "同登记日期",
+    "checkupCount": number,
+    "checkStatus": "string",
+    "idCard": "string",
+    "screeningPhone": "string",
+    "sbp": number,
+    "dbp": number,
+    "heartRate": number,
+    "abpmSummary": "string",
+    "abpmDaySbp": number,
+    "abpmDayDbp": number,
+    "abpmNightSbp": number,
+    "abpmNightDbp": number,
+    "carotidUltrasound": "string",
+    "carotidImt": "string或number",
+    "carotidPlaque": "string",
+    "echoResult": "string",
+    "lvh": "string",
+    "ejectionFraction": "string或number",
+    "ecgResult": "string",
+    "holterResult": "string",
+    "creatinine": "string",
+    "urea": "string",
+    "uacr": "string",
+    "urineProtein": "string",
+    "fundusResult": "string",
+    "brainCtResult": "string",
+    "homocysteine": number,
+    "tc": "string",
+    "tg": "string",
+    "ldl": "string",
+    "hdl": "string",
+    "fastingGlucose": number,
+    "hba1c": number,
+    "potassium": "string",
+    "sodium": "string",
+    "chloride": "string",
+    "calcium": "string",
+    "renin": "string",
+    "angiotensin": "string",
+    "aldosterone": "string"
+  }
+}
+
+规则：体检编号仅取6位数字；血压 mmHg；HbA1c 单位 %；同型半胱氨酸 μmol/L。
+「血压 145/92」类文本请拆分为 sbp=145、dbp=92。`;
+
+  const jsonText = await callDeepSeek(systemPrompt, rowText);
+  if (!jsonText) throw new Error('AI 返回为空');
+
+  const parsed = JSON.parse(jsonText) as ParsedHypertensionScreeningRow;
+  if (!parsed.screening) parsed.screening = {};
+  if (!parsed.checkupId) parsed.checkupId = '';
+
+  normalizeHypertensionScreeningRecord(parsed.screening);
 
   return parsed;
 };

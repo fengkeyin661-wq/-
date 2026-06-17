@@ -660,6 +660,156 @@ export interface DiabetesAssessmentResult {
   basedOnScreeningId?: string;
 }
 
+// --- 高血压专项筛查 ---
+
+export type HypertensionIndicatorCategoryId =
+  | 'bp_vascular'
+  | 'target_organ'
+  | 'metabolic_labs';
+
+export interface HypertensionScreeningRecord {
+  id?: string;
+  screeningDate?: string;
+  activityName?: string;
+  source?: 'manual' | 'excel_import' | 'checkup_import' | 'archive_auto';
+  registrationDate?: string;
+  checkupCount?: number;
+  checkStatus?: string;
+  idCard?: string;
+  screeningPhone?: string;
+  /** 诊室血压 */
+  sbp?: number;
+  dbp?: number;
+  heartRate?: number;
+  /** 动态血压 */
+  abpmSummary?: string;
+  abpmDaySbp?: number;
+  abpmDayDbp?: number;
+  abpmNightSbp?: number;
+  abpmNightDbp?: number;
+  /** 颈动脉 */
+  carotidUltrasound?: string;
+  carotidImt?: number | string;
+  carotidPlaque?: string;
+  /** 心脏彩超 */
+  echoResult?: string;
+  lvh?: string;
+  ejectionFraction?: number | string;
+  /** 心电图 / 动态心电 */
+  ecgResult?: string;
+  holterResult?: string;
+  /** 靶器官 */
+  creatinine?: number | string;
+  urea?: number | string;
+  uacr?: number | string;
+  urineProtein?: string;
+  fundusResult?: string;
+  brainCtResult?: string;
+  homocysteine?: number;
+  /** 代谢 */
+  tc?: number | string;
+  tg?: number | string;
+  ldl?: number | string;
+  hdl?: number | string;
+  fastingGlucose?: number;
+  hba1c?: number | string;
+  potassium?: number | string;
+  sodium?: number | string;
+  chloride?: number | string;
+  calcium?: number | string;
+  /** 继发性高血压排查 */
+  renin?: number | string;
+  angiotensin?: number | string;
+  aldosterone?: number | string;
+  importMeta?: { fileName?: string; rowIndex?: number };
+  rawColumns?: Record<string, string | number>;
+}
+
+export interface HypertensionManagementData {
+  cohortTag?: 'elevated' | 'stage1' | 'stage2' | 'crisis';
+  screenings: HypertensionScreeningRecord[];
+  annualCheckupLinked?: boolean;
+  notes?: string;
+}
+
+export interface HypertensionStandaloneParticipant {
+  id: string;
+  participantKey: string;
+  checkupId?: string;
+  name: string;
+  gender?: string;
+  age?: number;
+  phone?: string;
+  idCard?: string;
+  checkupCount?: number;
+  checkStatus?: string;
+  activityName?: string;
+  hypertensionManagement: HypertensionManagementData;
+  hypertensionReport?: HypertensionAssessmentResult;
+  linkedArchiveCheckupId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HypertensionIndicatorProfileItem {
+  itemId: string;
+  label: string;
+  categoryId: HypertensionIndicatorCategoryId;
+  categoryLabel: string;
+  status: 'present' | 'missing';
+  value?: string;
+  unit?: string;
+  referenceRange: string;
+  clinicalMeaning: string;
+  retestCycle: string;
+  priority: 'high' | 'medium' | 'low';
+  dataSource?: 'screening' | 'checkup' | 'both';
+  observedDate?: string;
+  retestReminder?: string;
+}
+
+export interface HypertensionIndicatorCategoryGroup {
+  categoryId: HypertensionIndicatorCategoryId;
+  label: string;
+  items: HypertensionIndicatorProfileItem[];
+  presentCount: number;
+  missingCount: number;
+}
+
+export interface HypertensionIndicatorProfile {
+  categories: HypertensionIndicatorCategoryGroup[];
+  totalItems: number;
+  presentCount: number;
+  missingCount: number;
+  missingHighPriority: HypertensionIndicatorProfileItem[];
+  linkedArchiveCheckupId?: string | null;
+  archiveCheckupDate?: string;
+  generatedAt: string;
+}
+
+export interface HypertensionLifestyleGuidance {
+  principles: string[];
+  dietTips: string[];
+  exerciseTips: string[];
+  monitoringTips: string[];
+  medicationTips: string[];
+}
+
+export interface HypertensionAssessmentResult {
+  riskLevel: RiskLevel;
+  summary: string;
+  bpFindings: string[];
+  screeningFindings: string[];
+  missedItems: MissedScreeningItem[];
+  retestAdvice: RetestAdviceItem[];
+  lifestyleGuidance: HypertensionLifestyleGuidance;
+  targetOrganAlerts: string[];
+  guidelineNotes: string[];
+  generatedAt: string;
+  basedOnScreeningId?: string;
+  indicatorProfile?: HypertensionIndicatorProfile;
+}
+
 // --- 4. 聚合数据对象 ---
 export interface HealthRecord {
   profile: HealthProfile;
@@ -667,6 +817,7 @@ export interface HealthRecord {
   questionnaire: QuestionnaireData;
   elderlyAssessment?: ElderlyAssessmentData;
   diabetesManagement?: DiabetesManagementData;
+  hypertensionManagement?: HypertensionManagementData;
   // 用于存储模型计算时的补充变量 (如父母髋骨骨折史等不在常规问卷中的)
   riskModelExtras?: { [key: string]: any }; 
 }
@@ -714,6 +865,8 @@ export interface HealthAssessment {
   };
   diabetesRiskLevel?: RiskLevel;
   diabetesReport?: DiabetesAssessmentResult;
+  hypertensionRiskLevel?: RiskLevel;
+  hypertensionReport?: HypertensionAssessmentResult;
 }
 
 // Timeline item
