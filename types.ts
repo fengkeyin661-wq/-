@@ -94,6 +94,13 @@ export interface CheckupData {
     thyroidFunction?: { t3?: string; t4?: string; tsh?: string; }; // 11. 甲功三项
     hba1c?: string; // 糖化血红蛋白
     homocysteine?: string; // 同型半胱氨酸
+    /** 胰岛功能（体检报告扩展） */
+    insulinFasting?: string;
+    insulinPostprandial2h?: string;
+    cPeptideFasting?: string;
+    cPeptidePostprandial2h?: string;
+    /** 尿微量白蛋白/肌酐比值 */
+    uacr?: string;
   };
 
   // 9-10. 影像与功能 (基础)
@@ -131,6 +138,8 @@ export interface CheckupData {
     gastrin?: string; // 18. 胃功能
     adiponectin?: string; // 19. 脂联素
     vitD?: string; // 20. 25羟基维生素D
+    /** 下肢血管彩超 */
+    lowerLimbUltrasound?: string;
     /** 动脉硬化检测（ABI/PWV） */
     arteriosclerosis?: ArteriosclerosisData;
   };
@@ -443,6 +452,29 @@ export interface DiabetesScreeningRecord {
   obesityDegree?: number;
   bmr?: number;
   targetWeight?: number;
+  /** 扩展检验指标（年度体检/汇总表导入） */
+  hba1c?: number | string;
+  insulinFasting?: number;
+  insulinPostprandial2h?: number;
+  cPeptideFasting?: number;
+  cPeptidePostprandial2h?: number;
+  adiponectin?: number | string;
+  homocysteine?: number;
+  uacr?: number | string;
+  urineRoutineSummary?: string;
+  urineProtein?: string;
+  creatinine?: number | string;
+  urea?: number | string;
+  uricAcid?: number | string;
+  tc?: number | string;
+  tg?: number | string;
+  ldl?: number | string;
+  hdl?: number | string;
+  carotidUltrasound?: string;
+  lowerLimbVascularUltrasound?: string;
+  ncvResult?: string;
+  neuropathyScreening?: string;
+  footExamResult?: string;
   importMeta?: { fileName?: string; rowIndex?: number };
   /** AI 解析保留的原始列 */
   rawColumns?: Record<string, string | number>;
@@ -493,6 +525,17 @@ export interface RetestAdviceItem {
   urgency: 'routine' | 'soon' | 'urgent';
 }
 
+export type DiabetesIndicatorCategoryId =
+  | 'glucose_metabolism'
+  | 'insulin_function'
+  | 'renal_urine'
+  | 'lipid_homocysteine'
+  | 'macrovascular'
+  | 'microvascular'
+  | 'cardiac'
+  | 'neuropathy_foot'
+  | 'body_composition';
+
 export interface IndicatorEdu {
   itemId: string;
   label: string;
@@ -501,6 +544,46 @@ export interface IndicatorEdu {
   referenceRange: string;
   clinicalMeaning: string;
   retestCycle: string;
+}
+
+/** 糖尿病分项指标档案 — 单条指标 */
+export interface DiabetesIndicatorProfileItem {
+  itemId: string;
+  label: string;
+  categoryId: DiabetesIndicatorCategoryId;
+  categoryLabel: string;
+  status: 'present' | 'missing';
+  value?: string;
+  unit?: string;
+  referenceRange: string;
+  clinicalMeaning: string;
+  retestCycle: string;
+  priority: 'high' | 'medium' | 'low';
+  /** 数据来源：专项筛查 / 年度体检 / 两者 */
+  dataSource?: 'screening' | 'checkup' | 'both';
+  observedDate?: string;
+  retestReminder?: string;
+}
+
+/** 糖尿病分项指标档案 — 分类汇总 */
+export interface DiabetesIndicatorCategoryGroup {
+  categoryId: DiabetesIndicatorCategoryId;
+  label: string;
+  items: DiabetesIndicatorProfileItem[];
+  presentCount: number;
+  missingCount: number;
+}
+
+/** 糖尿病分项指标档案 */
+export interface DiabetesIndicatorProfile {
+  categories: DiabetesIndicatorCategoryGroup[];
+  totalItems: number;
+  presentCount: number;
+  missingCount: number;
+  missingHighPriority: DiabetesIndicatorProfileItem[];
+  linkedArchiveCheckupId?: string | null;
+  archiveCheckupDate?: string;
+  generatedAt: string;
 }
 
 export interface GiFoodItem {

@@ -488,5 +488,98 @@ export const applyScreeningToHealthRecord = (
     next.checkup.optional = { ...next.checkup.optional, fundusPhoto: fundus };
   }
 
+  const str = (v: unknown): string | undefined =>
+    v != null && String(v).trim() !== '' ? String(v).trim() : undefined;
+
+  if (latest.hba1c != null) {
+    const hba1cStr = str(latest.hba1c);
+    if (hba1cStr) {
+      next.checkup.labBasic = { ...next.checkup.labBasic, hba1c: hba1cStr };
+    }
+  }
+
+  if (latest.homocysteine != null) {
+    next.checkup.labBasic = {
+      ...next.checkup.labBasic,
+      homocysteine: String(latest.homocysteine),
+    };
+  }
+
+  if (latest.creatinine != null || latest.urea != null || latest.uricAcid != null) {
+    next.checkup.labBasic = {
+      ...next.checkup.labBasic,
+      renal: {
+        ...next.checkup.labBasic?.renal,
+        creatinine: str(latest.creatinine) ?? next.checkup.labBasic?.renal?.creatinine,
+        urea: str(latest.urea) ?? next.checkup.labBasic?.renal?.urea,
+        ua: str(latest.uricAcid) ?? next.checkup.labBasic?.renal?.ua,
+      },
+    };
+  }
+
+  if (latest.tc != null || latest.tg != null || latest.ldl != null || latest.hdl != null) {
+    next.checkup.labBasic = {
+      ...next.checkup.labBasic,
+      lipids: {
+        ...next.checkup.labBasic?.lipids,
+        tc: str(latest.tc) ?? next.checkup.labBasic?.lipids?.tc,
+        tg: str(latest.tg) ?? next.checkup.labBasic?.lipids?.tg,
+        ldl: str(latest.ldl) ?? next.checkup.labBasic?.lipids?.ldl,
+        hdl: str(latest.hdl) ?? next.checkup.labBasic?.lipids?.hdl,
+      },
+    };
+  }
+
+  if (latest.urineRoutineSummary || latest.urineProtein) {
+    next.checkup.labBasic = {
+      ...next.checkup.labBasic,
+      urineRoutine: {
+        ...next.checkup.labBasic?.urineRoutine,
+        summary: latest.urineRoutineSummary ?? next.checkup.labBasic?.urineRoutine?.summary,
+        protein: str(latest.urineProtein) ?? next.checkup.labBasic?.urineRoutine?.protein,
+      },
+    };
+  }
+
+  const labExt = next.checkup.labBasic as Record<string, string | undefined>;
+  if (latest.insulinFasting != null) labExt.insulinFasting = String(latest.insulinFasting);
+  if (latest.insulinPostprandial2h != null) labExt.insulinPostprandial2h = String(latest.insulinPostprandial2h);
+  if (latest.cPeptideFasting != null) labExt.cPeptideFasting = String(latest.cPeptideFasting);
+  if (latest.cPeptidePostprandial2h != null) labExt.cPeptidePostprandial2h = String(latest.cPeptidePostprandial2h);
+  if (latest.uacr != null) labExt.uacr = str(latest.uacr);
+
+  next.riskModelExtras = {
+    ...(next.riskModelExtras || {}),
+    ...(latest.insulinFasting != null ? { insulinFasting: latest.insulinFasting } : {}),
+    ...(latest.insulinPostprandial2h != null ? { insulinPostprandial2h: latest.insulinPostprandial2h } : {}),
+    ...(latest.cPeptideFasting != null ? { cPeptideFasting: latest.cPeptideFasting } : {}),
+    ...(latest.cPeptidePostprandial2h != null ? { cPeptidePostprandial2h: latest.cPeptidePostprandial2h } : {}),
+    ...(latest.uacr != null ? { uacr: latest.uacr } : {}),
+    ...(latest.homocysteine != null ? { homocysteine: latest.homocysteine } : {}),
+    ...(latest.adiponectin != null ? { adiponectin: latest.adiponectin } : {}),
+    ...(latest.ncvResult ? { ncv: latest.ncvResult } : {}),
+    ...(latest.neuropathyScreening ? { neuropathyScreening: latest.neuropathyScreening } : {}),
+    ...(latest.footExamResult ? { footExam: latest.footExamResult } : {}),
+    ...(latest.lowerLimbVascularUltrasound
+      ? { lowerLimbVascularUltrasound: latest.lowerLimbVascularUltrasound }
+      : {}),
+  };
+
+  if (latest.carotidUltrasound) {
+    next.checkup.optional = { ...next.checkup.optional, carotidUltrasound: latest.carotidUltrasound };
+  }
+  if (latest.lowerLimbVascularUltrasound) {
+    next.checkup.optional = {
+      ...next.checkup.optional,
+      lowerLimbUltrasound: latest.lowerLimbVascularUltrasound,
+    };
+  }
+  if (latest.adiponectin != null) {
+    next.checkup.optional = {
+      ...next.checkup.optional,
+      adiponectin: str(latest.adiponectin),
+    };
+  }
+
   return next;
 };

@@ -4,6 +4,7 @@ import {
   DiabetesScreeningRecord,
   DiabetesAssessmentResult,
   DiabetesStandaloneParticipant,
+  DiabetesIndicatorProfile,
 } from '../types';
 import {
   createEmptyDiabetesManagement,
@@ -17,11 +18,15 @@ import {
   deleteStandaloneParticipants,
   batchReevaluateStandaloneReports,
   updateStandaloneProfile,
+  resolveHealthRecordForParticipant,
   type StandaloneProfileInput,
 } from '../services/diabetesStandaloneService';
+import { buildDiabetesIndicatorProfile, getLatestScreeningFromRecord } from '../services/diabetesIndicatorProfileService';
+import type { HealthArchive } from '../services/dataService';
 import { COMPLICATION_CARE_GUIDE, GUIDELINE_NOTES } from '../services/diabetesEducationContent';
 import { DiabetesAssessmentReport } from './DiabetesAssessmentReport';
 import { DiabetesReportEditor } from './DiabetesReportEditor';
+import { DiabetesIndicatorProfilePanel } from './DiabetesIndicatorProfilePanel';
 
 interface Props {
   participants: DiabetesStandaloneParticipant[];
@@ -29,6 +34,8 @@ interface Props {
   onSelectParticipant: (p: DiabetesStandaloneParticipant | null) => void;
   onRefresh: () => void | Promise<void>;
   isSaving?: boolean;
+  /** 健康档案列表，用于同步抓取分项指标 */
+  archives?: HealthArchive[];
 }
 
 const emptyScreening = (): DiabetesScreeningRecord => ({
@@ -56,6 +63,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   onSelectParticipant,
   onRefresh,
   isSaving = false,
+  archives = [],
 }) => {
   const [dmData, setDmData] = useState<DiabetesManagementData>(createEmptyDiabetesManagement());
   const [screening, setScreening] = useState<DiabetesScreeningRecord>(emptyScreening());
@@ -76,6 +84,25 @@ export const DiabetesManagementModule: React.FC<Props> = ({
   const [reportSaving, setReportSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const linkedArchive = useMemo(() => {
+    if (!currentParticipant) return null;
+    const cid =
+      currentParticipant.linkedArchiveCheckupId ||
+      currentParticipant.checkupId;
+    if (!cid) return null;
+    return archives.find((a) => a.checkup_id === cid) || null;
+  }, [currentParticipant, archives]);
+
+  const indicatorProfile: DiabetesIndicatorProfile | null = useMemo(() => {
+    if (!currentParticipant) return null;
+    const record = resolveHealthRecordForParticipant(currentParticipant, linkedArchive);
+    const latest = getLatestScreeningFromRecord(record);
+    return buildDiabetesIndicatorProfile(record, latest, {
+      linkedArchiveCheckupId: linkedArchive?.checkup_id || currentParticipant.linkedArchiveCheckupId,
+      archiveCheckupDate: linkedArchive?.health_record?.profile?.checkupDate,
+    });
+  }, [currentParticipant, linkedArchive]);
+
   useEffect(() => {
     if (!currentParticipant) {
       setDmData(createEmptyDiabetesManagement());
@@ -93,7 +120,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
     setResult(cachedReport);
 
     if (!cachedReport && (dm.screenings?.length ?? 0) > 0) {
-      void reevaluateStandalone(currentParticipant).then((report) => {
+      void reevaluateStandalone(currentParticipant, linkedArchive).then((report) => {
         setResult(report);
         void onRefresh();
       });
@@ -101,7 +128,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
     setProfileForm(profileFromParticipant(currentParticipant));
     setProfileEditing(false);
     setReportEditing(false);
-  }, [currentParticipant?.id]);
+  }, [currentParticipant?.id, linkedArchive?.checkup_id]);
 
   const filteredParticipants = useMemo(() => {
     let list = [...participants];
@@ -169,7 +196,7 @@ export const DiabetesManagementModule: React.FC<Props> = ({
     }
     setReportEditing(false);
     setDmData(draft.diabetesManagement);
-    const report = await reevaluateStandalone(draft);
+    const report = await reevaluateStandalone(draft, linkedArchive);
     setResult(report);
     await onRefresh();
   };
@@ -664,9 +691,18 @@ export const DiabetesManagementModule: React.FC<Props> = ({
             )}
 
             <p className="text-xs text-amber-700 mt-4">
-              专项筛查模式：未关联年度健康体检档案。修改性别等信息后将自动重新生成评估报告。体检编号/身份证/电话变更后请勿与已有档案重复。
+              {linkedArchive
+                ? `已关联健康档案（体检编号 ${linkedArchive.checkup_id}），分项指标档案将自动同步年度体检数据。`
+                : '专项筛查模式：未关联年度健康体检档案。若已有正式建档，请填写正确体检编号以自动同步；修改性别等信息后将自动重新生成评估报告。'}
             </p>
           </div>
+
+          {indicatorProfile && (
+            <DiabetesIndicatorProfilePanel
+              profile={indicatorProfile}
+              patientName={currentParticipant.name}
+            />
+          )}
 
           {(dmData.screenings?.length ?? 0) > 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">

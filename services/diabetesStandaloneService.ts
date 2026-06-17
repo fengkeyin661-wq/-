@@ -36,7 +36,66 @@ const emptyQuestionnaire = (): HealthRecord['questionnaire'] => ({
   satisfaction: {},
 });
 
-export const toEvaluationHealthRecord = (p: DiabetesStandaloneParticipant): HealthRecord => {
+/** 将 health_archives 中的体检/问卷数据合并进评估用 HealthRecord（专项筛查数据优先） */
+export const mergeArchiveIntoHealthRecord = (
+  base: HealthRecord,
+  archive: HealthArchive | null | undefined
+): HealthRecord => {
+  if (!archive?.health_record) return base;
+  const ar = archive.health_record;
+
+  return {
+    ...base,
+    profile: {
+      ...base.profile,
+      checkupId: base.profile.checkupId || ar.profile?.checkupId || archive.checkup_id,
+      name: base.profile.name || ar.profile?.name || archive.name,
+      gender: base.profile.gender || ar.profile?.gender || archive.gender || '',
+      age: base.profile.age ?? ar.profile?.age ?? archive.age,
+      phone: base.profile.phone || ar.profile?.phone || archive.phone,
+      checkupDate: ar.profile?.checkupDate || base.profile.checkupDate,
+      department: base.profile.department || ar.profile?.department,
+    },
+    checkup: {
+      ...ar.checkup,
+      basics: { ...ar.checkup?.basics, ...base.checkup?.basics },
+      labBasic: {
+        ...ar.checkup?.labBasic,
+        ...base.checkup?.labBasic,
+        glucose: { ...ar.checkup?.labBasic?.glucose, ...base.checkup?.labBasic?.glucose },
+        lipids: { ...ar.checkup?.labBasic?.lipids, ...base.checkup?.labBasic?.lipids },
+        renal: { ...ar.checkup?.labBasic?.renal, ...base.checkup?.labBasic?.renal },
+        urineRoutine: { ...ar.checkup?.labBasic?.urineRoutine, ...base.checkup?.labBasic?.urineRoutine },
+        bloodRoutine: { ...ar.checkup?.labBasic?.bloodRoutine, ...base.checkup?.labBasic?.bloodRoutine },
+      },
+      bodyComposition: { ...ar.checkup?.bodyComposition, ...base.checkup?.bodyComposition },
+      imagingBasic: {
+        ...ar.checkup?.imagingBasic,
+        ...base.checkup?.imagingBasic,
+        ultrasound: {
+          ...ar.checkup?.imagingBasic?.ultrasound,
+          ...base.checkup?.imagingBasic?.ultrasound,
+        },
+      },
+      optional: { ...ar.checkup?.optional, ...base.checkup?.optional },
+      abnormalities: base.checkup?.abnormalities?.length
+        ? base.checkup.abnormalities
+        : ar.checkup?.abnormalities || [],
+    },
+    questionnaire: {
+      ...emptyQuestionnaire(),
+      ...ar.questionnaire,
+      ...base.questionnaire,
+    },
+    riskModelExtras: { ...ar.riskModelExtras, ...base.riskModelExtras },
+    diabetesManagement: base.diabetesManagement || ar.diabetesManagement,
+  };
+};
+
+export const toEvaluationHealthRecord = (
+  p: DiabetesStandaloneParticipant,
+  archive?: HealthArchive | null
+): HealthRecord => {
   const base: HealthRecord = {
     profile: {
       checkupId: p.checkupId || p.participantKey,
@@ -64,8 +123,14 @@ export const toEvaluationHealthRecord = (p: DiabetesStandaloneParticipant): Heal
     questionnaire: emptyQuestionnaire(),
     diabetesManagement: p.diabetesManagement,
   };
-  return applyScreeningToHealthRecord(base, p.diabetesManagement);
+  const withArchive = mergeArchiveIntoHealthRecord(base, archive);
+  return applyScreeningToHealthRecord(withArchive, p.diabetesManagement);
 };
+
+export const resolveHealthRecordForParticipant = (
+  participant: DiabetesStandaloneParticipant,
+  archive?: HealthArchive | null
+): HealthRecord => toEvaluationHealthRecord(participant, archive);
 
 export const resolveParticipantKey = (input: {
   checkupId?: string;
@@ -320,9 +385,10 @@ export const upsertStandaloneFromScreening = async (
 };
 
 export const reevaluateStandalone = async (
-  participant: DiabetesStandaloneParticipant
+  participant: DiabetesStandaloneParticipant,
+  archive?: HealthArchive | null
 ): Promise<DiabetesAssessmentResult> => {
-  const record = toEvaluationHealthRecord(participant);
+  const record = toEvaluationHealthRecord(participant, archive);
   const report = evaluateDiabetesScreening(record);
   await saveStandaloneParticipant({ ...participant, diabetesReport: report });
   return report;

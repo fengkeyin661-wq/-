@@ -759,6 +759,7 @@ export const App: React.FC = () => {
                     currentParticipant={currentStandalone}
                     onSelectParticipant={setCurrentStandalone}
                     onRefresh={refreshStandaloneParticipants}
+                    archives={archives}
                 />
             )}
             

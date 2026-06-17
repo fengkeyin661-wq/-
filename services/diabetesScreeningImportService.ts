@@ -8,6 +8,11 @@ import { createScreeningId } from './diabetesAssessmentService';
 import { formatCheckupId } from './checkupIdUtils';
 import { parseDiabetesScreeningRowWithAI } from './geminiService';
 import { isFundusSpecialNote } from './diabetesScreeningRules';
+import {
+  applyDirectExcelRowMapping,
+  mergeScreeningParseResults,
+  normalizeDiabetesScreeningRecord,
+} from './diabetesFieldMapping';
 import { upsertStandaloneFromScreening } from './diabetesStandaloneService';
 
 export type DiabetesImportResult = {
@@ -52,33 +57,6 @@ const num = (v: unknown): number | undefined => {
   if (v == null || v === '') return undefined;
   const n = typeof v === 'number' ? v : parseFloat(String(v));
   return Number.isFinite(n) ? n : undefined;
-};
-
-type InbodyRefField =
-  | 'skeletalMuscleRefLow'
-  | 'skeletalMuscleRefHigh'
-  | 'bodyFatMassRefLow'
-  | 'bodyFatMassRefHigh';
-
-/** InBody 个体化正常范围列（表头与 Excel 一致） */
-const INBODY_REF_HEADERS: Record<string, InbodyRefField> = {
-  '下限（骨骼肌质量正常范围）': 'skeletalMuscleRefLow',
-  '上限（骨骼肌质量正常范围）': 'skeletalMuscleRefHigh',
-  '下限（身体脂肪量正常范围）': 'bodyFatMassRefLow',
-  '上限（身体脂肪量正常范围）': 'bodyFatMassRefHigh',
-};
-
-const applyInbodyRefColumns = (
-  headers: string[],
-  row: unknown[],
-  screening: Partial<DiabetesScreeningRecord>
-): void => {
-  headers.forEach((h, i) => {
-    const key = INBODY_REF_HEADERS[String(h).trim()];
-    if (!key) return;
-    const n = num(row[i]);
-    if (n != null) screening[key] = n;
-  });
 };
 
 const applySpecialNoteColumns = (
@@ -158,6 +136,8 @@ export const importDiabetesScreeningExcel = async (
 
       log(`第 ${i + 1} 行：AI 解析中…`);
 
+      const directMapped = applyDirectExcelRowMapping(headers, row);
+
       let parsed;
       try {
         parsed = await parseDiabetesScreeningRowWithAI(rowText);
@@ -166,6 +146,17 @@ export const importDiabetesScreeningExcel = async (
         log(`第 ${i + 1} 行：AI 解析失败 — ${e instanceof Error ? e.message : String(e)}`);
         continue;
       }
+
+      parsed.checkupId = formatCheckupId(parsed.checkupId) || directMapped.checkupId || parsed.checkupId;
+      parsed.name = parsed.name || directMapped.name;
+      parsed.gender = parsed.gender || directMapped.gender;
+      parsed.age = parsed.age ?? directMapped.age;
+
+      const mergedScreening = normalizeDiabetesScreeningRecord(
+        mergeScreeningParseResults(parsed.screening, directMapped.screening)
+      );
+      applySpecialNoteColumns(headers, row, mergedScreening);
+      parsed.screening = mergedScreening;
 
       const participantName = parsed.name || '未命名';
 
@@ -179,8 +170,6 @@ export const importDiabetesScreeningExcel = async (
         continue;
       }
 
-      applyInbodyRefColumns(headers, row, parsed.screening);
-      applySpecialNoteColumns(headers, row, parsed.screening);
       const screening = toScreeningRecord(parsed.screening, { fileName: file.name, rowIndex: i + 1 });
 
 const formatImportSaveError = (e: unknown): string => {

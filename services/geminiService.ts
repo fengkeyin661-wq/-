@@ -3,6 +3,11 @@ import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpR
 import { HabitRecord } from "./dataService";
 import { normalizeCheckupId as normalizeCheckupIdStrict } from './checkupIdUtils';
 import { isFundusSpecialNote } from './diabetesScreeningRules';
+import {
+  DIABETES_AI_FIELD_GUIDE,
+  normalizeDiabetesHealthRecordFields,
+  normalizeDiabetesScreeningRecord,
+} from './diabetesFieldMapping';
 
 // Helper to safely access environment variables
 const getEnvVar = (key: string): string => {
@@ -345,6 +350,18 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          - **selfHarmIdea**: PHQ-9 第9题（自伤念头）的得分。
        - **吸烟数量**：若出现“不到半包”等描述，请映射为大致支数(半包=10, 一包=20等)填入 dailyAmount，同时保留原始描述在 status 或其他字段中。
        - **满意度调查**：提取问卷末尾关于前台、医护、采血、流程、环境的满意度评价（如：非常满意、满意、一般、不满意），以及意见建议。
+       - **糖尿病专项指标**（若报告中有，务必提取）：
+         - 餐后2小时血糖 → riskModelExtras.postprandialGlucose（mmol/L，number）
+         - 胰岛素空腹/餐后2h → checkup.labBasic.insulinFasting / insulinPostprandial2h 或 riskModelExtras 同名字段
+         - C肽空腹/餐后2h → checkup.labBasic.cPeptideFasting / cPeptidePostprandial2h 或 riskModelExtras
+         - 尿微量白蛋白/肌酐比值(UACR) → riskModelExtras.uacr 或 checkup.labBasic.uacr
+         - 同型半胱氨酸 → checkup.labBasic.homocysteine
+         - 脂联素 → checkup.optional.adiponectin
+         - 颈动脉彩超 → checkup.optional.carotidUltrasound
+         - 下肢血管彩超 → checkup.optional.lowerLimbUltrasound 或 riskModelExtras.lowerLimbVascularUltrasound
+         - 神经传导速度 → riskModelExtras.ncv（文本结论）
+         - 糖尿病神经病变筛查/糖尿病足筛查 → riskModelExtras.neuropathyScreening / footExam
+         - 糖化血红蛋白 → checkup.labBasic.hba1c 或 checkup.optional.hba1c
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
@@ -366,6 +383,11 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
             "thyroidFunction": { "t3": "string", "t4": "string", "tsh": "string" },
             "hba1c": "string",
             "homocysteine": "string",
+            "insulinFasting": "string",
+            "insulinPostprandial2h": "string",
+            "cPeptideFasting": "string",
+            "cPeptidePostprandial2h": "string",
+            "uacr": "string",
             "ck": "string"
          },
          "imagingBasic": {
@@ -376,6 +398,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
             "carotidUltrasound": "string", "heartUltrasound": "string", "ct": "string",
             "tct": "string", "hpv": "string", "boneDensity": "string", "fundusPhoto": "string",
             "mammography": "string", "tcd": "string", "c13": "string",
+            "adiponectin": "string", "lowerLimbUltrasound": "string",
             "arteriosclerosis": {
                "leftABI": number, "rightABI": number, "abi": number,
                "leftBaPWV": number, "rightBaPWV": number, "cfPWV": number, "pwv": number,
@@ -383,6 +406,20 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
             }
          },
          "abnormalities": [ { "item": "string", "result": "string", "clinicalSig": "string" } ]
+      },
+      "riskModelExtras": {
+         "postprandialGlucose": number,
+         "insulinFasting": number,
+         "insulinPostprandial2h": number,
+         "cPeptideFasting": number,
+         "cPeptidePostprandial2h": number,
+         "adiponectin": number,
+         "uacr": number,
+         "ncv": "string",
+         "nerveConductionVelocity": "string",
+         "lowerLimbVascularUltrasound": "string",
+         "neuropathyScreening": "string",
+         "footExam": "string"
       },
       "questionnaire": {
          "history": { "diseases": ["string"], "details": { "hypertensionYear": "string", "diabetesYear": "string" } },
@@ -463,6 +500,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
                 },
                 abnormalities: result?.checkup?.abnormalities || []
             },
+            riskModelExtras: { ...(result?.riskModelExtras || {}) },
             questionnaire: {
                 ...DEFAULT_HEALTH_RECORD.questionnaire,
                 ...result?.questionnaire,
@@ -508,7 +546,7 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
         maybePatchMentalScalesFromRaw(raw, merged);
         maybePatchSmokingFromRaw(raw, merged);
 
-        return merged;
+        return normalizeDiabetesHealthRecordFields(merged);
     } catch (e: any) {
         console.error("AI Parse Failed", e);
         const errorRecord = JSON.parse(JSON.stringify(DEFAULT_HEALTH_RECORD));
@@ -978,10 +1016,11 @@ export type ParsedDiabetesScreeningRow = {
 export const parseDiabetesScreeningRowWithAI = async (
   rowText: string
 ): Promise<ParsedDiabetesScreeningRow> => {
-  const systemPrompt = `你是医疗数据结构化专家。用户上传的是「社区糖尿病并发症初筛」Excel 汇总表中的一行，列名与下列字段对应（列名可能略有差异，请智能匹配）：
+  const systemPrompt = `你是医疗数据结构化专家。用户上传的是「社区糖尿病并发症初筛/年度体检汇总」Excel 中的一行，列名可能略有差异，请智能匹配。
 
-【基本信息】体检编号、体检次数、姓名、性别、年龄、身份证号、联系电话、检查状态、登记日期
-【血糖】空腹血糖、餐后随机血糖、糖代谢风险
+${DIABETES_AI_FIELD_GUIDE}
+
+【基本信息】体检编号(6位数字)、体检次数、姓名、性别、年龄、身份证号、联系电话、检查状态、登记日期
 【心电图】心率(bpm)、PR间期(ms)、QRS宽度(ms)、QT/QTc(ms)、QRS电轴(°)、RV5/SV1(mV)、诊断提示
 【动脉硬化】左/右臂踝脉搏波传导速度(baPWV,cm/s)、颈股脉搏波传导速度(cfPWV,m/s)、左/右踝臂指数(ABI)、左/右上肢收缩压/舒张压/脉率、左/右踝收缩压/舒张压、动脉硬化风险、动脉硬化结论、动脉硬化特别提示
 【眼底】右眼评估、左眼评估、眼底特别提示（如小瞳孔/白内障致图像模糊等）
@@ -1003,7 +1042,29 @@ export const parseDiabetesScreeningRowWithAI = async (
     "screeningPhone": "string",
     "fastingGlucose": number,
     "postprandialRandomGlucose": number,
+    "hba1c": number,
     "glucoseMetabolismRisk": "string",
+    "insulinFasting": number,
+    "insulinPostprandial2h": number,
+    "cPeptideFasting": number,
+    "cPeptidePostprandial2h": number,
+    "adiponectin": "string",
+    "homocysteine": number,
+    "uacr": "string",
+    "urineRoutineSummary": "string",
+    "urineProtein": "string",
+    "creatinine": "string",
+    "urea": "string",
+    "uricAcid": "string",
+    "tc": "string",
+    "tg": "string",
+    "ldl": "string",
+    "hdl": "string",
+    "carotidUltrasound": "string",
+    "lowerLimbVascularUltrasound": "string",
+    "ncvResult": "string",
+    "neuropathyScreening": "string",
+    "footExamResult": "string",
     "ecgHeartRate": number,
     "ecgPrInterval": number,
     "ecgQrsWidth": number,
@@ -1054,9 +1115,10 @@ export const parseDiabetesScreeningRowWithAI = async (
   }
 }
 
-规则：体检编号仅取6位数字；空腹血糖/餐后随机血糖单位 mmol/L；baPWV 单位 cm/s；cfPWV 单位 m/s；血压 mmHg。
-InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正常范围）→ skeletalMuscleRefLow、上限（骨骼肌质量正常范围）→ skeletalMuscleRefHigh、下限（身体脂肪量正常范围）→ bodyFatMassRefLow、上限（身体脂肪量正常范围）→ bodyFatMassRefHigh，单位 kg。
-特别提示分流：与眼/瞳孔/白内障/视网膜/眼底/照相/图片模糊相关 → fundusSpecialNote；与动脉/血管/PWV/ABI/硬化相关 → arteriosclerosisSpecialNote；勿混用。`;
+规则：体检编号仅取6位数字；空腹血糖/餐后2小时血糖单位 mmol/L；HbA1c 单位 %；同型半胱氨酸 μmol/L；baPWV cm/s；cfPWV m/s；血压 mmHg。
+餐后2小时血糖列名可能是「餐后2h血糖」「2hPG」，均映射 postprandialRandomGlucose。
+InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正常范围）→ skeletalMuscleRefLow 等，单位 kg。
+特别提示分流：与眼/瞳孔/白内障/视网膜/眼底/照相/图片模糊相关 → fundusSpecialNote；与动脉/血管/PWV/ABI/硬化相关 → arteriosclerosisSpecialNote。`;
 
   const jsonText = await callDeepSeek(systemPrompt, rowText);
   if (!jsonText) throw new Error('AI 返回为空');
@@ -1065,28 +1127,12 @@ InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正�
   if (!parsed.screening) parsed.screening = {};
   if (!parsed.checkupId) parsed.checkupId = '';
 
-  const s = parsed.screening;
-  if (s.fastingGlucose != null && s.glucoseValue == null) {
-    s.glucoseType = 'fasting';
-    s.glucoseValue = s.fastingGlucose;
-  }
-  if (s.postprandialRandomGlucose != null && s.glucoseType !== 'fasting') {
-    s.glucoseType = 'postprandial';
-    s.glucoseValue = s.postprandialRandomGlucose;
-  }
-  if (s.rightABI != null && s.abi == null) s.abi = s.rightABI;
-  if (s.rightBaPWV != null && s.pwv == null) s.pwv = s.rightBaPWV;
-  if (s.ecgDiagnosisHint && !s.ecgResult) s.ecgResult = s.ecgDiagnosisHint;
-  if (s.rightEyeAssessment || s.leftEyeAssessment) {
-    s.fundusResult = [s.rightEyeAssessment, s.leftEyeAssessment].filter(Boolean).join('；');
-  }
-  if (!s.screeningDate && s.registrationDate) s.screeningDate = s.registrationDate;
-  if (!s.activityName) s.activityName = '社区糖尿病并发症筛查';
+  normalizeDiabetesScreeningRecord(parsed.screening);
 
-  const legacyNote = (s as { specialNote?: string }).specialNote;
-  if (legacyNote && !s.fundusSpecialNote && !s.arteriosclerosisSpecialNote) {
-    if (isFundusSpecialNote(legacyNote)) s.fundusSpecialNote = legacyNote;
-    else s.arteriosclerosisSpecialNote = legacyNote;
+  const legacyNote = (parsed.screening as { specialNote?: string }).specialNote;
+  if (legacyNote && !parsed.screening.fundusSpecialNote && !parsed.screening.arteriosclerosisSpecialNote) {
+    if (isFundusSpecialNote(legacyNote)) parsed.screening.fundusSpecialNote = legacyNote;
+    else parsed.screening.arteriosclerosisSpecialNote = legacyNote;
   }
 
   return parsed;
