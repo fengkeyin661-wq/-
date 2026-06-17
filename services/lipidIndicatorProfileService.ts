@@ -15,6 +15,7 @@ import {
   firstCheckupPathValue,
   formatLiverEnzymesCheckup,
   formatRenalCheckup,
+  formatRenalScreening,
   mergeProfileValues,
 } from './indicatorProfileValueUtils';
 
@@ -45,7 +46,7 @@ const getByPath = (obj: unknown, path: string): unknown =>
 const catLabel = (id: LipidCatalogItem['category']) =>
   LIPID_INDICATOR_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 
-const screeningVal = (item: LipidCatalogItem, s: LipidScreeningRecord | null) => {
+const screeningVal = (item: LipidCatalogItem, s: LipidScreeningRecord | null, record: HealthRecord) => {
   if (!s) return { hasScreening: false as const };
   const parts: string[] = [];
   let ok = false;
@@ -66,6 +67,18 @@ const screeningVal = (item: LipidCatalogItem, s: LipidScreeningRecord | null) =>
     if (p.length) {
       ok = true;
       parts.push(p.join('；'));
+    }
+  }
+  if (item.id === 'renal') {
+    const value = formatRenalScreening(
+      s.creatinine,
+      [s.creatinine ? `肌酐 ${s.creatinine}` : ''].filter(Boolean),
+      record.profile?.age,
+      record.profile?.gender
+    );
+    if (value) {
+      ok = true;
+      parts.push(value);
     }
   }
   if (item.id === 'glucose_hba1c') {
@@ -139,7 +152,7 @@ const buildItem = (
   observedDate?: string
 ): LipidIndicatorProfileItem => {
   const skipScreening = CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id);
-  const fromS = skipScreening ? { hasScreening: false as const } : screeningVal(item, screening);
+  const fromS = skipScreening ? { hasScreening: false as const } : screeningVal(item, screening, record);
   const fromC = checkupVal(item, record);
   const present = fromS.hasScreening || fromC.hasCheckup;
   let dataSource: LipidIndicatorProfileItem['dataSource'];

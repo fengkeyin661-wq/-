@@ -11,7 +11,7 @@ import {
   ScreeningCatalogItem,
 } from './diabetesScreeningCatalog';
 import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './latestCheckupVitalsService';
-import { firstCheckupPathValue, mergeProfileValues } from './indicatorProfileValueUtils';
+import { firstCheckupPathValue, formatRenalCheckup, formatRenalScreening, mergeProfileValues } from './indicatorProfileValueUtils';
 
 const EMPTY_MARKERS = new Set(['', '未查', '无', '—', '-', 'N/A', 'n/a']);
 
@@ -50,9 +50,10 @@ const categoryLabelOf = (categoryId: ScreeningCatalogItem['category']): string =
 
 const screeningValueForItem = (
   item: ScreeningCatalogItem,
-  screening: DiabetesScreeningRecord | null
+  screening: DiabetesScreeningRecord | null,
+  record: HealthRecord
 ): { value?: string; hasScreening: boolean } => {
-  if (!screening || !item.screeningFields?.length) return { hasScreening: false };
+  if (!screening) return { hasScreening: false };
 
   const parts: string[] = [];
   let hasScreening = false;
@@ -128,14 +129,19 @@ const screeningValueForItem = (
   }
 
   if (item.id === 'renal') {
-    const renalParts = [
-      screening.creatinine ? `肌酐 ${screening.creatinine}` : '',
-      screening.urea ? `尿素 ${screening.urea}` : '',
-      screening.uricAcid ? `尿酸 ${screening.uricAcid}` : '',
-    ].filter(Boolean);
-    if (renalParts.length) {
+    const value = formatRenalScreening(
+      screening.creatinine,
+      [
+        screening.creatinine ? `肌酐 ${screening.creatinine}` : '',
+        screening.urea ? `尿素 ${screening.urea}` : '',
+        screening.uricAcid ? `尿酸 ${screening.uricAcid}` : '',
+      ].filter(Boolean),
+      record.profile?.age,
+      record.profile?.gender
+    );
+    if (value) {
       hasScreening = true;
-      parts.push(renalParts.join('；'));
+      parts.push(value);
     }
   }
 
@@ -192,16 +198,7 @@ const checkupValueForItem = (item: ScreeningCatalogItem, record: HealthRecord): 
   }
   if (!item.checkupPaths?.length) return { hasCheckup: false };
 
-  if (item.id === 'renal') {
-    const renal = record.checkup?.labBasic?.renal;
-    const parts = [
-      renal?.creatinine ? `肌酐 ${renal.creatinine}` : '',
-      renal?.urea ? `尿素 ${renal.urea}` : '',
-      renal?.ua ? `尿酸 ${renal.ua}` : '',
-    ].filter(Boolean);
-    if (parts.length) return { value: parts.join('；'), hasCheckup: true };
-    return { hasCheckup: false };
-  }
+  if (item.id === 'renal') return formatRenalCheckup(record);
 
   if (item.id === 'lipids') {
     const lipids = record.checkup?.labBasic?.lipids;
@@ -268,7 +265,7 @@ const buildProfileItem = (
   const skipScreening = CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id);
   const fromScreening = skipScreening
     ? { hasScreening: false as const }
-    : screeningValueForItem(item, screening);
+    : screeningValueForItem(item, screening, record);
   const fromCheckup = checkupValueForItem(item, record);
 
   const present = fromScreening.hasScreening || fromCheckup.hasCheckup;

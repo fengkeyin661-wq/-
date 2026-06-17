@@ -1,4 +1,5 @@
 import type { HealthRecord } from '../types';
+import { formatEgfrDisplayLine } from './egfrService';
 
 const EMPTY = new Set(['', '未查', '无', '—', '-', 'N/A', 'n/a']);
 
@@ -62,6 +63,13 @@ export const formatRenalCheckup = (
     renal?.ua != null && renal.ua !== '' ? `尿酸 ${renal.ua}` : '',
   ].filter(Boolean);
 
+  const egfrLine = formatEgfrDisplayLine(
+    renal?.creatinine,
+    record.profile?.age,
+    record.profile?.gender
+  );
+  if (egfrLine) parts.push(egfrLine);
+
   if (extraPaths?.length) {
     for (const p of extraPaths) {
       const raw = getByPath(record, p);
@@ -72,4 +80,17 @@ export const formatRenalCheckup = (
   }
 
   return parts.length ? { value: parts.join('；'), hasCheckup: true } : { hasCheckup: false };
+};
+
+/** 专项筛查记录中的肾功能展示（含 eGFR 估算） */
+export const formatRenalScreening = (
+  creatinine: unknown,
+  extras: string[],
+  age?: number,
+  gender?: string
+): string | undefined => {
+  const parts = extras.filter(Boolean);
+  const egfrLine = formatEgfrDisplayLine(creatinine, age, gender);
+  if (egfrLine) parts.push(egfrLine);
+  return parts.length ? parts.join('；') : undefined;
 };

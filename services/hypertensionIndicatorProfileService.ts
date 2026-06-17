@@ -14,6 +14,7 @@ import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './late
 import {
   firstCheckupPathValue,
   formatRenalCheckup,
+  formatRenalScreening,
   mergeProfileValues,
 } from './indicatorProfileValueUtils';
 
@@ -44,7 +45,11 @@ const getByPath = (obj: unknown, path: string): unknown =>
 const catLabel = (id: HypertensionCatalogItem['category']) =>
   HYPERTENSION_INDICATOR_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 
-const screeningVal = (item: HypertensionCatalogItem, s: HypertensionScreeningRecord | null) => {
+const screeningVal = (
+  item: HypertensionCatalogItem,
+  s: HypertensionScreeningRecord | null,
+  record: HealthRecord
+) => {
   if (!s) return { hasScreening: false as const };
   const parts: string[] = [];
   let ok = false;
@@ -61,10 +66,18 @@ const screeningVal = (item: HypertensionCatalogItem, s: HypertensionScreeningRec
     }
   }
   if (item.id === 'renal') {
-    const p = [s.creatinine && `肌酐 ${s.creatinine}`, s.urea && `尿素 ${s.urea}`].filter(Boolean);
-    if (p.length) {
+    const value = formatRenalScreening(
+      s.creatinine,
+      [
+        s.creatinine ? `肌酐 ${s.creatinine}` : '',
+        s.urea ? `尿素 ${s.urea}` : '',
+      ].filter(Boolean),
+      record.profile?.age,
+      record.profile?.gender
+    );
+    if (value) {
       ok = true;
-      parts.push(p.join('；'));
+      parts.push(value);
     }
   }
   if (item.id === 'glucose_hba1c') {
@@ -130,7 +143,7 @@ const buildItem = (
   observedDate?: string
 ): HypertensionIndicatorProfileItem => {
   const skipScreening = CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id);
-  const fromS = skipScreening ? { hasScreening: false as const } : screeningVal(item, screening);
+  const fromS = skipScreening ? { hasScreening: false as const } : screeningVal(item, screening, record);
   const fromC = checkupVal(item, record);
   const present = fromS.hasScreening || fromC.hasCheckup;
   let dataSource: HypertensionIndicatorProfileItem['dataSource'];
