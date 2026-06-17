@@ -1,4 +1,9 @@
 import type { HealthRecord } from '../types';
+import {
+  evaluateLatestCheckupBloodPressure,
+  getLatestCheckupBloodPressure,
+  type BloodPressureSeverity,
+} from './latestCheckupVitalsService';
 
 export type HighBloodPressureSeverity = 'elevated' | 'stage1' | 'stage2' | 'crisis';
 
@@ -10,67 +15,27 @@ export interface HighBloodPressureTagInfo {
   reasons: string[];
 }
 
-const num = (v: unknown): number | undefined => {
-  if (v == null || v === '') return undefined;
-  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^\d.-]/g, ''));
-  return Number.isFinite(n) && n > 0 ? n : undefined;
+const mapSeverity = (s: BloodPressureSeverity): HighBloodPressureSeverity => {
+  if (s === 'crisis') return 'crisis';
+  if (s === 'stage2') return 'stage2';
+  if (s === 'stage1') return 'stage1';
+  return 'elevated';
 };
 
-const sbpFromRecord = (record: HealthRecord): number | undefined =>
-  num(record.checkup?.basics?.sbp) ??
-  num(record.riskModelExtras?.sbp) ??
-  num(record.hypertensionManagement?.screenings?.[0]?.sbp);
-
-const dbpFromRecord = (record: HealthRecord): number | undefined =>
-  num(record.checkup?.basics?.dbp) ??
-  num(record.riskModelExtras?.dbp) ??
-  num(record.hypertensionManagement?.screenings?.[0]?.dbp);
-
-/** 与 hypertensionAssessmentService inferCohortTag 阈值对齐 */
+/** 仅依据最近一次体检 checkup 诊室血压，严格按参考范围判定（不含问卷史、专项筛查） */
 export const detectHighBloodPressureTag = (record: HealthRecord): HighBloodPressureTagInfo => {
-  const reasons: string[] = [];
-  let severity: HighBloodPressureSeverity | null = null;
+  const evalResult = evaluateLatestCheckupBloodPressure(getLatestCheckupBloodPressure(record));
 
-  const sbp = sbpFromRecord(record);
-  const dbp = dbpFromRecord(record);
-
-  const diseases = record.questionnaire?.history?.diseases || [];
-  if (diseases.some((d) => /高血压/.test(d) && !/家族/.test(d))) {
-    reasons.push('既往史：高血压');
-    severity = severity || 'stage1';
-  }
-
-  const bump = (next: HighBloodPressureSeverity, reason: string) => {
-    reasons.push(reason);
-    const rank: Record<HighBloodPressureSeverity, number> = {
-      elevated: 1,
-      stage1: 2,
-      stage2: 3,
-      crisis: 4,
-    };
-    if (!severity || rank[next] > rank[severity]) severity = next;
-  };
-
-  if ((sbp != null && sbp >= 180) || (dbp != null && dbp >= 110)) {
-    bump('crisis', `血压 ${sbp ?? '—'}/${dbp ?? '—'} mmHg（高血压危象阈值）`);
-  } else if ((sbp != null && sbp >= 160) || (dbp != null && dbp >= 100)) {
-    bump('stage2', `血压 ${sbp}/${dbp} mmHg（≥160/100）`);
-  } else if ((sbp != null && sbp >= 140) || (dbp != null && dbp >= 90)) {
-    bump('stage1', `血压 ${sbp}/${dbp} mmHg（≥140/90）`);
-  } else if ((sbp != null && sbp >= 130) || (dbp != null && dbp >= 80)) {
-    bump('elevated', `血压 ${sbp}/${dbp} mmHg（130–139/80–89）`);
-  }
-
-  if (!severity) {
+  if (!evalResult.abnormal) {
     return { show: false, label: '', severity: 'elevated', summary: '', reasons: [] };
   }
 
   return {
     show: true,
     label: '血压偏高',
-    severity,
-    summary: reasons[0] || '血压偏高',
-    reasons,
+    severity: mapSeverity(evalResult.severity),
+    summary: evalResult.reasons[0] || '血压偏高',
+    reasons: evalResult.reasons,
   };
 };
 
@@ -83,8 +48,6 @@ export const highBloodPressureTagClassName = (severity: HighBloodPressureSeverit
 
 export const isHypertensionCohort = (record: HealthRecord): boolean => {
   if (detectHighBloodPressureTag(record).show) return true;
-  const diseases = record.questionnaire?.history?.diseases || [];
-  if (diseases.some((d) => /高血压/.test(d))) return true;
   if (record.hypertensionManagement?.screenings?.length) return true;
   if (record.hypertensionManagement?.cohortTag) return true;
   return false;

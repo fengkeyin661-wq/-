@@ -298,7 +298,8 @@ export const ensureLipidStandaloneFromArchive = async (
   if (screening) {
     hm.screenings.push(screening);
     hm.annualCheckupLinked = true;
-    hm.cohortTag = inferCohortTagFromRecord(archive.health_record, screening);
+    const tag = inferCohortTagFromRecord(archive.health_record, screening);
+    if (tag) hm.cohortTag = tag;
   }
 
   const participant: LipidStandaloneParticipant = {
@@ -401,7 +402,8 @@ export const upsertLipidStandaloneFromScreening = async (
   };
 
   const record = toLipidEvaluationRecord(participant);
-  participant.lipidManagement.cohortTag = inferCohortTagFromRecord(record, latestScreening);
+  const tag = inferCohortTagFromRecord(record, latestScreening);
+  if (tag) participant.lipidManagement.cohortTag = tag;
   const report = evaluateLipidScreening(record);
   participant.lipidReport = report;
 

@@ -312,7 +312,8 @@ export const ensureHypertensionStandaloneFromArchive = async (
   if (screening) {
     hm.screenings.push(screening);
     hm.annualCheckupLinked = true;
-    hm.cohortTag = inferCohortTagFromRecord(hr, screening);
+    const tag = inferCohortTagFromRecord(hr, screening);
+    if (tag) hm.cohortTag = tag;
   }
 
   const participant: HypertensionStandaloneParticipant = {
@@ -442,10 +443,8 @@ export const upsertHypertensionStandaloneFromScreening = async (
   };
 
   const record = toHypertensionEvaluationRecord(participant);
-  participant.hypertensionManagement.cohortTag = inferCohortTagFromRecord(
-    record,
-    latestScreening
-  );
+  const tag = inferCohortTagFromRecord(record, latestScreening);
+  if (tag) participant.hypertensionManagement.cohortTag = tag;
   const report = evaluateHypertensionScreening(record);
   participant.hypertensionReport = report;
 

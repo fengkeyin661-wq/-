@@ -15,6 +15,10 @@ import {
 } from './diabetesScreeningCatalog';
 import { detectHighGlucoseTag } from './glucoseTagService';
 import {
+  CHECKUP_ONLY_VITAL_ITEM_IDS,
+  evaluateLatestCheckupGlucose,
+} from './latestCheckupVitalsService';
+import {
   getDietGuidance,
   getExerciseGuidance,
   getIndicatorEducation,
@@ -84,6 +88,9 @@ const isExtendedItemPresent = (
   screening: DiabetesScreeningRecord | null,
   record: HealthRecord
 ): boolean => {
+  if (CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id)) {
+    return item.checkupPaths?.some((p) => hasText(getByPath(record, p))) ?? false;
+  }
   if (COMMUNITY_SCREENING_IDS.includes(item.id as (typeof COMMUNITY_SCREENING_IDS)[number])) {
     const check = INITIAL_SCREENING_CHECKS.find((c) => {
       if (item.id.startsWith('glucose')) return c.id === 'glucose';
@@ -112,25 +119,18 @@ const isExtendedItemPresent = (
 };
 
 const inferCohortTag = (
-  questionnaire: QuestionnaireData,
-  screening: DiabetesScreeningRecord | null,
+  _questionnaire: QuestionnaireData,
+  _screening: DiabetesScreeningRecord | null,
   checkup: CheckupData
-): DiabetesManagementData['cohortTag'] => {
-  const diseases = questionnaire.history?.diseases || [];
-  if (diseases.some((d) => d.includes('糖尿病') && !d.includes('前期'))) return 'diabetes';
-  if (diseases.some((d) => d.includes('糖尿病前期') || d.includes('糖耐量'))) return 'prediabetes';
-
-  const fasting =
-    num(screening?.fastingGlucose) ??
-    (screening?.glucoseType === 'fasting' ? screening?.glucoseValue : undefined) ??
-    num(checkup.labBasic?.glucose?.fasting);
-  const post =
-    num(screening?.postprandialRandomGlucose) ??
-    (screening?.glucoseType === 'postprandial' ? screening?.glucoseValue : undefined);
-
-  if ((fasting != null && fasting >= 7.0) || (post != null && post >= 11.1)) return 'diabetes';
-  if ((fasting != null && fasting >= 6.1) || (post != null && post >= 7.8)) return 'prediabetes';
-  return 'high_glucose';
+): DiabetesManagementData['cohortTag'] | undefined => {
+  const glucoseEval = evaluateLatestCheckupGlucose({
+    fasting: num(checkup.labBasic?.glucose?.fasting),
+    hba1c: num(checkup.labBasic?.hba1c) ?? num(checkup.optional?.hba1c),
+  });
+  if (glucoseEval.severity === 'diabetes') return 'diabetes';
+  if (glucoseEval.severity === 'prediabetes') return 'prediabetes';
+  if (glucoseEval.abnormal) return 'high_glucose';
+  return undefined;
 };
 
 export const mergeScreeningWithCheckup = (
@@ -368,25 +368,9 @@ export const mergeDiabetesResultToAssessment = (
 export const isDiabetesCohort = (record: HealthRecord): boolean => {
   if (detectHighGlucoseTag(record).show) return true;
 
-  const diseases = record.questionnaire?.history?.diseases || [];
-  if (diseases.some((d) => /糖尿病|血糖/.test(d))) return true;
-
   const dm = record.diabetesManagement;
   if (dm?.screenings?.length) return true;
   if (dm?.cohortTag) return true;
-
-  const fasting = num(record.checkup?.labBasic?.glucose?.fasting);
-  if (fasting != null && fasting >= 6.1) return true;
-
-  const latest = getLatestScreening(dm || { screenings: [] });
-  const f =
-    num(latest?.fastingGlucose) ??
-    (latest?.glucoseType === 'fasting' ? latest?.glucoseValue : undefined);
-  const p =
-    num(latest?.postprandialRandomGlucose) ??
-    (latest?.glucoseType === 'postprandial' ? latest?.glucoseValue : undefined);
-  if (f != null && f >= 6.1) return true;
-  if (p != null && p >= 7.8) return true;
 
   return false;
 };

@@ -10,6 +10,7 @@ import {
   LIPID_SCREENING_CATALOG,
   LipidCatalogItem,
 } from './lipidScreeningCatalog';
+import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './latestCheckupVitalsService';
 
 const EMPTY = new Set(['', '未查', '无', '—', '-']);
 
@@ -107,6 +108,9 @@ const screeningVal = (item: LipidCatalogItem, s: LipidScreeningRecord | null) =>
 };
 
 const checkupVal = (item: LipidCatalogItem, record: HealthRecord) => {
+  if (CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id)) {
+    return getCheckupVitalProfileValue(item.id, record);
+  }
   if (!item.checkupPaths?.length) return { hasCheckup: false as const };
   const values: string[] = [];
   for (const p of item.checkupPaths) {
@@ -123,15 +127,22 @@ const buildItem = (
   screening: LipidScreeningRecord | null,
   observedDate?: string
 ): LipidIndicatorProfileItem => {
-  const fromS = screeningVal(item, screening);
+  const skipScreening = CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id);
+  const fromS = skipScreening ? { hasScreening: false as const } : screeningVal(item, screening);
   const fromC = checkupVal(item, record);
   const present = fromS.hasScreening || fromC.hasCheckup;
   let dataSource: LipidIndicatorProfileItem['dataSource'];
-  if (fromS.hasScreening && fromC.hasCheckup) dataSource = 'both';
+  if (skipScreening && fromC.hasCheckup) dataSource = 'checkup';
+  else if (fromS.hasScreening && fromC.hasCheckup) dataSource = 'both';
   else if (fromS.hasScreening) dataSource = 'screening';
   else if (fromC.hasCheckup) dataSource = 'checkup';
 
-  const value = [...new Set([fromS.value, fromC.value].filter(Boolean))].join('；') || undefined;
+  const value = skipScreening
+    ? fromC.value
+    : [...new Set([fromS.value, fromC.value].filter(Boolean))].join('；') || undefined;
+
+  const checkupDate = record.profile?.checkupDate?.trim() || observedDate;
+  const itemObservedDate = skipScreening && fromC.hasCheckup ? checkupDate : observedDate;
 
   return {
     itemId: item.id,
@@ -146,7 +157,7 @@ const buildItem = (
     retestCycle: item.retestCycle,
     priority: item.priority,
     dataSource,
-    observedDate: present ? observedDate : undefined,
+    observedDate: present ? itemObservedDate : undefined,
     retestReminder: present ? undefined : `建议补测：${item.label}（${item.retestCycle}）`,
   };
 };

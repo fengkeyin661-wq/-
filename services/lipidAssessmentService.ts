@@ -9,6 +9,10 @@ import type {
 } from '../types';
 import { RiskLevel } from '../types';
 import { detectDyslipidemiaTag } from './lipidTagService';
+import {
+  CHECKUP_ONLY_VITAL_ITEM_IDS,
+  getLatestCheckupLipids,
+} from './latestCheckupVitalsService';
 import { LIPID_GUIDELINE_NOTES, getLipidLifestyleGuidance } from './lipidEducationContent';
 import { buildLipidIndicatorProfile } from './lipidIndicatorProfileService';
 import { LIPID_SCREENING_CATALOG, LipidCatalogItem } from './lipidScreeningCatalog';
@@ -41,24 +45,10 @@ export const createEmptyLipidManagement = (): LipidManagementData => ({ screenin
 export const createLipidScreeningId = (): string =>
   `ls_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-export const isLipidCohort = (record: HealthRecord): boolean => detectDyslipidemiaTag(record).show;
-
-const inferCohortTag = (
-  record: HealthRecord,
-  screening: LipidScreeningRecord | null
-): LipidManagementData['cohortTag'] => {
-  const tc = num(screening?.tc) ?? num(record.checkup?.labBasic?.lipids?.tc);
-  const tg = num(screening?.tg) ?? num(record.checkup?.labBasic?.lipids?.tg);
-  const ldl = num(screening?.ldl) ?? num(record.checkup?.labBasic?.lipids?.ldl);
-
-  if ((ldl != null && ldl >= 4.9) || (tg != null && tg >= 5.6)) return 'very_high_risk';
-  const highChol = (ldl != null && ldl >= 4.1) || (tc != null && tc >= 6.2);
-  const highTg = tg != null && tg >= 2.3;
-  if (highChol && highTg) return 'mixed';
-  if (highChol) return 'hypercholesterolemia';
-  if (highTg) return 'hypertriglyceridemia';
-
+/** 血脂分层仅依据最近一次体检 checkup，不合并专项筛查血脂 */
+const inferCohortTag = (record: HealthRecord): LipidManagementData['cohortTag'] | undefined => {
   const tag = detectDyslipidemiaTag(record);
+  if (!tag.show) return undefined;
   if (tag.severity === 'very_high_risk') return 'very_high_risk';
   if (tag.severity === 'mixed') return 'mixed';
   if (tag.severity === 'hypercholesterolemia') return 'hypercholesterolemia';
@@ -66,13 +56,19 @@ const inferCohortTag = (
   return 'borderline';
 };
 
-export const inferCohortTagFromRecord = inferCohortTag;
+export const inferCohortTagFromRecord = (
+  record: HealthRecord,
+  _screening?: LipidScreeningRecord | null
+): LipidManagementData['cohortTag'] | undefined => inferCohortTag(record);
 
 const isItemPresent = (
   item: LipidCatalogItem,
   screening: LipidScreeningRecord | null,
   record: HealthRecord
 ): boolean => {
+  if (CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id)) {
+    return item.checkupPaths?.some((p) => hasText(getByPath(record, p))) ?? false;
+  }
   if (item.screeningFields?.length && screening) {
     const ok = item.screeningFields.some((f) => {
       const v = screening[f];
@@ -105,12 +101,10 @@ const buildMissedItems = (record: HealthRecord, screening: LipidScreeningRecord 
   });
 };
 
-const buildLipidFindings = (record: HealthRecord, screening: LipidScreeningRecord | null): string[] => {
+const buildLipidFindings = (record: HealthRecord): string[] => {
   const findings: string[] = [];
-  const tc = num(screening?.tc) ?? num(record.checkup?.labBasic?.lipids?.tc);
-  const tg = num(screening?.tg) ?? num(record.checkup?.labBasic?.lipids?.tg);
-  const ldl = num(screening?.ldl) ?? num(record.checkup?.labBasic?.lipids?.ldl);
-  const hdl = num(screening?.hdl) ?? num(record.checkup?.labBasic?.lipids?.hdl);
+  const lipids = getLatestCheckupLipids(record);
+  const { tc, tg, ldl, hdl } = lipids;
 
   if (tc != null || tg != null || ldl != null || hdl != null) {
     findings.push(
@@ -163,7 +157,7 @@ const cohortLabel = (tag?: LipidManagementData['cohortTag']): string => {
 export const evaluateLipidScreening = (record: HealthRecord): LipidAssessmentResult => {
   const lm = record.lipidManagement || { screenings: [] };
   const latest = getLatestLipidScreening(lm);
-  const cohortTag = lm.cohortTag || inferCohortTag(record, latest);
+  const cohortTag = lm.cohortTag || inferCohortTag(record);
 
   const indicatorProfile: LipidIndicatorProfile = buildLipidIndicatorProfile(record, latest, {
     linkedArchiveCheckupId: record.profile?.checkupId,
@@ -171,12 +165,13 @@ export const evaluateLipidScreening = (record: HealthRecord): LipidAssessmentRes
   });
 
   const missedItems = buildMissedItems(record, latest);
-  const lipidFindings = buildLipidFindings(record, latest);
+  const lipidFindings = buildLipidFindings(record);
   const retestAdvice = buildRetestFromMissed(missedItems);
 
   const ascvdAlerts: string[] = [];
-  const tg = num(latest?.tg) ?? num(record.checkup?.labBasic?.lipids?.tg);
-  const ldl = num(latest?.ldl) ?? num(record.checkup?.labBasic?.lipids?.ldl);
+  const checkupLipids = getLatestCheckupLipids(record);
+  const tg = checkupLipids.tg;
+  const ldl = checkupLipids.ldl;
   if (tg != null && tg >= 5.6) {
     ascvdAlerts.push('甘油三酯极高：优先降 TG 并排查继发性因素（酗酒、糖尿病、肾病等）');
   }

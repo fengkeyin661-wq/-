@@ -10,6 +10,7 @@ import {
   DIABETES_SCREENING_CATALOG,
   ScreeningCatalogItem,
 } from './diabetesScreeningCatalog';
+import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './latestCheckupVitalsService';
 
 const EMPTY_MARKERS = new Set(['', '未查', '无', '—', '-', 'N/A', 'n/a']);
 
@@ -185,6 +186,9 @@ const screeningValueForItem = (
 };
 
 const checkupValueForItem = (item: ScreeningCatalogItem, record: HealthRecord): { value?: string; hasCheckup: boolean } => {
+  if (CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id)) {
+    return getCheckupVitalProfileValue(item.id, record);
+  }
   if (!item.checkupPaths?.length) return { hasCheckup: false };
 
   if (item.id === 'renal') {
@@ -256,17 +260,26 @@ const buildProfileItem = (
   screening: DiabetesScreeningRecord | null,
   observedDate?: string
 ): DiabetesIndicatorProfileItem => {
-  const fromScreening = screeningValueForItem(item, screening);
+  const skipScreening = CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id);
+  const fromScreening = skipScreening
+    ? { hasScreening: false as const }
+    : screeningValueForItem(item, screening);
   const fromCheckup = checkupValueForItem(item, record);
 
   const present = fromScreening.hasScreening || fromCheckup.hasCheckup;
   let dataSource: DiabetesIndicatorProfileItem['dataSource'];
-  if (fromScreening.hasScreening && fromCheckup.hasCheckup) dataSource = 'both';
+  if (skipScreening && fromCheckup.hasCheckup) dataSource = 'checkup';
+  else if (fromScreening.hasScreening && fromCheckup.hasCheckup) dataSource = 'both';
   else if (fromScreening.hasScreening) dataSource = 'screening';
   else if (fromCheckup.hasCheckup) dataSource = 'checkup';
 
-  const valueParts = [fromScreening.value, fromCheckup.value].filter(Boolean);
+  const valueParts = skipScreening
+    ? [fromCheckup.value].filter(Boolean)
+    : [fromScreening.value, fromCheckup.value].filter(Boolean);
   const value = valueParts.length ? [...new Set(valueParts)].join('；') : undefined;
+
+  const checkupDate = record.profile?.checkupDate?.trim() || observedDate;
+  const itemObservedDate = skipScreening && fromCheckup.hasCheckup ? checkupDate : observedDate;
 
   const retestReminder = present
     ? undefined
@@ -285,7 +298,7 @@ const buildProfileItem = (
     retestCycle: item.retestCycle,
     priority: item.priority,
     dataSource,
-    observedDate: present ? observedDate : undefined,
+    observedDate: present ? itemObservedDate : undefined,
     retestReminder,
   };
 };

@@ -10,6 +10,10 @@ import type {
 import { RiskLevel } from '../types';
 import { detectHighBloodPressureTag } from './bloodPressureTagService';
 import {
+  CHECKUP_ONLY_VITAL_ITEM_IDS,
+  getLatestCheckupBloodPressure,
+} from './latestCheckupVitalsService';
+import {
   HYPERTENSION_GUIDELINE_NOTES,
   getHypertensionLifestyleGuidance,
 } from './hypertensionEducationContent';
@@ -51,30 +55,29 @@ export const createEmptyHypertensionManagement = (): HypertensionManagementData 
 export const createHypertensionScreeningId = (): string =>
   `hs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-const inferCohortTag = (
-  record: HealthRecord,
-  screening: HypertensionScreeningRecord | null
-): HypertensionManagementData['cohortTag'] => {
-  const sbp = num(screening?.sbp) ?? num(record.checkup?.basics?.sbp);
-  const dbp = num(screening?.dbp) ?? num(record.checkup?.basics?.dbp);
-  if ((sbp != null && sbp >= 180) || (dbp != null && dbp >= 110)) return 'crisis';
-  if ((sbp != null && sbp >= 160) || (dbp != null && dbp >= 100)) return 'stage2';
-  if ((sbp != null && sbp >= 140) || (dbp != null && dbp >= 90)) return 'stage1';
-  if ((sbp != null && sbp >= 130) || (dbp != null && dbp >= 80)) return 'elevated';
+/** 血压分层仅依据最近一次体检 checkup，不合并专项筛查诊室血压 */
+const inferCohortTag = (record: HealthRecord): HypertensionManagementData['cohortTag'] | undefined => {
   const tag = detectHighBloodPressureTag(record);
+  if (!tag.show) return undefined;
   if (tag.severity === 'crisis') return 'crisis';
   if (tag.severity === 'stage2') return 'stage2';
   if (tag.severity === 'stage1') return 'stage1';
   return 'elevated';
 };
 
-export const inferCohortTagFromRecord = inferCohortTag;
+export const inferCohortTagFromRecord = (
+  record: HealthRecord,
+  _screening?: HypertensionScreeningRecord | null
+): HypertensionManagementData['cohortTag'] | undefined => inferCohortTag(record);
 
 const isItemPresent = (
   item: HypertensionCatalogItem,
   screening: HypertensionScreeningRecord | null,
   record: HealthRecord
 ): boolean => {
+  if (CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id)) {
+    return item.checkupPaths?.some((p) => hasText(getByPath(record, p))) ?? false;
+  }
   if (item.screeningFields?.length && screening) {
     const ok = item.screeningFields.some((f) => {
       const v = screening[f];
@@ -109,12 +112,12 @@ const buildMissedItems = (record: HealthRecord, screening: HypertensionScreening
 
 const buildBpFindings = (record: HealthRecord, screening: HypertensionScreeningRecord | null): string[] => {
   const findings: string[] = [];
-  const sbp = num(screening?.sbp) ?? num(record.checkup?.basics?.sbp);
-  const dbp = num(screening?.dbp) ?? num(record.checkup?.basics?.dbp);
-  if (sbp != null && dbp != null) {
-    findings.push(`诊室血压 ${sbp}/${dbp} mmHg`);
-    if (sbp >= 180 || dbp >= 110) findings.push('⚠ 达高血压危象阈值，建议尽快就医');
-    else if (sbp >= 140 || dbp >= 90) findings.push('血压未达一般控制目标（<140/90 mmHg）');
+  const bp = getLatestCheckupBloodPressure(record);
+  const { sbp, dbp } = bp;
+  if (sbp != null || dbp != null) {
+    findings.push(`诊室血压（最近一次体检） ${sbp ?? '—'}/${dbp ?? '—'} mmHg`);
+    const tag = detectHighBloodPressureTag(record);
+    if (tag.show) findings.push(...tag.reasons);
   } else {
     findings.push('暂无诊室血压记录，建议补测');
   }
@@ -152,7 +155,7 @@ const cohortLabel = (tag?: HypertensionManagementData['cohortTag']): string => {
 export const evaluateHypertensionScreening = (record: HealthRecord): HypertensionAssessmentResult => {
   const hm = record.hypertensionManagement || { screenings: [] };
   const latest = getLatestHypertensionScreening(hm);
-  const cohortTag = hm.cohortTag || inferCohortTag(record, latest);
+  const cohortTag = hm.cohortTag || inferCohortTag(record);
 
   const indicatorProfile: HypertensionIndicatorProfile = buildHypertensionIndicatorProfile(record, latest, {
     linkedArchiveCheckupId: record.profile?.checkupId,

@@ -1,4 +1,9 @@
 import type { HealthRecord } from '../types';
+import {
+  evaluateLatestCheckupGlucose,
+  getLatestCheckupGlucose,
+  type GlucoseSeverity,
+} from './latestCheckupVitalsService';
 
 export type HighGlucoseSeverity = 'elevated' | 'prediabetes' | 'diabetes';
 
@@ -6,78 +11,31 @@ export interface HighGlucoseTagInfo {
   show: boolean;
   label: string;
   severity: HighGlucoseSeverity;
-  /** 用于 Tooltip / 副标题 */
   summary: string;
   reasons: string[];
 }
 
-const num = (v: unknown): number | undefined => {
-  if (v == null || v === '') return undefined;
-  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^\d.-]/g, ''));
-  return Number.isFinite(n) && n > 0 ? n : undefined;
+const mapSeverity = (s: GlucoseSeverity): HighGlucoseSeverity => {
+  if (s === 'diabetes') return 'diabetes';
+  if (s === 'prediabetes') return 'prediabetes';
+  return 'elevated';
 };
 
-const fastingFromRecord = (record: HealthRecord): number | undefined =>
-  num(record.checkup?.labBasic?.glucose?.fasting);
-
-const hba1cFromRecord = (record: HealthRecord): number | undefined =>
-  num(record.checkup?.labBasic?.hba1c) ?? num(record.checkup?.optional?.hba1c);
-
-const postFromRecord = (record: HealthRecord): number | undefined =>
-  num(record.riskModelExtras?.postprandialGlucose);
-
-/** 与糖尿病专栏 inferCohortTag 阈值对齐，并纳入 HbA1c */
+/** 仅依据最近一次体检 checkup 血糖/HbA1c，严格按参考范围判定 */
 export const detectHighGlucoseTag = (record: HealthRecord): HighGlucoseTagInfo => {
-  const reasons: string[] = [];
-  let severity: HighGlucoseSeverity | null = null;
+  const evalResult = evaluateLatestCheckupGlucose(getLatestCheckupGlucose(record));
 
-  const fasting = fastingFromRecord(record);
-  const hba1c = hba1cFromRecord(record);
-  const post = postFromRecord(record);
-
-  const bump = (next: HighGlucoseSeverity, reason: string) => {
-    reasons.push(reason);
-    if (!severity) {
-      severity = next;
-      return;
-    }
-    const rank: Record<HighGlucoseSeverity, number> = {
-      elevated: 1,
-      prediabetes: 2,
-      diabetes: 3,
-    };
-    if (rank[next] > rank[severity]) severity = next;
-  };
-
-  if (fasting != null && fasting >= 7.0) {
-    bump('diabetes', `空腹血糖 ${fasting} mmol/L（≥7.0）`);
-  } else if (fasting != null && fasting >= 6.1) {
-    bump('prediabetes', `空腹血糖 ${fasting} mmol/L（≥6.1）`);
-  }
-
-  if (post != null && post >= 11.1) {
-    bump('diabetes', `餐后血糖 ${post} mmol/L（≥11.1）`);
-  } else if (post != null && post >= 7.8) {
-    bump('prediabetes', `餐后血糖 ${post} mmol/L（≥7.8）`);
-  }
-
-  if (hba1c != null && hba1c >= 6.5) {
-    bump('diabetes', `HbA1c ${hba1c}%（≥6.5）`);
-  } else if (hba1c != null && hba1c >= 6.0) {
-    bump('prediabetes', `HbA1c ${hba1c}%（≥6.0）`);
-  }
-
-  if (!severity) {
+  if (!evalResult.abnormal) {
     return { show: false, label: '', severity: 'elevated', summary: '', reasons: [] };
   }
 
-  const label = severity === 'diabetes' ? '高血糖' : '高血糖';
+  const severity = mapSeverity(evalResult.severity);
   return {
     show: true,
-    label,
+    label: '高血糖',
     severity,
-    summary: reasons[0] || label,
-    reasons,
+    summary: evalResult.reasons[0] || '高血糖',
+    reasons: evalResult.reasons,
   };
 };
 
