@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { DiabetesIndicatorProfile } from '../types';
+import { printIndicatorProfile } from '../services/indicatorProfilePrintService';
 
 interface Props {
   profile: DiabetesIndicatorProfile;
@@ -25,6 +26,16 @@ export const DiabetesIndicatorProfilePanel: React.FC<Props> = ({ profile, patien
       .filter((cat) => cat.items.length > 0);
   }, [profile.categories, showMissingOnly]);
 
+  const handlePrint = () => {
+    printIndicatorProfile({
+      moduleTitle: '社区糖尿病专项筛查',
+      documentTitle: '分项指标档案',
+      accentColor: '#0d9488',
+      patientName,
+      profile,
+    });
+  };
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-teal-50 to-white">
@@ -37,6 +48,13 @@ export const DiabetesIndicatorProfilePanel: React.FC<Props> = ({ profile, patien
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-700"
+            >
+              🖨️ 打印档案
+            </button>
             <span className="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 font-medium">
               已检 {profile.presentCount}/{profile.totalItems}
             </span>

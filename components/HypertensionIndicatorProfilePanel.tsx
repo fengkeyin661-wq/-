@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { HypertensionIndicatorProfile } from '../types';
+import { printIndicatorProfile } from '../services/indicatorProfilePrintService';
 
 interface Props {
   profile: HypertensionIndicatorProfile;
@@ -22,6 +23,16 @@ export const HypertensionIndicatorProfilePanel: React.FC<Props> = ({ profile, pa
       .filter((cat) => cat.items.length > 0);
   }, [profile.categories, showMissingOnly]);
 
+  const handlePrint = () => {
+    printIndicatorProfile({
+      moduleTitle: '社区高血压专项筛查',
+      documentTitle: '分项指标档案',
+      accentColor: '#4f46e5',
+      patientName,
+      profile,
+    });
+  };
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-white">
@@ -33,7 +44,14 @@ export const HypertensionIndicatorProfilePanel: React.FC<Props> = ({ profile, pa
               汇总血压专项筛查与健康档案数据，未检测项目给出补测建议
             </p>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs">
+          <div className="flex flex-wrap gap-2 text-xs items-center">
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-700"
+            >
+              🖨️ 打印档案
+            </button>
             <span className="rounded-full bg-emerald-100 text-emerald-800 px-3 py-1 font-medium">
               已检 {profile.presentCount}/{profile.totalItems}
             </span>
