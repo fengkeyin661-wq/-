@@ -298,6 +298,14 @@ export const importCheckupReportForArchive = async (
     if (!saveRes.success) {
       return { success: false, checkupId, message: saveRes.message || '自动建档失败' };
     }
+    void import('./staffWorkLogService').then(({ logStaffWork }) =>
+      logStaffWork({
+        actionType: 'archive_create',
+        checkupId,
+        targetName: parsed.profile.name,
+        summary: `报告导入自动建档 ${checkupId}`,
+      }),
+    );
     archive = await findArchiveByCheckupId(checkupId);
   }
 
@@ -310,6 +318,16 @@ export const importCheckupReportForArchive = async (
   if (!obsResult.success) return obsResult;
 
   const fin = await finalizeCheckupImportBatch(checkupId, [examIso.slice(0, 10)]);
+
+  void import('./staffWorkLogService').then(({ logStaffWork }) =>
+    logStaffWork({
+      actionType: 'report_import',
+      checkupId,
+      targetName: archive?.name || parsed.profile.name,
+      summary: `导入体检报告 ${examIso.slice(0, 10)}`,
+      metadata: { fileName: options.fileName },
+    }),
+  );
 
   const snapshotNote = obsResult.appliedToSnapshot
     ? '已更新当前档案快照'

@@ -12,6 +12,7 @@ import { isSupabaseConfigured } from '../services/supabaseClient';
 import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, RiskLevel, RiskAnalysisData, QuestionnaireData } from '../types';
 import { fetchContent, fetchInteractions, saveInteraction } from '../services/contentService'; // Interconnection
 import { CriticalHandleModal } from './CriticalHandleModal';
+import { StaffWorkloadPanel } from './StaffWorkloadPanel';
 import { HighGlucoseTag } from './HighGlucoseTag';
 import { HighBloodPressureTag } from './HighBloodPressureTag';
 import { HighLipidTag } from './HighLipidTag';
@@ -116,6 +117,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [smsTargetScope, setSmsTargetScope] = useState<'filtered' | 'selected'>('filtered');
     const [isSendingSms, setIsSendingSms] = useState(false);
     const [smsSendSummary, setSmsSendSummary] = useState<string | null>(null);
+    const [adminMainTab, setAdminMainTab] = useState<'personnel' | 'workload'>('personnel');
 
     const configured = isSupabaseConfigured();
 
@@ -704,6 +706,37 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     return (
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 h-full flex flex-col overflow-hidden animate-fadeIn">
+            <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
+                <button
+                    type="button"
+                    onClick={() => setAdminMainTab('personnel')}
+                    className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
+                        adminMainTab === 'personnel'
+                            ? 'border-teal-600 text-teal-700 bg-white'
+                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
+                >
+                    人员管理
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setAdminMainTab('workload')}
+                    className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
+                        adminMainTab === 'workload'
+                            ? 'border-teal-600 text-teal-700 bg-white'
+                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
+                >
+                    团队工作量
+                </button>
+            </div>
+
+            {adminMainTab === 'workload' ? (
+                <div className="flex-1 overflow-auto">
+                    <StaffWorkloadPanel title="团队工作量" showTeamExport />
+                </div>
+            ) : (
+            <>
             {/* Operations Dashboard */}
             <div className="bg-slate-800 text-white p-4 grid grid-cols-4 gap-4 shrink-0">
                 <div className="flex flex-col items-center border-r border-slate-700">
@@ -1106,6 +1139,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         </div>
                     </div>
                 </div>
+            )}
+            </>
             )}
         </div>
     );

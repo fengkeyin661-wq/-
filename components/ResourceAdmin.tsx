@@ -1410,6 +1410,32 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                 标记为「健康管家」（医生工作站可指派给签约用户；用户端「我的」—「我的健康管家」中展示）
                                             </span>
                                         </label>
+                                        <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700 col-span-2">
+                                            <input
+                                                type="checkbox"
+                                                className="mt-1"
+                                                checked={!!editItem.details?.admin_access}
+                                                onChange={(e) =>
+                                                    setEditItem({
+                                                        ...editItem,
+                                                        details: {
+                                                            ...editItem.details,
+                                                            admin_access: e.target.checked,
+                                                            role: editItem.details?.role || (e.target.checked ? 'health_manager' : undefined),
+                                                        },
+                                                    })
+                                                }
+                                            />
+                                            <span>
+                                                允许登录管理后台（健康管理师账号，可开展建档、危急值、随访等日常工作，工作量自动统计）
+                                            </span>
+                                        </label>
+                                        <InputField
+                                            label="工号（可选，用于工作量报表）"
+                                            placeholder="如 HM001"
+                                            value={editItem.details?.staff_no}
+                                            onChange={(v: any) => updateDetail('staff_no', v)}
+                                        />
                                         <InputField
                                             label="对外联系电话（用户端展示）"
                                             placeholder="手机号或座机"

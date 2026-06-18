@@ -12,9 +12,11 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import type { HealthArchive } from './dataService';
 import { normalizePhone } from './dataService';
+import { getCurrentStaff } from './staffContext';
+import { logStaffWork } from './staffWorkLogService';
 
 export type SmsScene = 'followup' | 'critical' | 'batch' | 'manual';
-export type SmsSentRole = 'admin' | 'doctor';
+export type SmsSentRole = 'admin' | 'doctor' | 'health_manager';
 
 export interface SmsMessageInput {
   phone: string;
@@ -65,10 +67,35 @@ export const resolveArchivePhone = (archive: HealthArchive): string => {
   return normalizePhone(raw);
 };
 
+const resolveSentBy = (options: { sentBy?: string; sentRole: SmsSentRole }): string => {
+  if (options.sentBy) return options.sentBy;
+  const staff = getCurrentStaff();
+  if (staff) return `${staff.name}(${staff.id})`;
+  return options.sentRole;
+};
+
+const logSmsWork = async (
+  messages: SmsMessageInput[],
+  result: SmsBatchResult,
+  options: { sentBy?: string; sentRole: SmsSentRole },
+) => {
+  for (const item of result.results.filter((r) => r.success)) {
+    const msg = messages.find((m) => normalizePhone(m.phone) === normalizePhone(item.phone));
+    await logStaffWork({
+      actionType: 'sms_send',
+      checkupId: msg?.checkupId || item.checkupId,
+      targetName: msg?.name,
+      summary: msg?.contentSnapshot || '短信通知',
+      metadata: { phone: item.phone, scene: msg?.scene },
+    });
+  }
+};
+
 export const sendSmsBatch = async (
   messages: SmsMessageInput[],
   options: { sentBy?: string; sentRole: SmsSentRole },
 ): Promise<SmsBatchResult> => {
+  const sentBy = resolveSentBy(options);
   if (!isSmsConfigured()) {
     return {
       success: false,
@@ -88,8 +115,8 @@ export const sendSmsBatch = async (
     const { data, error } = await supabase.functions.invoke('send-sms', {
       body: {
         invokeSecret: getInvokeSecret(),
-        sentBy: options.sentBy,
-        sentRole: options.sentRole,
+        sentBy,
+        sentRole: options.sentRole === 'health_manager' ? 'admin' : options.sentRole,
         messages,
       },
     });
@@ -109,13 +136,17 @@ export const sendSmsBatch = async (
       };
     }
 
-    return {
+    const batchResult = {
       success: !!data?.success,
       successCount: data?.successCount ?? 0,
       failCount: data?.failCount ?? 0,
       results: data?.results ?? [],
       message: data?.message || '发送完成',
     };
+    if (batchResult.successCount > 0) {
+      await logSmsWork(messages, batchResult, { ...options, sentBy });
+    }
+    return batchResult;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return {

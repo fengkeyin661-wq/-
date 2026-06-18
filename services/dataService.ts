@@ -4,6 +4,8 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { writeArchiveListCache } from './archiveListCacheService';
 import { fetchContent, isHealthManagerContent } from './contentService';
 import { autoEnrollHypertensionIfEligible } from './hypertensionStandaloneService';
+import { getCurrentStaff } from './staffContext';
+import { logStaffWork } from './staffWorkLogService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
 
 export interface ExercisePlanData {
@@ -571,6 +573,7 @@ export const saveArchive = async (
     let existingPasswordHash: string | null | undefined = undefined;
     let existingProfileComplete: boolean | undefined = undefined;
     let existingHealthManagerId: string | null | undefined = undefined;
+    let isExistingArchive = false;
     
     // Determine UUID (Primary Key)
     // 1. Try to find existing ID from DB or Local to maintain consistency
@@ -584,6 +587,7 @@ export const saveArchive = async (
             const match = all.find((a: any) => a.checkup_id === checkupId);
             if (match) {
                 finalId = match.id;
+                isExistingArchive = true;
                 // Load existing local data to preserve state
                 historyVersions = match.history_versions || [];
                 existingCriticalTrack = match.critical_track;
@@ -605,6 +609,7 @@ export const saveArchive = async (
             const { data: existing } = await supabase.from('health_archives').select('*').eq('checkup_id', checkupId).maybeSingle();
             if (existing) {
                 finalId = existing.id; // Use DB ID as source of truth
+                isExistingArchive = true;
                 historyVersions = existing.history_versions || [];
                 existingCriticalTrack = existing.critical_track;
                 existingExercisePlan = (existing as any).custom_exercise_plan;
@@ -662,8 +667,13 @@ export const saveArchive = async (
     if (existingHealthManagerId !== undefined && existingHealthManagerId !== null) {
         basePayload.health_manager_content_id = existingHealthManagerId;
     } else {
-        const defaultManagerId = await pickDefaultHealthManagerId();
-        if (defaultManagerId) basePayload.health_manager_content_id = defaultManagerId;
+        const staff = getCurrentStaff();
+        if (staff?.role === 'health_manager') {
+            basePayload.health_manager_content_id = staff.id;
+        } else {
+            const defaultManagerId = await pickDefaultHealthManagerId();
+            if (defaultManagerId) basePayload.health_manager_content_id = defaultManagerId;
+        }
     }
 
     const fullPayload = {
@@ -696,8 +706,27 @@ export const saveArchive = async (
         localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
     } catch (e) {}
 
+    const logSaveSuccess = () => {
+        void logStaffWork({
+            actionType: isExistingArchive ? 'archive_update' : 'archive_create',
+            checkupId,
+            targetName: record.profile.name,
+            summary: isExistingArchive
+                ? `更新档案 ${record.profile.name}`
+                : `新建档案 ${record.profile.name}`,
+        });
+        void logStaffWork({
+            actionType: 'assessment_run',
+            checkupId,
+            targetName: record.profile.name,
+            summary: `风险评估 ${assessment.riskLevel}`,
+            metadata: { riskLevel: assessment.riskLevel },
+        });
+    };
+
     if (!isSupabaseConfigured()) {
         triggerHypertensionAutoEnroll();
+        logSaveSuccess();
         return { success: true, message: "已保存到本地" };
     }
 
@@ -725,24 +754,29 @@ export const saveArchive = async (
                 if (retryError) {
                     if (isPermissionDeniedError(retryError)) {
                         triggerHypertensionAutoEnroll();
+                        logSaveSuccess();
                         return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
                     }
                     throw retryError;
                 }
                 triggerHypertensionAutoEnroll();
+                logSaveSuccess();
                 return { success: true, message: "部分保存成功 (数据库缺少新字段)" };
             }
             if (isPermissionDeniedError(error)) {
                 triggerHypertensionAutoEnroll();
+                logSaveSuccess();
                 return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
             }
             throw error;
         }
         triggerHypertensionAutoEnroll();
+        logSaveSuccess();
         return { success: true };
     } catch (e: any) {
         if (isPermissionDeniedError(e)) {
             triggerHypertensionAutoEnroll();
+            logSaveSuccess();
             return { success: true, message: "已保存到本地；云端写入被权限策略拒绝（health_archives）" };
         }
         return { success: false, message: e.message };
@@ -865,6 +899,12 @@ export const updateArchiveProfile = async (dbId: string, newProfile: HealthProfi
                 await supabase.from('health_archives').update({ health_record: newRecord }).eq('id', dbId);
             }
         }
+        void logStaffWork({
+            actionType: 'profile_edit',
+            checkupId: newProfile.checkupId,
+            targetName: newProfile.name,
+            summary: `编辑基本信息 ${newProfile.name}`,
+        });
         return { success: true };
     } catch (e: any) {
         return { success: false, message: e.message };
@@ -893,6 +933,23 @@ export const updateCriticalTrack = async (checkupId: string, trackRecord: Critic
             }).eq('checkup_id', checkupId);
             if (error) throw error;
         }
+        const targetName = (() => {
+            try {
+                const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+                if (!raw) return checkupId;
+                const all: HealthArchive[] = JSON.parse(raw);
+                return all.find((a) => a.checkup_id === checkupId)?.name || checkupId;
+            } catch {
+                return checkupId;
+            }
+        })();
+        void logStaffWork({
+            actionType: 'critical_handle',
+            checkupId,
+            targetName,
+            summary: `危急值 ${trackRecord.critical_level} · ${trackRecord.status}`,
+            metadata: { status: trackRecord.status, level: trackRecord.critical_level },
+        });
         return { success: true };
     } catch (e: any) {
         return { success: false, message: e.message };

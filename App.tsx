@@ -19,6 +19,7 @@ import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 import { DiabetesManagementModule } from './components/DiabetesManagementModule';
 import { HypertensionManagementModule } from './components/HypertensionManagementModule';
 import { LipidManagementModule } from './components/LipidManagementModule';
+import { StaffWorkloadPanel } from './components/StaffWorkloadPanel';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant, LipidStandaloneParticipant } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
@@ -38,6 +39,16 @@ import { generateSystemPortraits, evaluateRiskModels } from './services/riskMode
 import { ContentItem, fetchInteractions, getDoctorSigningUnreadTotal } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
 import { supabase, isSupabaseConfigured } from './services/supabaseClient';
+import {
+  persistManagerSession,
+  restoreManagerSession,
+  restoreStaffFromStorage,
+  setCurrentStaff,
+  staffFromAdminLogin,
+  staffFromDoctor,
+  staffFromManager,
+} from './services/staffContext';
+import { logStaffWork } from './services/staffWorkLogService';
 
 type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
 
@@ -146,7 +157,7 @@ export const App: React.FC = () => {
   
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | 'resource_admin' | 'doctor' | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | 'resource_admin' | 'doctor' | 'health_manager' | null>(null);
   
   // Login Logic State
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -159,7 +170,8 @@ export const App: React.FC = () => {
   const [userLoginPassword, setUserLoginPassword] = useState('');
   
   // Doctor State
-  const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); 
+  const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null);
+  const [currentManager, setCurrentManager] = useState<ContentItem | null>(null);
   /** 医生侧栏「消息」角标：全部签约用户未读之和 */
   const [doctorMessageUnread, setDoctorMessageUnread] = useState(0);
   const baseTitleRef = useRef<string>(typeof document !== 'undefined' ? document.title : '健康管理系统');
@@ -208,13 +220,30 @@ export const App: React.FC = () => {
   const canShowUserEntry = portalMode === 'all';
 
   useEffect(() => {
-    if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) {
+    if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor' || currentUserRole === 'health_manager')) {
         refreshArchives();
         refreshStandaloneParticipants();
         refreshHypertensionParticipants();
         refreshLipidParticipants();
     }
-  }, [isAuthenticated, currentUserRole, currentDoctor]);
+  }, [isAuthenticated, currentUserRole, currentDoctor, currentManager]);
+
+  useEffect(() => {
+    const role = localStorage.getItem('HEALTH_USER_ROLE_V1');
+    const manager = restoreManagerSession();
+    const staff = restoreStaffFromStorage();
+    if (role === 'health_manager' && manager) {
+      setCurrentUserRole('health_manager');
+      setCurrentManager(manager);
+      setIsAuthenticated(true);
+      if (!staff) {
+        setCurrentStaff(staffFromManager(manager));
+      }
+    } else if (staff && role === 'admin') {
+      setCurrentUserRole('admin');
+      setIsAuthenticated(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (currentUserRole !== 'doctor' || !currentDoctor) {
@@ -336,8 +365,12 @@ export const App: React.FC = () => {
     setCurrentLipid((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
   };
 
-  const handleLoginSuccess = async (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
-    if (portalMode === 'admin' && !['admin', 'home'].includes(role)) {
+  const handleLoginSuccess = async (
+    role: 'admin' | 'home' | 'resource_admin' | 'doctor' | 'health_manager',
+    doctorInfo?: ContentItem,
+    managerInfo?: ContentItem,
+  ) => {
+    if (portalMode === 'admin' && !['admin', 'home', 'health_manager'].includes(role)) {
         alert('当前子域仅允许管理控制台登录');
         return;
     }
@@ -358,8 +391,14 @@ export const App: React.FC = () => {
     setCurrentUserRole(role);
     setShowLoginModal(false);
 
-    // 后台/医生登录后，确保持有 Supabase authenticated 会话，避免 RLS 将请求判为 anon
-    if (['admin', 'home', 'resource_admin', 'doctor'].includes(role)) {
+    try {
+      localStorage.setItem('HEALTH_USER_ROLE_V1', role);
+    } catch {
+      /* ignore */
+    }
+
+    // 后台/医生/健康管理师登录后，确保持有 Supabase authenticated 会话，避免 RLS 将请求判为 anon
+    if (['admin', 'home', 'resource_admin', 'doctor', 'health_manager'].includes(role)) {
       const authRes = await ensureSupabaseSessionForStaff();
       if (!authRes.ok) {
         alert(
@@ -367,12 +406,28 @@ export const App: React.FC = () => {
         );
       }
     }
-    
-    if (role === 'admin') {
+
+    if (role === 'admin' || role === 'home') {
+        setCurrentStaff(staffFromAdminLogin());
+        setCurrentManager(null);
+        persistManagerSession(null);
         setActiveTab('admin');
+    } else if (role === 'health_manager') {
+        if (managerInfo) {
+          setCurrentManager(managerInfo);
+          persistManagerSession(managerInfo);
+          setCurrentStaff(staffFromManager(managerInfo));
+        }
+        setCurrentDoctor(null);
+        setActiveTab('dashboard');
     } else if (role === 'doctor') {
-        if (doctorInfo) setCurrentDoctor(doctorInfo);
-        setActiveTab('my_patients'); 
+        if (doctorInfo) {
+          setCurrentDoctor(doctorInfo);
+          setCurrentStaff(staffFromDoctor(doctorInfo));
+        }
+        setCurrentManager(null);
+        persistManagerSession(null);
+        setActiveTab('my_patients');
     }
   };
 
@@ -404,7 +459,7 @@ export const App: React.FC = () => {
 
   const openLoginFor = (type: 'admin' | 'resource' | 'doctor') => {
       if (type === 'admin') {
-          setLoginRoleContext({ title: '管理控制台登录', color: 'slate', allowedRoles: ['admin', 'home'] });
+          setLoginRoleContext({ title: '管理控制台登录', color: 'slate', allowedRoles: ['admin', 'home', 'health_manager'] });
       } else if (type === 'resource') {
           setLoginRoleContext({ title: '资源运营台登录', color: 'teal', allowedRoles: ['resource_admin'] });
       } else if (type === 'doctor') {
@@ -587,6 +642,12 @@ export const App: React.FC = () => {
           setFollowUps(newFollowUps);
           setSchedule(newSchedule);
           setAssessment(mergedAssessment);
+          void logStaffWork({
+            actionType: 'followup_record',
+            checkupId: healthRecord.profile.checkupId,
+            targetName: healthRecord.profile.name,
+            summary: `随访 ${record.date} · ${record.method}`,
+          });
           void import('./services/healthDataPipeline').then((m) =>
               m.pipelineAfterFollowUp(
                   healthRecord.profile.checkupId,
@@ -806,8 +867,31 @@ export const App: React.FC = () => {
             onTabChange={setActiveTab} 
             isAuthenticated={isAuthenticated}
             currentUserRole={currentUserRole}
+            staffDisplayName={
+              currentUserRole === 'health_manager'
+                ? currentManager?.title
+                : currentUserRole === 'doctor'
+                  ? currentDoctor?.title
+                  : undefined
+            }
             onLoginClick={() => setShowLoginModal(true)} 
-            onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setCurrentDoctor(null); setDoctorMessageUnread(0); setActiveTab('dashboard'); setShowUserEntry(false); setArchives([]); }}
+            onLogoutClick={() => {
+              setIsAuthenticated(false);
+              setCurrentUserRole(null);
+              setCurrentDoctor(null);
+              setCurrentManager(null);
+              setCurrentStaff(null);
+              persistManagerSession(null);
+              try {
+                localStorage.removeItem('HEALTH_USER_ROLE_V1');
+              } catch {
+                /* ignore */
+              }
+              setDoctorMessageUnread(0);
+              setActiveTab('dashboard');
+              setShowUserEntry(false);
+              setArchives([]);
+            }}
             navBadges={currentUserRole === 'doctor' ? { doctor_messages: doctorMessageUnread } : undefined}
         >
             {activeTab === 'dashboard' && (
@@ -881,11 +965,26 @@ export const App: React.FC = () => {
                 isAuthenticated={isAuthenticated}
                 healthRecord={healthRecord}
                 onRefresh={refreshArchives}
-                userRole={currentUserRole === 'doctor' ? 'doctor' : 'admin'}
+                userRole={
+                  currentUserRole === 'doctor'
+                    ? 'doctor'
+                    : currentUserRole === 'health_manager'
+                      ? 'health_manager'
+                      : 'admin'
+                }
+              />
+            )}
+            {activeTab === 'my_workload' && currentUserRole === 'health_manager' && currentManager && (
+              <StaffWorkloadPanel
+                staffId={currentManager.id}
+                staffName={currentManager.title}
+                title="我的工作"
               />
             )}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
-            {activeTab === 'admin' && currentUserRole === 'admin' && <AdminConsole onSelectPatient={handleSelectPatient} onDataUpdate={refreshArchives} isAuthenticated={isAuthenticated} onTabChange={setActiveTab} />}
+            {activeTab === 'admin' && currentUserRole === 'admin' && (
+              <AdminConsole onSelectPatient={handleSelectPatient} onDataUpdate={refreshArchives} isAuthenticated={isAuthenticated} onTabChange={setActiveTab} />
+            )}
             {activeTab === 'doctor_messages' && currentUserRole === 'doctor' && currentDoctor && (
                 <DoctorMessageCenter
                     doctorId={currentDoctor.id}
