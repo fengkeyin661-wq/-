@@ -48,6 +48,22 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'updated_at', direction: 'desc' });
     const [filterRisk, setFilterRisk] = useState<string>('ALL');
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [pageSize, setPageSize] = useState<number>(20);
+    const [currentPage, setCurrentPage] = useState<number>(1);
+
+    const FILTER_LABELS: Record<string, string> = {
+        ALL: '全部人员',
+        RED: '高风险',
+        YELLOW: '中风险',
+        GREEN: '低风险',
+        CRITICAL: '待处理危急值',
+        DIABETES: '高血糖_糖代谢异常',
+        HYPERTENSION: '血压偏高_高血压',
+        DIABETES_REPORT: '已有糖尿病评估',
+        HYPERTENSION_REPORT: '已有高血压评估',
+        LIPID: '血脂异常',
+        LIPID_REPORT: '已有血脂评估',
+    };
 
     // Import Options
     const [skipFilled, setSkipFilled] = useState(true); // Default to skip existing questionnaires
@@ -260,26 +276,30 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             return;
         }
 
-        const exportData = filteredArchives.map(arch => {
-            const riskLabel = arch.risk_level === 'RED' ? '高风险' : arch.risk_level === 'YELLOW' ? '中风险' : '低风险';
-            return {
-                "体检编号": arch.checkup_id,
-                "姓名": arch.name,
-                "性别": arch.gender,
-                "年龄": arch.age,
-                "单位/部门": arch.department,
-                "联系电话": arch.phone || '-',
-                "风险等级": riskLabel,
-                "健康状况摘要": arch.assessment_data?.summary || '-',
-                "危急值警示": arch.assessment_data?.isCritical ? (arch.assessment_data.criticalWarning || '是') : '无',
-                "最后更新": new Date(arch.updated_at || arch.created_at).toLocaleString()
-            };
-        });
+        const riskLabel = (level: string) =>
+            level === 'RED' ? '高风险' : level === 'YELLOW' ? '中风险' : level === 'GREEN' ? '低风险' : level;
+
+        const exportData = filteredArchives.map((arch, index) => ({
+            "序号": index + 1,
+            "体检编号": arch.checkup_id,
+            "姓名": arch.name,
+            "性别": arch.gender,
+            "年龄": arch.age,
+            "单位/部门": arch.department,
+            "联系电话": arch.phone || '-',
+            "风险等级": riskLabel(arch.risk_level),
+            "筛选类别": FILTER_LABELS[filterRisk] || filterRisk,
+            "健康状况摘要": arch.assessment_data?.summary || '-',
+            "危急值警示": arch.assessment_data?.isCritical ? (arch.assessment_data.criticalWarning || '是') : '无',
+            "最后更新": new Date(arch.updated_at || arch.created_at).toLocaleString()
+        }));
 
         const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "人员名单");
-        XLSX.writeFile(wb, `全院健康人员清单_${new Date().toISOString().split('T')[0]}.xlsx`);
+        const filterTag = FILTER_LABELS[filterRisk] || '全部人员';
+        const dateTag = new Date().toISOString().split('T')[0];
+        XLSX.writeFile(wb, `人员列表_${filterTag}_${dateTag}.xlsx`);
     };
 
     const mergeQuestionnaire = (target: any, source: any): any => {
@@ -414,6 +434,10 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 let aVal: any = '', bVal: any = '';
                 switch (sortConfig.key) {
                     case 'name': aVal = a.name; bVal = b.name; break;
+                    case 'age':
+                        aVal = Number(a.age) || 0;
+                        bVal = Number(b.age) || 0;
+                        break;
                     case 'department': aVal = a.department; bVal = b.department; break;
                     case 'risk_level': 
                          const riskOrder = { 'RED': 3, 'YELLOW': 2, 'GREEN': 1, 'UNKNOWN': 0 };
@@ -431,10 +455,30 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         return result;
     }, [archives, searchTerm, filterRisk, sortConfig]);
 
+    const totalPages = Math.max(1, Math.ceil(filteredArchives.length / pageSize));
+    const safePage = Math.min(currentPage, totalPages);
+
+    const paginatedArchives = useMemo(() => {
+        const start = (safePage - 1) * pageSize;
+        return filteredArchives.slice(start, start + pageSize);
+    }, [filteredArchives, safePage, pageSize]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, filterRisk, sortConfig, pageSize]);
+
+    useEffect(() => {
+        if (currentPage > totalPages) setCurrentPage(totalPages);
+    }, [currentPage, totalPages]);
+
+    const sortIndicator = (key: string) =>
+        sortConfig?.key === key ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+
     const handleSort = (key: string) => {
         setSortConfig({ key, direction: sortConfig?.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc' });
     };
-    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => setSelectedIds(e.target.checked ? new Set(filteredArchives.map(a => a.id)) : new Set());
+    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) =>
+        setSelectedIds(e.target.checked ? new Set(paginatedArchives.map(a => a.id)) : new Set());
     const handleSelectRow = (id: string) => { const newSet = new Set(selectedIds); if (newSet.has(id)) newSet.delete(id); else newSet.add(id); setSelectedIds(newSet); };
     const handleEditClick = (archive: HealthArchive) => {
         setEditingArchive(archive);
@@ -550,6 +594,20 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <option value="LIPID">🧪 血脂异常</option>
                         <option value="LIPID_REPORT">📋 已有血脂评估</option>
                     </select>
+                    <select
+                        className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none bg-white"
+                        value={pageSize}
+                        onChange={(e) => setPageSize(Number(e.target.value))}
+                        title="每页显示人数"
+                    >
+                        <option value={10}>每页 10 人</option>
+                        <option value={20}>每页 20 人</option>
+                        <option value={50}>每页 50 人</option>
+                    </select>
+                    <span className="text-xs text-slate-500 whitespace-nowrap">
+                        共 {filteredArchives.length} 人
+                        {filterRisk !== 'ALL' ? `（${FILTER_LABELS[filterRisk]}）` : ''}
+                    </span>
                 </div>
                 <div className="flex gap-2 items-center">
                     <label className="flex items-center gap-2 cursor-pointer mr-2 select-none" title="若档案中问卷已有内容，则跳过不更新">
@@ -567,8 +625,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         onChange={handleManagerUploadFiles}
                     />
                     
-                    <button onClick={handleExportList} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1 shadow-sm" title="导出当前列表为Excel">
-                        <span>📥</span> 导出人员列表
+                    <button onClick={handleExportList} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1 shadow-sm" title="导出当前筛选结果（含序号）">
+                        <span>📥</span> 导出当前列表
                     </button>
 
                     <button onClick={() => questionnaireImportRef.current?.click()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1" title="批量AI识别问卷并更新">
@@ -593,19 +651,21 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 <table className="w-full text-left text-sm border-collapse">
                     <thead className="bg-slate-50 text-slate-500 font-bold border-b sticky top-0 z-10 shadow-sm">
                         <tr>
-                            <th className="p-4 w-10"><input type="checkbox" onChange={handleSelectAll} checked={filteredArchives.length > 0 && selectedIds.size === filteredArchives.length} /></th>
-                            <th className="p-4 cursor-pointer" onClick={() => handleSort('checkup_id')}>编号 {sortConfig?.key === 'checkup_id' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                            <th className="p-4 cursor-pointer" onClick={() => handleSort('name')}>姓名</th>
-                            <th className="p-4">性别 / 年龄</th>
-                            <th className="p-4 cursor-pointer" onClick={() => handleSort('department')}>部门</th>
-                            <th className="p-4 cursor-pointer" onClick={() => handleSort('risk_level')}>风险</th>
-                            <th className="p-4 cursor-pointer" onClick={() => handleSort('updated_at')}>更新时间</th>
+                            <th className="p-4 w-10"><input type="checkbox" onChange={handleSelectAll} checked={paginatedArchives.length > 0 && paginatedArchives.every(a => selectedIds.has(a.id))} /></th>
+                            <th className="p-4 w-14 text-center">序号</th>
+                            <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('checkup_id')}>编号{sortIndicator('checkup_id')}</th>
+                            <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('name')}>姓名{sortIndicator('name')}</th>
+                            <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('age')}>性别 / 年龄{sortIndicator('age')}</th>
+                            <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('department')}>部门{sortIndicator('department')}</th>
+                            <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('risk_level')}>风险{sortIndicator('risk_level')}</th>
+                            <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('updated_at')}>更新时间{sortIndicator('updated_at')}</th>
                             <th className="p-4 text-center">操作</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                        {loading ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">加载中...</td></tr> : filteredArchives.length === 0 ? <tr><td colSpan={8} className="p-10 text-center text-slate-400">暂无数据</td></tr> : filteredArchives.map((archive) => {
+                        {loading ? <tr><td colSpan={9} className="p-10 text-center text-slate-400">加载中...</td></tr> : filteredArchives.length === 0 ? <tr><td colSpan={9} className="p-10 text-center text-slate-400">暂无数据</td></tr> : paginatedArchives.map((archive, rowIndex) => {
                             const isCritical = archive.assessment_data?.isCritical || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'));
+                            const serialNo = (safePage - 1) * pageSize + rowIndex + 1;
                             return (
                                 <tr
                                     key={archive.id}
@@ -616,6 +676,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                                         <input type="checkbox" checked={selectedIds.has(archive.id)} onChange={() => handleSelectRow(archive.id)} />
                                     </td>
+                                    <td className="p-4 text-center text-slate-500 font-mono">{serialNo}</td>
                                     <td className="p-4 font-mono text-slate-600">{archive.checkup_id}</td>
                                     <td className="p-4">
                                         <div className="font-bold text-slate-800">{archive.name}</div>
@@ -661,6 +722,48 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     </tbody>
                 </table>
             </div>
+
+            {!loading && filteredArchives.length > 0 && (
+                <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-xs text-slate-600">
+                        第 {safePage} / {totalPages} 页，本页 {paginatedArchives.length} 人，合计 {filteredArchives.length} 人
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            disabled={safePage <= 1}
+                            onClick={() => setCurrentPage(1)}
+                            className="px-3 py-1.5 text-xs rounded border border-slate-300 bg-white disabled:opacity-40 hover:bg-slate-100"
+                        >
+                            首页
+                        </button>
+                        <button
+                            type="button"
+                            disabled={safePage <= 1}
+                            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                            className="px-3 py-1.5 text-xs rounded border border-slate-300 bg-white disabled:opacity-40 hover:bg-slate-100"
+                        >
+                            上一页
+                        </button>
+                        <button
+                            type="button"
+                            disabled={safePage >= totalPages}
+                            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                            className="px-3 py-1.5 text-xs rounded border border-slate-300 bg-white disabled:opacity-40 hover:bg-slate-100"
+                        >
+                            下一页
+                        </button>
+                        <button
+                            type="button"
+                            disabled={safePage >= totalPages}
+                            onClick={() => setCurrentPage(totalPages)}
+                            className="px-3 py-1.5 text-xs rounded border border-slate-300 bg-white disabled:opacity-40 hover:bg-slate-100"
+                        >
+                            末页
+                        </button>
+                    </div>
+                </div>
+            )}
             
             {/* Edit Modal */}
             {isEditModalOpen && editForm && (
