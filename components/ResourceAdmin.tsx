@@ -1427,7 +1427,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                 }
                                             />
                                             <span>
-                                                允许登录管理后台（健康管理师账号，可开展建档、危急值、随访等日常工作，工作量自动统计）
+                                                允许登录管理后台（含管理控制台：人员列表、智能建档、导入等；工作量计入「我的工作」）
                                             </span>
                                         </label>
                                         <InputField

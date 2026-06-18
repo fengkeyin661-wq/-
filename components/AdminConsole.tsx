@@ -40,9 +40,11 @@ interface Props {
     onDataUpdate?: () => void;
     isAuthenticated: boolean;
     onTabChange?: (tab: string) => void;
+    userRole?: 'admin' | 'health_manager';
 }
 
-export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, isAuthenticated, onTabChange }) => {
+export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, isAuthenticated, onTabChange, userRole = 'admin' }) => {
+    const isSuperAdmin = userRole === 'admin';
     const initialCache = readArchiveListCache();
     const [archives, setArchives] = useState<HealthArchive[]>(() =>
         initialCache.archives.length ? sortArchivesByExamDate(initialCache.archives) : []
@@ -118,6 +120,12 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [isSendingSms, setIsSendingSms] = useState(false);
     const [smsSendSummary, setSmsSendSummary] = useState<string | null>(null);
     const [adminMainTab, setAdminMainTab] = useState<'personnel' | 'workload'>('personnel');
+
+    useEffect(() => {
+        if (!isSuperAdmin && adminMainTab === 'workload') {
+            setAdminMainTab('personnel');
+        }
+    }, [isSuperAdmin, adminMainTab]);
 
     const configured = isSupabaseConfigured();
 
@@ -580,7 +588,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 phone,
                 name: criticalModalArchive.name,
                 summary,
-                sentRole: 'admin',
+                sentRole: userRole === 'health_manager' ? 'health_manager' : 'admin',
             });
             if (!smsRes.success || smsRes.failCount > 0) {
                 alert(`短信发送失败：${smsRes.results[0]?.error || smsRes.message}`);
@@ -637,7 +645,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     name: a.name,
                     content: smsContent,
                 })),
-                { sentRole: 'admin', content: smsContent },
+                { sentRole: userRole === 'health_manager' ? 'health_manager' : 'admin', content: smsContent },
             );
             const failedLines = res.results
                 .filter((r) => !r.success)
@@ -718,6 +726,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 >
                     人员管理
                 </button>
+                {isSuperAdmin && (
                 <button
                     type="button"
                     onClick={() => setAdminMainTab('workload')}
@@ -729,9 +738,10 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 >
                     团队工作量
                 </button>
+                )}
             </div>
 
-            {adminMainTab === 'workload' ? (
+            {adminMainTab === 'workload' && isSuperAdmin ? (
                 <div className="flex-1 overflow-auto">
                     <StaffWorkloadPanel title="团队工作量" showTeamExport />
                 </div>

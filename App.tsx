@@ -419,7 +419,7 @@ export const App: React.FC = () => {
           setCurrentStaff(staffFromManager(managerInfo));
         }
         setCurrentDoctor(null);
-        setActiveTab('dashboard');
+        setActiveTab('admin');
     } else if (role === 'doctor') {
         if (doctorInfo) {
           setCurrentDoctor(doctorInfo);
@@ -982,8 +982,14 @@ export const App: React.FC = () => {
               />
             )}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
-            {activeTab === 'admin' && currentUserRole === 'admin' && (
-              <AdminConsole onSelectPatient={handleSelectPatient} onDataUpdate={refreshArchives} isAuthenticated={isAuthenticated} onTabChange={setActiveTab} />
+            {activeTab === 'admin' && (currentUserRole === 'admin' || currentUserRole === 'health_manager') && (
+              <AdminConsole
+                onSelectPatient={handleSelectPatient}
+                onDataUpdate={refreshArchives}
+                isAuthenticated={isAuthenticated}
+                onTabChange={setActiveTab}
+                userRole={currentUserRole === 'health_manager' ? 'health_manager' : 'admin'}
+              />
             )}
             {activeTab === 'doctor_messages' && currentUserRole === 'doctor' && currentDoctor && (
                 <DoctorMessageCenter
