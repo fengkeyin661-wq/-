@@ -6,10 +6,11 @@ import { CriticalTrackRecord } from '../types';
 interface Props {
     archive: HealthArchive;
     onClose: () => void;
-    onSave: (record: CriticalTrackRecord) => void;
+    onSave: (record: CriticalTrackRecord, options?: { sendSms?: boolean }) => void;
+    showSmsOption?: boolean;
 }
 
-export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave }) => {
+export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave, showSmsOption = true }) => {
     const existingTrack = archive.critical_track;
     const isSecondary = existingTrack?.status === 'pending_secondary';
     
@@ -35,6 +36,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
         secondary_notify_time: existingTrack?.secondary_notify_time || new Date().toLocaleString(),
         secondary_feedback: existingTrack?.secondary_feedback || '',
     });
+    const [sendSmsOnSave, setSendSmsOnSave] = useState(false);
 
     // Determine target date for secondary follow-up (Current + 1 Month) if not set
     useEffect(() => {
@@ -70,14 +72,14 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                 alert("请填写二次反馈结果");
                 return;
             }
-            onSave({ ...form, status: 'archived' });
+            onSave({ ...form, status: 'archived' }, { sendSms: sendSmsOnSave });
         } else {
             // Completing Initial -> Pending Secondary
             if (!form.initial_feedback.trim()) {
                 alert("请填写反馈结果");
                 return;
             }
-            onSave({ ...form, status: 'pending_secondary' });
+            onSave({ ...form, status: 'pending_secondary' }, { sendSms: sendSmsOnSave });
         }
     };
 
@@ -201,6 +203,21 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave 
                         </div>
                     )}
                 </div>
+
+                {showSmsOption && (
+                    <label className="flex items-center gap-2 mt-6 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={sendSmsOnSave}
+                            onChange={(e) => setSendSmsOnSave(e.target.checked)}
+                            className="w-4 h-4 accent-teal-600"
+                        />
+                        <span className="text-sm text-slate-700">
+                            保存时通过外网短信通知职工
+                            <span className="text-xs text-slate-400 ml-1">（{archive.phone || '无手机号'}）</span>
+                        </span>
+                    </label>
+                )}
 
                 <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
                     <button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold">取消</button>

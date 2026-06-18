@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
+import {
+  isSmsConfigured,
+  resolveArchivePhone,
+  sendFollowUpSms,
+  sendCriticalSms,
+  type SmsSentRole,
+} from '../services/smsService';
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { HealthTrendCharts } from './HealthTrendCharts';
 import { HighGlucoseTag } from './HighGlucoseTag';
@@ -23,6 +30,7 @@ interface Props {
   onNavigateDiabetes?: (archive: HealthArchive) => void;
   onNavigateHypertension?: (archive: HealthArchive) => void;
   onNavigateLipid?: (archive: HealthArchive) => void;
+  userRole?: SmsSentRole;
 }
 
 export const FollowUpDashboard: React.FC<Props> = ({ 
@@ -40,6 +48,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onNavigateDiabetes,
     onNavigateHypertension,
     onNavigateLipid,
+    userRole = 'admin',
 }) => {
   const [isEntryExpanded, setIsEntryExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -61,6 +70,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const [showSmsModal, setShowSmsModal] = useState(false);
   const [smsContent, setSmsContent] = useState('');
   const [isGeneratingSms, setIsGeneratingSms] = useState(false);
+  const [isSendingSms, setIsSendingSms] = useState(false);
 
   // State for Critical Value Modal
   const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
@@ -71,6 +81,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
   
   const currentArchive = allArchives.find(a => a.checkup_id === currentPatientId);
   const currentPatientName = currentArchive?.name || '受检者';
+  const currentPatientPhone = currentArchive ? resolveArchivePhone(currentArchive) : '';
 
   /**
    * 是否优先展示「建档/年度」综合评估而非随访 AI 结论。
@@ -405,27 +416,85 @@ export const FollowUpDashboard: React.FC<Props> = ({
     }
   };
 
-  const handleSendAndDelay = () => {
+  const handleSendAndDelay = async () => {
       if (!onUpdateData || !nextScheduled) return;
-      const currentDate = new Date(nextScheduled.date);
-      currentDate.setMonth(currentDate.getMonth() + 1);
-      const newDateStr = currentDate.toISOString().split('T')[0];
-      const updatedSchedule = schedule.map(s => s.id === nextScheduled.id ? { ...s, date: newDateStr } : s);
-      if (latestRecord) {
-          onUpdateData(latestRecord, updatedSchedule);
+      if (!currentPatientPhone || !/^1[3-9]\d{9}$/.test(currentPatientPhone)) {
+          alert('该职工未登记有效手机号，无法发送短信');
+          return;
       }
-      setShowSmsModal(false);
+      if (!isSmsConfigured()) {
+          alert('短信服务未配置：请部署 send-sms Edge Function 并设置 VITE_SMS_INVOKE_SECRET');
+          return;
+      }
+
+      setIsSendingSms(true);
+      try {
+          const smsRes = await sendFollowUpSms({
+              checkupId: currentPatientId,
+              phone: currentPatientPhone,
+              name: currentPatientName,
+              content: smsContent,
+              followUpDate: nextScheduled.date,
+              sentRole: userRole,
+          });
+          if (!smsRes.success || smsRes.failCount > 0) {
+              alert(`短信发送失败：${smsRes.results[0]?.error || smsRes.message}`);
+              return;
+          }
+
+          const currentDate = new Date(nextScheduled.date);
+          currentDate.setMonth(currentDate.getMonth() + 1);
+          const newDateStr = currentDate.toISOString().split('T')[0];
+          const updatedSchedule = schedule.map(s => s.id === nextScheduled.id ? { ...s, date: newDateStr } : s);
+          if (latestRecord) {
+              onUpdateData(latestRecord, updatedSchedule);
+          }
+          alert('短信已发送，随访已延期 1 个月');
+          setShowSmsModal(false);
+      } finally {
+          setIsSendingSms(false);
+      }
   };
 
-  const handleCriticalSave = async (record: CriticalTrackRecord) => {
+  const handleCriticalSave = async (record: CriticalTrackRecord, options?: { sendSms?: boolean }) => {
       if (!criticalModalArchive) return;
-      const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record);
+      let recordToSave = { ...record };
+
+      if (options?.sendSms) {
+          const phone = resolveArchivePhone(criticalModalArchive);
+          if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
+              alert('该职工未登记有效手机号，无法发送短信');
+              return;
+          }
+          if (!isSmsConfigured()) {
+              alert('短信服务未配置：请部署 send-sms Edge Function 并设置 VITE_SMS_INVOKE_SECRET');
+              return;
+          }
+          const summary = criticalModalArchive.assessment_data?.criticalWarning || record.critical_desc;
+          const smsRes = await sendCriticalSms({
+              checkupId: criticalModalArchive.checkup_id,
+              phone,
+              name: criticalModalArchive.name,
+              summary,
+              sentRole: userRole,
+          });
+          if (!smsRes.success || smsRes.failCount > 0) {
+              alert(`短信发送失败：${smsRes.results[0]?.error || smsRes.message}`);
+              return;
+          }
+          const now = new Date().toLocaleString();
+          recordToSave = record.status === 'pending_secondary' || record.status === 'archived'
+              ? { ...recordToSave, secondary_notify_time: now }
+              : { ...recordToSave, initial_notify_time: now };
+      }
+
+      const res = await updateCriticalTrack(criticalModalArchive.checkup_id, recordToSave);
       if (res.success) {
-          alert("危急值处理记录已更新");
+          alert(options?.sendSms ? '危急值记录已保存，短信已发送' : '危急值处理记录已更新');
           setCriticalModalArchive(null);
           if (onRefresh) onRefresh();
       } else {
-          alert("保存失败: " + res.message);
+          alert('保存失败: ' + res.message);
       }
   };
 
@@ -1083,7 +1152,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[60] backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-scaleIn">
                 <h3 className="text-lg font-bold text-slate-800 mb-2">📩 随访提醒短信生成</h3>
-                <p className="text-xs text-slate-500 mb-4">场景：患者未接电话或需延期随访。发送后系统将自动延期1个月。</p>
+                <p className="text-xs text-slate-500 mb-2">场景：患者未接电话或需延期随访。发送成功后系统将自动延期 1 个月。</p>
+                <p className="text-xs text-slate-600 mb-4">
+                    发送至：<span className="font-mono font-bold">{currentPatientPhone || '未登记手机号'}</span>
+                    {!isSmsConfigured() && (
+                        <span className="block text-amber-600 mt-1">短信网关未配置，发送按钮不可用</span>
+                    )}
+                </p>
                 {isGeneratingSms ? (
                     <div className="py-8 text-center text-teal-600 font-bold animate-pulse">AI 正在撰写短信内容...</div>
                 ) : (
@@ -1098,10 +1173,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <button onClick={() => setShowSmsModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm">取消</button>
                     <button 
                         onClick={handleSendAndDelay}
-                        disabled={isGeneratingSms || !smsContent}
+                        disabled={isGeneratingSms || isSendingSms || !smsContent || !currentPatientPhone || !isSmsConfigured()}
                         className="px-4 py-2 bg-teal-600 text-white rounded-lg font-bold hover:bg-teal-700 shadow-lg text-sm disabled:opacity-50"
                     >
-                        📤 发送并延期 1 个月
+                        {isSendingSms ? '发送中…' : '📤 发送并延期 1 个月'}
                     </button>
                 </div>
             </div>

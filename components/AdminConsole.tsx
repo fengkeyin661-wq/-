@@ -21,6 +21,12 @@ import { isDiabetesCohort } from '../services/diabetesAssessmentService';
 import { detectHighGlucoseTag } from '../services/glucoseTagService';
 import { detectHighBloodPressureTag, isHypertensionCohort } from '../services/bloodPressureTagService';
 import { detectDyslipidemiaTag, isLipidCohort } from '../services/lipidTagService';
+import {
+    isSmsConfigured,
+    resolveArchivePhone,
+    sendCriticalSms,
+    sendNoticeSmsBatch,
+} from '../services/smsService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -103,6 +109,13 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [isCheckUploadModalOpen, setIsCheckUploadModalOpen] = useState(false);
     const [checkUploadLogs, setCheckUploadLogs] = useState<string[]>([]);
     const [isCheckUploadProcessing, setIsCheckUploadProcessing] = useState(false);
+
+    // SMS batch / manual
+    const [showSmsModal, setShowSmsModal] = useState(false);
+    const [smsContent, setSmsContent] = useState('');
+    const [smsTargetScope, setSmsTargetScope] = useState<'filtered' | 'selected'>('filtered');
+    const [isSendingSms, setIsSendingSms] = useState(false);
+    const [smsSendSummary, setSmsSendSummary] = useState<string | null>(null);
 
     const configured = isSupabaseConfigured();
 
@@ -500,6 +513,13 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         return filteredArchives.slice(start, start + pageSize);
     }, [filteredArchives, safePage, pageSize]);
 
+    const smsTargetArchives = useMemo(() => {
+        const pool = smsTargetScope === 'selected'
+            ? archives.filter((a) => selectedIds.has(a.id))
+            : filteredArchives;
+        return pool.filter((a) => /^1[3-9]\d{9}$/.test(resolveArchivePhone(a)));
+    }, [smsTargetScope, archives, selectedIds, filteredArchives]);
+
     useEffect(() => {
         setCurrentPage(1);
     }, [searchTerm, filterRisk, sortConfig, pageSize]);
@@ -538,7 +558,100 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             if (onDataUpdate) onDataUpdate();
         } else alert(result.message);
     };
-    const handleCriticalSave = async (record: CriticalTrackRecord) => { if (!criticalModalArchive) return; const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record); if (res.success) { setCriticalModalArchive(null); loadData({ force: true }); if (onDataUpdate) onDataUpdate(); } };
+    const handleCriticalSave = async (record: CriticalTrackRecord, options?: { sendSms?: boolean }) => {
+        if (!criticalModalArchive) return;
+        let recordToSave = { ...record };
+
+        if (options?.sendSms) {
+            const phone = resolveArchivePhone(criticalModalArchive);
+            if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
+                alert('该职工未登记有效手机号，无法发送短信');
+                return;
+            }
+            if (!isSmsConfigured()) {
+                alert('短信服务未配置：请部署 send-sms Edge Function 并设置 VITE_SMS_INVOKE_SECRET');
+                return;
+            }
+            const summary = criticalModalArchive.assessment_data?.criticalWarning || record.critical_desc;
+            const smsRes = await sendCriticalSms({
+                checkupId: criticalModalArchive.checkup_id,
+                phone,
+                name: criticalModalArchive.name,
+                summary,
+                sentRole: 'admin',
+            });
+            if (!smsRes.success || smsRes.failCount > 0) {
+                alert(`短信发送失败：${smsRes.results[0]?.error || smsRes.message}`);
+                return;
+            }
+            const now = new Date().toLocaleString();
+            recordToSave = record.status === 'pending_secondary' || record.status === 'archived'
+                ? { ...recordToSave, secondary_notify_time: now }
+                : { ...recordToSave, initial_notify_time: now };
+        }
+
+        const res = await updateCriticalTrack(criticalModalArchive.checkup_id, recordToSave);
+        if (res.success) {
+            setCriticalModalArchive(null);
+            loadData({ force: true });
+            if (onDataUpdate) onDataUpdate();
+            if (options?.sendSms) alert('危急值记录已保存，短信已发送');
+        } else {
+            alert('保存失败: ' + res.message);
+        }
+    };
+
+    const handleOpenSmsModal = () => {
+        setSmsSendSummary(null);
+        setSmsContent('');
+        if (selectedIds.size > 0) setSmsTargetScope('selected');
+        else setSmsTargetScope('filtered');
+        setShowSmsModal(true);
+    };
+
+    const handleSendBatchSms = async () => {
+        if (!smsContent.trim()) {
+            alert('请输入短信内容');
+            return;
+        }
+        if (smsTargetArchives.length === 0) {
+            alert('目标范围内没有有效手机号的职工');
+            return;
+        }
+        if (!isSmsConfigured()) {
+            alert('短信服务未配置：请部署 send-sms Edge Function 并设置 VITE_SMS_INVOKE_SECRET');
+            return;
+        }
+        const scopeLabel = smsTargetScope === 'selected' ? `选中的 ${selectedIds.size} 人` : `当前筛选 ${filteredArchives.length} 人`;
+        if (!confirm(`确定向 ${smsTargetArchives.length} 位有手机号的职工发送短信吗？\n范围：${scopeLabel}`)) return;
+
+        setIsSendingSms(true);
+        setSmsSendSummary(null);
+        try {
+            const res = await sendNoticeSmsBatch(
+                smsTargetArchives.map((a) => ({
+                    checkupId: a.checkup_id,
+                    phone: resolveArchivePhone(a),
+                    name: a.name,
+                    content: smsContent,
+                })),
+                { sentRole: 'admin', content: smsContent },
+            );
+            const failedLines = res.results
+                .filter((r) => !r.success)
+                .slice(0, 8)
+                .map((r) => `${r.phone}: ${r.error}`)
+                .join('\n');
+            setSmsSendSummary(
+                `${res.message}${failedLines ? `\n失败示例：\n${failedLines}` : ''}`,
+            );
+            if (res.successCount > 0 && res.failCount === 0) {
+                setShowSmsModal(false);
+            }
+        } finally {
+            setIsSendingSms(false);
+        }
+    };
     
     const handleSmartBatchFiles = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) { setSmartBatchFiles(Array.from(e.target.files)); setSmartBatchLogs([]); } };
     const extractTextForSmartBatch = async (file: File): Promise<string> => {
@@ -681,6 +794,14 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     {selectedIds.size > 0 && <button onClick={handleBatchDelete} className="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-200">🗑️ 删除选中</button>}
                     <button onClick={handleBatchFixBMI} className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-200">⚖️ BMI修复</button>
                     <button onClick={() => setIsSmartBatchModalOpen(true)} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 shadow-sm">📂 智能建档</button>
+                    <button
+                        onClick={handleOpenSmsModal}
+                        disabled={!isSmsConfigured()}
+                        title={isSmsConfigured() ? '向筛选或选中人员发送短信' : '需配置 Supabase 与 VITE_SMS_INVOKE_SECRET'}
+                        className="bg-amber-50 text-amber-800 border border-amber-200 px-4 py-2 rounded-lg text-xs font-bold hover:bg-amber-100 disabled:opacity-50"
+                    >
+                        📩 发送短信
+                    </button>
                     <button
                         onClick={() => loadData({ force: true })}
                         disabled={isRefreshing}
@@ -843,6 +964,67 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             
             {/* Critical Modal */}
             {criticalModalArchive && <CriticalHandleModal archive={criticalModalArchive} onClose={() => setCriticalModalArchive(null)} onSave={handleCriticalSave} />}
+
+            {/* SMS Batch Modal */}
+            {showSmsModal && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[100] flex items-center justify-center backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg animate-scaleIn">
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">发送职工短信</h3>
+                        <p className="text-xs text-slate-500 mb-4">
+                            内容将填入已备案的「通用通知」模板变量。仅向有效手机号发送。
+                        </p>
+                        <div className="flex gap-4 mb-4">
+                            <label className="flex items-center gap-2 text-sm cursor-pointer">
+                                <input
+                                    type="radio"
+                                    checked={smsTargetScope === 'filtered'}
+                                    onChange={() => setSmsTargetScope('filtered')}
+                                />
+                                当前筛选（{filteredArchives.length} 人，有效手机 {filteredArchives.filter((a) => /^1[3-9]\d{9}$/.test(resolveArchivePhone(a))).length}）
+                            </label>
+                            <label className={`flex items-center gap-2 text-sm cursor-pointer ${selectedIds.size === 0 ? 'opacity-50' : ''}`}>
+                                <input
+                                    type="radio"
+                                    checked={smsTargetScope === 'selected'}
+                                    onChange={() => setSmsTargetScope('selected')}
+                                    disabled={selectedIds.size === 0}
+                                />
+                                仅选中（{selectedIds.size} 人）
+                            </label>
+                        </div>
+                        <textarea
+                            className="w-full h-32 border border-slate-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-teal-500 mb-3"
+                            value={smsContent}
+                            onChange={(e) => setSmsContent(e.target.value)}
+                            placeholder="请输入通知内容（100字以内，发送前请确认符合已备案模板）"
+                            maxLength={100}
+                        />
+                        <p className="text-xs text-slate-400 mb-4">
+                            即将发送给 <strong>{smsTargetArchives.length}</strong> 位职工
+                        </p>
+                        {smsSendSummary && (
+                            <pre className="text-xs bg-slate-50 border border-slate-200 rounded p-3 mb-4 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                {smsSendSummary}
+                            </pre>
+                        )}
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => setShowSmsModal(false)}
+                                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={handleSendBatchSms}
+                                disabled={isSendingSms || !smsContent.trim() || smsTargetArchives.length === 0}
+                                className="px-4 py-2 bg-teal-600 text-white rounded-lg font-bold hover:bg-teal-700 text-sm disabled:opacity-50"
+                            >
+                                {isSendingSms ? '发送中…' : `确认发送 (${smsTargetArchives.length})`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             
             {/* Smart Batch Modal */}
             {isCheckUploadModalOpen && (

@@ -881,6 +881,7 @@ export const App: React.FC = () => {
                 isAuthenticated={isAuthenticated}
                 healthRecord={healthRecord}
                 onRefresh={refreshArchives}
+                userRole={currentUserRole === 'doctor' ? 'doctor' : 'admin'}
               />
             )}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}

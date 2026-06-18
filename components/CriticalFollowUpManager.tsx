@@ -3,6 +3,11 @@ import React, { useState, useMemo } from 'react';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
 import { CriticalHandleModal } from './CriticalHandleModal';
+import {
+    isSmsConfigured,
+    resolveArchivePhone,
+    sendCriticalSms,
+} from '../services/smsService';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -196,8 +201,36 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                 <CriticalHandleModal 
                     archive={selectedPatient} 
                     onClose={() => setSelectedPatient(null)} 
-                    onSave={async (record) => {
-                        await updateCriticalTrack(selectedPatient.checkup_id, record);
+                    onSave={async (record, options) => {
+                        let recordToSave = { ...record };
+                        if (options?.sendSms) {
+                            const phone = resolveArchivePhone(selectedPatient);
+                            if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
+                                alert('该职工未登记有效手机号，无法发送短信');
+                                return;
+                            }
+                            if (!isSmsConfigured()) {
+                                alert('短信服务未配置：请部署 send-sms Edge Function 并设置 VITE_SMS_INVOKE_SECRET');
+                                return;
+                            }
+                            const summary = selectedPatient.assessment_data?.criticalWarning || record.critical_desc;
+                            const smsRes = await sendCriticalSms({
+                                checkupId: selectedPatient.checkup_id,
+                                phone,
+                                name: selectedPatient.name,
+                                summary,
+                                sentRole: 'admin',
+                            });
+                            if (!smsRes.success || smsRes.failCount > 0) {
+                                alert(`短信发送失败：${smsRes.results[0]?.error || smsRes.message}`);
+                                return;
+                            }
+                            const now = new Date().toLocaleString();
+                            recordToSave = record.status === 'pending_secondary' || record.status === 'archived'
+                                ? { ...recordToSave, secondary_notify_time: now }
+                                : { ...recordToSave, initial_notify_time: now };
+                        }
+                        await updateCriticalTrack(selectedPatient.checkup_id, recordToSave);
                         setSelectedPatient(null);
                         onRefresh();
                     }} 
