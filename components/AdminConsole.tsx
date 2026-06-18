@@ -1,6 +1,11 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive, findArchiveByCheckupId, updateArchiveMeta, normalizePhone } from '../services/dataService';
+import {
+    formatArchiveListCacheTime,
+    isArchiveListCacheFresh,
+    readArchiveListCache,
+} from '../services/archiveListCacheService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
@@ -31,7 +36,10 @@ interface Props {
 }
 
 export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, isAuthenticated, onTabChange }) => {
-    const [archives, setArchives] = useState<HealthArchive[]>([]);
+    const initialCache = readArchiveListCache();
+    const [archives, setArchives] = useState<HealthArchive[]>(() =>
+        initialCache.archives.length ? sortArchivesByExamDate(initialCache.archives) : []
+    );
     
     // Operations Stats
     const [opsStats, setOpsStats] = useState({
@@ -41,7 +49,13 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         eventSignups: 0
     });
     
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(() => initialCache.archives.length === 0);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [cacheHint, setCacheHint] = useState<string | null>(() =>
+        initialCache.meta
+            ? `本地缓存 · ${formatArchiveListCacheTime(initialCache.meta.fetchedAt)} · ${initialCache.meta.count} 人`
+            : null
+    );
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -120,18 +134,41 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         setupPdfWorker();
     }, []);
 
-    const loadData = async () => {
+    const loadData = async (options?: { force?: boolean }) => {
         if (!configured) { setLoading(false); return; }
-        setLoading(true);
+
+        const cached = readArchiveListCache();
+        const hasCache = cached.archives.length > 0;
+
+        if (hasCache) {
+            setArchives(sortArchivesByExamDate(cached.archives));
+            setLoading(false);
+            setCacheHint(
+                cached.meta
+                    ? `本地缓存 · ${formatArchiveListCacheTime(cached.meta.fetchedAt)} · ${cached.meta.count} 人`
+                    : null
+            );
+            if (!options?.force && isArchiveListCacheFresh(cached.meta)) {
+                return;
+            }
+        } else {
+            setLoading(true);
+        }
+
+        setIsRefreshing(true);
         setFetchError(null);
-        setSelectedIds(new Set());
+        if (!hasCache) setSelectedIds(new Set());
+
         try {
             const data = await fetchArchives();
             setArchives(sortArchivesByExamDate(data));
+            setCacheHint(`已同步 · ${new Date().toLocaleTimeString()} · ${data.length} 人`);
         } catch (error: unknown) {
             setFetchError(String(error));
+            if (!hasCache) setArchives([]);
         } finally {
             setLoading(false);
+            setIsRefreshing(false);
         }
     };
 
@@ -154,7 +191,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const handleDelete = async (id: string, name: string) => {
         if (confirm(`确定要删除 ${name} 的健康档案吗？此操作不可恢复。`)) {
             const success = await deleteArchive(id);
-            if (success) { loadData(); if (onDataUpdate) onDataUpdate(); }
+            if (success) { loadData({ force: true }); if (onDataUpdate) onDataUpdate(); }
         }
     };
 
@@ -163,7 +200,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         if (confirm(`⚠️ 危险操作：确定要批量删除选中的 ${selectedIds.size} 份健康档案吗？`)) {
             setLoading(true);
             for (const id of Array.from(selectedIds)) await deleteArchive(id as string);
-            loadData(); if (onDataUpdate) onDataUpdate();
+            loadData({ force: true }); if (onDataUpdate) onDataUpdate();
             setLoading(false);
         }
     };
@@ -234,7 +271,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 setCheckUploadLogs((prev) => [...prev, `✅ ${res.message}`]);
                 alert(res.message || '导入完成');
             }
-            loadData();
+            loadData({ force: true });
             if (onDataUpdate) onDataUpdate();
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -267,7 +304,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             });
         }
         setLoading(false);
-        loadData();
+        loadData({ force: true });
     };
 
     const handleExportList = () => {
@@ -404,7 +441,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 }
             }
             setSmartBatchLogs(prev => [...prev, `🎉 全部完成! 成功: ${successCount}, 已完善跳过: ${alreadyFilledCount}, 未建档/异常: ${skipCount}`]);
-            loadData();
+            loadData({ force: true });
         } catch (error: any) {
             setSmartBatchLogs(prev => [...prev, `❌ 文件处理错误: ${error.message}`]);
         } finally {
@@ -497,11 +534,11 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             if (!meta.success) console.warn(meta.message);
             setIsEditModalOpen(false);
             setEditingArchive(null);
-            loadData();
+            loadData({ force: true });
             if (onDataUpdate) onDataUpdate();
         } else alert(result.message);
     };
-    const handleCriticalSave = async (record: CriticalTrackRecord) => { if (!criticalModalArchive) return; const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record); if (res.success) { setCriticalModalArchive(null); loadData(); if (onDataUpdate) onDataUpdate(); } };
+    const handleCriticalSave = async (record: CriticalTrackRecord) => { if (!criticalModalArchive) return; const res = await updateCriticalTrack(criticalModalArchive.checkup_id, record); if (res.success) { setCriticalModalArchive(null); loadData({ force: true }); if (onDataUpdate) onDataUpdate(); } };
     
     const handleSmartBatchFiles = (e: React.ChangeEvent<HTMLInputElement>) => { if (e.target.files) { setSmartBatchFiles(Array.from(e.target.files)); setSmartBatchLogs([]); } };
     const extractTextForSmartBatch = async (file: File): Promise<string> => {
@@ -549,7 +586,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             }
         }
         setIsSmartBatchProcessing(false);
-        loadData();
+        loadData({ force: true });
     };
 
     return (
@@ -608,6 +645,11 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         共 {filteredArchives.length} 人
                         {filterRisk !== 'ALL' ? `（${FILTER_LABELS[filterRisk]}）` : ''}
                     </span>
+                    {cacheHint && (
+                        <span className="text-xs text-slate-400 whitespace-nowrap" title="30 分钟内再次打开将直接使用本地缓存">
+                            {isRefreshing ? '同步中…' : cacheHint}
+                        </span>
+                    )}
                 </div>
                 <div className="flex gap-2 items-center">
                     <label className="flex items-center gap-2 cursor-pointer mr-2 select-none" title="若档案中问卷已有内容，则跳过不更新">
@@ -639,7 +681,14 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     {selectedIds.size > 0 && <button onClick={handleBatchDelete} className="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-200">🗑️ 删除选中</button>}
                     <button onClick={handleBatchFixBMI} className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-200">⚖️ BMI修复</button>
                     <button onClick={() => setIsSmartBatchModalOpen(true)} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 shadow-sm">📂 智能建档</button>
-                    <button onClick={loadData} className="bg-white border border-slate-300 px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-600">🔄</button>
+                    <button
+                        onClick={() => loadData({ force: true })}
+                        disabled={isRefreshing}
+                        className="bg-white border border-slate-300 px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-600 disabled:opacity-50"
+                        title="强制从云端重新加载"
+                    >
+                        {isRefreshing ? '⏳' : '🔄'}
+                    </button>
                 </div>
             </div>
 

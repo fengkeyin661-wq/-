@@ -1,6 +1,7 @@
 
 import bcrypt from 'bcryptjs';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { writeArchiveListCache } from './archiveListCacheService';
 import { fetchContent, isHealthManagerContent } from './contentService';
 import { autoEnrollHypertensionIfEligible } from './hypertensionStandaloneService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
@@ -1321,10 +1322,19 @@ export const fetchArchives = async (): Promise<HealthArchive[]> => {
                 // 云端同 checkup_id 覆盖本地（以云端为准）
                 (data as HealthArchive[]).forEach((a) => map.set(a.checkup_id, a));
                 archives = Array.from(map.values());
+                try {
+                    localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(archives));
+                } catch (e) {
+                    console.warn('档案 localStorage 写入失败', e);
+                }
             }
         } catch (e) {
             console.error("Fetch DB error", e);
         }
+    }
+
+    if (archives.length) {
+        writeArchiveListCache(archives);
     }
     return archives;
 };
