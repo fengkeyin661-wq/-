@@ -10,8 +10,9 @@ import {
   DIABETES_SCREENING_CATALOG,
   ScreeningCatalogItem,
 } from './diabetesScreeningCatalog';
+import { formatExamItemFromScreening } from './examReportReferenceService';
 import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './latestCheckupVitalsService';
-import { firstCheckupPathValue, formatRenalCheckup, formatRenalScreening, mergeProfileValues } from './indicatorProfileValueUtils';
+import { mergeProfileValues } from './indicatorProfileValueUtils';
 
 const EMPTY_MARKERS = new Set(['', '未查', '无', '—', '-', 'N/A', 'n/a']);
 
@@ -128,36 +129,6 @@ const screeningValueForItem = (
     }
   }
 
-  if (item.id === 'renal') {
-    const value = formatRenalScreening(
-      screening.creatinine,
-      [
-        screening.creatinine ? `肌酐 ${screening.creatinine}` : '',
-        screening.urea ? `尿素 ${screening.urea}` : '',
-        screening.uricAcid ? `尿酸 ${screening.uricAcid}` : '',
-      ].filter(Boolean),
-      record.profile?.age,
-      record.profile?.gender
-    );
-    if (value) {
-      hasScreening = true;
-      parts.push(value);
-    }
-  }
-
-  if (item.id === 'lipids') {
-    const lipidParts = [
-      screening.tc ? `TC ${screening.tc}` : '',
-      screening.tg ? `TG ${screening.tg}` : '',
-      screening.ldl ? `LDL ${screening.ldl}` : '',
-      screening.hdl ? `HDL ${screening.hdl}` : '',
-    ].filter(Boolean);
-    if (lipidParts.length) {
-      hasScreening = true;
-      parts.push(lipidParts.join('；'));
-    }
-  }
-
   if (item.id === 'urine_routine') {
     if (hasText(screening.urineRoutineSummary)) {
       hasScreening = true;
@@ -168,9 +139,14 @@ const screeningValueForItem = (
     }
   }
 
-  if (item.id === 'hba1c' && screening.hba1c != null) {
-    hasScreening = true;
-    parts.push(formatValue(screening.hba1c, item.unit) ?? String(screening.hba1c));
+  if (item.screeningFields?.length === 1) {
+    const exam = formatExamItemFromScreening(
+      item.id,
+      screening as Record<string, unknown>,
+      item.screeningFields,
+      record
+    );
+    if (exam.hasScreening) return exam;
   }
 
   if (!hasScreening && item.screeningFields?.length) {
@@ -198,20 +174,6 @@ const checkupValueForItem = (item: ScreeningCatalogItem, record: HealthRecord): 
   }
   if (!item.checkupPaths?.length) return { hasCheckup: false };
 
-  if (item.id === 'renal') return formatRenalCheckup(record);
-
-  if (item.id === 'lipids') {
-    const lipids = record.checkup?.labBasic?.lipids;
-    const parts = [
-      lipids?.tc ? `TC ${lipids.tc}` : '',
-      lipids?.tg ? `TG ${lipids.tg}` : '',
-      lipids?.ldl ? `LDL ${lipids.ldl}` : '',
-      lipids?.hdl ? `HDL ${lipids.hdl}` : '',
-    ].filter(Boolean);
-    if (parts.length) return { value: parts.join('；'), hasCheckup: true };
-    return { hasCheckup: false };
-  }
-
   if (item.id === 'urine_routine') {
     const urine = record.checkup?.labBasic?.urineRoutine;
     if (hasText(urine?.summary)) return { value: String(urine!.summary).trim(), hasCheckup: true };
@@ -222,10 +184,6 @@ const checkupValueForItem = (item: ScreeningCatalogItem, record: HealthRecord): 
     ].filter(Boolean);
     if (parts.length) return { value: parts.join('；'), hasCheckup: true };
     return { hasCheckup: false };
-  }
-
-  if (item.id === 'homocysteine' && item.checkupPaths?.length) {
-    return firstCheckupPathValue(record, item.checkupPaths, item.unit);
   }
 
   const lab = record.checkup?.labBasic || {};

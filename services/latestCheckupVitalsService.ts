@@ -3,6 +3,11 @@
  * 严格按参考范围判定异常（不合并专项筛查、问卷史、riskModelExtras 等）。
  */
 import type { HealthRecord } from '../types';
+import {
+  CHECKUP_ONLY_EXAM_ITEM_IDS,
+  EXAM_REFERENCE_TEXT,
+  getExamLabProfileValue,
+} from './examReportReferenceService';
 
 export const parseCheckupNumber = (v: unknown): number | undefined => {
   if (v == null || v === '') return undefined;
@@ -78,14 +83,9 @@ export const GLUCOSE_REFERENCE = {
 } as const;
 
 export const BP_REFERENCE = {
-  /** 正常：<120 且 <80 */
-  normalSbpMax: 120,
-  normalDbpMax: 80,
-  /** 正常高值 / 偏高：≥120 和/或 ≥80（参考 <120/<80） */
-  elevatedSbpMin: 120,
-  elevatedDbpMin: 80,
-  stage1SbpMin: 140,
-  stage1DbpMin: 90,
+  /** 体检报告：≥140/90 为血压偏高 */
+  elevatedSbpMin: 140,
+  elevatedDbpMin: 90,
   stage2SbpMin: 160,
   stage2DbpMin: 100,
   crisisSbpMin: 180,
@@ -93,16 +93,13 @@ export const BP_REFERENCE = {
 } as const;
 
 export const LIPID_REFERENCE = {
-  tcNormalMax: 5.2,
-  tcHighMin: 6.2,
-  ldlNormalMax: 3.4,
-  ldlBorderMax: 4.1,
-  ldlVeryHighMin: 4.9,
-  tgNormalMax: 1.7,
-  tgHighMin: 2.3,
-  tgVeryHighMin: 5.6,
-  hdlLowMale: 1.0,
-  hdlLowFemale: 1.3,
+  tcMin: 2.26,
+  tcMax: 5.6,
+  tgMin: 0.33,
+  tgMax: 2.3,
+  hdlMin: 0.9,
+  ldlMin: 1.4,
+  ldlMax: 4.11,
 } as const;
 
 export type GlucoseSeverity = 'normal' | 'prediabetes' | 'diabetes';
@@ -138,7 +135,7 @@ export const evaluateLatestCheckupGlucose = (
   return { abnormal: severity !== 'normal', severity, reasons };
 };
 
-export type BloodPressureSeverity = 'normal' | 'elevated' | 'stage1' | 'stage2' | 'crisis';
+export type BloodPressureSeverity = 'normal' | 'stage1' | 'stage2' | 'crisis';
 
 export const evaluateLatestCheckupBloodPressure = (
   bp: LatestCheckupBloodPressure
@@ -155,10 +152,9 @@ export const evaluateLatestCheckupBloodPressure = (
     reasons.push(reason);
     const rank: Record<BloodPressureSeverity, number> = {
       normal: 0,
-      elevated: 1,
-      stage1: 2,
-      stage2: 3,
-      crisis: 4,
+      stage1: 1,
+      stage2: 2,
+      crisis: 3,
     };
     if (rank[next] > rank[severity]) severity = next;
   };
@@ -168,103 +164,56 @@ export const evaluateLatestCheckupBloodPressure = (
     bump('crisis', `血压 ${sbp ?? '—'}/${dbp ?? '—'} mmHg（≥180/110 mmHg）`);
   } else if ((sbp != null && sbp >= r.stage2SbpMin) || (dbp != null && dbp >= r.stage2DbpMin)) {
     bump('stage2', `血压 ${sbp}/${dbp} mmHg（≥160/100 mmHg，参考 <140/90）`);
-  } else if ((sbp != null && sbp >= r.stage1SbpMin) || (dbp != null && dbp >= r.stage1DbpMin)) {
-    bump('stage1', `血压 ${sbp}/${dbp} mmHg（≥140/90 mmHg，参考 <140/90）`);
   } else if ((sbp != null && sbp >= r.elevatedSbpMin) || (dbp != null && dbp >= r.elevatedDbpMin)) {
-    bump('elevated', `血压 ${sbp}/${dbp} mmHg（120–139/80–89 mmHg，参考 <120/80）`);
+    bump('stage1', `血压 ${sbp}/${dbp} mmHg（≥140/90 mmHg，参考 <140/90）`);
   }
 
   return { abnormal: severity !== 'normal', severity, reasons };
 };
 
-export type LipidSeverity =
-  | 'normal'
-  | 'borderline'
-  | 'hypercholesterolemia'
-  | 'hypertriglyceridemia'
-  | 'mixed'
-  | 'very_high_risk';
+export type LipidSeverity = 'normal' | 'abnormal';
 
 export const evaluateLatestCheckupLipids = (
   lipids: LatestCheckupLipids,
   gender?: string
 ): { abnormal: boolean; severity: LipidSeverity; reasons: string[] } => {
   const reasons: string[] = [];
-  let severity: LipidSeverity = 'normal';
   const { tc, tg, ldl, hdl } = lipids;
   const r = LIPID_REFERENCE;
-  const hdlLow = /女/.test(gender || '') ? r.hdlLowFemale : r.hdlLowMale;
-
-  const bump = (next: LipidSeverity, reason: string) => {
-    reasons.push(reason);
-    const rank: Record<LipidSeverity, number> = {
-      normal: 0,
-      borderline: 1,
-      hypercholesterolemia: 2,
-      hypertriglyceridemia: 2,
-      mixed: 3,
-      very_high_risk: 4,
-    };
-    if (rank[next] > rank[severity]) severity = next;
-  };
+  void gender;
 
   const hasAny = tc != null || tg != null || ldl != null || hdl != null;
   if (!hasAny) return { abnormal: false, severity: 'normal', reasons: [] };
 
-  const highChol = (ldl != null && ldl >= r.ldlBorderMax) || (tc != null && tc >= r.tcHighMin);
-  const highTg = tg != null && tg >= r.tgHighMin;
-  const veryHigh = (ldl != null && ldl >= r.ldlVeryHighMin) || (tg != null && tg >= r.tgVeryHighMin);
-  const borderChol =
-    (ldl != null && ldl >= r.ldlNormalMax && ldl < r.ldlBorderMax) ||
-    (tc != null && tc >= r.tcNormalMax && tc < r.tcHighMin);
-  const borderTg = tg != null && tg >= r.tgNormalMax && tg < r.tgHighMin;
+  const check = (label: string, v: number | undefined, ok: boolean, ref: string) => {
+    if (v == null) return;
+    if (!ok) reasons.push(`${label} ${v}（参考 ${ref}）`);
+  };
 
-  if (veryHigh) {
-    bump('very_high_risk', `LDL-C≥${r.ldlVeryHighMin} 或 TG≥${r.tgVeryHighMin} mmol/L（参考 LDL<3.4，TG<1.7）`);
-  }
-  if (highChol && highTg) {
-    bump('mixed', `混合型血脂异常（参考 TC<5.2，LDL-C<3.4，TG<1.7 mmol/L）`);
-  } else if (highChol) {
-    bump(
-      'hypercholesterolemia',
-      `胆固醇升高（参考 TC<${r.tcNormalMax}，LDL-C<${r.ldlNormalMax} mmol/L）`
-    );
-  } else if (highTg) {
-    bump('hypertriglyceridemia', `甘油三酯升高（参考 TG<${r.tgNormalMax} mmol/L）`);
-  }
+  if (tc != null) check('总胆固醇', tc, tc >= r.tcMin && tc <= r.tcMax, EXAM_REFERENCE_TEXT.tc);
+  if (tg != null) check('甘油三酯', tg, tg >= r.tgMin && tg <= r.tgMax, EXAM_REFERENCE_TEXT.tg);
+  if (ldl != null) check('LDL-C', ldl, ldl >= r.ldlMin && ldl <= r.ldlMax, EXAM_REFERENCE_TEXT.ldl);
+  if (hdl != null) check('HDL-C', hdl, hdl >= r.hdlMin, EXAM_REFERENCE_TEXT.hdl);
 
-  if (borderChol || borderTg) {
-    bump('borderline', `血脂边缘升高（参考 TC<${r.tcNormalMax}，LDL-C<${r.ldlNormalMax}，TG<${r.tgNormalMax} mmol/L）`);
-  }
-
-  if (hdl != null && hdl < hdlLow) {
-    bump('borderline', `HDL-C ${hdl} mmol/L（参考 男≥${r.hdlLowMale}，女≥${r.hdlLowFemale}）`);
-  }
-
-  return { abnormal: severity !== 'normal', severity, reasons };
+  return { abnormal: reasons.length > 0, severity: reasons.length ? 'abnormal' : 'normal', reasons };
 };
 
 const BP_PROFILE_NOTES: Record<BloodPressureSeverity, string | undefined> = {
   normal: undefined,
-  elevated: '正常高值，参考 <120/80 mmHg',
-  stage1: '1级高血压，参考 <140/90 mmHg',
+  stage1: '血压偏高，参考 <140/90 mmHg',
   stage2: '2级高血压，参考 <140/90 mmHg',
   crisis: '高血压危象，参考 <180/110 mmHg',
 };
 
 const GLUCOSE_PROFILE_NOTES: Record<GlucoseSeverity, string | undefined> = {
   normal: undefined,
-  prediabetes: '空腹/HbA1c 达糖尿病前期切点',
-  diabetes: '空腹/HbA1c 达糖尿病切点',
+  prediabetes: '高于参考范围',
+  diabetes: '高于参考范围',
 };
 
 const LIPID_PROFILE_NOTES: Record<LipidSeverity, string | undefined> = {
   normal: undefined,
-  borderline: '血脂边缘升高',
-  hypercholesterolemia: '胆固醇升高',
-  hypertriglyceridemia: '甘油三酯升高',
-  mixed: '混合型血脂异常',
-  very_high_risk: '极高危血脂异常',
+  abnormal: '超出参考范围',
 };
 
 export const formatLatestCheckupLipidsSummary = (lipids: LatestCheckupLipids): string | undefined => {
@@ -277,15 +226,8 @@ export const formatLatestCheckupLipidsSummary = (lipids: LatestCheckupLipids): s
   return parts.length ? `${parts.join(' / ')} mmol/L` : undefined;
 };
 
-/** 专项指标档案中「仅看最近一次体检」的项目 ID */
-export const CHECKUP_ONLY_VITAL_ITEM_IDS = new Set([
-  'office_bp',
-  'lipids',
-  'lipids_panel',
-  'glucose_fasting',
-  'glucose_hba1c',
-  'glucose_metabolism',
-]);
+/** 专项指标档案中「仅看最近一次体检」的单项 ID */
+export const CHECKUP_ONLY_VITAL_ITEM_IDS = CHECKUP_ONLY_EXAM_ITEM_IDS;
 
 export const formatLatestCheckupGlucoseSummary = (g: LatestCheckupGlucose): string | undefined => {
   const parts: string[] = [];
@@ -313,39 +255,10 @@ export const getCheckupVitalProfileValue = (
     const suffix = eval_.abnormal && note ? `（${note}）` : '';
     return { value: value + suffix, hasCheckup: true };
   }
-  if (itemId === 'lipids' || itemId === 'lipids_panel') {
-    const lipids = getLatestCheckupLipids(record);
-    const value = formatLatestCheckupLipidsSummary(lipids);
-    if (!value) return { hasCheckup: false };
-    const eval_ = evaluateLatestCheckupLipids(lipids, record.profile?.gender);
-    const note = LIPID_PROFILE_NOTES[eval_.severity];
-    const suffix = eval_.abnormal && note ? `（${note}）` : '';
-    return { value: value + suffix, hasCheckup: true };
+
+  if (CHECKUP_ONLY_EXAM_ITEM_IDS.has(itemId) && itemId !== 'office_bp') {
+    return getExamLabProfileValue(itemId, record);
   }
-  if (itemId === 'glucose_fasting') {
-    const g = getLatestCheckupGlucose(record);
-    if (g.fasting == null) return { hasCheckup: false };
-    const eval_ = evaluateLatestCheckupGlucose(g);
-    const note = GLUCOSE_PROFILE_NOTES[eval_.severity];
-    const suffix = eval_.abnormal && note ? `（${note}）` : '';
-    return { value: `空腹 ${g.fasting} mmol/L${suffix}`, hasCheckup: true };
-  }
-  if (itemId === 'glucose_hba1c') {
-    const g = getLatestCheckupGlucose(record);
-    if (g.hba1c == null) return { hasCheckup: false };
-    const eval_ = evaluateLatestCheckupGlucose(g);
-    const note = GLUCOSE_PROFILE_NOTES[eval_.severity];
-    const suffix = eval_.abnormal && note ? `（${note}）` : '';
-    return { value: `HbA1c ${g.hba1c}%${suffix}`, hasCheckup: true };
-  }
-  if (itemId === 'glucose_metabolism') {
-    const g = getLatestCheckupGlucose(record);
-    const value = formatLatestCheckupGlucoseSummary(g);
-    if (!value) return { hasCheckup: false };
-    const eval_ = evaluateLatestCheckupGlucose(g);
-    const note = GLUCOSE_PROFILE_NOTES[eval_.severity];
-    const suffix = eval_.abnormal && note ? `（${note}）` : '';
-    return { value: value + suffix, hasCheckup: true };
-  }
+
   return { hasCheckup: false };
 };

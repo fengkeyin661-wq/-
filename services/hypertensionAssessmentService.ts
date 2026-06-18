@@ -62,7 +62,7 @@ const inferCohortTag = (record: HealthRecord): HypertensionManagementData['cohor
   if (tag.severity === 'crisis') return 'crisis';
   if (tag.severity === 'stage2') return 'stage2';
   if (tag.severity === 'stage1') return 'stage1';
-  return 'elevated';
+  return 'stage1';
 };
 
 export const inferCohortTagFromRecord = (
@@ -182,7 +182,6 @@ export const evaluateHypertensionScreening = (record: HealthRecord): Hypertensio
   else if (cohortTag === 'stage2' || missedItems.filter((m) => m.priority === 'high').length > 5) {
     riskLevel = RiskLevel.RED;
   } else if (cohortTag === 'stage1' || missedItems.length > 8) riskLevel = RiskLevel.YELLOW;
-  else if (cohortTag === 'elevated') riskLevel = RiskLevel.YELLOW;
 
   const screeningFindings = indicatorProfile.categories.flatMap((c) =>
     c.items

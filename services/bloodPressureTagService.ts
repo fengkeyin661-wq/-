@@ -5,7 +5,7 @@ import {
   type BloodPressureSeverity,
 } from './latestCheckupVitalsService';
 
-export type HighBloodPressureSeverity = 'elevated' | 'stage1' | 'stage2' | 'crisis';
+export type HighBloodPressureSeverity = 'stage1' | 'stage2' | 'crisis';
 
 export interface HighBloodPressureTagInfo {
   show: boolean;
@@ -18,16 +18,15 @@ export interface HighBloodPressureTagInfo {
 const mapSeverity = (s: BloodPressureSeverity): HighBloodPressureSeverity => {
   if (s === 'crisis') return 'crisis';
   if (s === 'stage2') return 'stage2';
-  if (s === 'stage1') return 'stage1';
-  return 'elevated';
+  return 'stage1';
 };
 
-/** 仅依据最近一次体检 checkup 诊室血压，严格按参考范围判定（不含问卷史、专项筛查） */
+/** 仅依据最近一次体检 checkup 诊室血压，≥140/90 为偏高 */
 export const detectHighBloodPressureTag = (record: HealthRecord): HighBloodPressureTagInfo => {
   const evalResult = evaluateLatestCheckupBloodPressure(getLatestCheckupBloodPressure(record));
 
   if (!evalResult.abnormal) {
-    return { show: false, label: '', severity: 'elevated', summary: '', reasons: [] };
+    return { show: false, label: '', severity: 'stage1', summary: '', reasons: [] };
   }
 
   return {
@@ -42,8 +41,7 @@ export const detectHighBloodPressureTag = (record: HealthRecord): HighBloodPress
 export const highBloodPressureTagClassName = (severity: HighBloodPressureSeverity): string => {
   if (severity === 'crisis') return 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200';
   if (severity === 'stage2') return 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100';
-  if (severity === 'stage1') return 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200';
-  return 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100';
+  return 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200';
 };
 
 export const isHypertensionCohort = (record: HealthRecord): boolean => {

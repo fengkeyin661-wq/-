@@ -5,19 +5,10 @@ import type {
   LipidIndicatorProfileItem,
   LipidScreeningRecord,
 } from '../types';
-import {
-  LIPID_INDICATOR_CATEGORIES,
-  LIPID_SCREENING_CATALOG,
-  LipidCatalogItem,
-} from './lipidScreeningCatalog';
+import { formatExamItemFromScreening } from './examReportReferenceService';
+import { getByPath, mergeProfileValues } from './indicatorProfileValueUtils';
+import { LIPID_INDICATOR_CATEGORIES, LIPID_SCREENING_CATALOG, LipidCatalogItem } from './lipidScreeningCatalog';
 import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './latestCheckupVitalsService';
-import {
-  firstCheckupPathValue,
-  formatLiverEnzymesCheckup,
-  formatRenalCheckup,
-  formatRenalScreening,
-  mergeProfileValues,
-} from './indicatorProfileValueUtils';
 
 const EMPTY = new Set(['', '未查', '无', '—', '-']);
 
@@ -37,66 +28,23 @@ const fmt = (v: unknown, unit?: string): string | undefined => {
   return s && !EMPTY.has(s) ? s : undefined;
 };
 
-const getByPath = (obj: unknown, path: string): unknown =>
-  path.split('.').reduce((acc: unknown, key) => {
-    if (acc == null || typeof acc !== 'object') return undefined;
-    return (acc as Record<string, unknown>)[key];
-  }, obj);
-
 const catLabel = (id: LipidCatalogItem['category']) =>
   LIPID_INDICATOR_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 
-const screeningVal = (item: LipidCatalogItem, s: LipidScreeningRecord | null, record: HealthRecord) => {
+const screeningVal = (
+  item: LipidCatalogItem,
+  s: LipidScreeningRecord | null,
+  record: HealthRecord
+) => {
   if (!s) return { hasScreening: false as const };
-  const parts: string[] = [];
-  let ok = false;
 
-  if (item.id === 'lipids_panel') {
-    const p = [s.tc && `TC ${s.tc}`, s.tg && `TG ${s.tg}`, s.ldl && `LDL ${s.ldl}`, s.hdl && `HDL ${s.hdl}`].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
-  }
-  if (item.id === 'office_bp' && (s.sbp != null || s.dbp != null)) {
-    ok = true;
-    parts.push(`${s.sbp ?? '—'}/${s.dbp ?? '—'} mmHg`);
-  }
-  if (item.id === 'liver_enzymes') {
-    const p = [s.alt && `ALT ${s.alt}`, s.ast && `AST ${s.ast}`].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
-  }
-  if (item.id === 'renal') {
-    const value = formatRenalScreening(
-      s.creatinine,
-      [s.creatinine ? `肌酐 ${s.creatinine}` : ''].filter(Boolean),
-      record.profile?.age,
-      record.profile?.gender
-    );
-    if (value) {
-      ok = true;
-      parts.push(value);
-    }
-  }
-  if (item.id === 'glucose_hba1c') {
-    const p = [
-      s.fastingGlucose != null && `空腹 ${fmt(s.fastingGlucose, 'mmol/L')}`,
-      s.hba1c != null && `HbA1c ${s.hba1c}%`,
-    ].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
-  }
   if (item.id === 'carotid_us') {
-    const p = [s.carotidUltrasound, s.carotidImt && `IMT ${s.carotidImt}`, s.carotidPlaque && `斑块 ${s.carotidPlaque}`].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
+    const p = [
+      s.carotidUltrasound,
+      s.carotidImt && `IMT ${s.carotidImt}`,
+      s.carotidPlaque && `斑块 ${s.carotidPlaque}`,
+    ].filter(Boolean);
+    if (p.length) return { value: p.join('；'), hasScreening: true as const };
   }
   if (item.id === 'abi') {
     const p = [
@@ -104,13 +52,21 @@ const screeningVal = (item: LipidCatalogItem, s: LipidScreeningRecord | null, re
       s.leftABI != null && `左ABI ${s.leftABI}`,
       s.rightABI != null && `右ABI ${s.rightABI}`,
     ].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
+    if (p.length) return { value: p.join('；'), hasScreening: true as const };
   }
 
-  if (!ok && item.screeningFields?.length) {
+  if (item.screeningFields?.length === 1) {
+    return formatExamItemFromScreening(
+      item.id,
+      s as Record<string, unknown>,
+      item.screeningFields,
+      record
+    );
+  }
+
+  const parts: string[] = [];
+  let ok = false;
+  if (item.screeningFields?.length) {
     for (const f of item.screeningFields) {
       const v = s[f];
       if (typeof v === 'number' && Number.isFinite(v)) {
@@ -122,18 +78,12 @@ const screeningVal = (item: LipidCatalogItem, s: LipidScreeningRecord | null, re
       }
     }
   }
-
   return { value: parts.length ? parts.join('；') : undefined, hasScreening: ok };
 };
 
 const checkupVal = (item: LipidCatalogItem, record: HealthRecord) => {
   if (CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id)) {
     return getCheckupVitalProfileValue(item.id, record);
-  }
-  if (item.id === 'liver_enzymes') return formatLiverEnzymesCheckup(record);
-  if (item.id === 'renal') return formatRenalCheckup(record, ['riskModelExtras.uacr']);
-  if (item.id === 'homocysteine') {
-    return firstCheckupPathValue(record, item.checkupPaths ?? [], item.unit);
   }
   if (!item.checkupPaths?.length) return { hasCheckup: false as const };
   const values: string[] = [];
@@ -161,7 +111,6 @@ const buildItem = (
   else if (fromS.hasScreening) dataSource = 'screening';
 
   const value = mergeProfileValues(fromS, fromC, skipScreening);
-
   const checkupDate = record.profile?.checkupDate?.trim() || observedDate;
   const itemObservedDate = skipScreening && fromC.hasCheckup ? checkupDate : observedDate;
 

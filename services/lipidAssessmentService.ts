@@ -49,10 +49,6 @@ export const createLipidScreeningId = (): string =>
 const inferCohortTag = (record: HealthRecord): LipidManagementData['cohortTag'] | undefined => {
   const tag = detectDyslipidemiaTag(record);
   if (!tag.show) return undefined;
-  if (tag.severity === 'very_high_risk') return 'very_high_risk';
-  if (tag.severity === 'mixed') return 'mixed';
-  if (tag.severity === 'hypercholesterolemia') return 'hypercholesterolemia';
-  if (tag.severity === 'hypertriglyceridemia') return 'hypertriglyceridemia';
   return 'borderline';
 };
 

@@ -706,6 +706,12 @@ export interface HypertensionScreeningRecord {
   fundusResult?: string;
   brainCtResult?: string;
   homocysteine?: number;
+  uricAcid?: number | string;
+  alt?: number | string;
+  ast?: number | string;
+  tsh?: number | string;
+  ft3?: number | string;
+  ft4?: number | string;
   /** 代谢 */
   tc?: number | string;
   tg?: number | string;
@@ -858,9 +864,13 @@ export interface LipidScreeningRecord {
   alt?: number | string;
   ast?: number | string;
   creatinine?: number | string;
+  urea?: number | string;
   uacr?: number | string;
+  uricAcid?: number | string;
   /** 继发性排查 */
   tsh?: number | string;
+  ft3?: number | string;
+  ft4?: number | string;
   urineProtein?: string;
   onLipidLowering?: boolean;
   importMeta?: { fileName?: string; rowIndex?: number };

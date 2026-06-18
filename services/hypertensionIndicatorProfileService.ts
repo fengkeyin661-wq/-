@@ -5,18 +5,14 @@ import type {
   HypertensionIndicatorProfileItem,
   HypertensionScreeningRecord,
 } from '../types';
+import { formatExamItemFromScreening } from './examReportReferenceService';
 import {
   HYPERTENSION_INDICATOR_CATEGORIES,
   HYPERTENSION_SCREENING_CATALOG,
   HypertensionCatalogItem,
 } from './hypertensionScreeningCatalog';
+import { getByPath, mergeProfileValues } from './indicatorProfileValueUtils';
 import { CHECKUP_ONLY_VITAL_ITEM_IDS, getCheckupVitalProfileValue } from './latestCheckupVitalsService';
-import {
-  firstCheckupPathValue,
-  formatRenalCheckup,
-  formatRenalScreening,
-  mergeProfileValues,
-} from './indicatorProfileValueUtils';
 
 const EMPTY = new Set(['', '未查', '无', '—', '-']);
 
@@ -36,12 +32,6 @@ const fmt = (v: unknown, unit?: string): string | undefined => {
   return s && !EMPTY.has(s) ? s : undefined;
 };
 
-const getByPath = (obj: unknown, path: string): unknown =>
-  path.split('.').reduce((acc: unknown, key) => {
-    if (acc == null || typeof acc !== 'object') return undefined;
-    return (acc as Record<string, unknown>)[key];
-  }, obj);
-
 const catLabel = (id: HypertensionCatalogItem['category']) =>
   HYPERTENSION_INDICATOR_CATEGORIES.find((c) => c.id === id)?.label ?? id;
 
@@ -51,58 +41,37 @@ const screeningVal = (
   record: HealthRecord
 ) => {
   if (!s) return { hasScreening: false as const };
-  const parts: string[] = [];
-  let ok = false;
 
-  if (item.id === 'office_bp' && (s.sbp != null || s.dbp != null)) {
-    ok = true;
-    parts.push(`${s.sbp ?? '—'}/${s.dbp ?? '—'} mmHg`);
-  }
-  if (item.id === 'lipids') {
-    const p = [s.tc && `TC ${s.tc}`, s.tg && `TG ${s.tg}`, s.ldl && `LDL ${s.ldl}`, s.hdl && `HDL ${s.hdl}`].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
-  }
-  if (item.id === 'renal') {
-    const value = formatRenalScreening(
-      s.creatinine,
-      [
-        s.creatinine ? `肌酐 ${s.creatinine}` : '',
-        s.urea ? `尿素 ${s.urea}` : '',
-      ].filter(Boolean),
-      record.profile?.age,
-      record.profile?.gender
-    );
-    if (value) {
-      ok = true;
-      parts.push(value);
-    }
-  }
-  if (item.id === 'glucose_hba1c') {
-    const p = [s.fastingGlucose != null && `空腹 ${fmt(s.fastingGlucose, 'mmol/L')}`, s.hba1c != null && `HbA1c ${s.hba1c}%`].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
-  }
   if (item.id === 'electrolytes') {
-    const p = [s.potassium && `K ${s.potassium}`, s.sodium && `Na ${s.sodium}`, s.chloride && `Cl ${s.chloride}`, s.calcium && `Ca ${s.calcium}`].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
+    const p = [
+      s.potassium && `K ${s.potassium}`,
+      s.sodium && `Na ${s.sodium}`,
+      s.chloride && `Cl ${s.chloride}`,
+      s.calcium && `Ca ${s.calcium}`,
+    ].filter(Boolean);
+    if (p.length) return { value: p.join('；'), hasScreening: true as const };
   }
   if (item.id === 'raas') {
-    const p = [s.renin && `肾素 ${s.renin}`, s.angiotensin && `血管紧张素 ${s.angiotensin}`, s.aldosterone && `醛固酮 ${s.aldosterone}`].filter(Boolean);
-    if (p.length) {
-      ok = true;
-      parts.push(p.join('；'));
-    }
+    const p = [
+      s.renin && `肾素 ${s.renin}`,
+      s.angiotensin && `血管紧张素 ${s.angiotensin}`,
+      s.aldosterone && `醛固酮 ${s.aldosterone}`,
+    ].filter(Boolean);
+    if (p.length) return { value: p.join('；'), hasScreening: true as const };
   }
 
-  if (!ok && item.screeningFields?.length) {
+  if (item.screeningFields?.length === 1) {
+    return formatExamItemFromScreening(
+      item.id,
+      s as Record<string, unknown>,
+      item.screeningFields,
+      record
+    );
+  }
+
+  const parts: string[] = [];
+  let ok = false;
+  if (item.screeningFields?.length) {
     for (const f of item.screeningFields) {
       const v = s[f];
       if (typeof v === 'number' && Number.isFinite(v)) {
@@ -114,17 +83,12 @@ const screeningVal = (
       }
     }
   }
-
   return { value: parts.length ? parts.join('；') : undefined, hasScreening: ok };
 };
 
 const checkupVal = (item: HypertensionCatalogItem, record: HealthRecord) => {
   if (CHECKUP_ONLY_VITAL_ITEM_IDS.has(item.id)) {
     return getCheckupVitalProfileValue(item.id, record);
-  }
-  if (item.id === 'renal') return formatRenalCheckup(record);
-  if (item.id === 'homocysteine') {
-    return firstCheckupPathValue(record, item.checkupPaths ?? [], item.unit);
   }
   if (!item.checkupPaths?.length) return { hasCheckup: false as const };
   const values: string[] = [];
@@ -152,7 +116,6 @@ const buildItem = (
   else if (fromS.hasScreening) dataSource = 'screening';
 
   const value = mergeProfileValues(fromS, fromC, skipScreening);
-
   const checkupDate = record.profile?.checkupDate?.trim() || observedDate;
   const itemObservedDate = skipScreening && fromC.hasCheckup ? checkupDate : observedDate;
 
