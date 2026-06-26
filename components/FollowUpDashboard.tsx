@@ -33,7 +33,53 @@ interface Props {
   userRole?: SmsSentRole;
 }
 
-export const FollowUpDashboard: React.FC<Props> = ({ 
+const DEFAULT_LIFESTYLE_TASKS: NonNullable<FollowUpRecord['taskCompliance']> = [
+  { taskId: 'lifestyle_diet', description: '饮食：低盐低脂、均衡膳食', status: 'achieved' },
+  { taskId: 'lifestyle_exercise', description: '运动：每周中等强度有氧运动', status: 'achieved' },
+  { taskId: 'lifestyle_sleep', description: '睡眠：规律作息，保证充足睡眠', status: 'achieved' },
+  { taskId: 'lifestyle_smoke', description: '吸烟：无吸烟或已戒烟', status: 'achieved' },
+];
+
+const buildLifestyleTaskCompliance = (
+  assessment: HealthAssessment | null | undefined,
+  latestRecord: FollowUpRecord | null,
+  isAssessmentNewer: boolean,
+): NonNullable<FollowUpRecord['taskCompliance']> => {
+  if (assessment?.structuredTasks?.length) {
+    return assessment.structuredTasks.map((task) => ({
+      taskId: task.id,
+      description: [task.description, task.targetValue ? `目标 ${task.targetValue}` : ''].filter(Boolean).join(' · '),
+      status: 'achieved' as const,
+      note: task.frequency || undefined,
+    }));
+  }
+
+  const items: string[] = [];
+  const appendPlan = (plan?: HealthAssessment['managementPlan']) => {
+    if (!plan) return;
+    for (const d of plan.dietary || []) items.push(`饮食：${d}`);
+    for (const e of plan.exercise || []) items.push(`运动：${e}`);
+    for (const m of plan.monitoring || []) items.push(`监测：${m}`);
+  };
+
+  if (isAssessmentNewer && assessment) {
+    appendPlan(assessment.managementPlan);
+  } else if (latestRecord?.assessment?.lifestyleGoals?.length) {
+    items.push(...latestRecord.assessment.lifestyleGoals);
+  } else {
+    appendPlan(assessment?.managementPlan);
+  }
+
+  if (items.length === 0) return DEFAULT_LIFESTYLE_TASKS;
+
+  return items.slice(0, 10).map((desc, idx) => ({
+    taskId: `lifestyle_${idx}`,
+    description: desc,
+    status: 'achieved' as const,
+  }));
+};
+
+export const FollowUpDashboard: React.FC<Props> = ({
     records, 
     assessment, 
     schedule, 
@@ -257,6 +303,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
         baseState.organRisks.thyroidNodule = latestRecord.organRisks.thyroidNodule || '无';
         baseState.organRisks.carotidStatus = '稳定';
         baseState.organRisks.thyroidStatus = '稳定';
+        if (latestRecord.lifestyle) {
+            baseState.lifestyle = { ...baseState.lifestyle, ...latestRecord.lifestyle };
+        }
     }
     const itemsToCheck = extractCheckItems(activePlanText || '');
     if (itemsToCheck.length > 0) {
@@ -268,14 +317,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     } else {
         baseState.medicalCompliance = [{ item: '常规复查项目', status: 'not_checked', result: '' }];
     }
-    if (assessment?.structuredTasks) {
-        baseState.taskCompliance = assessment.structuredTasks.map(task => ({
-            taskId: task.id,
-            description: task.description,
-            status: 'achieved', 
-            note: task.targetValue ? `目标: ${task.targetValue}` : ''
-        }));
-    }
+    baseState.taskCompliance = buildLifestyleTaskCompliance(assessment, latestRecord, isAssessmentNewer);
     if (isAssessmentNewer && assessment) {
         baseState.assessment.riskJustification = `基于最新评估：${assessment.summary.slice(0, 50)}...`;
         baseState.assessment.majorIssues = activeIssues || '';
@@ -287,7 +329,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   useEffect(() => {
       autoFillForm();
-  }, [currentPatientId, activePlanText, latestRecord?.id, isAssessmentNewer]);
+  }, [currentPatientId, activePlanText, latestRecord?.id, isAssessmentNewer, assessment?.summary]);
 
   const updateForm = (section: keyof FollowUpRecord, field: string, value: any) => {
     if (section === 'indicators' || section === 'organRisks' || section === 'medication' || section === 'lifestyle' || section === 'assessment') {
@@ -961,17 +1003,56 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
                       <section className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
                           <h4 className="font-bold text-indigo-800 mb-3">3. 生活方式与备注</h4>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                              <div>
+                                  <label className="text-xs text-indigo-600 block mb-1 font-bold">饮食情况</label>
+                                  <input
+                                      type="text"
+                                      className="w-full border border-indigo-200 rounded p-2 text-sm bg-white"
+                                      value={formData.lifestyle.diet}
+                                      onChange={(e) => updateForm('lifestyle', 'diet', e.target.value)}
+                                  />
+                              </div>
+                              <div>
+                                  <label className="text-xs text-indigo-600 block mb-1 font-bold">运动情况</label>
+                                  <input
+                                      type="text"
+                                      className="w-full border border-indigo-200 rounded p-2 text-sm bg-white"
+                                      value={formData.lifestyle.exercise}
+                                      onChange={(e) => updateForm('lifestyle', 'exercise', e.target.value)}
+                                  />
+                              </div>
+                              <div>
+                                  <label className="text-xs text-indigo-600 block mb-1 font-bold">睡眠 (小时)</label>
+                                  <input
+                                      type="number"
+                                      step="0.5"
+                                      className="w-full border border-indigo-200 rounded p-2 text-sm bg-white"
+                                      value={formData.lifestyle.sleepHours || ''}
+                                      onChange={(e) => updateForm('lifestyle', 'sleepHours', Number(e.target.value))}
+                                  />
+                              </div>
+                              <div>
+                                  <label className="text-xs text-indigo-600 block mb-1 font-bold">吸烟 (支/日)</label>
+                                  <input
+                                      type="number"
+                                      className="w-full border border-indigo-200 rounded p-2 text-sm bg-white"
+                                      value={formData.lifestyle.smokingAmount ?? ''}
+                                      onChange={(e) => updateForm('lifestyle', 'smokingAmount', Number(e.target.value))}
+                                  />
+                              </div>
+                          </div>
                           <div className="mb-4">
                               <label className="text-xs text-indigo-600 block mb-1 font-bold">生活方式核对</label>
                               {formData.taskCompliance && formData.taskCompliance.length > 0 ? (
                                   <div className="space-y-2">
                                       {formData.taskCompliance.map((task, idx) => (
                                           <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-indigo-100 text-xs">
-                                              <span className="truncate max-w-[60%]">{task.description}</span>
+                                              <span className="truncate max-w-[60%]" title={task.description}>{task.description}</span>
                                               <div className="flex gap-1">
-                                                  {['achieved', 'partial', 'failed'].map((st:any) => (
+                                                  {(['achieved', 'partial', 'failed'] as const).map((st) => (
                                                       <button key={st} onClick={()=>updateTaskCompliance(idx, st)} 
-                                                          className={`px-2 py-0.5 rounded border ${task.status===st ? (st==='achieved'?'bg-green-500 text-white':'bg-slate-400 text-white') : 'bg-white text-slate-400'}`}>
+                                                          className={`px-2 py-0.5 rounded border ${task.status===st ? (st==='achieved'?'bg-green-500 text-white':st==='partial'?'bg-amber-500 text-white':'bg-red-500 text-white') : 'bg-white text-slate-400'}`}>
                                                           {st==='achieved'?'达标':st==='partial'?'部分':'未做'}
                                                       </button>
                                                   ))}
@@ -979,7 +1060,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                           </div>
                                       ))}
                                   </div>
-                              ) : <div className="text-xs text-slate-400">无具体任务</div>}
+                              ) : (
+                                  <div className="text-xs text-slate-400">暂无核对项，请根据健康管理方案手动补充备注</div>
+                              )}
                           </div>
                           <div>
                               <label className="text-xs text-indigo-600 block mb-1 font-bold">其他情况备注</label>
@@ -1251,22 +1334,31 @@ export const FollowUpDashboard: React.FC<Props> = ({
                         <section>
                             <h4 className="font-bold text-slate-700 mb-3 text-sm border-l-4 border-green-500 pl-2">生活方式</h4>
                             <div className="text-sm grid grid-cols-2 gap-2">
-                                <div><span className="text-slate-400 text-xs">饮食:</span> {viewingRecord.lifestyle.diet}</div>
-                                <div><span className="text-slate-400 text-xs">运动:</span> {viewingRecord.lifestyle.exercise}</div>
-                                <div><span className="text-slate-400 text-xs">睡眠:</span> {viewingRecord.lifestyle.sleepHours}h</div>
-                                <div><span className="text-slate-400 text-xs">吸烟:</span> {viewingRecord.lifestyle.smokingAmount}支</div>
+                                <div><span className="text-slate-400 text-xs">饮食:</span> {viewingRecord.lifestyle.diet || '-'}</div>
+                                <div><span className="text-slate-400 text-xs">运动:</span> {viewingRecord.lifestyle.exercise || '-'}</div>
+                                <div><span className="text-slate-400 text-xs">睡眠:</span> {viewingRecord.lifestyle.sleepHours ? `${viewingRecord.lifestyle.sleepHours}h` : '-'}</div>
+                                <div><span className="text-slate-400 text-xs">吸烟:</span> {viewingRecord.lifestyle.smokingAmount != null ? `${viewingRecord.lifestyle.smokingAmount}支/日` : '-'}</div>
                             </div>
-                            {viewingRecord.taskCompliance && viewingRecord.taskCompliance.length > 0 && (
+                            {viewingRecord.taskCompliance && viewingRecord.taskCompliance.length > 0 ? (
                                 <div className="mt-2 pt-2 border-t border-slate-100">
-                                    <div className="text-xs text-slate-400 mb-1">目标达成:</div>
-                                    <div className="flex flex-wrap gap-1">
+                                    <div className="text-xs text-slate-400 mb-1">生活方式核对:</div>
+                                    <ul className="space-y-1">
                                         {viewingRecord.taskCompliance.map((t, i) => (
-                                            <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded ${t.status==='achieved'?'bg-green-100 text-green-700':'bg-slate-100 text-slate-500'}`}>
-                                                {t.description.slice(0, 4)}...
-                                            </span>
+                                            <li key={i} className="text-xs text-slate-600 flex justify-between gap-2">
+                                                <span className="flex-1">{t.description}</span>
+                                                <span className={`shrink-0 px-1.5 py-0.5 rounded ${
+                                                    t.status === 'achieved' ? 'bg-green-100 text-green-700' :
+                                                    t.status === 'partial' ? 'bg-amber-100 text-amber-700' :
+                                                    'bg-red-100 text-red-700'
+                                                }`}>
+                                                    {t.status === 'achieved' ? '达标' : t.status === 'partial' ? '部分' : '未做'}
+                                                </span>
+                                            </li>
                                         ))}
-                                    </div>
+                                    </ul>
                                 </div>
+                            ) : (
+                                <div className="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-400">生活方式核对：无具体记录</div>
                             )}
                         </section>
                     </div>
