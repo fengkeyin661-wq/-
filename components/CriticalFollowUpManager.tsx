@@ -16,9 +16,63 @@ interface Props {
     onRefresh: () => void;
 }
 
+type SortKey = 'name' | 'critical_item' | 'secondary_due_date' | 'status' | 'updated_at';
+
+const PENDING_DEFAULT_SORT: { key: SortKey; direction: 'asc' | 'desc' } = { key: 'status', direction: 'asc' };
+const ARCHIVED_DEFAULT_SORT: { key: SortKey; direction: 'asc' | 'desc' } = { key: 'updated_at', direction: 'desc' };
+
+const getStatusOrder = (arch: HealthArchive): number => {
+    const status = arch.critical_track?.status;
+    if (status === 'pending_initial') return 0;
+    if (!arch.critical_track && arch.assessment_data?.isCritical) return 0;
+    if (status === 'pending_secondary') return 1;
+    if (status === 'archived') return 2;
+    return 3;
+};
+
+const getSecondaryDueTime = (arch: HealthArchive): number => {
+    const date = arch.critical_track?.secondary_due_date;
+    return date ? new Date(date).getTime() : Number.MAX_SAFE_INTEGER;
+};
+
+const compareArchives = (
+    a: HealthArchive,
+    b: HealthArchive,
+    sortConfig: { key: SortKey; direction: 'asc' | 'desc' }
+): number => {
+    let aVal: string | number = '';
+    let bVal: string | number = '';
+    switch (sortConfig.key) {
+        case 'name':
+            aVal = a.name || '';
+            bVal = b.name || '';
+            break;
+        case 'critical_item':
+            aVal = a.critical_track?.critical_item || a.assessment_data?.criticalWarning || '';
+            bVal = b.critical_track?.critical_item || b.assessment_data?.criticalWarning || '';
+            break;
+        case 'secondary_due_date':
+            aVal = getSecondaryDueTime(a);
+            bVal = getSecondaryDueTime(b);
+            break;
+        case 'status':
+            aVal = getStatusOrder(a);
+            bVal = getStatusOrder(b);
+            break;
+        case 'updated_at':
+            aVal = new Date(a.updated_at || a.created_at).getTime();
+            bVal = new Date(b.updated_at || b.created_at).getTime();
+            break;
+    }
+    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+    return 0;
+};
+
 export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }) => {
     const [subTab, setSubTab] = useState<'pending' | 'archived'>('pending');
     const [selectedPatient, setSelectedPatient] = useState<HealthArchive | null>(null);
+    const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>(PENDING_DEFAULT_SORT);
 
     // 逻辑分层：过滤出有危急值记录的人员
     const criticalGroups = useMemo(() => {
@@ -40,26 +94,39 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
             }
         });
 
-        // 排序：待随访按日期紧急程度，已随访按更新时间
-        pending.sort((a, b) => {
-            const getPriority = (x: HealthArchive) => {
-                if (x.critical_track?.status === 'pending_initial') return 1000;
-                if (!x.critical_track?.secondary_due_date) return 0;
-                return new Date(x.critical_track.secondary_due_date).getTime();
-            };
-            return getPriority(a) - getPriority(b);
-        });
-
-        archived.sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
-
         return { pending, archived };
     }, [archives]);
+
+    const baseList = subTab === 'pending' ? criticalGroups.pending : criticalGroups.archived;
+
+    const activeList = useMemo(() => {
+        const result = [...baseList];
+        result.sort((a, b) => compareArchives(a, b, sortConfig));
+        return result;
+    }, [baseList, sortConfig]);
+
+    const sortIndicator = (key: SortKey) =>
+        sortConfig.key === key ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
+
+    const handleSort = (key: SortKey) => {
+        setSortConfig({
+            key,
+            direction: sortConfig.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc',
+        });
+    };
+
+    const handleSubTabChange = (tab: 'pending' | 'archived') => {
+        setSubTab(tab);
+        setSortConfig(tab === 'pending' ? PENDING_DEFAULT_SORT : ARCHIVED_DEFAULT_SORT);
+    };
 
     const handleExport = (type: 'pending' | 'archived') => {
         const data = type === 'pending' ? criticalGroups.pending : criticalGroups.archived;
         if (data.length === 0) return alert("名单为空，无法导出");
 
-        const rows = data.map(arch => {
+        const exportSort = type === subTab ? sortConfig : (type === 'pending' ? PENDING_DEFAULT_SORT : ARCHIVED_DEFAULT_SORT);
+        const sortedData = [...data].sort((a, b) => compareArchives(a, b, exportSort));
+        const rows = sortedData.map(arch => {
             const track = arch.critical_track;
             return {
                 "体检编号": arch.checkup_id,
@@ -83,8 +150,6 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
         XLSX.writeFile(wb, `危急值随访_${type === 'pending' ? '待处理' : '已结案'}_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
-    const activeList = subTab === 'pending' ? criticalGroups.pending : criticalGroups.archived;
-
     return (
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden animate-fadeIn min-h-[600px] flex flex-col">
             <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
@@ -92,13 +157,13 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                     <h2 className="text-xl font-black text-slate-800">危急值随访管理中心</h2>
                     <div className="flex bg-white rounded-lg p-1 border border-slate-200">
                         <button 
-                            onClick={() => setSubTab('pending')}
+                            onClick={() => handleSubTabChange('pending')}
                             className={`px-6 py-1.5 rounded-md text-sm font-bold transition-all ${subTab === 'pending' ? 'bg-red-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
                         >
                             待随访追踪 ({criticalGroups.pending.length})
                         </button>
                         <button 
-                            onClick={() => setSubTab('archived')}
+                            onClick={() => handleSubTabChange('archived')}
                             className={`px-6 py-1.5 rounded-md text-sm font-bold transition-all ${subTab === 'archived' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
                         >
                             已归档结案 ({criticalGroups.archived.length})
@@ -123,10 +188,18 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                     <table className="w-full text-left text-sm">
                         <thead className="bg-slate-100 text-slate-600 font-black sticky top-0 z-10 uppercase tracking-wider">
                             <tr>
-                                <th className="p-4">受检人员</th>
-                                <th className="p-4">危急项目与描述</th>
-                                <th className="p-4">回访计划</th>
-                                <th className="p-4">处置状态</th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort('name')}>
+                                    受检人员{sortIndicator('name')}
+                                </th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort('critical_item')}>
+                                    危急项目与描述{sortIndicator('critical_item')}
+                                </th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort('secondary_due_date')}>
+                                    回访计划{sortIndicator('secondary_due_date')}
+                                </th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort(subTab === 'archived' ? 'updated_at' : 'status')}>
+                                    {subTab === 'archived' ? '归档时间' : '处置状态'}{sortIndicator(subTab === 'archived' ? 'updated_at' : 'status')}
+                                </th>
                                 <th className="p-4 text-center">管理操作</th>
                             </tr>
                         </thead>
