@@ -3,6 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { HealthArchive } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
 
+export const formatCriticalRecorder = (name?: string, role?: string) => {
+    if (!name) return '';
+    if (role === 'doctor') return `${name} 医生`;
+    if (role === 'health_manager') return `${name} 健康管理师`;
+    if (role === 'admin') return `${name} 管理员`;
+    return name;
+};
+
 interface Props {
     archive: HealthArchive;
     onClose: () => void;
@@ -34,10 +42,14 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
 
         initial_notify_time: existingTrack?.initial_notify_time || new Date().toLocaleString(),
         initial_feedback: existingTrack?.initial_feedback || '',
+        initial_recorder_name: existingTrack?.initial_recorder_name,
+        initial_recorder_role: existingTrack?.initial_recorder_role,
 
         secondary_due_date: existingTrack?.secondary_due_date || '',
         secondary_notify_time: existingTrack?.secondary_notify_time || new Date().toLocaleString(),
         secondary_feedback: existingTrack?.secondary_feedback || '',
+        secondary_recorder_name: existingTrack?.secondary_recorder_name,
+        secondary_recorder_role: existingTrack?.secondary_recorder_role,
     });
     const [sendSmsOnSave, setSendSmsOnSave] = useState(false);
 
@@ -176,12 +188,19 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                     </div>
 
                     <div className={`p-4 rounded-lg border-l-4 transition-all ${isReadOnly ? 'bg-slate-50 border-slate-300 opacity-70' : 'bg-red-50 border-red-500'}`}>
-                        <h4 className="font-bold text-slate-800 mb-3 flex justify-between items-center">
+                        <h4 className="font-bold text-slate-800 mb-3 flex flex-wrap justify-between items-center gap-2">
                             <span className="flex items-center gap-2">
                                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs text-white ${isReadOnly ? 'bg-slate-400' : 'bg-red-500'}`}>1</span>
                                 初次通知与处理记录
                             </span>
-                            <span className="text-xs font-normal text-slate-500 bg-white px-2 py-1 rounded border">通知时间: {form.initial_notify_time}</span>
+                            <span className="flex flex-wrap items-center gap-2 text-xs font-normal">
+                                {form.initial_recorder_name && (
+                                    <span className="text-slate-600 bg-white px-2 py-1 rounded border">
+                                        记录人: {formatCriticalRecorder(form.initial_recorder_name, form.initial_recorder_role)}
+                                    </span>
+                                )}
+                                <span className="text-slate-500 bg-white px-2 py-1 rounded border">通知时间: {form.initial_notify_time}</span>
+                            </span>
                         </h4>
                         <textarea 
                             className={`w-full border rounded p-2 text-sm h-24 ${isReadOnly ? 'bg-slate-100 border-slate-300 text-slate-600' : 'bg-white border-red-200 focus:ring-2 focus:ring-red-500'}`}
@@ -194,13 +213,20 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
 
                     {showSecondarySection && (
                         <div className={`p-4 rounded-lg border-l-4 animate-slideUp ${isArchived ? 'bg-slate-50 border-teal-500 opacity-90' : 'bg-orange-50 border-orange-500'}`}>
-                            <h4 className="font-bold text-slate-800 mb-3 flex justify-between items-center">
+                            <h4 className="font-bold text-slate-800 mb-3 flex flex-wrap justify-between items-center gap-2">
                                 <span className="flex items-center gap-2">
                                     <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs text-white ${isArchived ? 'bg-teal-500' : 'bg-orange-500'}`}>2</span>
                                     二次回访追踪记录
                                 </span>
-                                <span className={`text-xs font-normal px-2 py-1 rounded ${isArchived ? 'text-teal-700 bg-teal-100' : 'text-orange-700 bg-orange-100'}`}>
-                                    {isArchived && form.secondary_notify_time ? `回访时间: ${form.secondary_notify_time}` : `计划日期: ${form.secondary_due_date}`}
+                                <span className="flex flex-wrap items-center gap-2 text-xs font-normal">
+                                    {form.secondary_recorder_name && (
+                                        <span className={`px-2 py-1 rounded ${isArchived ? 'text-teal-700 bg-teal-100' : 'text-orange-700 bg-orange-100'}`}>
+                                            记录人: {formatCriticalRecorder(form.secondary_recorder_name, form.secondary_recorder_role)}
+                                        </span>
+                                    )}
+                                    <span className={`px-2 py-1 rounded ${isArchived ? 'text-teal-700 bg-teal-100' : 'text-orange-700 bg-orange-100'}`}>
+                                        {isArchived && form.secondary_notify_time ? `回访时间: ${form.secondary_notify_time}` : `计划日期: ${form.secondary_due_date}`}
+                                    </span>
                                 </span>
                             </h4>
                             <textarea 

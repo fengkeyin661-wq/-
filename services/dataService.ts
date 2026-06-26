@@ -4,7 +4,7 @@ import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { writeArchiveListCache } from './archiveListCacheService';
 import { fetchContent, isHealthManagerContent } from './contentService';
 import { autoEnrollHypertensionIfEligible } from './hypertensionStandaloneService';
-import { getCurrentStaff } from './staffContext';
+import { getCurrentStaff, restoreStaffFromStorage } from './staffContext';
 import { logStaffWork } from './staffWorkLogService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
 
@@ -913,22 +913,46 @@ export const updateArchiveProfile = async (dbId: string, newProfile: HealthProfi
 
 export const updateCriticalTrack = async (checkupId: string, trackRecord: CriticalTrackRecord): Promise<{ success: boolean; message?: string }> => {
     try {
+        const staff = getCurrentStaff() || restoreStaffFromStorage();
+
+        const enrichTrackRecord = (
+            incoming: CriticalTrackRecord,
+            existing?: CriticalTrackRecord | null,
+        ): CriticalTrackRecord => {
+            const merged: CriticalTrackRecord = { ...existing, ...incoming };
+            if (!staff) return merged;
+
+            if (incoming.status === 'pending_secondary' && incoming.initial_feedback?.trim()) {
+                merged.initial_recorder_name = merged.initial_recorder_name || staff.name;
+                merged.initial_recorder_role = merged.initial_recorder_role || staff.role;
+            }
+            if (incoming.status === 'archived' && incoming.secondary_feedback?.trim()) {
+                merged.secondary_recorder_name = merged.secondary_recorder_name || staff.name;
+                merged.secondary_recorder_role = merged.secondary_recorder_role || staff.role;
+            }
+            return merged;
+        };
+
         // Local
         const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        let enrichedRecord = trackRecord;
         if (raw) {
             const all: HealthArchive[] = JSON.parse(raw);
             const idx = all.findIndex(a => a.checkup_id === checkupId);
             if (idx >= 0) {
-                all[idx].critical_track = trackRecord;
+                enrichedRecord = enrichTrackRecord(trackRecord, all[idx].critical_track);
+                all[idx].critical_track = enrichedRecord;
                 all[idx].updated_at = new Date().toISOString();
                 localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
             }
+        } else if (staff) {
+            enrichedRecord = enrichTrackRecord(trackRecord);
         }
 
         // DB
         if (isSupabaseConfigured()) {
             const { error } = await supabase.from('health_archives').update({ 
-                critical_track: trackRecord,
+                critical_track: enrichedRecord,
                 updated_at: new Date().toISOString()
             }).eq('checkup_id', checkupId);
             if (error) throw error;
@@ -947,8 +971,8 @@ export const updateCriticalTrack = async (checkupId: string, trackRecord: Critic
             actionType: 'critical_handle',
             checkupId,
             targetName,
-            summary: `危急值 ${trackRecord.critical_level} · ${trackRecord.status}`,
-            metadata: { status: trackRecord.status, level: trackRecord.critical_level },
+            summary: `危急值 ${enrichedRecord.critical_level} · ${enrichedRecord.status}`,
+            metadata: { status: enrichedRecord.status, level: enrichedRecord.critical_level },
         });
         return { success: true };
     } catch (e: any) {

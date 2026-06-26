@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
-import { CriticalHandleModal } from './CriticalHandleModal';
+import { CriticalHandleModal, formatCriticalRecorder } from './CriticalHandleModal';
 import {
     isSmsConfigured,
     resolveArchivePhone,
@@ -33,6 +33,28 @@ const getStatusOrder = (arch: HealthArchive): number => {
 const getSecondaryDueTime = (arch: HealthArchive): number => {
     const date = arch.critical_track?.secondary_due_date;
     return date ? new Date(date).getTime() : Number.MAX_SAFE_INTEGER;
+};
+
+const renderRecorderCell = (track?: CriticalTrackRecord) => {
+    if (!track?.initial_recorder_name && !track?.secondary_recorder_name) {
+        return <span className="text-xs text-slate-400">-</span>;
+    }
+    return (
+        <div className="space-y-1 text-xs text-slate-600">
+            {track.initial_recorder_name && (
+                <div>
+                    <span className="text-slate-400">初次：</span>
+                    {formatCriticalRecorder(track.initial_recorder_name, track.initial_recorder_role)}
+                </div>
+            )}
+            {track.secondary_recorder_name && (
+                <div>
+                    <span className="text-slate-400">二次：</span>
+                    {formatCriticalRecorder(track.secondary_recorder_name, track.secondary_recorder_role)}
+                </div>
+            )}
+        </div>
+    );
 };
 
 const compareArchives = (
@@ -139,6 +161,12 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                 "异常描述": track?.critical_desc || arch.assessment_data?.criticalWarning || "-",
                 "当前状态": track?.status === 'pending_initial' ? '待初次通知' : track?.status === 'pending_secondary' ? '待二次追踪' : '已归档结案',
                 "计划回访日期": track?.secondary_due_date || "-",
+                "初次记录人": track?.initial_recorder_name
+                    ? formatCriticalRecorder(track.initial_recorder_name, track.initial_recorder_role)
+                    : "-",
+                "二次记录人": track?.secondary_recorder_name
+                    ? formatCriticalRecorder(track.secondary_recorder_name, track.secondary_recorder_role)
+                    : "-",
                 "处置记录": track?.initial_feedback || "-",
                 "最后更新": new Date(arch.updated_at || arch.created_at).toLocaleString()
             };
@@ -200,6 +228,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                                 <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort(subTab === 'archived' ? 'updated_at' : 'status')}>
                                     {subTab === 'archived' ? '归档时间' : '处置状态'}{sortIndicator(subTab === 'archived' ? 'updated_at' : 'status')}
                                 </th>
+                                <th className="p-4">记录人</th>
                                 <th className="p-4 text-center">管理操作</th>
                             </tr>
                         </thead>
@@ -252,6 +281,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                                             </span>
                                             <div className="text-[9px] text-slate-400 mt-1">{new Date(arch.updated_at || arch.created_at).toLocaleDateString()} 更新</div>
                                         </td>
+                                        <td className="p-4">{renderRecorderCell(track)}</td>
                                         <td className="p-4 text-center">
                                             <button 
                                                 onClick={() => setSelectedPatient(arch)}

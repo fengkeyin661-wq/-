@@ -1113,9 +1113,17 @@ export interface CriticalTrackRecord {
     critical_level: string; // A类/B类 or A类,B类
     initial_notify_time: string; 
     initial_feedback: string; 
+    /** 初次通知记录人姓名 */
+    initial_recorder_name?: string;
+    /** 初次通知记录人角色 */
+    initial_recorder_role?: 'admin' | 'health_manager' | 'doctor';
     secondary_due_date: string; 
-    secondary_notify_time?: string; 
-    secondary_feedback?: string; 
+    secondary_notify_time?: string;
+    secondary_feedback?: string;
+    /** 二次回访记录人姓名 */
+    secondary_recorder_name?: string;
+    /** 二次回访记录人角色 */
+    secondary_recorder_role?: 'admin' | 'health_manager' | 'doctor';
 }
 
 // --- 7. 医疗业务热力图数据 ---
