@@ -10,6 +10,7 @@ import {
   fetchStaffWorkStats,
   getPeriodRange,
 } from '../services/staffWorkLogService';
+import { fetchArchives } from '../services/dataService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 // @ts-ignore
 import * as XLSX from 'xlsx';
@@ -34,6 +35,7 @@ export const StaffWorkloadPanel: React.FC<Props> = ({
   const [todayCount, setTodayCount] = useState(0);
   const [weekCount, setWeekCount] = useState(0);
   const [monthCount, setMonthCount] = useState(0);
+  const [nameByCheckupId, setNameByCheckupId] = useState<Record<string, string>>({});
 
   const load = async () => {
     setLoading(true);
@@ -58,6 +60,39 @@ export const StaffWorkloadPanel: React.FC<Props> = ({
   useEffect(() => {
     load();
   }, [staffId, period, showTeamExport]);
+
+  useEffect(() => {
+    const missingIds = [
+      ...new Set(
+        logs
+          .filter((log) => log.checkup_id && !log.target_name)
+          .map((log) => log.checkup_id as string),
+      ),
+    ];
+    if (missingIds.length === 0) return;
+
+    fetchArchives()
+      .then((archives) => {
+        const map: Record<string, string> = {};
+        for (const id of missingIds) {
+          const name = archives.find((arch) => arch.checkup_id === id)?.name;
+          if (name) map[id] = name;
+        }
+        if (Object.keys(map).length > 0) {
+          setNameByCheckupId((prev) => ({ ...prev, ...map }));
+        }
+      })
+      .catch(() => {
+        /* ignore lookup failures */
+      });
+  }, [logs]);
+
+  const resolveTargetName = (log: StaffWorkLogRow) => {
+    const recorded = log.target_name?.trim();
+    if (recorded && recorded !== log.checkup_id) return recorded;
+    if (log.checkup_id && nameByCheckupId[log.checkup_id]) return nameByCheckupId[log.checkup_id];
+    return recorded || undefined;
+  };
 
   const chartData = useMemo(() => {
     const map = new Map<string, number>();
@@ -237,7 +272,8 @@ export const StaffWorkloadPanel: React.FC<Props> = ({
                   <th className="p-3">时间</th>
                   {!staffId && <th className="p-3">操作人</th>}
                   <th className="p-3">类型</th>
-                  <th className="p-3">职工</th>
+                  <th className="p-3">姓名</th>
+                  <th className="p-3">体检编号</th>
                   <th className="p-3">摘要</th>
                 </tr>
               </thead>
@@ -249,7 +285,8 @@ export const StaffWorkloadPanel: React.FC<Props> = ({
                     </td>
                     {!staffId && <td className="p-3">{log.staff_name}</td>}
                     <td className="p-3">{STAFF_ACTION_LABELS[log.action_type as StaffActionType] || log.action_type}</td>
-                    <td className="p-3">{log.target_name || log.checkup_id || '-'}</td>
+                    <td className="p-3 font-medium text-slate-800">{resolveTargetName(log) || '-'}</td>
+                    <td className="p-3 font-mono text-slate-600">{log.checkup_id || '-'}</td>
                     <td className="p-3 text-slate-600 max-w-xs truncate">{log.summary || '-'}</td>
                   </tr>
                 ))}
