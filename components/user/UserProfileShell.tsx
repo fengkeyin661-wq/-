@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { type HealthArchive } from '../../services/dataService';
 import { loginUserDualPath } from '../../services/userLoginService';
-import { fetchContent, isHealthManagerContent, type ContentItem } from '../../services/contentService';
+import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
 
 interface Props {
   onLoginSuccess: (archive: HealthArchive) => void;
@@ -15,26 +15,6 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [managerPhone, setManagerPhone] = useState('');
-
-  React.useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        const doctors = await fetchContent('doctor', 'active');
-        const landline = doctors
-          .filter(isHealthManagerContent)
-          .map((m) => String(m.details?.phone || '').trim())
-          .find(Boolean);
-        if (!cancel) setManagerPhone(landline || '');
-      } catch {
-        if (!cancel) setManagerPhone('');
-      }
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, []);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -83,20 +63,13 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
             <h1 className="text-2xl font-black tracking-tight text-slate-800">个人服务登录</h1>
           </div>
 
-          {managerPhone ? (
-            <a
-              href={`tel:${managerPhone.replace(/\s/g, '')}`}
-              className="mt-5 block rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-center transition-colors hover:bg-teal-100/80"
-            >
-              <p className="text-xs font-bold text-teal-700">健康管家固定电话</p>
-              <p className="mt-1 text-xl font-black tracking-wide text-teal-900">{managerPhone}</p>
-            </a>
-          ) : (
-            <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-center">
-              <p className="text-xs font-bold text-slate-500">健康管家固定电话</p>
-              <p className="mt-1 text-sm text-slate-400">暂未维护，请咨询健康管理中心</p>
-            </div>
-          )}
+          <a
+            href={HEALTH_MANAGEMENT_HOTLINE_TEL}
+            className="mt-5 block rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-center transition-colors hover:bg-teal-100/80"
+          >
+            <p className="text-xs font-bold text-teal-700">健康管理服务电话</p>
+            <p className="mt-1 text-xl font-black tracking-wide text-teal-900">{HEALTH_MANAGEMENT_HOTLINE}</p>
+          </a>
         </div>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">

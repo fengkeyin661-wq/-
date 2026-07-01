@@ -13,6 +13,10 @@ import { HealthArchive } from '../../services/dataService';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
 import { BookingContactModal } from './BookingContactModal';
+import {
+  HEALTH_MANAGEMENT_HOTLINE,
+  HEALTH_MANAGEMENT_HOTLINE_TEL,
+} from '../../services/userServiceCatalog';
 
 interface Props {
   userId?: string;
@@ -57,6 +61,8 @@ const buildWeeklyScheduleSummary = (doctor: ContentItem): string[] => {
       return `${DAY_LABEL[k]} ${slots.join(' / ')}`;
     });
 };
+
+const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
 export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaultContactPhone = '', onOpenMessage }) => {
   const [doctors, setDoctors] = useState<ContentItem[]>([]);
@@ -211,6 +217,39 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
     );
   }, [doctors, search]);
 
+  const clinicalDoctors = useMemo(
+    () => doctors.filter((d) => !isHealthManagerContent(d)),
+    [doctors],
+  );
+
+  const weeklyDutyBoard = useMemo(() => {
+    return DAY_KEYS.map((dayKey) => ({
+      dayKey,
+      label: DAY_LABEL[dayKey],
+      entries: clinicalDoctors
+        .map((doc) => {
+          const weekly = (doc.details?.weeklySchedule || {}) as Record<string, string[]>;
+          const slots = weekly[dayKey] || [];
+          if (!slots.length) return null;
+          const ranges = (doc.details?.slotTimeRanges || {}) as Record<string, Record<string, { start?: string; end?: string }>>;
+          const slotText = slots
+            .map((slotId) => {
+              const start = ranges[dayKey]?.[slotId]?.start;
+              const end = ranges[dayKey]?.[slotId]?.end;
+              return start && end ? `${SLOT_MAP[slotId] || slotId} ${start}-${end}` : SLOT_MAP[slotId] || slotId;
+            })
+            .join('、');
+          return {
+            id: doc.id,
+            name: doc.title,
+            dept: doc.details?.dept || '门诊',
+            slotText,
+          };
+        })
+        .filter(Boolean) as { id: string; name: string; dept: string; slotText: string }[],
+    }));
+  }, [clinicalDoctors]);
+
   const slotUsage = (docId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
     const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
     const count = interactions.filter(
@@ -289,8 +328,56 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
     <div className="min-h-full bg-slate-50 p-4 pb-24 space-y-5">
       <div className="rounded-2xl bg-white border border-slate-100 p-4">
         <h1 className="text-xl font-black text-slate-800">医生</h1>
-        <p className="text-xs text-slate-500 mt-1">签约、预约与联合干预资源；咨询统一在「消息」处理</p>
+        <p className="text-xs text-slate-500 mt-1">查看值班表、预约门诊；咨询请前往「消息」</p>
+        <div className="mt-3 rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 flex items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] font-bold text-teal-800">健康管理服务电话</div>
+            <a href={HEALTH_MANAGEMENT_HOTLINE_TEL} className="text-base font-black text-teal-700">{HEALTH_MANAGEMENT_HOTLINE}</a>
+          </div>
+          <a href={HEALTH_MANAGEMENT_HOTLINE_TEL} className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white">拨打</a>
+        </div>
       </div>
+
+      <section className="rounded-2xl border border-blue-100 bg-white overflow-hidden shadow-sm">
+        <div className="bg-blue-600 px-4 py-3 text-white">
+          <h2 className="text-sm font-black">每周医生值班表</h2>
+          <p className="text-[11px] text-blue-100 mt-0.5">置顶展示，便于快速查看可预约时段</p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {weeklyDutyBoard.every((d) => d.entries.length === 0) ? (
+            <div className="p-6 text-center text-sm text-slate-400">暂无值班安排，请联系医院维护医生排班</div>
+          ) : (
+            weeklyDutyBoard.map((day) => (
+              <div key={day.dayKey} className="p-3">
+                <div className="text-xs font-black text-slate-500 mb-2">{day.label}</div>
+                {day.entries.length === 0 ? (
+                  <div className="text-xs text-slate-300 pl-1">— 暂无排班 —</div>
+                ) : (
+                  <div className="space-y-2">
+                    {day.entries.map((entry) => (
+                      <button
+                        type="button"
+                        key={entry.id}
+                        onClick={() => {
+                          const doc = doctorMap.get(entry.id);
+                          if (doc) setSelectedDoctor(doc);
+                        }}
+                        className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50/40 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-slate-800">{entry.name}</span>
+                          <span className="text-[10px] text-blue-600 font-bold">预约 →</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">{entry.dept} · {entry.slotText}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </section>
 
       <section className="space-y-3">
         <div className="rounded-2xl border border-slate-100 bg-white p-4">
@@ -338,7 +425,7 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
                   <div className="font-bold text-slate-800">{mgr.title}</div>
                   <div className="text-xs text-slate-600">
                     {mgr.details?.dept || '健康管理中心'}
-                    {mgr.details?.phone ? ` · ${mgr.details.phone}` : ''}
+                    {' · '}{HEALTH_MANAGEMENT_HOTLINE}
                   </div>
                 </div>
                 <button

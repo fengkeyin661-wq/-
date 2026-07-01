@@ -325,7 +325,7 @@ export const AssessmentReport: React.FC<Props> = ({
                     <p class="disclaimer">本方案仅供参考，具体治疗请遵医嘱。</p>
                     <div class="contact-info">
                         <span>制定机构：郑州大学医院</span>
-                        <span>服务热线：0371-67739261</span>
+                        <span>服务热线：0371-67739538</span>
                         <span>工作时间：周一至周五上午8:00-12:00，下午2:30-5:30</span>
                     </div>
                 </div>

@@ -16,6 +16,7 @@ import {
     type ResourcePresets,
     type ResourcePresetKey,
 } from '../services/resourcePresetStore';
+import { HEALTH_MANAGEMENT_HOTLINE } from '../services/userServiceCatalog';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -48,6 +49,8 @@ function defaultResourceEmoji(type?: ContentItem['type']): string {
             return '🏃';
         case 'event':
             return '🎉';
+        case 'checkup_package':
+            return '🩺';
         case 'service':
             return '🏥';
         case 'drug':
@@ -151,6 +154,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise' | 'audit'>('event');
     // Sub-tab for Event (Community) section
     const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
+    const [serviceSubTab, setServiceSubTab] = useState<'item' | 'package'>('item');
+    const [clinicalServiceCatalog, setClinicalServiceCatalog] = useState<ContentItem[]>([]);
     
     const [items, setItems] = useState<ContentItem[]>([]);
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
@@ -181,7 +186,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
     useEffect(() => {
         loadData();
-    }, [activeTab, eventSubTab]);
+    }, [activeTab, eventSubTab, serviceSubTab]);
 
     useEffect(() => {
         runDiagnostics();
@@ -204,7 +209,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 case 'recipe': contentType = 'meal'; break;
                 case 'exercise': contentType = 'exercise'; break;
                 case 'event': contentType = ['event', 'circle']; break;
-                case 'service': contentType = 'service'; break;
+                case 'service':
+                    contentType = serviceSubTab === 'package' ? 'checkup_package' : 'service';
+                    break;
                 case 'drug': contentType = 'drug'; break;
                 case 'doctor': contentType = 'doctor'; break;
                 case 'audit': contentType = ''; break; // No content needed, just interactions
@@ -220,6 +227,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     }
                 } else {
                     setItems(content);
+                }
+                if (activeTab === 'service') {
+                    const clinical = await fetchContent('service', 'active');
+                    setClinicalServiceCatalog(clinical.filter((s) => s.details?.serviceDomain !== 'health_service'));
                 }
             }
 
@@ -839,7 +850,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             let type: any = 'meal';
             if (activeTab === 'exercise') type = 'exercise';
             if (activeTab === 'event') type = eventSubTab === 'circle' ? 'circle' : 'event';
-            if (activeTab === 'service') type = 'service';
+            if (activeTab === 'service') type = serviceSubTab === 'package' ? 'checkup_package' : 'service';
             if (activeTab === 'drug') type = 'drug';
             if (activeTab === 'doctor') type = 'doctor';
             
@@ -849,7 +860,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 title: '',
                 status: 'active',
                 tags: [],
-                image: type === 'meal' ? '🍲' : type === 'exercise' ? '🏃' : type === 'event' ? '🎉' : type === 'service' ? '🏥' : type === 'drug' ? '💊' : type === 'circle' ? '⭕' : '👨‍⚕️',
+                image: type === 'meal' ? '🍲' : type === 'exercise' ? '🏃' : type === 'event' ? '🎉' : type === 'service' ? '🏥' : type === 'checkup_package' ? '🩺' : type === 'drug' ? '💊' : type === 'circle' ? '⭕' : '👨‍⚕️',
                 details: {}
             });
             setServiceClosedDateInput('');
@@ -1018,7 +1029,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         {activeTab === 'recipe' ? '膳食资源库' : 
                                          activeTab === 'exercise' ? '运动康复库' : 
                                          activeTab === 'event' ? '社区活动与圈子' :
-                                         activeTab === 'service' ? '医院服务项目' :
+                                         activeTab === 'service' ? (serviceSubTab === 'package' ? '体检套餐' : '临床/健康服务项目') :
                                          activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
                                     </h3>
                                     <div className="flex gap-2">
@@ -1068,6 +1079,13 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 </div>
 
                                 {/* Event Sub-Tabs */}
+                                {activeTab === 'service' && (
+                                    <div className="flex border-b border-slate-100">
+                                        <button onClick={() => setServiceSubTab('item')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'item' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🔬 临床/健康服务项目</button>
+                                        <button onClick={() => setServiceSubTab('package')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'package' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🩺 健康体检套餐</button>
+                                    </div>
+                                )}
+
                                 {activeTab === 'event' && (
                                     <div className="flex border-b border-slate-100">
                                         <button onClick={() => setEventSubTab('list')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${eventSubTab === 'list' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>📅 社区活动列表</button>
@@ -1107,7 +1125,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人 • 负责人:${item.details?.leader || '-'}`}
                                                     {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
                                                     {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
-                                                    {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
+                                                    {item.type === 'service' && `¥${item.details?.price} • ${item.details?.serviceDomain || item.details?.categoryL1 || '临床检查'}`}
+                                                    {item.type === 'checkup_package' && `套餐 ¥${item.details?.price || '-'} • 含${(item.details?.includedServiceIds || []).length}项`}
                                                     {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
                                                 </td>
                                                 <td className="p-3">
@@ -1253,8 +1272,16 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             )}
 
                             {/* 2. HOSPITAL SERVICE (Updated) */}
-                            {activeTab === 'service' && (
+                            {activeTab === 'service' && editItem.type === 'service' && (
                                 <>
+                                    <FormSection title="用户端分类（服务页展示）">
+                                        <SelectField label="服务大类" value={editItem.details?.serviceDomain || 'clinical'} onChange={(v:any) => updateDetail('serviceDomain', v)} options={['clinical', 'health_service']} />
+                                        {(editItem.details?.serviceDomain || 'clinical') === 'clinical' ? (
+                                            <SelectField label="临床检查子类" value={editItem.details?.clinicalSubCategory || 'lab'} onChange={(v:any) => updateDetail('clinicalSubCategory', v)} options={['lab', 'physical', 'imaging', 'other']} />
+                                        ) : (
+                                            <SelectField label="健康服务子类" value={editItem.details?.healthServiceSubCategory || 'consultation'} onChange={(v:any) => updateDetail('healthServiceSubCategory', v)} options={['tcm', 'ophthalmology', 'report', 'consultation', 'contract']} />
+                                        )}
+                                    </FormSection>
                                     <FormSection title="基础分类与标识">
                                         <SelectField label="归属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={presets.depts} />
                                         <InputField label="科室编码" placeholder="如：DEPT001" value={editItem.details?.deptCode} onChange={(v:any) => updateDetail('deptCode', v)} />
@@ -1357,6 +1384,46 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={presets.serviceInsurance} />
                                         <InputField label="自费估算 (元)" type="number" value={editItem.details?.selfPayEst} onChange={(v:any) => updateDetail('selfPayEst', v)} />
                                         <InputField label="医保报销说明" full value={editItem.details?.reimbursementNote} onChange={(v:any) => updateDetail('reimbursementNote', v)} />
+                                    </FormSection>
+                                    <FormSection title="标签">
+                                        <InputField label="标签 (逗号分隔)" full value={editItem.tags?.join(',')} onChange={(v:any) => setEditItem({...editItem, tags: v.split(/[,，]/)})} />
+                                    </FormSection>
+                                </>
+                            )}
+
+                            {activeTab === 'service' && editItem.type === 'checkup_package' && (
+                                <>
+                                    <FormSection title="体检套餐">
+                                        <TextAreaField label="套餐简介" placeholder="面向人群、检查意义等" value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
+                                        <InputField label="套餐价格 (元)" type="number" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
+                                        <InputField label="排序值" type="number" value={editItem.details?.sortOrder} onChange={(v:any) => updateDetail('sortOrder', v)} />
+                                        <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                                            <div className="text-xs font-bold text-emerald-800 mb-2">组合临床检查项目（勾选后用户端展示套餐明细）</div>
+                                            {clinicalServiceCatalog.length === 0 ? (
+                                                <p className="text-xs text-emerald-700">请先在「临床/健康服务项目」中维护检查项目</p>
+                                            ) : (
+                                                <div className="max-h-48 overflow-y-auto space-y-2">
+                                                    {clinicalServiceCatalog.map((svc) => {
+                                                        const selected = ((editItem.details?.includedServiceIds || []) as string[]).includes(svc.id);
+                                                        return (
+                                                            <label key={svc.id} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={selected}
+                                                                    onChange={() => {
+                                                                        const current = ((editItem.details?.includedServiceIds || []) as string[]);
+                                                                        const next = selected ? current.filter((id) => id !== svc.id) : [...current, svc.id];
+                                                                        updateDetail('includedServiceIds', next);
+                                                                    }}
+                                                                />
+                                                                <span className="font-medium">{svc.title}</span>
+                                                                <span className="text-xs text-slate-400">¥{svc.details?.price || '-'}</span>
+                                                            </label>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
                                     </FormSection>
                                     <FormSection title="标签">
                                         <InputField label="标签 (逗号分隔)" full value={editItem.tags?.join(',')} onChange={(v:any) => setEditItem({...editItem, tags: v.split(/[,，]/)})} />

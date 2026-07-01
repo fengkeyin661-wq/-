@@ -16,6 +16,7 @@ import { UserMetricPreferences } from './UserMetricPreferences';
 import { UserMetricEntryModal } from './UserMetricEntryModal';
 import { fetchLatestAssessmentRun } from '../../services/assessmentPipelineService';
 import type { UserMetricKey } from '../../services/observationMapper';
+import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
 
 // 用户端预留：assessment.diabetesReport / record.diabetesManagement 由管理端糖尿病专栏写入，后续可在此展示「我的糖尿病管理」
 
@@ -579,25 +580,17 @@ export const UserProfile: React.FC<Props> = ({
         );
     };
 
-    const managerLandline =
-        String(healthManager?.details?.phone || fallbackManagerPhone || '').trim();
 
     const renderManagerView = () => (
         <div className="space-y-4 p-4 pb-24 animate-slideInRight">
             <h2 className="text-lg font-bold text-slate-800">我的健康管家</h2>
-            {managerLandline ? (
-                <a
-                    href={`tel:${managerLandline.replace(/\s/g, '')}`}
-                    className="block rounded-2xl border border-teal-200 bg-teal-50 p-6 text-center shadow-sm transition-colors hover:bg-teal-100/80"
-                >
-                    <p className="text-xs font-bold text-teal-700">健康管家固定电话</p>
-                    <p className="mt-2 text-2xl font-black tracking-wide text-teal-900">{managerLandline}</p>
-                </a>
-            ) : (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
-                    暂未维护固定电话，请咨询健康管理中心。
-                </div>
-            )}
+            <a
+                href={HEALTH_MANAGEMENT_HOTLINE_TEL}
+                className="block rounded-2xl border border-teal-200 bg-teal-50 p-6 text-center shadow-sm transition-colors hover:bg-teal-100/80"
+            >
+                <p className="text-xs font-bold text-teal-700">健康管理服务电话</p>
+                <p className="mt-2 text-2xl font-black tracking-wide text-teal-900">{HEALTH_MANAGEMENT_HOTLINE}</p>
+            </a>
             <p className="text-center text-xs leading-relaxed text-slate-500">{PROFILE_MENU_TIP}</p>
         </div>
     );
@@ -694,15 +687,13 @@ export const UserProfile: React.FC<Props> = ({
 
                 {subView === 'menu' && (
                     <div className="flex-1 space-y-3 p-4">
-                        {managerLandline ? (
-                            <a
-                                href={`tel:${managerLandline.replace(/\s/g, '')}`}
-                                className="block rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3.5 text-center shadow-sm transition-colors hover:bg-teal-100/80"
-                            >
-                                <p className="text-xs font-bold text-teal-700">健康管家固定电话</p>
-                                <p className="mt-0.5 text-lg font-black tracking-wide text-teal-900">{managerLandline}</p>
-                            </a>
-                        ) : null}
+                        <a
+                            href={HEALTH_MANAGEMENT_HOTLINE_TEL}
+                            className="block rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3.5 text-center shadow-sm transition-colors hover:bg-teal-100/80"
+                        >
+                            <p className="text-xs font-bold text-teal-700">健康管理服务电话</p>
+                            <p className="mt-0.5 text-lg font-black tracking-wide text-teal-900">{HEALTH_MANAGEMENT_HOTLINE}</p>
+                        </a>
                         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
                             <div className="mb-3 flex items-center justify-between">
                                 <h3 className="font-bold text-slate-800">基础身体指标</h3>

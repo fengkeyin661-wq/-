@@ -853,7 +853,7 @@ export const App: React.FC = () => {
                 <span>|</span>
                 <span>© 2024 郑州大学医院</span>
                 <span>|</span>
-                <span>联系支持: 0371-67739261</span>
+                        <span>联系支持: 0371-67739538</span>
             </div>
             <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={handleLoginSuccess} roleContext={loginRoleContext} />
         </div>

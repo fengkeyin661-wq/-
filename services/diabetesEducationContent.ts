@@ -230,7 +230,7 @@ export const CORE_INDICATOR_EDUCATION_IDS = [
 
 export const DIABETES_CLINIC_CONTACT = {
   workHours: '每周一至周五 上午8:30–12:00，下午14:30–18:00',
-  phone: '0371-67739261',
+  phone: '0371-67739538',
   inviteText: '欢迎有血糖管理需求的职工联系咨询。',
 };
 
