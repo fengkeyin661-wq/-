@@ -11,6 +11,7 @@ import {
   extractCheckItemsFromText,
   getIndicatorValuesFromRecord,
   mergeFocusItems,
+  isCriticalFollowUpPending,
 } from '../services/followUpLinkageService';
 import {
   isSmsConfigured,
@@ -233,19 +234,18 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   // Pending Critical Tasks Logic
   const pendingCriticalTasks = allArchives.filter(arch => {
+      if (!isCriticalFollowUpPending(arch)) return false;
       const track = arch.critical_track;
-      if (track && track.status !== 'archived') {
-          if (track.status === 'pending_initial') return true;
-          if (track.status === 'pending_secondary' && track.secondary_due_date) {
-              const today = new Date();
-              today.setHours(0,0,0,0);
-              const due = new Date(track.secondary_due_date);
-              const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              return diffDays <= 7;
-          }
+      if (!track) return true;
+      if (track.status === 'pending_initial') return true;
+      if (track.status === 'pending_secondary' && track.secondary_due_date) {
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          const due = new Date(track.secondary_due_date);
+          const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          return diffDays <= 7;
       }
-      if (!track && arch.assessment_data?.isCritical) return true;
-      return false;
+      return true;
   }).sort((a, b) => {
       const getScore = (arch: HealthArchive) => {
            const t = arch.critical_track;

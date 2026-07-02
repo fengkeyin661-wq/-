@@ -2,7 +2,14 @@
 import React, { useState, useMemo } from 'react';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
-import { getLatestFollowUp, resolveCriticalTrackStatus, getCriticalStatusLabel } from '../services/followUpLinkageService';
+import {
+  getLatestFollowUp,
+  resolveCriticalTrackStatus,
+  getCriticalStatusLabel,
+  getCriticalStatusBadge,
+  isCriticalFollowUpPending,
+  isCriticalFollowUpArchived,
+} from '../services/followUpLinkageService';
 import { CriticalHandleModal, formatCriticalRecorder } from './CriticalHandleModal';
 import {
     isSmsConfigured,
@@ -31,7 +38,7 @@ const getArchiveCreatedTime = (arch: HealthArchive): number => {
 
 const getStatusOrder = (arch: HealthArchive): number => {
     const status = resolveCriticalTrackStatus(arch);
-    if (status === 'pending_initial') return 0;
+    if (status === 'pending_initial' || status === null) return 0;
     if (status === 'pending_secondary') return 1;
     if (status === 'archived') return 2;
     return 3;
@@ -107,22 +114,15 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
     const [selectedPatient, setSelectedPatient] = useState<HealthArchive | null>(null);
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>(PENDING_DEFAULT_SORT);
 
-    // 逻辑分层：过滤出有危急值记录的人员
+    // 逻辑分层：仅纳入真正需要危急值随访的人员
     const criticalGroups = useMemo(() => {
         const pending: HealthArchive[] = [];
         const archived: HealthArchive[] = [];
 
         archives.forEach(arch => {
-            const track = arch.critical_track;
-            // 只要 assessment 标记为 critical 或者已有 track 记录
-            if (track) {
-                if (track.status === 'archived') {
-                    archived.push(arch);
-                } else {
-                    pending.push(arch);
-                }
-            } else if (arch.assessment_data?.isCritical) {
-                // 有标记但还没创建追踪记录，归入待处理
+            if (isCriticalFollowUpArchived(arch)) {
+                archived.push(arch);
+            } else if (isCriticalFollowUpPending(arch)) {
                 pending.push(arch);
             }
         });
@@ -170,7 +170,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                 "联系电话": arch.phone || '-',
                 "危急项目": track?.critical_item || "待定",
                 "异常描述": track?.critical_desc || arch.assessment_data?.criticalWarning || "-",
-                "当前状态": getCriticalStatusLabel(resolveCriticalTrackStatus(arch)),
+                "当前状态": getCriticalStatusBadge(arch, type).label.replace(/^[🔥🕒✅]\s*/, ''),
                 "计划回访日期": track?.secondary_due_date || "-",
                 "初次记录人": track?.initial_recorder_name
                     ? formatCriticalRecorder(track.initial_recorder_name, track.initial_recorder_role)
@@ -254,22 +254,9 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                             {activeList.map(arch => {
                                 const track = arch.critical_track;
                                 const status = resolveCriticalTrackStatus(arch);
-                                const isUrgent = status === 'pending_initial';
+                                const badge = getCriticalStatusBadge(arch, subTab);
+                                const isUrgent = subTab === 'pending' && status !== 'pending_secondary';
                                 const isPendingSecondary = status === 'pending_secondary';
-                                const statusStyle =
-                                    isUrgent
-                                        ? 'bg-red-100 text-red-600 border border-red-200 animate-pulse'
-                                        : isPendingSecondary
-                                        ? 'bg-blue-50 text-blue-600 border border-blue-100'
-                                        : subTab === 'archived'
-                                        ? 'bg-green-50 text-green-600 border border-green-100'
-                                        : 'bg-amber-50 text-amber-700 border border-amber-200';
-                                const statusLabel =
-                                    isUrgent
-                                        ? '🔥 待初次通知'
-                                        : isPendingSecondary
-                                        ? '🕒 待二次回访'
-                                        : '✅ 已归档结案';
                                 const createdLabel = arch.created_at
                                     ? new Date(arch.created_at).toLocaleDateString()
                                     : arch.health_record?.profile?.checkupDate || '—';
@@ -309,8 +296,8 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                                             )}
                                         </td>
                                         <td className="p-4">
-                                            <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase ${statusStyle}`}>
-                                                {statusLabel}
+                                            <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase ${badge.className}`}>
+                                                {badge.label}
                                             </span>
                                             <div className="text-[9px] text-slate-400 mt-1">{new Date(arch.updated_at || arch.created_at).toLocaleDateString()} 更新</div>
                                         </td>

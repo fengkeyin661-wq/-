@@ -81,13 +81,47 @@ export const mergeFocusItems = (...sources: (string[] | string | undefined)[]): 
   return Array.from(set);
 };
 
-/** 解析危急值处置状态（无 track 但有 isCritical 视为待初次通知） */
+/** 当前评估是否仍标记为危急值 */
+export const hasCurrentCriticalFlag = (arch: HealthArchive): boolean => {
+  if (arch.assessment_data?.isCritical) return true;
+  const warning = arch.assessment_data?.criticalWarning || '';
+  return /\[\s*[AB]\s*[12１２]?\s*类\s*\]/.test(warning);
+};
+
+/** 危急值 track 是否已有实际处置/回访记录 */
+export const hasCriticalTrackActivity = (track?: CriticalTrackRecord | null): boolean => {
+  if (!track) return false;
+  return !!(
+    track.initial_feedback?.trim() ||
+    track.secondary_feedback?.trim() ||
+    track.initial_notify_time?.trim() ||
+    track.secondary_notify_time?.trim() ||
+    track.resolvedAt
+  );
+};
+
+/** 是否应出现在「待随访追踪」名单 */
+export const isCriticalFollowUpPending = (arch: HealthArchive): boolean => {
+  if (hasCurrentCriticalFlag(arch)) return true;
+  const track = arch.critical_track;
+  if (!track) return false;
+  return track.status === 'pending_initial' || track.status === 'pending_secondary';
+};
+
+/** 是否应出现在「已归档结案」名单（须已完成处置流程） */
+export const isCriticalFollowUpArchived = (arch: HealthArchive): boolean => {
+  const track = arch.critical_track;
+  if (!track || track.status !== 'archived') return false;
+  return hasCriticalTrackActivity(track);
+};
+
+/** 解析危急值处置状态（无 track 但有危急标记 → 待初次通知） */
 export const resolveCriticalTrackStatus = (
   arch: HealthArchive
-): CriticalTrackRecord['status'] => {
+): CriticalTrackRecord['status'] | null => {
   const track = arch.critical_track;
   if (!track) {
-    return arch.assessment_data?.isCritical ? 'pending_initial' : 'pending_initial';
+    return hasCurrentCriticalFlag(arch) ? 'pending_initial' : null;
   }
   if (
     track.status === 'pending_initial' ||
@@ -96,7 +130,7 @@ export const resolveCriticalTrackStatus = (
   ) {
     return track.status;
   }
-  return 'pending_initial';
+  return hasCurrentCriticalFlag(arch) ? 'pending_initial' : null;
 };
 
 export const getCriticalStatusLabel = (status: CriticalTrackRecord['status']): string => {
@@ -110,6 +144,32 @@ export const getCriticalStatusLabel = (status: CriticalTrackRecord['status']): s
     default:
       return '待初次通知';
   }
+};
+
+/** 列表展示用状态徽章（待追踪名单禁止显示「已归档结案」） */
+export const getCriticalStatusBadge = (
+  arch: HealthArchive,
+  tab: 'pending' | 'archived'
+): { label: string; className: string } => {
+  const raw = resolveCriticalTrackStatus(arch);
+  if (tab === 'archived') {
+    return {
+      label: `✅ ${getCriticalStatusLabel('archived')}`,
+      className: 'bg-green-50 text-green-600 border border-green-100',
+    };
+  }
+  const status =
+    raw === 'pending_secondary' ? 'pending_secondary' : 'pending_initial';
+  if (status === 'pending_secondary') {
+    return {
+      label: '🕒 待二次回访',
+      className: 'bg-blue-50 text-blue-600 border border-blue-100',
+    };
+  }
+  return {
+    label: '🔥 待初次通知',
+    className: 'bg-red-100 text-red-600 border border-red-200 animate-pulse',
+  };
 };
 
 /** 当 isCritical 且无 track 时自动创建危急值工单 */
