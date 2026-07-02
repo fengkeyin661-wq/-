@@ -921,6 +921,20 @@ export const updateCriticalTrack = async (checkupId: string, trackRecord: Critic
             existing?: CriticalTrackRecord | null,
         ): CriticalTrackRecord => {
             const merged: CriticalTrackRecord = { ...existing, ...incoming };
+            const now = new Date().toLocaleString();
+
+            if (incoming.status === 'pending_secondary' && incoming.initial_feedback?.trim()) {
+                merged.initial_notify_time =
+                    incoming.initial_notify_time?.trim() ||
+                    merged.initial_notify_time?.trim() ||
+                    now;
+            }
+            if (incoming.status === 'archived' && incoming.secondary_feedback?.trim()) {
+                merged.secondary_notify_time =
+                    incoming.secondary_notify_time?.trim() ||
+                    now;
+            }
+
             if (!staff) return merged;
 
             if (incoming.status === 'pending_secondary' && incoming.initial_feedback?.trim()) {

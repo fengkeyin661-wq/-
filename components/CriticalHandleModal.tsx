@@ -41,13 +41,13 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
         critical_desc: existingTrack?.critical_desc || desc,
         critical_level: existingTrack?.critical_level || defaultLevel,
 
-        initial_notify_time: existingTrack?.initial_notify_time || new Date().toLocaleString(),
+        initial_notify_time: existingTrack?.initial_notify_time || '',
         initial_feedback: existingTrack?.initial_feedback || '',
         initial_recorder_name: existingTrack?.initial_recorder_name,
         initial_recorder_role: existingTrack?.initial_recorder_role,
 
         secondary_due_date: existingTrack?.secondary_due_date || '',
-        secondary_notify_time: existingTrack?.secondary_notify_time || new Date().toLocaleString(),
+        secondary_notify_time: existingTrack?.secondary_notify_time || '',
         secondary_feedback: existingTrack?.secondary_feedback || '',
         secondary_recorder_name: existingTrack?.secondary_recorder_name,
         secondary_recorder_role: existingTrack?.secondary_recorder_role,
@@ -84,20 +84,25 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
 
     const handleSubmit = () => {
         if (isArchived) return;
+        const now = new Date().toLocaleString();
         if (isSecondary) {
-            // Completing Secondary -> Archive
             if (!form.secondary_feedback?.trim()) {
                 alert("请填写二次反馈结果");
                 return;
             }
-            onSave({ ...form, status: 'archived' }, { sendSms: sendSmsOnSave, convertToFollowUp });
+            onSave(
+                { ...form, status: 'archived', secondary_notify_time: now },
+                { sendSms: sendSmsOnSave, convertToFollowUp }
+            );
         } else {
-            // Completing Initial -> Pending Secondary
             if (!form.initial_feedback.trim()) {
                 alert("请填写反馈结果");
                 return;
             }
-            onSave({ ...form, status: 'pending_secondary' }, { sendSms: sendSmsOnSave });
+            onSave(
+                { ...form, status: 'pending_secondary', initial_notify_time: now },
+                { sendSms: sendSmsOnSave }
+            );
         }
     };
 
@@ -201,7 +206,9 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                                         记录人: {formatCriticalRecorder(form.initial_recorder_name, form.initial_recorder_role)}
                                     </span>
                                 )}
-                                <span className="text-slate-500 bg-white px-2 py-1 rounded border">通知时间: {form.initial_notify_time}</span>
+                                <span className="text-slate-500 bg-white px-2 py-1 rounded border">
+                                    通知时间: {form.initial_notify_time || (isReadOnly ? '—' : '保存时自动记录')}
+                                </span>
                             </span>
                         </h4>
                         <textarea 
@@ -227,7 +234,10 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                                         </span>
                                     )}
                                     <span className={`px-2 py-1 rounded ${isArchived ? 'text-teal-700 bg-teal-100' : 'text-orange-700 bg-orange-100'}`}>
-                                        {isArchived && form.secondary_notify_time ? `回访时间: ${form.secondary_notify_time}` : `计划日期: ${form.secondary_due_date}`}
+                                        计划回访: {form.secondary_due_date || '—'}
+                                    </span>
+                                    <span className={`px-2 py-1 rounded ${isArchived ? 'text-teal-700 bg-teal-100' : 'text-orange-700 bg-orange-100'}`}>
+                                        回访时间: {form.secondary_notify_time || (isArchived ? '—' : '保存归档时自动记录')}
                                     </span>
                                 </span>
                             </h4>
