@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
-import { getLatestFollowUp } from '../services/followUpLinkageService';
+import { getLatestFollowUp, resolveCriticalTrackStatus, getCriticalStatusLabel } from '../services/followUpLinkageService';
 import { CriticalHandleModal, formatCriticalRecorder } from './CriticalHandleModal';
 import {
     isSmsConfigured,
@@ -18,15 +18,20 @@ interface Props {
     onNavigateFollowUp?: (archive: HealthArchive) => void;
 }
 
-type SortKey = 'name' | 'critical_item' | 'secondary_due_date' | 'status' | 'updated_at';
+type SortKey = 'name' | 'critical_item' | 'secondary_due_date' | 'status' | 'updated_at' | 'created_at';
 
-const PENDING_DEFAULT_SORT: { key: SortKey; direction: 'asc' | 'desc' } = { key: 'status', direction: 'asc' };
+const PENDING_DEFAULT_SORT: { key: SortKey; direction: 'asc' | 'desc' } = { key: 'created_at', direction: 'asc' };
 const ARCHIVED_DEFAULT_SORT: { key: SortKey; direction: 'asc' | 'desc' } = { key: 'updated_at', direction: 'desc' };
 
+const getArchiveCreatedTime = (arch: HealthArchive): number => {
+    const raw = arch.created_at || arch.health_record?.profile?.checkupDate;
+    const t = raw ? new Date(raw).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+};
+
 const getStatusOrder = (arch: HealthArchive): number => {
-    const status = arch.critical_track?.status;
+    const status = resolveCriticalTrackStatus(arch);
     if (status === 'pending_initial') return 0;
-    if (!arch.critical_track && arch.assessment_data?.isCritical) return 0;
     if (status === 'pending_secondary') return 1;
     if (status === 'archived') return 2;
     return 3;
@@ -86,6 +91,10 @@ const compareArchives = (
         case 'updated_at':
             aVal = new Date(a.updated_at || a.created_at).getTime();
             bVal = new Date(b.updated_at || b.created_at).getTime();
+            break;
+        case 'created_at':
+            aVal = getArchiveCreatedTime(a);
+            bVal = getArchiveCreatedTime(b);
             break;
     }
     if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -161,7 +170,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                 "联系电话": arch.phone || '-',
                 "危急项目": track?.critical_item || "待定",
                 "异常描述": track?.critical_desc || arch.assessment_data?.criticalWarning || "-",
-                "当前状态": track?.status === 'pending_initial' ? '待初次通知' : track?.status === 'pending_secondary' ? '待二次追踪' : '已归档结案',
+                "当前状态": getCriticalStatusLabel(resolveCriticalTrackStatus(arch)),
                 "计划回访日期": track?.secondary_due_date || "-",
                 "初次记录人": track?.initial_recorder_name
                     ? formatCriticalRecorder(track.initial_recorder_name, track.initial_recorder_role)
@@ -169,6 +178,9 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                 "二次记录人": track?.secondary_recorder_name
                     ? formatCriticalRecorder(track.secondary_recorder_name, track.secondary_recorder_role)
                     : "-",
+                "建档日期": arch.created_at
+                    ? new Date(arch.created_at).toLocaleDateString()
+                    : arch.health_record?.profile?.checkupDate || '-',
                 "处置记录": track?.initial_feedback || "-",
                 "最后更新": new Date(arch.updated_at || arch.created_at).toLocaleString()
             };
@@ -224,6 +236,9 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                                 <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort('critical_item')}>
                                     危急项目与描述{sortIndicator('critical_item')}
                                 </th>
+                                <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort('created_at')}>
+                                    建档日期{sortIndicator('created_at')}
+                                </th>
                                 <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort('secondary_due_date')}>
                                     回访计划{sortIndicator('secondary_due_date')}
                                 </th>
@@ -238,12 +253,31 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                         <tbody className="divide-y divide-slate-100">
                             {activeList.map(arch => {
                                 const track = arch.critical_track;
-                                const isUrgent = track?.status === 'pending_initial';
+                                const status = resolveCriticalTrackStatus(arch);
+                                const isUrgent = status === 'pending_initial';
+                                const isPendingSecondary = status === 'pending_secondary';
+                                const statusStyle =
+                                    isUrgent
+                                        ? 'bg-red-100 text-red-600 border border-red-200 animate-pulse'
+                                        : isPendingSecondary
+                                        ? 'bg-blue-50 text-blue-600 border border-blue-100'
+                                        : subTab === 'archived'
+                                        ? 'bg-green-50 text-green-600 border border-green-100'
+                                        : 'bg-amber-50 text-amber-700 border border-amber-200';
+                                const statusLabel =
+                                    isUrgent
+                                        ? '🔥 待初次通知'
+                                        : isPendingSecondary
+                                        ? '🕒 待二次回访'
+                                        : '✅ 已归档结案';
+                                const createdLabel = arch.created_at
+                                    ? new Date(arch.created_at).toLocaleDateString()
+                                    : arch.health_record?.profile?.checkupDate || '—';
                                 
                                 let countdownText = '';
                                 let countdownStyle = 'text-slate-400';
                                 
-                                if (track?.secondary_due_date && track.status === 'pending_secondary') {
+                                if (track?.secondary_due_date && isPendingSecondary) {
                                     const due = new Date(track.secondary_due_date);
                                     const diff = Math.ceil((due.getTime() - new Date().setHours(0,0,0,0)) / (1000*60*60*24));
                                     if (diff < 0) { countdownText = `已逾期 ${Math.abs(diff)} 天`; countdownStyle = 'text-red-600 font-bold animate-pulse'; }
@@ -263,24 +297,20 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                                                 {track?.critical_desc || arch.assessment_data.criticalWarning}
                                             </div>
                                         </td>
+                                        <td className="p-4 text-xs text-slate-600 font-mono">{createdLabel}</td>
                                         <td className="p-4">
-                                            {track?.status === 'pending_secondary' ? (
+                                            {isPendingSecondary && track?.secondary_due_date ? (
                                                 <>
                                                     <div className="text-sm font-mono font-bold text-slate-700">{track.secondary_due_date}</div>
                                                     <div className={`text-[10px] mt-1 ${countdownStyle}`}>{countdownText}</div>
                                                 </>
                                             ) : (
-                                                <span className="text-xs text-slate-400">---</span>
+                                                <span className="text-xs text-slate-400">{isUrgent ? '初次通知后生成' : '---'}</span>
                                             )}
                                         </td>
                                         <td className="p-4">
-                                            <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase ${
-                                                isUrgent ? 'bg-red-100 text-red-600 border border-red-200 animate-pulse' :
-                                                track?.status === 'pending_secondary' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
-                                                'bg-green-50 text-green-600 border border-green-100'
-                                            }`}>
-                                                {isUrgent ? '🔥 待初次通知' : 
-                                                 track?.status === 'pending_secondary' ? '🕒 待二次回访' : '✅ 已归档结案'}
+                                            <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase ${statusStyle}`}>
+                                                {statusLabel}
                                             </span>
                                             <div className="text-[9px] text-slate-400 mt-1">{new Date(arch.updated_at || arch.created_at).toLocaleDateString()} 更新</div>
                                         </td>

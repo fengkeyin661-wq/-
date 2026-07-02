@@ -81,12 +81,50 @@ export const mergeFocusItems = (...sources: (string[] | string | undefined)[]): 
   return Array.from(set);
 };
 
+/** 解析危急值处置状态（无 track 但有 isCritical 视为待初次通知） */
+export const resolveCriticalTrackStatus = (
+  arch: HealthArchive
+): CriticalTrackRecord['status'] => {
+  const track = arch.critical_track;
+  if (!track) {
+    return arch.assessment_data?.isCritical ? 'pending_initial' : 'pending_initial';
+  }
+  if (
+    track.status === 'pending_initial' ||
+    track.status === 'pending_secondary' ||
+    track.status === 'archived'
+  ) {
+    return track.status;
+  }
+  return 'pending_initial';
+};
+
+export const getCriticalStatusLabel = (status: CriticalTrackRecord['status']): string => {
+  switch (status) {
+    case 'pending_initial':
+      return '待初次通知';
+    case 'pending_secondary':
+      return '待二次追踪';
+    case 'archived':
+      return '已归档结案';
+    default:
+      return '待初次通知';
+  }
+};
+
 /** 当 isCritical 且无 track 时自动创建危急值工单 */
 export const ensureCriticalTrackOnAssessment = (archive: HealthArchive): CriticalTrackRecord | null => {
   const assessment = archive.assessment_data;
   if (!assessment?.isCritical) return archive.critical_track || null;
   if (archive.critical_track && archive.critical_track.status !== 'archived') {
-    return archive.critical_track;
+    const existing = archive.critical_track;
+    if (
+      existing.status === 'pending_initial' ||
+      existing.status === 'pending_secondary'
+    ) {
+      return existing;
+    }
+    return { ...existing, status: 'pending_initial' as const };
   }
 
   const warning = assessment.criticalWarning || '';
