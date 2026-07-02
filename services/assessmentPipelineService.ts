@@ -32,6 +32,7 @@ export const upsertObservationsAndEnqueue = async (
     publishMode?: PublishMode;
     assessmentOverride?: HealthAssessment;
     skipDebounce?: boolean;
+    preserveSchedule?: boolean;
   }
 ): Promise<PipelineResult> => {
   const obsRes = await upsertObservations(checkupId, inputs);
@@ -46,6 +47,7 @@ export const upsertObservationsAndEnqueue = async (
       triggerRef: options.triggerRef,
       publishMode: options.publishMode,
       assessmentOverride: options.assessmentOverride,
+      preserveSchedule: options.preserveSchedule,
     });
 
   if (options.skipDebounce) {

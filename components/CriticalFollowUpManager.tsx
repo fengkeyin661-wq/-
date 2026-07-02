@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
+import { getLatestFollowUp } from '../services/followUpLinkageService';
 import { CriticalHandleModal, formatCriticalRecorder } from './CriticalHandleModal';
 import {
     isSmsConfigured,
@@ -14,6 +15,7 @@ import * as XLSX from 'xlsx';
 interface Props {
     archives: HealthArchive[];
     onRefresh: () => void;
+    onNavigateFollowUp?: (archive: HealthArchive) => void;
 }
 
 type SortKey = 'name' | 'critical_item' | 'secondary_due_date' | 'status' | 'updated_at';
@@ -91,7 +93,7 @@ const compareArchives = (
     return 0;
 };
 
-export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }) => {
+export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, onNavigateFollowUp }) => {
     const [subTab, setSubTab] = useState<'pending' | 'archived'>('pending');
     const [selectedPatient, setSelectedPatient] = useState<HealthArchive | null>(null);
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>(PENDING_DEFAULT_SORT);
@@ -229,6 +231,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                                     {subTab === 'archived' ? '归档时间' : '处置状态'}{sortIndicator(subTab === 'archived' ? 'updated_at' : 'status')}
                                 </th>
                                 <th className="p-4">记录人</th>
+                                <th className="p-4">关联随访</th>
                                 <th className="p-4 text-center">管理操作</th>
                             </tr>
                         </thead>
@@ -282,7 +285,14 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                                             <div className="text-[9px] text-slate-400 mt-1">{new Date(arch.updated_at || arch.created_at).toLocaleDateString()} 更新</div>
                                         </td>
                                         <td className="p-4">{renderRecorderCell(track)}</td>
+                                        <td className="p-4 text-xs text-slate-600">
+                                            <div>关联 {track?.linkedFollowUpIds?.length || 0} 次</div>
+                                            <div className="text-slate-400 mt-1">
+                                                最近：{getLatestFollowUp(arch.follow_ups)?.date || '无常规随访'}
+                                            </div>
+                                        </td>
                                         <td className="p-4 text-center">
+                                            <div className="flex flex-col gap-2 items-center">
                                             <button 
                                                 onClick={() => setSelectedPatient(arch)}
                                                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${
@@ -291,6 +301,15 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                                             >
                                                 {subTab === 'pending' ? (isUrgent ? '立即处置' : '回访登记') : '查看详情'}
                                             </button>
+                                            {onNavigateFollowUp && (
+                                                <button
+                                                    onClick={() => onNavigateFollowUp(arch)}
+                                                    className="px-3 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                                >
+                                                    进入随访监测
+                                                </button>
+                                            )}
+                                            </div>
                                         </td>
                                     </tr>
                                 )
@@ -336,7 +355,11 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh }
                         await updateCriticalTrack(selectedPatient.checkup_id, recordToSave);
                         setSelectedPatient(null);
                         onRefresh();
-                    }} 
+                        if (options?.convertToFollowUp && onNavigateFollowUp) {
+                            onNavigateFollowUp(selectedPatient);
+                        }
+                    }}
+                    onConvertToFollowUp={onNavigateFollowUp ? () => onNavigateFollowUp(selectedPatient) : undefined}
                 />
             )}
         </div>

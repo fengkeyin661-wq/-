@@ -14,11 +14,12 @@ export const formatCriticalRecorder = (name?: string, role?: string) => {
 interface Props {
     archive: HealthArchive;
     onClose: () => void;
-    onSave: (record: CriticalTrackRecord, options?: { sendSms?: boolean }) => void;
+    onSave: (record: CriticalTrackRecord, options?: { sendSms?: boolean; convertToFollowUp?: boolean }) => void;
     showSmsOption?: boolean;
+    onConvertToFollowUp?: (archive: HealthArchive) => void;
 }
 
-export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave, showSmsOption = true }) => {
+export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave, showSmsOption = true, onConvertToFollowUp }) => {
     const existingTrack = archive.critical_track;
     const isArchived = existingTrack?.status === 'archived';
     const isSecondary = existingTrack?.status === 'pending_secondary';
@@ -52,6 +53,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
         secondary_recorder_role: existingTrack?.secondary_recorder_role,
     });
     const [sendSmsOnSave, setSendSmsOnSave] = useState(false);
+    const [convertToFollowUp, setConvertToFollowUp] = useState(false);
 
     // Determine target date for secondary follow-up (Current + 1 Month) if not set
     useEffect(() => {
@@ -88,7 +90,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                 alert("请填写二次反馈结果");
                 return;
             }
-            onSave({ ...form, status: 'archived' }, { sendSms: sendSmsOnSave });
+            onSave({ ...form, status: 'archived' }, { sendSms: sendSmsOnSave, convertToFollowUp });
         } else {
             // Completing Initial -> Pending Secondary
             if (!form.initial_feedback.trim()) {
@@ -240,6 +242,20 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                         </div>
                     )}
                 </div>
+
+                {isSecondary && !isArchived && onConvertToFollowUp && (
+                    <label className="flex items-center gap-2 mt-6 p-3 rounded-lg border border-teal-200 bg-teal-50 cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={convertToFollowUp}
+                            onChange={(e) => setConvertToFollowUp(e.target.checked)}
+                            className="w-4 h-4 accent-teal-600"
+                        />
+                        <span className="text-sm text-teal-800 font-medium">
+                            归档后进入随访监测，同步创建常规随访记录
+                        </span>
+                    </label>
+                )}
 
                 {showSmsOption && !isArchived && (
                     <label className="flex items-center gap-2 mt-6 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer select-none">

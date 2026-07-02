@@ -1031,6 +1031,14 @@ export interface ScheduledFollowUp {
   status: 'completed' | 'pending' | 'overdue';
   riskLevelAtSchedule: RiskLevel;
   focusItems: string[];
+  source?: 'assessment' | 'follow_up' | 'critical';
+  linkedCriticalTrackId?: string;
+}
+
+export interface IndicatorDeltaEntry {
+  prev: number;
+  curr: number;
+  unit: string;
 }
 
 // Follow Up Record
@@ -1091,7 +1099,14 @@ export interface FollowUpRecord {
       note?: string;
   }[];
   
-  otherInfo?: string; 
+  otherInfo?: string;
+
+  followUpType?: 'routine' | 'critical_secondary' | 'critical_conversion';
+  linkedCriticalTrackId?: string;
+  sourceScheduleId?: string;
+  focusSnapshot?: string[];
+  priorFollowUpId?: string;
+  indicatorDelta?: Record<string, IndicatorDeltaEntry>;
 
   assessment: {
     riskLevel: RiskLevel;
@@ -1100,7 +1115,11 @@ export interface FollowUpRecord {
     referral: boolean;
     nextCheckPlan: string;
     lifestyleGoals: string[];
-    doctorMessage?: string; 
+    doctorMessage?: string;
+    continuitySummary?: string;
+    adjustedFocusItems?: string[];
+    taskReviewSummary?: string;
+    criticalStatusNote?: string;
   };
 }
 
@@ -1124,6 +1143,23 @@ export interface CriticalTrackRecord {
     secondary_recorder_name?: string;
     /** 二次回访记录人角色 */
     secondary_recorder_role?: 'admin' | 'health_manager' | 'doctor';
+    linkedFollowUpIds?: string[];
+    resolvedAt?: string;
+    resolutionNote?: string;
+    autoCreated?: boolean;
+}
+
+/** 随访录入上下文（供 UI 与 AI 使用） */
+export interface FollowUpContext {
+  sourceLabel: string;
+  focusItems: string[];
+  priorRecord: FollowUpRecord | null;
+  pendingSchedule: ScheduledFollowUp | null;
+  criticalTrack: CriticalTrackRecord | null;
+  indicatorDeltas: Record<string, IndicatorDeltaEntry>;
+  failedTasks: NonNullable<FollowUpRecord['taskCompliance']>;
+  partialTasks: NonNullable<FollowUpRecord['taskCompliance']>;
+  chainSummaryText: string;
 }
 
 // --- 7. 医疗业务热力图数据 ---

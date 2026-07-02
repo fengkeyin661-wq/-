@@ -57,6 +57,7 @@ export const pipelineAfterFollowUp = async (
     triggerEvent: 'doctor_followup',
     publishMode: 'publish',
     assessmentOverride: assessment,
+    preserveSchedule: true,
     skipDebounce: true,
   });
 };

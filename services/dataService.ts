@@ -6,6 +6,7 @@ import { fetchContent, isHealthManagerContent } from './contentService';
 import { autoEnrollHypertensionIfEligible } from './hypertensionStandaloneService';
 import { getCurrentStaff, restoreStaffFromStorage } from './staffContext';
 import { logStaffWork } from './staffWorkLogService';
+import { clearCriticalFromAssessment, ensureCriticalTrackOnAssessment } from './followUpLinkageService';
 import { HealthRecord, HealthAssessment, ScheduledFollowUp, FollowUpRecord, RiskLevel, HealthProfile, CriticalTrackRecord, RiskAnalysisData } from '../types';
 
 export interface ExercisePlanData {
@@ -951,11 +952,35 @@ export const updateCriticalTrack = async (checkupId: string, trackRecord: Critic
 
         // DB
         if (isSupabaseConfigured()) {
-            const { error } = await supabase.from('health_archives').update({ 
+            const updatePayload: Record<string, unknown> = {
                 critical_track: enrichedRecord,
-                updated_at: new Date().toISOString()
-            }).eq('checkup_id', checkupId);
+                updated_at: new Date().toISOString(),
+            };
+            if (enrichedRecord.status === 'archived') {
+                try {
+                    const { data: row } = await supabase
+                        .from('health_archives')
+                        .select('assessment_data')
+                        .eq('checkup_id', checkupId)
+                        .maybeSingle();
+                    if (row?.assessment_data?.isCritical) {
+                        updatePayload.assessment_data = clearCriticalFromAssessment(row.assessment_data);
+                    }
+                } catch {
+                    /* local-only fallback below */
+                }
+            }
+            const { error } = await supabase.from('health_archives').update(updatePayload).eq('checkup_id', checkupId);
             if (error) throw error;
+        }
+
+        if (enrichedRecord.status === 'archived' && raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex((a) => a.checkup_id === checkupId);
+            if (idx >= 0 && all[idx].assessment_data?.isCritical) {
+                all[idx].assessment_data = clearCriticalFromAssessment(all[idx].assessment_data);
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
         }
         const targetName = (() => {
             try {
@@ -1420,18 +1445,47 @@ export const fetchArchives = async (): Promise<HealthArchive[]> => {
     return archives;
 };
 
-export const generateNextScheduleItem = (lastDate: string, focus: string, risk: RiskLevel): ScheduledFollowUp => {
+export const ensureAndPersistCriticalTrack = async (
+    checkupId: string,
+    archive?: HealthArchive
+): Promise<CriticalTrackRecord | null> => {
+    const arch = archive || (await findArchiveByCheckupId(checkupId));
+    if (!arch) return null;
+    const track = ensureCriticalTrackOnAssessment(arch);
+    if (!track) return null;
+    const existing = arch.critical_track;
+    if (existing && existing.status !== 'archived' && existing.id === track.id) {
+        return existing;
+    }
+    if (!existing && track.autoCreated) {
+        const res = await updateCriticalTrack(checkupId, track);
+        return res.success ? track : null;
+    }
+    if (existing?.status === 'archived' && track.autoCreated) {
+        const res = await updateCriticalTrack(checkupId, track);
+        return res.success ? track : null;
+    }
+    return existing || track;
+};
+
+export const generateNextScheduleItem = (
+    lastDate: string,
+    focus: string,
+    risk: RiskLevel,
+    options?: { source?: ScheduledFollowUp['source']; linkedCriticalTrackId?: string }
+): ScheduledFollowUp => {
     const date = new Date(lastDate);
-    // Logic: Red -> 1 month, Yellow -> 3 months, Green -> 6 months
     const months = risk === RiskLevel.RED ? 1 : risk === RiskLevel.YELLOW ? 3 : 6;
     date.setMonth(date.getMonth() + months);
-    
+
     return {
-        id: Date.now().toString(),
+        id: crypto.randomUUID?.() || Date.now().toString(),
         date: date.toISOString().split('T')[0],
         status: 'pending',
         riskLevelAtSchedule: risk,
-        focusItems: focus ? focus.split(/[、,]/) : ['常规复查']
+        focusItems: focus ? focus.split(/[、,]/).map((s) => s.trim()).filter(Boolean) : ['常规复查'],
+        source: options?.source || 'follow_up',
+        linkedCriticalTrackId: options?.linkedCriticalTrackId,
     };
 };
 

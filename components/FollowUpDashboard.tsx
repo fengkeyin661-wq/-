@@ -1,7 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
-import { HealthArchive, updateCriticalTrack } from '../services/dataService'; 
+import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
+import {
+  buildFollowUpContext,
+  buildFollowUpChainSummary,
+  buildMergedTimeline,
+  buildTaskComplianceFromPrior,
+  computeIndicatorDelta,
+  extractCheckItemsFromText,
+  getIndicatorValuesFromRecord,
+  mergeFocusItems,
+} from '../services/followUpLinkageService';
 import {
   isSmsConfigured,
   resolveArchivePhone,
@@ -161,6 +171,27 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   const nextScheduled = schedule.find(s => s.status === 'pending');
 
+  const patientArchive = useMemo((): HealthArchive | null => {
+      if (!currentArchive) return null;
+      return {
+          ...currentArchive,
+          follow_ups: records,
+          follow_up_schedule: schedule,
+          assessment_data: assessment || currentArchive.assessment_data,
+          health_record: healthRecord || currentArchive.health_record,
+      };
+  }, [currentArchive, records, schedule, assessment, healthRecord]);
+
+  const followUpContext = useMemo(
+      () => (patientArchive ? buildFollowUpContext(patientArchive) : null),
+      [patientArchive]
+  );
+
+  const mergedTimeline = useMemo(
+      () => (patientArchive ? buildMergedTimeline(patientArchive) : []),
+      [patientArchive]
+  );
+
   useEffect(() => {
       setGuideEditData({
           plan: activePlanText || '',
@@ -203,39 +234,32 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // Pending Critical Tasks Logic
   const pendingCriticalTasks = allArchives.filter(arch => {
       const track = arch.critical_track;
-      if (!track || track.status === 'archived') return false;
-
-      // 1. Pending Initial Notification (待初次通知): ALWAYS SHOW
-      if (track.status === 'pending_initial') return true;
-
-      // 2. Pending Secondary Follow-up (待二次回访): Show only if within 7 days or overdue
-      if (track.status === 'pending_secondary' && track.secondary_due_date) {
-          const today = new Date();
-          today.setHours(0,0,0,0);
-          const due = new Date(track.secondary_due_date);
-          const diffTime = due.getTime() - today.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          
-          // Show if overdue (diffDays < 0) or upcoming within 7 days
-          return diffDays <= 7;
+      if (track && track.status !== 'archived') {
+          if (track.status === 'pending_initial') return true;
+          if (track.status === 'pending_secondary' && track.secondary_due_date) {
+              const today = new Date();
+              today.setHours(0,0,0,0);
+              const due = new Date(track.secondary_due_date);
+              const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+              return diffDays <= 7;
+          }
       }
-
+      if (!track && arch.assessment_data?.isCritical) return true;
       return false;
   }).sort((a, b) => {
       const getScore = (arch: HealthArchive) => {
-           const t = arch.critical_track!;
+           const t = arch.critical_track;
            let score = 0;
-           // Priority 1: Initial Notification is most urgent
-           if (t.status === 'pending_initial') score += 1000;
-           else {
+           if (!t && arch.assessment_data?.isCritical) score += 1000;
+           if (t?.status === 'pending_initial') score += 1000;
+           else if (t) {
                // Priority 2: Overdue Secondary
                const due = new Date(t.secondary_due_date).getTime();
                const now = Date.now();
                if (now > due) score += 500; // Overdue
                score += (now - due) / (1000 * 60 * 60 * 24); 
            }
-           // Priority 3: A Level > B Level
-           if (t.critical_level?.includes('A')) score += 200;
+           if (t?.critical_level?.includes('A')) score += 200;
            return score;
       };
       return getScore(b) - getScore(a);
@@ -286,6 +310,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   const [formData, setFormData] = useState<Omit<FollowUpRecord, 'id'>>(initialFormState);
 
+  const indicatorPreviewDelta = useMemo(() => {
+      if (!latestRecord) return followUpContext?.indicatorDeltas || {};
+      return computeIndicatorDelta(latestRecord.indicators, formData.indicators);
+  }, [latestRecord, formData.indicators, followUpContext?.indicatorDeltas]);
+
   const extractCheckItems = (text: string): string[] => {
       if (!text) return [];
       return text.split(/[，,、;；\n]/)
@@ -297,6 +326,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   const autoFillForm = () => {
     const baseState = { ...initialFormState };
+    const indicatorDefaults = getIndicatorValuesFromRecord(healthRecord, latestRecord);
+    baseState.indicators = {
+      ...baseState.indicators,
+      sbp: Number(indicatorDefaults.sbp || 0),
+      dbp: Number(indicatorDefaults.dbp || 0),
+      glucose: Number(indicatorDefaults.glucose || 0),
+      weight: Number(indicatorDefaults.weight || 0),
+      tc: indicatorDefaults.tc != null ? Number(indicatorDefaults.tc) : 0,
+      tg: indicatorDefaults.tg != null ? Number(indicatorDefaults.tg) : 0,
+      ldl: indicatorDefaults.ldl != null ? Number(indicatorDefaults.ldl) : 0,
+      hdl: indicatorDefaults.hdl != null ? Number(indicatorDefaults.hdl) : 0,
+    };
+
     if (latestRecord) {
         baseState.medication.currentDrugs = latestRecord.medication.currentDrugs || '';
         baseState.organRisks.carotidPlaque = latestRecord.organRisks.carotidPlaque || '无';
@@ -307,17 +349,30 @@ export const FollowUpDashboard: React.FC<Props> = ({
             baseState.lifestyle = { ...baseState.lifestyle, ...latestRecord.lifestyle };
         }
     }
-    const itemsToCheck = extractCheckItems(activePlanText || '');
+
+    const itemsToCheck = mergeFocusItems(
+      extractCheckItemsFromText(activePlanText || ''),
+      nextScheduled?.focusItems,
+      followUpContext?.focusItems
+    );
     if (itemsToCheck.length > 0) {
         baseState.medicalCompliance = itemsToCheck.map(item => ({
-            item: item,
-            status: 'not_checked', 
+            item,
+            status: 'not_checked' as const,
             result: ''
         }));
     } else {
         baseState.medicalCompliance = [{ item: '常规复查项目', status: 'not_checked', result: '' }];
     }
-    baseState.taskCompliance = buildLifestyleTaskCompliance(assessment, latestRecord, isAssessmentNewer);
+
+    baseState.taskCompliance = buildTaskComplianceFromPrior(latestRecord, assessment, isAssessmentNewer);
+    baseState.priorFollowUpId = latestRecord?.id;
+    baseState.sourceScheduleId = nextScheduled?.id;
+    baseState.focusSnapshot = itemsToCheck;
+    baseState.followUpType =
+      followUpContext?.sourceLabel === '危急值二次回访' ? 'critical_secondary' : 'routine';
+    baseState.linkedCriticalTrackId = followUpContext?.criticalTrack?.id;
+
     if (isAssessmentNewer && assessment) {
         baseState.assessment.riskJustification = `基于最新评估：${assessment.summary.slice(0, 50)}...`;
         baseState.assessment.majorIssues = activeIssues || '';
@@ -329,7 +384,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   useEffect(() => {
       autoFillForm();
-  }, [currentPatientId, activePlanText, latestRecord?.id, isAssessmentNewer, assessment?.summary]);
+  }, [currentPatientId, activePlanText, latestRecord?.id, isAssessmentNewer, assessment?.summary, nextScheduled?.id, followUpContext?.sourceLabel]);
 
   const updateForm = (section: keyof FollowUpRecord, field: string, value: any) => {
     if (section === 'indicators' || section === 'organRisks' || section === 'medication' || section === 'lifestyle' || section === 'assessment') {
@@ -376,17 +431,34 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handleSubmit = async () => {
     setIsAnalyzing(true);
     try {
-        const result = await analyzeFollowUpRecord(formData, assessment, latestRecord);
+        const chainSummary = patientArchive
+            ? buildFollowUpChainSummary([...(patientArchive.follow_ups || []), { ...formData, id: 'draft' } as FollowUpRecord], 3)
+            : '';
+        const result = await analyzeFollowUpRecord(formData, assessment, latestRecord, {
+            chainSummary,
+            context: followUpContext
+                ? {
+                      sourceLabel: followUpContext.sourceLabel,
+                      focusItems: followUpContext.focusItems,
+                      failedTasks: followUpContext.failedTasks,
+                  }
+                : undefined,
+        });
         const finalData = {
             ...formData,
+            indicatorDelta: indicatorPreviewDelta,
             assessment: {
                 ...formData.assessment,
                 riskLevel: result.riskLevel,
                 riskJustification: result.riskJustification,
-                doctorMessage: result.doctorMessage, 
+                doctorMessage: result.doctorMessage,
                 majorIssues: result.majorIssues,
                 nextCheckPlan: result.nextCheckPlan,
-                lifestyleGoals: result.lifestyleGoals
+                lifestyleGoals: result.lifestyleGoals,
+                continuitySummary: result.continuitySummary,
+                adjustedFocusItems: result.adjustedFocusItems,
+                taskReviewSummary: result.taskReviewSummary,
+                criticalStatusNote: result.criticalStatusNote,
             }
         };
         const saveRes = await onAddRecord(finalData);
@@ -498,7 +570,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       }
   };
 
-  const handleCriticalSave = async (record: CriticalTrackRecord, options?: { sendSms?: boolean }) => {
+  const handleCriticalSave = async (record: CriticalTrackRecord, options?: { sendSms?: boolean; convertToFollowUp?: boolean }) => {
       if (!criticalModalArchive) return;
       let recordToSave = { ...record };
 
@@ -535,6 +607,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
           alert(options?.sendSms ? '危急值记录已保存，短信已发送' : '危急值处理记录已更新');
           setCriticalModalArchive(null);
           if (onRefresh) onRefresh();
+          if (options?.convertToFollowUp && criticalModalArchive && onPatientChange) {
+              onPatientChange(criticalModalArchive);
+              setIsEntryExpanded(true);
+          }
       } else {
           alert('保存失败: ' + res.message);
       }
@@ -564,9 +640,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
               
               <div className="flex overflow-x-auto pb-4 gap-4 scrollbar-thin scrollbar-thumb-red-200 scrollbar-track-red-50">
                   {pendingCriticalTasks.map((arch) => {
-                      const track = arch.critical_track!;
+                      const track = arch.critical_track || {
+                          critical_level: arch.assessment_data?.criticalWarning?.includes('[A类]') ? 'A类' : 'B类',
+                          critical_item: '危急值筛查',
+                          critical_desc: arch.assessment_data?.criticalWarning || '存在危急指标',
+                          status: 'pending_initial' as const,
+                          secondary_due_date: '',
+                      };
                       const isA = track.critical_level?.includes('A');
-                      const isInitial = track.status === 'pending_initial';
+                      const isInitial = !arch.critical_track || arch.critical_track.status === 'pending_initial';
                       
                       // Status Logic & Styling
                       let statusBadge = { text: '待初次通知', color: 'bg-red-600' };
@@ -843,23 +925,46 @@ export const FollowUpDashboard: React.FC<Props> = ({
                              </div>
                          )}
 
-                         {sortedRecords.map((rec) => (
-                            <div 
-                                key={rec.id} 
-                                className="relative cursor-pointer hover:bg-slate-50 p-2 -ml-2 rounded-lg transition-all group"
-                                onClick={() => setViewingRecord(rec)}
+                         {mergedTimeline.map((node) => {
+                            const isFollowUp = node.type === 'follow_up';
+                            const dotColor =
+                              node.type.startsWith('critical')
+                                ? 'ring-red-500 bg-red-500'
+                                : node.riskLevel === 'RED'
+                                ? 'ring-red-500 bg-red-500'
+                                : node.riskLevel === 'YELLOW'
+                                ? 'ring-yellow-500 bg-yellow-500'
+                                : 'ring-teal-500 bg-teal-500';
+                            return (
+                            <div
+                                key={node.id}
+                                className={`relative ${isFollowUp ? 'cursor-pointer hover:bg-slate-50 p-2 -ml-2 rounded-lg transition-all group' : 'p-2 -ml-2'}`}
+                                onClick={() => {
+                                  if (isFollowUp) {
+                                    const rec = sortedRecords.find((r) => r.id === node.id);
+                                    if (rec) setViewingRecord(rec);
+                                  }
+                                }}
                             >
-                                <div className="absolute -left-[23px] top-3 w-4 h-4 rounded-full border-2 border-white ring-2 ring-teal-500 bg-teal-500 group-hover:ring-teal-600"></div>
+                                <div className={`absolute -left-[23px] top-3 w-4 h-4 rounded-full border-2 border-white ring-2 ${dotColor}`}></div>
                                 <div className="flex justify-between items-start">
                                     <div>
-                                        <div className="text-xs text-slate-400 mb-1">{rec.date}</div>
-                                        <div className="text-sm font-bold text-slate-700 group-hover:text-teal-700">已完成随访</div>
-                                        <div className="text-xs text-slate-500 mt-1">方式: {rec.method}</div>
+                                        <div className="text-xs text-slate-400 mb-1">{node.date}</div>
+                                        <div className="text-sm font-bold text-slate-700 group-hover:text-teal-700">{node.title}</div>
+                                        {node.summary && (
+                                          <div className="text-xs text-slate-500 mt-1 line-clamp-2">{node.summary}</div>
+                                        )}
+                                        {node.linkedCritical && (
+                                          <span className="text-[10px] text-red-600 bg-red-50 px-1 rounded mt-1 inline-block">关联危急值</span>
+                                        )}
                                     </div>
-                                    <span className="text-[10px] text-teal-600 opacity-0 group-hover:opacity-100 transition-opacity bg-teal-50 px-2 py-1 rounded">查看详情</span>
+                                    {isFollowUp && (
+                                      <span className="text-[10px] text-teal-600 opacity-0 group-hover:opacity-100 transition-opacity bg-teal-50 px-2 py-1 rounded">查看详情</span>
+                                    )}
                                 </div>
                             </div>
-                         ))}
+                            );
+                         })}
                          {nextScheduled && (
                             <div className="relative animate-pulse">
                                 <div className="absolute -left-[23px] top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-blue-500 bg-blue-500"></div>
@@ -887,6 +992,69 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
       {/* Entry Form, Guide, etc (same as previous) */}
       {isEntryExpanded && assessment && (
+          <>
+          {followUpContext && (
+              <div className="bg-gradient-to-r from-teal-50 to-blue-50 rounded-xl border border-teal-200 p-5 mb-6 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                      <div>
+                          <h3 className="text-lg font-bold text-teal-900 flex items-center gap-2">
+                              <span>🎯</span> 本次随访要点
+                          </h3>
+                          <span className="text-xs bg-teal-600 text-white px-2 py-0.5 rounded-full mt-1 inline-block">
+                              {followUpContext.sourceLabel}
+                          </span>
+                      </div>
+                      {followUpContext.criticalTrack && (
+                          <button
+                              type="button"
+                              onClick={() => currentArchive && setCriticalModalArchive(currentArchive)}
+                              className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-red-700"
+                          >
+                              危急值：{followUpContext.criticalTrack.status === 'pending_initial' ? '待初次通知' : '待二次回访'} →
+                          </button>
+                      )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div className="bg-white/80 p-3 rounded-lg border border-teal-100">
+                          <div className="text-xs font-bold text-teal-700 mb-2">本期核对清单</div>
+                          <ul className="space-y-1 text-slate-700">
+                              {(followUpContext.focusItems.length ? followUpContext.focusItems : ['常规复查']).map((item, i) => (
+                                  <li key={i} className="flex gap-1"><span className="text-teal-500">•</span>{item}</li>
+                              ))}
+                          </ul>
+                      </div>
+                      <div className="bg-white/80 p-3 rounded-lg border border-teal-100">
+                          <div className="text-xs font-bold text-teal-700 mb-2">与上次指标对比</div>
+                          {Object.keys(indicatorPreviewDelta).length === 0 ? (
+                              <p className="text-slate-500 text-xs">录入后将显示与上次随访的变化</p>
+                          ) : (
+                              <ul className="space-y-1">
+                                  {Object.entries(indicatorPreviewDelta).map(([key, d]) => (
+                                      <li key={key} className="flex justify-between text-xs">
+                                          <span>{key}</span>
+                                          <span className={d.curr < d.prev ? 'text-green-600' : d.curr > d.prev ? 'text-red-600' : ''}>
+                                              {d.prev} → {d.curr} {d.unit}
+                                          </span>
+                                      </li>
+                                  ))}
+                              </ul>
+                          )}
+                      </div>
+                      <div className="bg-white/80 p-3 rounded-lg border border-teal-100">
+                          <div className="text-xs font-bold text-teal-700 mb-2">上期未达标任务</div>
+                          {followUpContext.failedTasks.length + followUpContext.partialTasks.length === 0 ? (
+                              <p className="text-slate-500 text-xs">上期任务均已达标或无记录</p>
+                          ) : (
+                              <ul className="space-y-1 text-xs text-slate-700">
+                                  {[...followUpContext.failedTasks, ...followUpContext.partialTasks].map((t, i) => (
+                                      <li key={i} className="text-red-700">⚠ {t.description}</li>
+                                  ))}
+                              </ul>
+                          )}
+                      </div>
+                  </div>
+              </div>
+          )}
           <div className="bg-white rounded-xl shadow-lg border-2 border-teal-500 mb-8 overflow-hidden animate-slideUp">
               {/* ... Entry Form Content ... */}
               <div className="bg-teal-50 px-6 py-4 border-b border-teal-100 flex justify-between items-center">
@@ -1085,6 +1253,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </div>
               </div>
           </div>
+          </>
       )}
 
       {/* Guide Section (Same as previous) */}
@@ -1371,6 +1540,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                 {viewingRecord.assessment.riskLevel === 'RED' ? '高风险' : viewingRecord.assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
                             </span>
                         </h4>
+                        {viewingRecord.assessment.continuitySummary && (
+                            <div className="text-sm text-teal-700 mb-2 bg-teal-50 p-2 rounded">
+                                <span className="font-bold">进展摘要:</span> {viewingRecord.assessment.continuitySummary}
+                            </div>
+                        )}
                         <div className="text-sm text-slate-600 mb-2">
                             <span className="font-bold">主要问题:</span> {viewingRecord.assessment.majorIssues}
                         </div>
@@ -1392,7 +1566,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
           <CriticalHandleModal 
               archive={criticalModalArchive} 
               onClose={() => setCriticalModalArchive(null)} 
-              onSave={handleCriticalSave} 
+              onSave={handleCriticalSave}
+              onConvertToFollowUp={onPatientChange ? () => onPatientChange(criticalModalArchive) : undefined}
           />
       )}
     </div>

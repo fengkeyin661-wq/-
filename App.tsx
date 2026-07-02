@@ -22,8 +22,8 @@ import { LipidManagementModule } from './components/LipidManagementModule';
 import { StaffWorkloadPanel } from './components/StaffWorkloadPanel';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant, LipidStandaloneParticipant } from './types';
-import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly } from './services/dataService';
+import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText, generateIncrementalAssessment } from './services/geminiService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly, ensureAndPersistCriticalTrack, updateCriticalTrack } from './services/dataService';
 import { fetchStandaloneParticipants, ensureStandaloneFromArchive } from './services/diabetesStandaloneService';
 import {
   fetchHypertensionStandaloneParticipants,
@@ -49,6 +49,13 @@ import {
   staffFromManager,
 } from './services/staffContext';
 import { logStaffWork } from './services/staffWorkLogService';
+import {
+  buildFollowUpChainSummary,
+  computeIndicatorDelta,
+  getLatestFollowUp,
+  resolveCriticalIfApplicable,
+} from './services/followUpLinkageService';
+import { buildObservationTrendsSummary } from './services/observationService';
 
 type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
 
@@ -554,6 +561,17 @@ export const App: React.FC = () => {
               setAssessment(newAssessment);
               setSchedule(newSchedule);
               setRiskAnalysis(analysis);
+              void ensureAndPersistCriticalTrack(data.profile.checkupId, {
+                  checkup_id: data.profile.checkupId,
+                  name: data.profile.name,
+                  assessment_data: newAssessment,
+                  follow_up_schedule: newSchedule,
+                  health_record: data,
+                  follow_ups: followUps,
+                  risk_analysis: analysis,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+              } as HealthArchive);
               alert("档案保存成功！已生成最新风险评估。");
               refreshArchives();
               void autoEnrollHypertensionIfEligible({
@@ -620,18 +638,86 @@ export const App: React.FC = () => {
       if (!assessment) {
           return { success: false, message: '缺少综合评估数据，无法保存随访。请先完成建档评估。' };
       }
-      const newRecord: FollowUpRecord = { ...record, id: Date.now().toString() };
+
+      const priorRecord = getLatestFollowUp(followUps);
+      const followUpId = crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const indicatorDelta = priorRecord
+          ? computeIndicatorDelta(priorRecord.indicators, record.indicators)
+          : record.indicatorDelta;
+
+      const newRecord: FollowUpRecord = {
+          ...record,
+          id: followUpId,
+          priorFollowUpId: record.priorFollowUpId || priorRecord?.id,
+          indicatorDelta: indicatorDelta && Object.keys(indicatorDelta).length ? indicatorDelta : record.indicatorDelta,
+      };
+
+      const nextHealthRecord = mergeHealthRecordFromFollowUp(healthRecord, record);
+      const chainSummary = buildFollowUpChainSummary([...followUps, newRecord], 3);
+      let observationTrends = '';
+      try {
+          observationTrends = await buildObservationTrendsSummary(healthRecord.profile.checkupId);
+      } catch {
+          observationTrends = '';
+      }
+
+      const currentArchive = archives.find((a) => a.checkup_id === healthRecord.profile.checkupId);
+      const criticalTrack = currentArchive?.critical_track;
+      let mergedAssessment = await generateIncrementalAssessment(nextHealthRecord, {
+          priorAssessment: assessment,
+          followUpChainSummary: chainSummary,
+          latestFollowUp: newRecord,
+          observationTrends: observationTrends || undefined,
+          criticalTrackStatus: criticalTrack?.status,
+          criticalResolved: criticalTrack?.status === 'archived',
+      });
+      if (!mergedAssessment.summary || mergedAssessment === assessment) {
+          mergedAssessment = mergeAssessmentFromFollowUpRecord(assessment, newRecord.assessment);
+      }
+
+      const archiveSnapshot: HealthArchive = {
+          checkup_id: healthRecord.profile.checkupId,
+          name: healthRecord.profile.name,
+          assessment_data: mergedAssessment,
+          follow_ups: followUps,
+          follow_up_schedule: schedule,
+          critical_track: criticalTrack,
+          health_record: nextHealthRecord,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+      } as HealthArchive;
+
+      const { track: updatedTrack, assessmentPatch } = resolveCriticalIfApplicable(archiveSnapshot, newRecord);
+      if (assessmentPatch) mergedAssessment = assessmentPatch;
+      if (updatedTrack && updatedTrack !== criticalTrack) {
+          await updateCriticalTrack(healthRecord.profile.checkupId, updatedTrack);
+      }
+
       const newFollowUps = [...followUps, newRecord];
-      const pendingIdx = schedule.findIndex(s => s.status === 'pending');
+      const pendingIdx = schedule.findIndex((s) => s.status === 'pending');
       let newSchedule = [...schedule];
       if (pendingIdx !== -1) {
-          newSchedule[pendingIdx].status = 'completed';
+          newSchedule[pendingIdx] = { ...newSchedule[pendingIdx], status: 'completed' };
       }
-      const nextItem = generateNextScheduleItem(newRecord.date, newRecord.assessment.nextCheckPlan, newRecord.assessment.riskLevel);
+
+      const focusForSchedule =
+          newRecord.assessment.adjustedFocusItems?.length
+              ? newRecord.assessment.adjustedFocusItems.join('、')
+              : newRecord.assessment.nextCheckPlan;
+      const nextItem = generateNextScheduleItem(
+          newRecord.date,
+          focusForSchedule,
+          mergedAssessment.riskLevel,
+          {
+              source: newRecord.followUpType === 'critical_secondary' ? 'critical' : 'follow_up',
+              linkedCriticalTrackId: newRecord.linkedCriticalTrackId || updatedTrack?.id,
+          }
+      );
+      if (newRecord.assessment.adjustedFocusItems?.length) {
+          nextItem.focusItems = newRecord.assessment.adjustedFocusItems;
+      }
       newSchedule.push(nextItem);
 
-      const mergedAssessment = mergeAssessmentFromFollowUpRecord(assessment, newRecord.assessment);
-      const nextHealthRecord = mergeHealthRecordFromFollowUp(healthRecord, record);
       const res = await updateArchiveData(healthRecord.profile.checkupId, newFollowUps, newSchedule, {
           assessment: mergedAssessment,
           nextHealthRecord,
@@ -657,7 +743,6 @@ export const App: React.FC = () => {
                   mergedAssessment
               )
           );
-          // 云端未写入时勿全量刷新，否则会拉回旧 follow_ups 覆盖当前界面
           if (!res.message) {
               refreshArchives();
           }
@@ -903,7 +988,21 @@ export const App: React.FC = () => {
             )}
             {activeTab === 'survey' && <HealthSurvey onSubmit={handleHealthSurveySubmit} initialData={healthRecord} isLoading={isLoading} />}
             {activeTab === 'external_survey' && <NativeSurveyForm onSubmit={handleSurveySubmit} isLoading={isLoading} initialCheckupId={healthRecord?.profile.checkupId} />}
-            {activeTab === 'assessment' && assessment && healthRecord && <AssessmentReport assessment={assessment} patientName={healthRecord.profile.name} profile={healthRecord.profile} healthRecord={healthRecord} riskAnalysis={riskAnalysis} onSave={handleSaveAssessment} onUpdateReport={handleUpdateCheckupReport} onUpdateRiskAnalysis={refreshArchives} onSupplementQuestionnaire={() => setActiveTab('external_survey')} />}
+            {activeTab === 'assessment' && assessment && healthRecord && (
+              <AssessmentReport
+                assessment={assessment}
+                patientName={healthRecord.profile.name}
+                profile={healthRecord.profile}
+                healthRecord={healthRecord}
+                riskAnalysis={riskAnalysis}
+                followUps={followUps}
+                onViewFollowUps={() => setActiveTab('followup')}
+                onSave={handleSaveAssessment}
+                onUpdateReport={handleUpdateCheckupReport}
+                onUpdateRiskAnalysis={refreshArchives}
+                onSupplementQuestionnaire={() => setActiveTab('external_survey')}
+              />
+            )}
             {activeTab === 'elderly_assessment' && (
                 <ElderlyAssessmentModule
                     archives={archives}
@@ -945,7 +1044,8 @@ export const App: React.FC = () => {
             {activeTab === 'risk_portrait' && (
                 <CriticalFollowUpManager 
                     archives={archives} 
-                    onRefresh={refreshArchives} 
+                    onRefresh={refreshArchives}
+                    onNavigateFollowUp={(arch) => handleSelectPatient(arch, 'followup')}
                 />
             )}
             

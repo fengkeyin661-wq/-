@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord } from '../types';
+import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord, FollowUpRecord } from '../types';
+import { getLatestFollowUp } from '../services/followUpLinkageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { SystemRiskPortrait } from './SystemRiskPortrait';
 
@@ -14,6 +15,8 @@ interface Props {
   onUpdateReport?: (file: File) => void; // Changed from onReevaluate to file upload handler
   onUpdateRiskAnalysis?: () => void; // Prop to refresh archives if models are updated
   onSupplementQuestionnaire?: () => void; // Add Supplement Questionnaire Callback
+  followUps?: FollowUpRecord[];
+  onViewFollowUps?: () => void;
 }
 
 const COLORS = {
@@ -31,11 +34,14 @@ export const AssessmentReport: React.FC<Props> = ({
     onSave, 
     onUpdateReport,
     onUpdateRiskAnalysis,
-    onSupplementQuestionnaire
+    onSupplementQuestionnaire,
+    followUps = [],
+    onViewFollowUps,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const latestFollowUp = getLatestFollowUp(followUps);
 
   // Sync state when props change (e.g. switching patients)
   useEffect(() => {
@@ -497,6 +503,45 @@ export const AssessmentReport: React.FC<Props> = ({
                       <h3 className="text-lg font-bold text-red-700">危急值警示 (Critical Value)</h3>
                       <p className="text-red-800 font-bold">{editData.criticalWarning || "系统检测到严重异常结果，请立即进行临床干预！"}</p>
                   </div>
+              </div>
+          </div>
+      )}
+
+      {latestFollowUp && (
+          <div className="bg-teal-50 border border-teal-200 rounded-lg p-5 mb-6">
+              <div className="flex justify-between items-start gap-4 mb-3">
+                  <h3 className="text-lg font-bold text-teal-800 flex items-center gap-2">
+                      <span>🔗</span> 随访进展摘要
+                  </h3>
+                  {onViewFollowUps && (
+                      <button
+                          type="button"
+                          onClick={onViewFollowUps}
+                          className="text-xs text-teal-700 font-bold hover:underline shrink-0"
+                      >
+                          查看完整随访记录 →
+                      </button>
+                  )}
+              </div>
+              <div className="text-sm text-slate-700 space-y-2">
+                  <p>
+                      <span className="font-bold">最近随访：</span>
+                      {latestFollowUp.date} · {latestFollowUp.method}
+                  </p>
+                  {latestFollowUp.assessment.continuitySummary && (
+                      <p><span className="font-bold">相对上次进展：</span>{latestFollowUp.assessment.continuitySummary}</p>
+                  )}
+                  {latestFollowUp.assessment.taskReviewSummary && (
+                      <p><span className="font-bold">任务回顾：</span>{latestFollowUp.assessment.taskReviewSummary}</p>
+                  )}
+                  {latestFollowUp.indicatorDelta && Object.keys(latestFollowUp.indicatorDelta).length > 0 && (
+                      <div>
+                          <span className="font-bold">指标变化：</span>
+                          <span className="text-slate-600 ml-1">
+                              {Object.entries(latestFollowUp.indicatorDelta).map(([k, d]) => `${k} ${d.prev}→${d.curr}${d.unit}`).join('；')}
+                          </span>
+                      </div>
+                  )}
               </div>
           </div>
       )}

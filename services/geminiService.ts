@@ -698,7 +698,12 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
     }];
 };
 
-export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
+export const analyzeFollowUpRecord = async (
+    form: any,
+    ass: any,
+    last: any,
+    options?: { chainSummary?: string; context?: { sourceLabel?: string; focusItems?: string[]; failedTasks?: { description: string }[] } }
+) => {
     const fallback = {
         riskLevel: (last?.assessment?.riskLevel || ass?.riskLevel || RiskLevel.GREEN) as RiskLevel,
         riskJustification: '本次随访已记录。系统暂未完成自动分析，请医生结合临床情况复核。',
@@ -708,17 +713,30 @@ export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
         lifestyleGoals: Array.isArray(last?.assessment?.lifestyleGoals)
             ? last.assessment.lifestyleGoals
             : [],
+        continuitySummary: '',
+        adjustedFocusItems: [] as string[],
+        taskReviewSummary: '',
+        criticalStatusNote: '',
         analysisSource: 'fallback',
         analysisError: '',
     };
 
+    const chainBlock = options?.chainSummary?.trim()
+        ? `\n4) 近几次随访链摘要：\n${options.chainSummary}\n`
+        : '';
+    const ctx = options?.context;
+    const contextBlock = ctx
+        ? `\n5) 本次随访上下文：来源=${ctx.sourceLabel || '常规'}；本期核对=${(ctx.focusItems || []).join('、')}；上期未达标任务=${(ctx.failedTasks || []).map((t) => t.description).join('、') || '无'}\n`
+        : '';
+
     const prompt = `
-你是慢病管理随访助手。请根据随访记录，输出“下一阶段执行单”关键字段。
+你是慢病管理随访助手。请根据随访记录，输出"下一阶段执行单"关键字段。
 
 输入数据：
 1) 本次随访表单：${JSON.stringify(form || {})}
 2) 当前综合评估：${JSON.stringify(ass || {})}
 3) 上一次随访：${JSON.stringify(last || {})}
+${chainBlock}${contextBlock}
 
 请严格返回 JSON（不要附加解释文本）：
 {
@@ -727,13 +745,17 @@ export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
   "doctorMessage": "给患者的简短医嘱，80字内",
   "majorIssues": "本次主要问题，120字内",
   "nextCheckPlan": "下次复查项目与重点，120字内",
-  "lifestyleGoals": ["可执行目标1", "可执行目标2", "可执行目标3"]
+  "lifestyleGoals": ["可执行目标1", "可执行目标2", "可执行目标3"],
+  "continuitySummary": "相对上次随访的进展摘要（指标变化、任务达标），80字内",
+  "adjustedFocusItems": ["下次重点1", "下次重点2"],
+  "taskReviewSummary": "生活方式任务回顾，60字内",
+  "criticalStatusNote": "若有关联危急值则说明处置/恢复，否则空字符串"
 }
 
 要求：
-- 结合本次指标变化（血压、血糖、体重、血脂等）判断风险级别；
-- 目标要具体可执行，避免空话；
-- lifestyleGoals 最多 5 条；
+- 结合本次指标变化（血压、血糖、体重、血脂等）与 medicalCompliance、taskCompliance 判断风险级别；
+- 必须引用上次随访计划完成情况，目标要具体可执行；
+- lifestyleGoals 最多 5 条；adjustedFocusItems 最多 5 条；
 - nextCheckPlan 必须是可落地的检查/随访要点。
 `;
 
@@ -750,6 +772,9 @@ export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
         const lifestyleGoals = Array.isArray(parsed?.lifestyleGoals)
             ? parsed.lifestyleGoals.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 5)
             : fallback.lifestyleGoals;
+        const adjustedFocusItems = Array.isArray(parsed?.adjustedFocusItems)
+            ? parsed.adjustedFocusItems.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 5)
+            : fallback.adjustedFocusItems;
 
         return {
             riskLevel,
@@ -758,6 +783,10 @@ export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
             majorIssues: String(parsed?.majorIssues || fallback.majorIssues),
             nextCheckPlan: String(parsed?.nextCheckPlan || fallback.nextCheckPlan),
             lifestyleGoals,
+            continuitySummary: String(parsed?.continuitySummary || fallback.continuitySummary),
+            adjustedFocusItems,
+            taskReviewSummary: String(parsed?.taskReviewSummary || fallback.taskReviewSummary),
+            criticalStatusNote: String(parsed?.criticalStatusNote || fallback.criticalStatusNote),
             analysisSource: 'ai',
             analysisError: '',
         };
@@ -769,6 +798,87 @@ export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => {
         };
     }
 };
+
+export interface IncrementalAssessmentContext {
+    priorAssessment: HealthAssessment;
+    followUpChainSummary: string;
+    latestFollowUp: Omit<FollowUpRecord, 'id'> | FollowUpRecord;
+    observationTrends?: string;
+    criticalTrackStatus?: string;
+    criticalResolved?: boolean;
+}
+
+/** 随访后增量更新综合评估报告（承接上次随访录入结果） */
+export const generateIncrementalAssessment = async (
+    rec: HealthRecord,
+    ctx: IncrementalAssessmentContext
+): Promise<HealthAssessment> => {
+    const trendsBlock = ctx.observationTrends?.trim()
+        ? `\n【历次指标趋势】\n${ctx.observationTrends}\n`
+        : '';
+    const criticalBlock = ctx.criticalTrackStatus
+        ? `\n【危急值处置状态】${ctx.criticalTrackStatus}${ctx.criticalResolved ? '（已归档，若无新异常请清除 isCritical）' : ''}\n`
+        : '';
+
+    const prompt = `
+你是资深全科医生。请基于**最近一次随访录入**与当前档案，对既有综合评估做增量更新（非从零生成）。
+
+当前档案快照：${JSON.stringify(rec)}
+${trendsBlock}
+【既有综合评估基线】${JSON.stringify(ctx.priorAssessment)}
+【随访链摘要】
+${ctx.followUpChainSummary}
+
+【本次随访完整录入】${JSON.stringify(ctx.latestFollowUp)}
+${criticalBlock}
+
+【更新规则】
+1) 必须引用本次随访的指标变化、medicalCompliance、taskCompliance、majorIssues；
+2) 若上次执行单 lifestyleGoals 已达成，managementPlan 应升级调整，不可重复原建议；
+3) 若危急值已处置且指标回落，isCritical 设为 false，criticalWarning 为空字符串；
+4) 若无 A/B 类新异常：isCritical=false；若有则 criticalWarning 以 [A类] 或 [B类] 开头；
+5) riskLevel 综合判断；summary 150字内说明相对上次的进展。
+
+请严格返回 JSON（与 HealthAssessment 结构一致）:
+{
+  "riskLevel": "GREEN" | "YELLOW" | "RED",
+  "summary": "综合评估摘要",
+  "isCritical": boolean,
+  "criticalWarning": "无异常时为空字符串",
+  "risks": { "red": [], "yellow": [], "green": [] },
+  "managementPlan": {
+     "dietary": [], "exercise": [], "medication": [], "monitoring": []
+  },
+  "followUpPlan": {
+     "frequency": "建议随访频率",
+     "nextCheckItems": []
+  }
+}
+`;
+
+    try {
+        const jsonText = await callDeepSeek("你是辅助医生进行健康评估的AI。", prompt);
+        const parsed = JSON.parse(jsonText || '{}') as HealthAssessment;
+        const normalized = normalizeCriticalAssessment(parsed);
+        return {
+            ...ctx.priorAssessment,
+            ...normalized,
+            diabetesRiskLevel: ctx.priorAssessment.diabetesRiskLevel,
+            diabetesReport: ctx.priorAssessment.diabetesReport,
+            hypertensionRiskLevel: ctx.priorAssessment.hypertensionRiskLevel,
+            hypertensionReport: ctx.priorAssessment.hypertensionReport,
+            lipidRiskLevel: ctx.priorAssessment.lipidRiskLevel,
+            lipidReport: ctx.priorAssessment.lipidReport,
+            elderlyRiskLevel: ctx.priorAssessment.elderlyRiskLevel,
+            elderlyRiskSummary: ctx.priorAssessment.elderlyRiskSummary,
+            structuredTasks: ctx.priorAssessment.structuredTasks,
+        };
+    } catch (e) {
+        console.error('Incremental assessment failed', e);
+        return ctx.priorAssessment;
+    }
+};
+
 export const generateFollowUpSMS = async (n: string) => {
     const prompt = `
 你是健康管理中心护士助手。请为“${n || '受检者'}”生成一条随访短信。

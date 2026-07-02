@@ -9,6 +9,7 @@ import { applyLatestObservationsToRecord } from './observationMapper';
 import { buildObservationTrendsSummary, getLatestObservationsMap } from './observationService';
 import { generateHealthAssessment, generateFollowUpSchedule } from './geminiService';
 import { generateSystemPortraits, evaluateRiskModels } from './riskModelService';
+import { ensureAndPersistCriticalTrack } from './dataService';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import type { HealthAssessment, RiskAnalysisData } from '../types';
 import { RiskLevel } from '../types';
@@ -29,6 +30,8 @@ export interface RecomputeOptions {
   publishMode?: PublishMode;
   /** 随访写入时可直接传入已合并的 assessment */
   assessmentOverride?: HealthAssessment;
+  /** 随访后保留已有 follow_up_schedule，避免被 today 锚点覆盖 */
+  preserveSchedule?: boolean;
 }
 
 /** 低风险：仅体重/BMI 小幅变化且无 RED */
@@ -60,7 +63,7 @@ export const recomputeArchive = async (
   usedDraft: boolean;
   message?: string;
 }> => {
-  const { checkupId, triggerEvent, triggerRef, assessmentOverride } = options;
+  const { checkupId, triggerEvent, triggerRef, assessmentOverride, preserveSchedule } = options;
   const publishMode = resolvePublishMode(triggerEvent, options.publishMode);
 
   const archive = await findArchiveByCheckupId(checkupId);
@@ -97,7 +100,9 @@ export const recomputeArchive = async (
     const ruleOutput: RiskAnalysisData = { portraits, models };
 
     const observationTrends =
-      triggerEvent === 'checkup_import' || triggerEvent === 'observation_batch'
+      triggerEvent === 'checkup_import' ||
+      triggerEvent === 'observation_batch' ||
+      triggerEvent === 'doctor_followup'
         ? await buildObservationTrendsSummary(checkupId)
         : '';
     const assessment =
@@ -105,7 +110,10 @@ export const recomputeArchive = async (
       (await generateHealthAssessment(materialized, {
         observationTrends: observationTrends || undefined,
       }));
-    const schedule = generateFollowUpSchedule(assessment);
+    const schedule =
+      preserveSchedule || (triggerEvent === 'doctor_followup' && assessmentOverride)
+        ? archive.follow_up_schedule || generateFollowUpSchedule(assessment)
+        : generateFollowUpSchedule(assessment);
 
     const shouldPublish =
       publishMode === 'publish' ||
@@ -126,6 +134,14 @@ export const recomputeArchive = async (
         throw new Error(saveRes.message || '发布评估失败');
       }
       published = true;
+      if (assessment.isCritical) {
+        await ensureAndPersistCriticalTrack(checkupId, {
+          ...archive,
+          assessment_data: assessment,
+          follow_up_schedule: schedule,
+          health_record: materialized,
+        });
+      }
     } else {
       const draft: HealthDraftData = {
         generatedAt: new Date().toISOString(),

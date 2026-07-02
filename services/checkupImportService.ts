@@ -7,6 +7,7 @@ import {
   updateHealthRecordOnly,
   updateArchiveData,
   saveArchive,
+  ensureAndPersistCriticalTrack,
 } from './dataService';
 import type { HealthDraftData } from './dataService';
 import type { HealthRecord, FollowUpRecord } from '../types';
@@ -298,6 +299,7 @@ export const importCheckupReportForArchive = async (
     if (!saveRes.success) {
       return { success: false, checkupId, message: saveRes.message || '自动建档失败' };
     }
+    void ensureAndPersistCriticalTrack(checkupId);
     void import('./staffWorkLogService').then(({ logStaffWork }) =>
       logStaffWork({
         actionType: 'archive_create',
