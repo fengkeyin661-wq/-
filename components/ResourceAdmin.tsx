@@ -1126,7 +1126,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
                                                     {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
                                                     {item.type === 'service' && `¥${item.details?.price} • ${item.details?.serviceDomain || item.details?.categoryL1 || '临床检查'}`}
-                                                    {item.type === 'checkup_package' && `套餐 ¥${item.details?.price || '-'} • 含${(item.details?.includedServiceIds || []).length}项`}
+                                                    {item.type === 'checkup_package' && (
+                                                        <>
+                                                            {`套餐 ¥${item.details?.price || '-'} • 含${(item.details?.includedServiceIds || []).length}项`}
+                                                            {' • '}
+                                                            {Object.values((item.details?.serviceWeeklySchedule || {}) as Record<string, string[]>).some((slots) => slots?.length)
+                                                                ? '已配置排期'
+                                                                : '未配置排期'}
+                                                        </>
+                                                    )}
                                                     {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
                                                 </td>
                                                 <td className="p-3">
@@ -1423,6 +1431,85 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     })}
                                                 </div>
                                             )}
+                                        </div>
+                                    </FormSection>
+                                    <FormSection title="预约与执行">
+                                        <SelectField label="预约类型" value={editItem.details?.bookingType} onChange={(v:any) => updateDetail('bookingType', v)} options={presets.bookingTypes} />
+                                    </FormSection>
+                                    <FormSection title="服务时间设置（用于用户预约选时）">
+                                        <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                                            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">时段</div>
+                                                {SLOTS.map((slot) => (
+                                                    <div key={slot.id} className="text-xs font-bold text-slate-600">{slot.label}</div>
+                                                ))}
+                                            </div>
+                                            <div className="space-y-2">
+                                                {DAY_KEYS.map((dayKey) => (
+                                                    <div key={dayKey} className="grid grid-cols-3 gap-2 items-center">
+                                                        <div className="text-xs font-bold text-slate-600">{DAY_LABELS[dayKey]}</div>
+                                                        {SLOTS.map((slot) => {
+                                                            const weekly = (editItem.details?.serviceWeeklySchedule || {}) as Record<string, string[]>;
+                                                            const isActive = (weekly[dayKey] || []).includes(slot.id);
+                                                            const quotas = (editItem.details?.serviceSlotQuotas || {}) as Record<string, Record<string, number>>;
+                                                            const quota = quotas?.[dayKey]?.[slot.id] || 10;
+                                                            return (
+                                                                <div key={`${dayKey}-${slot.id}`} className={`rounded-lg border p-2 ${isActive ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}>
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`w-full rounded-md py-1 text-[11px] font-bold ${isActive ? 'bg-teal-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}
+                                                                        onClick={() => toggleServiceSchedule(dayKey, slot.id)}
+                                                                    >
+                                                                        {isActive ? '可预约' : '关闭'}
+                                                                    </button>
+                                                                    {isActive && (
+                                                                        <div className="mt-1 flex items-center justify-center gap-1">
+                                                                            <span className="text-[10px] text-slate-400">限额</span>
+                                                                            <input
+                                                                                type="number"
+                                                                                min={1}
+                                                                                value={quota}
+                                                                                onChange={(e) => handleServiceQuotaChange(dayKey, slot.id, parseInt(e.target.value) || 1)}
+                                                                                className="w-14 rounded border border-slate-200 bg-white px-1 py-0.5 text-center text-[11px] font-bold text-teal-700"
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                                            <div className="text-xs font-bold text-slate-700 mb-2">套餐例外关闭日期（全天不可约）</div>
+                                            <div className="flex flex-wrap items-end gap-2 mb-2">
+                                                <input
+                                                    type="date"
+                                                    value={serviceClosedDateInput}
+                                                    onChange={(e) => setServiceClosedDateInput(e.target.value)}
+                                                    className="rounded border border-slate-300 px-2 py-1.5 text-sm"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={addServiceClosedDate}
+                                                    className="rounded bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700"
+                                                >
+                                                    添加关闭日
+                                                </button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {((editItem.details?.serviceClosedDates || []) as string[]).length === 0 ? (
+                                                    <span className="text-xs text-slate-400">暂无例外关闭日期</span>
+                                                ) : (
+                                                    ((editItem.details?.serviceClosedDates || []) as string[]).map((d) => (
+                                                        <span key={d} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 pl-2 pr-1 py-0.5 text-xs font-bold text-slate-700">
+                                                            {d}
+                                                            <button type="button" className="h-5 w-5 rounded-full hover:bg-slate-200" onClick={() => removeServiceClosedDate(d)}>×</button>
+                                                        </span>
+                                                    ))
+                                                )}
+                                            </div>
                                         </div>
                                     </FormSection>
                                     <FormSection title="标签">

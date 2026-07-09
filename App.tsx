@@ -9,6 +9,7 @@ import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { NativeSurveyForm } from './components/NativeSurveyForm';
 import { UserApp } from './components/user/UserApp';
+import { CheckupApp } from './components/checkup/CheckupApp';
 import { HomeAdmin } from './components/HomeAdmin';
 import { ResourceAdmin } from './components/ResourceAdmin'; 
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
@@ -57,7 +58,7 @@ import {
 } from './services/followUpLinkageService';
 import { buildObservationTrendsSummary } from './services/observationService';
 
-type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
+type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user' | 'checkup';
 
 /** 随访提交后：把 AI 生成的复查计划与要点合并进档案 assessment，避免界面仍读旧评估 */
 const mergeAssessmentFromFollowUpRecord = (
@@ -155,6 +156,7 @@ const detectPortalModeFromHostname = (): PortalMode => {
   if (host.startsWith('ops.')) return 'ops';
   if (host.startsWith('doctor.')) return 'doctor';
   if (host.startsWith('user.')) return 'user';
+  if (host.startsWith('tj.')) return 'checkup';
   return 'all';
 };
 
@@ -866,6 +868,10 @@ export const App: React.FC = () => {
           setIsSavingElderly(false);
       }
   };
+
+  if (portalMode === 'checkup') {
+      return <CheckupApp />;
+  }
 
   if (portalMode === 'user') {
       return <UserApp />;
