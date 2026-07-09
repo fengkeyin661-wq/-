@@ -41,6 +41,8 @@ interface Props {
   onNavigateDiabetes?: (archive: HealthArchive) => void;
   onNavigateHypertension?: (archive: HealthArchive) => void;
   onNavigateLipid?: (archive: HealthArchive) => void;
+  /** 跳转到「危急值随访管理」栏目，可选定位到指定人员 */
+  onNavigateCriticalManager?: (archive?: HealthArchive) => void;
   userRole?: SmsSentRole;
 }
 
@@ -105,6 +107,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onNavigateDiabetes,
     onNavigateHypertension,
     onNavigateLipid,
+    onNavigateCriticalManager,
     userRole = 'admin',
 }) => {
   const [isEntryExpanded, setIsEntryExpanded] = useState(true);
@@ -628,14 +631,25 @@ export const FollowUpDashboard: React.FC<Props> = ({
       {/* Critical Value Alert Section (Updated) */}
       {pendingCriticalTasks.length > 0 && (
           <div className="mb-8 animate-fadeIn">
-              <div className="flex items-center gap-2 mb-4">
-                  <span className="text-2xl animate-pulse">🚨</span>
-                  <h2 className="text-xl font-bold text-red-700">
-                      危急值待处理 
-                      <span className="text-sm font-normal text-white bg-red-600 px-2 py-1 rounded-full ml-2 shadow-sm">
-                          {pendingCriticalTasks.length} 人
-                      </span>
-                  </h2>
+              <div className="flex items-center justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-2">
+                      <span className="text-2xl animate-pulse">🚨</span>
+                      <h2 className="text-xl font-bold text-red-700">
+                          危急值待处理 
+                          <span className="text-sm font-normal text-white bg-red-600 px-2 py-1 rounded-full ml-2 shadow-sm">
+                              {pendingCriticalTasks.length} 人
+                          </span>
+                      </h2>
+                  </div>
+                  {onNavigateCriticalManager && (
+                      <button
+                          type="button"
+                          onClick={() => onNavigateCriticalManager()}
+                          className="shrink-0 text-sm font-semibold text-red-700 hover:text-red-900 bg-white border border-red-200 hover:border-red-300 px-3 py-1.5 rounded-lg shadow-sm transition-colors"
+                      >
+                          前往危急值随访管理 →
+                      </button>
+                  )}
               </div>
               
               <div className="flex overflow-x-auto pb-4 gap-4 scrollbar-thin scrollbar-thumb-red-200 scrollbar-track-red-50">
@@ -709,15 +723,30 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                   </div>
                               </div>
 
-                              <div className="flex justify-between items-center text-xs mt-2">
-                                  <span className="text-slate-500 font-medium">
+                              <div className="flex justify-between items-center gap-2 text-xs mt-2">
+                                  <span className="text-slate-500 font-medium truncate">
                                       {isInitial ? '需立即联系' : `计划: ${track.secondary_due_date}`}
                                   </span>
-                                  <span className={`text-white px-2 py-1 rounded font-bold shadow-sm transition-colors ${
-                                      isInitial ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-500 hover:bg-orange-600'
-                                  }`}>
-                                      {isInitial ? '立即处置' : '录入追踪'}
-                                  </span>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                      <span className={`text-white px-2 py-1 rounded font-bold shadow-sm transition-colors ${
+                                          isInitial ? 'bg-red-600 group-hover:bg-red-700' : 'bg-orange-500 group-hover:bg-orange-600'
+                                      }`}>
+                                          {isInitial ? '立即处置' : '录入追踪'}
+                                      </span>
+                                      {onNavigateCriticalManager && (
+                                          <button
+                                              type="button"
+                                              title="在危急值随访管理中打开"
+                                              onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  onNavigateCriticalManager(arch);
+                                              }}
+                                              className="text-red-700 hover:text-red-900 bg-white border border-red-200 hover:border-red-300 px-2 py-1 rounded font-bold shadow-sm transition-colors"
+                                          >
+                                              管理
+                                          </button>
+                                      )}
+                                  </div>
                               </div>
                           </div>
                       )

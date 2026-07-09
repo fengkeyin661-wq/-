@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
 import {
@@ -24,6 +24,12 @@ interface Props {
     archives: HealthArchive[];
     onRefresh: () => void;
     onNavigateFollowUp?: (archive: HealthArchive) => void;
+    /** 从随访监测跳转时定位到指定体检编号 */
+    initialFocusCheckupId?: string | null;
+    /** 定位后是否自动打开处置弹窗 */
+    initialFocusOpenModal?: boolean;
+    /** 每次从随访监测跳转时递增，用于触发定位 */
+    focusNavToken?: number;
 }
 
 type SortKey = 'name' | 'critical_item' | 'secondary_due_date' | 'status' | 'updated_at' | 'created_at';
@@ -110,11 +116,35 @@ const compareArchives = (
     return 0;
 };
 
-export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, onNavigateFollowUp }) => {
+export const CriticalFollowUpManager: React.FC<Props> = ({
+    archives,
+    onRefresh,
+    onNavigateFollowUp,
+    initialFocusCheckupId = null,
+    initialFocusOpenModal = false,
+    focusNavToken = 0,
+}) => {
     const [subTab, setSubTab] = useState<'pending' | 'archived'>('pending');
     const [selectedPatient, setSelectedPatient] = useState<HealthArchive | null>(null);
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>(PENDING_DEFAULT_SORT);
     const [searchQuery, setSearchQuery] = useState('');
+
+    useEffect(() => {
+        if (focusNavToken === 0) return;
+        if (initialFocusCheckupId) {
+            const arch = archives.find((a) => a.checkup_id === initialFocusCheckupId);
+            if (arch) {
+                setSubTab(isCriticalFollowUpArchived(arch) ? 'archived' : 'pending');
+                setSearchQuery(arch.checkup_id);
+                if (initialFocusOpenModal) {
+                    setSelectedPatient(arch);
+                }
+            }
+        } else {
+            setSubTab('pending');
+            setSearchQuery('');
+        }
+    }, [focusNavToken, initialFocusCheckupId, initialFocusOpenModal, archives]);
 
     // 逻辑分层：仅纳入真正需要危急值随访的人员
     const criticalGroups = useMemo(() => {

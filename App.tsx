@@ -161,6 +161,9 @@ const detectPortalModeFromHostname = (): PortalMode => {
 export const App: React.FC = () => {
   const portalMode = detectPortalModeFromHostname();
   const [activeTab, setActiveTab] = useState('dashboard');
+  /** 从随访监测跳转危急值随访管理时的定位 */
+  const [criticalNavToken, setCriticalNavToken] = useState(0);
+  const [criticalNavTarget, setCriticalNavTarget] = useState<{ checkupId: string | null; openModal: boolean } | null>(null);
   
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -544,6 +547,15 @@ export const App: React.FC = () => {
           }
         })();
       } else setActiveTab('dashboard');
+  };
+
+  const handleNavigateCriticalManager = (archive?: HealthArchive, openModal = false) => {
+      setCriticalNavTarget({
+          checkupId: archive?.checkup_id ?? null,
+          openModal: Boolean(archive && openModal),
+      });
+      setCriticalNavToken((t) => t + 1);
+      setActiveTab('risk_portrait');
   };
 
   const handleHealthSurveySubmit = async (data: HealthRecord) => {
@@ -1046,6 +1058,9 @@ export const App: React.FC = () => {
                     archives={archives} 
                     onRefresh={refreshArchives}
                     onNavigateFollowUp={(arch) => handleSelectPatient(arch, 'followup')}
+                    initialFocusCheckupId={criticalNavTarget?.checkupId ?? null}
+                    initialFocusOpenModal={criticalNavTarget?.openModal ?? false}
+                    focusNavToken={criticalNavToken}
                 />
             )}
             
@@ -1061,6 +1076,7 @@ export const App: React.FC = () => {
                 onNavigateDiabetes={(arch) => handleSelectPatient(arch, 'diabetes')}
                 onNavigateHypertension={(arch) => handleSelectPatient(arch, 'hypertension')}
                 onNavigateLipid={(arch) => handleSelectPatient(arch, 'lipid')}
+                onNavigateCriticalManager={(arch) => handleNavigateCriticalManager(arch, Boolean(arch))}
                 currentPatientId={healthRecord?.profile.checkupId}
                 isAuthenticated={isAuthenticated}
                 healthRecord={healthRecord}
