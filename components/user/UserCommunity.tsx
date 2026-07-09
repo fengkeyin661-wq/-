@@ -8,8 +8,6 @@ import { buildBookingDetails, resolveBookingUserId } from '../../services/bookin
 import { BookingContactModal } from './BookingContactModal';
 import {
     CLINICAL_SUB_CATEGORIES,
-    HEALTH_MANAGEMENT_HOTLINE,
-    HEALTH_MANAGEMENT_HOTLINE_TEL,
     HEALTH_SERVICE_SUB_CATEGORIES,
     SERVICE_MAIN_CATEGORIES,
     ServiceMainCategory,
@@ -94,7 +92,6 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
     const [allInteractions, setAllInteractions] = useState<InteractionItem[]>([]);
     
     const [mainCategory, setMainCategory] = useState<MainCategory>('clinical');
-    const [subCategory, setSubCategory] = useState<string>('lab');
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -135,7 +132,6 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                 if (item) {
                     const cls = classifyServiceItem(item);
                     setMainCategory(cls.domain);
-                    setSubCategory(cls.subId);
                     setSelectedItem(item);
                     sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
                     return;
@@ -146,7 +142,6 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                 const item = pool.find((x) => x.id === resourceId);
                 if (item) {
                     setMainCategory('health_service');
-                    setSubCategory('education');
                     setSelectedItem(item);
                     sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
                     return;
@@ -325,39 +320,72 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
         return allServices.filter((s) => classifyServiceItem(s).domain === 'health_service');
     }, [allServices]);
 
+    const sortItems = (items: ContentItem[]) =>
+        [...items].sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks));
+
+    const filterBySearch = <T extends ContentItem>(items: T[]) => {
+        if (!searchTerm) return items;
+        return items.filter((item) => item.title.includes(searchTerm));
+    };
+
+    const clinicalSections = useMemo(() => {
+        return CLINICAL_SUB_CATEGORIES.map((sub) => ({
+            ...sub,
+            items: sortItems(
+                filterBySearch(clinicalServices.filter((s) => classifyServiceItem(s).subId === sub.id)),
+            ),
+        })).filter((section) => section.items.length > 0 || !searchTerm);
+    }, [clinicalServices, searchTerm, risks]);
+
+    const healthServiceSections = useMemo(() => {
+        return HEALTH_SERVICE_SUB_CATEGORIES.map((sub) => {
+            if (sub.id === 'education') {
+                return {
+                    ...sub,
+                    isEvents: true as const,
+                    items: filterBySearch(filteredEvents),
+                };
+            }
+            return {
+                ...sub,
+                isEvents: false as const,
+                items: sortItems(
+                    filterBySearch(healthServices.filter((s) => classifyServiceItem(s).subId === sub.id)),
+                ),
+            };
+        }).filter((section) => section.items.length > 0 || !searchTerm);
+    }, [healthServices, filteredEvents, searchTerm, risks]);
+
     const filteredPackages = useMemo(() => {
         let list = allPackages;
         if (searchTerm) list = list.filter((p) => p.title.includes(searchTerm));
         return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks));
     }, [allPackages, searchTerm, risks]);
 
-    const visibleClinicalItems = useMemo(() => {
-        let list = clinicalServices.filter((s) => classifyServiceItem(s).subId === subCategory);
-        if (searchTerm) list = list.filter((s) => s.title.includes(searchTerm));
-        return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks));
-    }, [clinicalServices, subCategory, searchTerm, risks]);
+    const filteredCircles = useMemo(() => {
+        let list = allCircles;
+        if (searchTerm) list = list.filter((c) => c.title.includes(searchTerm));
+        return list;
+    }, [allCircles, searchTerm]);
 
-    const visibleHealthItems = useMemo(() => {
-        if (subCategory === 'education') return filteredEvents;
-        let list = healthServices.filter((s) => classifyServiceItem(s).subId === subCategory);
-        if (searchTerm) list = list.filter((s) => s.title.includes(searchTerm));
-        return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks));
-    }, [healthServices, subCategory, filteredEvents, searchTerm, risks]);
-
-    const subTabs = useMemo(() => {
-        if (mainCategory === 'clinical') return CLINICAL_SUB_CATEGORIES;
-        if (mainCategory === 'health_service') return HEALTH_SERVICE_SUB_CATEGORIES;
-        return [];
-    }, [mainCategory]);
-
-    useEffect(() => {
-        if (mainCategory === 'clinical' && !CLINICAL_SUB_CATEGORIES.some((x) => x.id === subCategory)) {
-            setSubCategory('lab');
+    const getServiceEarliestSlotLabel = (service: ContentItem): string => {
+        const slots = getNextMonthSlotsForService(service);
+        for (const slot of slots) {
+            const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+            const count = allInteractions.filter(i =>
+                i.type === 'service_booking' &&
+                i.targetId === service.id &&
+                i.status !== 'cancelled' &&
+                i.details?.includes(fragment)
+            ).length;
+            const quota = getServiceSlotQuota(service.details, slot.dayKey, slot.slotId);
+            if (count < quota) {
+                const mmdd = slot.displayDate.split(' ')[0];
+                return `最早可约：${mmdd} ${SLOT_MAP[slot.slotId]}`;
+            }
         }
-        if (mainCategory === 'health_service' && !HEALTH_SERVICE_SUB_CATEGORIES.some((x) => x.id === subCategory)) {
-            setSubCategory('tcm');
-        }
-    }, [mainCategory, subCategory]);
+        return '当前无可预约时段';
+    };
 
     const renderServiceCard = (svc: ContentItem) => (
         <div
@@ -423,76 +451,32 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
         </div>
     );
 
-    const getServiceEarliestSlotLabel = (service: ContentItem): string => {
-        const slots = getNextMonthSlotsForService(service);
-        for (const slot of slots) {
-            const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
-            const count = allInteractions.filter(i =>
-                i.type === 'service_booking' &&
-                i.targetId === service.id &&
-                i.status !== 'cancelled' &&
-                i.details?.includes(fragment)
-            ).length;
-            const quota = getServiceSlotQuota(service.details, slot.dayKey, slot.slotId);
-            if (count < quota) {
-                const mmdd = slot.displayDate.split(' ')[0];
-                return `最早可约：${mmdd} ${SLOT_MAP[slot.slotId]}`;
-            }
-        }
-        return '当前无可预约时段';
-    };
-
-    const filteredCircles = useMemo(() => {
-        let list = allCircles;
-        if (searchTerm) list = list.filter(c => c.title.includes(searchTerm));
-        return list;
-    }, [allCircles, searchTerm]);
-
     return (
         <div className="min-h-full bg-slate-50 pb-28">
-            {/* Header */}
             <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 backdrop-blur-md">
                 <div className="px-5 py-4">
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight">服务</h1>
                     <p className="text-sm text-slate-500">临床检查 · 健康体检 · 健康服务</p>
                 </div>
 
-                <div className="mx-5 mb-3 rounded-xl border border-teal-100 bg-teal-50 px-4 py-3 flex items-center justify-between gap-3">
-                    <div>
-                        <div className="text-xs font-bold text-teal-800">健康管理服务电话</div>
-                        <a href={HEALTH_MANAGEMENT_HOTLINE_TEL} className="text-lg font-black text-teal-700 tracking-wide">
-                            {HEALTH_MANAGEMENT_HOTLINE}
-                        </a>
-                    </div>
-                    <a
-                        href={HEALTH_MANAGEMENT_HOTLINE_TEL}
-                        className="shrink-0 rounded-lg bg-teal-600 px-3 py-2 text-xs font-bold text-white"
-                    >
-                        一键拨打
-                    </a>
-                </div>
-                
                 <div className="px-5 pb-3">
                     <div className="relative">
-                        <input 
+                        <input
                             className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 transition-all outline-none"
                             placeholder="搜索检查、套餐、服务、活动..."
                             value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                         />
                         <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
                     </div>
                 </div>
 
-                <div className="px-5 pb-2 flex gap-2 overflow-x-auto scrollbar-hide">
+                <div className="px-5 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
                     {SERVICE_MAIN_CATEGORIES.map((cat) => (
                         <button
                             key={cat.id}
-                            onClick={() => {
-                                setMainCategory(cat.id);
-                                if (cat.id === 'clinical') setSubCategory('lab');
-                                if (cat.id === 'health_service') setSubCategory('tcm');
-                            }}
+                            type="button"
+                            onClick={() => setMainCategory(cat.id)}
                             className={`shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 ${
                                 mainCategory === cat.id
                                     ? 'bg-slate-800 text-white shadow-lg'
@@ -504,24 +488,6 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                         </button>
                     ))}
                 </div>
-
-                {subTabs.length > 0 && (
-                    <div className="px-5 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
-                        {subTabs.map((tab) => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setSubCategory(tab.id)}
-                                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border ${
-                                    subCategory === tab.id
-                                        ? 'bg-teal-600 text-white border-teal-600'
-                                        : 'bg-white text-slate-600 border-slate-200'
-                                }`}
-                            >
-                                {tab.label}
-                            </button>
-                        ))}
-                    </div>
-                )}
             </div>
 
             <div className="p-4 space-y-6">
@@ -530,19 +496,24 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                 ) : (
                     <>
                         {mainCategory === 'clinical' && (
-                            <section>
-                                <h2 className="font-bold text-slate-800 mb-1 px-1">
-                                    {CLINICAL_SUB_CATEGORIES.find((x) => x.id === subCategory)?.label || '临床检查'}
-                                </h2>
-                                <p className="text-xs text-slate-400 mb-3 px-1">单项检查项目，可按需预约</p>
-                                <div className="space-y-3">
-                                    {visibleClinicalItems.length === 0 ? (
-                                        <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无该分类检查项目</div>
-                                    ) : (
-                                        visibleClinicalItems.map(renderServiceCard)
-                                    )}
-                                </div>
-                            </section>
+                            <>
+                                {clinicalSections.length === 0 ? (
+                                    <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无检查项目</div>
+                                ) : (
+                                    clinicalSections.map((section) => (
+                                        <section key={section.id}>
+                                            <h2 className="font-bold text-slate-800 mb-3 px-1">{section.label}</h2>
+                                            <div className="space-y-3">
+                                                {section.items.length === 0 ? (
+                                                    <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-2xl">暂无项目</div>
+                                                ) : (
+                                                    section.items.map(renderServiceCard)
+                                                )}
+                                            </div>
+                                        </section>
+                                    ))
+                                )}
+                            </>
                         )}
 
                         {mainCategory === 'checkup' && (
@@ -569,36 +540,37 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                         )}
 
                         {mainCategory === 'health_service' && (
-                            <section>
-                                <h2 className="font-bold text-slate-800 mb-1 px-1">
-                                    {HEALTH_SERVICE_SUB_CATEGORIES.find((x) => x.id === subCategory)?.label || '健康服务'}
-                                </h2>
-                                <p className="text-xs text-slate-400 mb-3 px-1">
-                                    {subCategory === 'education' ? '健康讲座、义诊与科普活动' : '理疗、解读、咨询与签约等服务'}
-                                </p>
-                                <div className="space-y-3">
-                                    {subCategory === 'education' ? (
-                                        visibleHealthItems.length === 0 ? (
-                                            <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无科普活动</div>
-                                        ) : (
-                                            (visibleHealthItems as EventWithStatus[]).map(renderEventCard)
-                                        )
-                                    ) : visibleHealthItems.length === 0 ? (
-                                        <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无该分类健康服务</div>
-                                    ) : (
-                                        (visibleHealthItems as ContentItem[]).map(renderServiceCard)
-                                    )}
-                                </div>
-                            </section>
+                            <>
+                                {healthServiceSections.length === 0 ? (
+                                    <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无健康服务</div>
+                                ) : (
+                                    healthServiceSections.map((section) => (
+                                        <section key={section.id}>
+                                            <h2 className="font-bold text-slate-800 mb-3 px-1">{section.label}</h2>
+                                            <div className="space-y-3">
+                                                {section.items.length === 0 ? (
+                                                    <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-2xl">
+                                                        {section.id === 'education' ? '暂无科普活动' : '暂无项目'}
+                                                    </div>
+                                                ) : section.isEvents ? (
+                                                    (section.items as EventWithStatus[]).map(renderEventCard)
+                                                ) : (
+                                                    (section.items as ContentItem[]).map(renderServiceCard)
+                                                )}
+                                            </div>
+                                        </section>
+                                    ))
+                                )}
+                            </>
                         )}
 
                         {filteredCircles.length > 0 && (
                             <section>
                                 <h2 className="font-bold text-slate-800 mb-3 px-1">加入圈子</h2>
                                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
-                                    {filteredCircles.map(g => (
-                                        <div 
-                                            key={g.id} 
+                                    {filteredCircles.map((g) => (
+                                        <div
+                                            key={g.id}
                                             onClick={() => setSelectedItem(g)}
                                             className="flex-shrink-0 flex flex-col items-center justify-center w-24 h-28 bg-white border border-slate-100 shadow-sm rounded-2xl cursor-pointer active:scale-95 transition-transform"
                                         >
