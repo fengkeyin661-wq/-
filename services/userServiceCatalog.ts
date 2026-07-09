@@ -82,7 +82,7 @@ export const classifyServiceItem = (
   return { domain: 'clinical', subId: classifyClinicalSub(item) };
 };
 
-const inferServiceDomain = (item: ContentItem): ServiceMainCategory => {
+export const inferServiceDomain = (item: ContentItem): ServiceMainCategory => {
   const t = textBlob(item);
   if (/套餐|体检包|健康体检|入职体检|年度体检/.test(t)) return 'checkup';
   if (/中医|理疗|眼科|解读|咨询|签约|康复|健康服务|管理方案/.test(t)) return 'health_service';

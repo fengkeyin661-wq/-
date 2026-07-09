@@ -16,7 +16,15 @@ import {
     type ResourcePresets,
     type ResourcePresetKey,
 } from '../services/resourcePresetStore';
-import { HEALTH_MANAGEMENT_HOTLINE, CLINICAL_SUB_CATEGORIES, HEALTH_SERVICE_SUB_CATEGORIES } from '../services/userServiceCatalog';
+import {
+    HEALTH_MANAGEMENT_HOTLINE,
+    CLINICAL_SUB_CATEGORIES,
+    HEALTH_SERVICE_SUB_CATEGORIES,
+    classifyServiceItem,
+    inferServiceDomain,
+    type ClinicalSubCategory,
+    type HealthServiceSubCategory,
+} from '../services/userServiceCatalog';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -35,6 +43,85 @@ const DAY_LABELS: Record<string, string> = {
     Sun: '周日',
 };
 const SLOTS = [{ id: 'AM', label: '上午' }, { id: 'PM', label: '下午' }];
+
+function parseImportServiceDomain(row: Record<string, any>): 'clinical' | 'health_service' {
+    const domainRaw = (row['服务大类'] || '').toString().trim();
+    if (domainRaw === '健康服务' || domainRaw === 'health_service') return 'health_service';
+    if (domainRaw === '临床检查' || domainRaw === 'clinical') return 'clinical';
+    const categoryL1 = (row['一级分类'] || '').toString().trim();
+    if (categoryL1 === '健康服务') return 'health_service';
+
+    const stub = {
+        type: 'service' as const,
+        id: 'import',
+        title: row['项目名称'] || '',
+        description: row['项目简介（列表页摘要）'] || '',
+        tags: row['标签'] ? String(row['标签']).split(/[,，]/).map((t: string) => t.trim()) : [],
+        status: 'active' as const,
+        updatedAt: '',
+        details: { categoryL1, categoryL2: row['二级分类'] },
+    } as ContentItem;
+    return inferServiceDomain(stub) === 'health_service' ? 'health_service' : 'clinical';
+}
+
+function parseImportSubCategory(
+    row: Record<string, any>,
+    serviceDomain: 'clinical' | 'health_service',
+): string {
+    const raw = (row['二级子类'] || row['临床子类'] || row['健康服务子类'] || row['二级分类'] || '').toString().trim();
+    const clinicalMap: Record<string, ClinicalSubCategory> = {
+        实验室检查: 'lab',
+        物理检查: 'physical',
+        影像学检查: 'imaging',
+        其他检查: 'other',
+        lab: 'lab',
+        physical: 'physical',
+        imaging: 'imaging',
+        other: 'other',
+    };
+    const healthMap: Record<string, HealthServiceSubCategory> = {
+        中医理疗: 'tcm',
+        眼科理疗: 'ophthalmology',
+        报告解读: 'report',
+        咨询答疑: 'consultation',
+        健康签约服务: 'contract',
+        科普活动: 'education',
+        tcm: 'tcm',
+        ophthalmology: 'ophthalmology',
+        report: 'report',
+        consultation: 'consultation',
+        contract: 'contract',
+        education: 'education',
+    };
+    if (serviceDomain === 'clinical' && clinicalMap[raw]) return clinicalMap[raw];
+    if (serviceDomain === 'health_service' && healthMap[raw]) return healthMap[raw];
+
+    const stub = {
+        type: 'service' as const,
+        id: 'import',
+        title: row['项目名称'] || '',
+        description: row['项目简介（列表页摘要）'] || '',
+        tags: row['标签'] ? String(row['标签']).split(/[,，]/).map((t: string) => t.trim()) : [],
+        status: 'active' as const,
+        updatedAt: '',
+        details: {
+            serviceDomain,
+            categoryL1: row['一级分类'],
+            categoryL2: row['二级分类'],
+        },
+    } as ContentItem;
+    return classifyServiceItem(stub).subId;
+}
+
+function serviceCatalogLabel(item: ContentItem): string {
+    const cls = classifyServiceItem(item);
+    const domainLabel = cls.domain === 'health_service' ? '健康服务' : '临床检查';
+    const subLabel =
+        cls.domain === 'health_service'
+            ? HEALTH_SERVICE_SUB_CATEGORIES.find((x) => x.id === cls.subId)?.label
+            : CLINICAL_SUB_CATEGORIES.find((x) => x.id === cls.subId)?.label;
+    return `${domainLabel}${subLabel ? ` · ${subLabel}` : ''}`;
+}
 
 function isImageLike(s?: string) {
     if (!s) return false;
@@ -156,6 +243,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
     const [serviceSubTab, setServiceSubTab] = useState<'item' | 'package'>('item');
     const [serviceCatalogFilter, setServiceCatalogFilter] = useState<'all' | 'clinical' | 'health_service'>('all');
+    const [serviceSubCategoryFilter, setServiceSubCategoryFilter] = useState<string>('all');
+    const [serviceSearchTerm, setServiceSearchTerm] = useState('');
     const [clinicalServiceCatalog, setClinicalServiceCatalog] = useState<ContentItem[]>([]);
     
     const [items, setItems] = useState<ContentItem[]>([]);
@@ -198,7 +287,13 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     useEffect(() => {
         loadData();
         setServiceCatalogFilter('all');
+        setServiceSubCategoryFilter('all');
+        setServiceSearchTerm('');
     }, [activeTab, eventSubTab, serviceSubTab]);
+
+    useEffect(() => {
+        setServiceSubCategoryFilter('all');
+    }, [serviceCatalogFilter]);
 
     useEffect(() => {
         runDiagnostics();
@@ -242,7 +337,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 }
                 if (activeTab === 'service') {
                     const clinical = await fetchContent('service', 'active');
-                    setClinicalServiceCatalog(clinical.filter((s) => s.details?.serviceDomain !== 'health_service'));
+                    setClinicalServiceCatalog(clinical.filter((s) => classifyServiceItem(s).domain === 'clinical'));
                 }
             }
 
@@ -290,12 +385,47 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
     const displayItems = useMemo(() => {
         if (activeTab !== 'service' || serviceSubTab !== 'item') return items;
-        if (serviceCatalogFilter === 'all') return items;
-        if (serviceCatalogFilter === 'health_service') {
-            return items.filter((i) => i.details?.serviceDomain === 'health_service');
+
+        let list = items.filter((i) => i.type === 'service');
+
+        if (serviceCatalogFilter !== 'all') {
+            list = list.filter((i) => {
+                const { domain } = classifyServiceItem(i);
+                return serviceCatalogFilter === 'health_service'
+                    ? domain === 'health_service'
+                    : domain === 'clinical';
+            });
         }
-        return items.filter((i) => i.details?.serviceDomain !== 'health_service');
-    }, [items, activeTab, serviceSubTab, serviceCatalogFilter]);
+
+        if (serviceSubCategoryFilter !== 'all') {
+            list = list.filter((i) => classifyServiceItem(i).subId === serviceSubCategoryFilter);
+        }
+
+        const q = serviceSearchTerm.trim().toLowerCase();
+        if (q) {
+            list = list.filter((i) => {
+                const cls = classifyServiceItem(i);
+                const subLabel =
+                    cls.domain === 'health_service'
+                        ? HEALTH_SERVICE_SUB_CATEGORIES.find((x) => x.id === cls.subId)?.label || ''
+                        : CLINICAL_SUB_CATEGORIES.find((x) => x.id === cls.subId)?.label || '';
+                const haystack = [
+                    i.title,
+                    i.description || '',
+                    i.details?.dept || '',
+                    i.details?.categoryL1 || '',
+                    i.details?.categoryL2 || '',
+                    subLabel,
+                    ...(i.tags || []),
+                ]
+                    .join(' ')
+                    .toLowerCase();
+                return haystack.includes(q);
+            });
+        }
+
+        return list;
+    }, [items, activeTab, serviceSubTab, serviceCatalogFilter, serviceSubCategoryFilter, serviceSearchTerm]);
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
@@ -744,7 +874,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         }],
                     };
                 }
-                return { name: '医院服务项目', data: [{ "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架" }] };
+                return { name: '医院服务项目', data: [{ "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "服务大类": "临床检查", "二级子类": "物理检查", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架" }, { "项目ID（系统生成）": "", "项目名称": "示例：中医推拿理疗", "服务大类": "健康服务", "二级子类": "中医理疗", "归属科室编码": "TCM001", "一级分类": "健康服务", "二级分类": "理疗", "标签": "中医,康复", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "康复科", "预计耗时": "45分钟", "报告出具时间": "-", "标准价格(元)": 120, "医保类型": "自费", "自费金额估算(元)": 120, "医保报销说明": "...", "排序值": 20, "初始状态": "上架" }] };
             case 'recipe': return { name: '膳食食谱库导入模板', data: [{ "食谱ID (系统生成)": "", "食谱名称": "控糖饱腹：西兰花炒鸡胸肉", "食谱描述/简介": "低脂高蛋白的快手菜，饱腹感强，适合控糖减脂期。", "制作难度": "初级", "预估准备时间(分)": 10, "预估烹饪时间(分)": 15, "用餐类型": "午餐", "适宜人数": 2, "核心健康标签": "高蛋白, 低GI", "关联疾病/场景": "2型糖尿病, 减重", "禁忌提醒": "对鸡肉过敏者禁用", "封面图URL/路径": "", "食材清单 (格式: 食材:用量; 食材:用量)": "鸡胸肉:200g;西兰花:300g;橄榄油:5ml;大蒜:2瓣", "制作步骤": "鸡胸肉切丁... → 热锅少油... → 出锅", "烹饪技巧/小贴士": "鸡胸肉腌制时加少许淀粉...", "单份预估热量(kcal)": "", "单份蛋白质含量(g)": "", "单份脂肪含量(g)": "", "单份碳水化合物含量(g)": "", "单份膳食纤维含量(g)": "", "营养素总结": "", "状态": "上架", "排序值": 10 }] };
             default: return null;
         }
@@ -924,11 +1054,16 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             break;
                         }
                         if (!row['项目名称']) continue;
+                        const serviceDomain = parseImportServiceDomain(row);
+                        const subId = parseImportSubCategory(row, serviceDomain);
                         item = {
                             id, type: 'service', title: row['项目名称'], tags: row['标签']?.split(/[,，]/) || [],
                             description: row['项目简介（列表页摘要）'] || '', image: '🏥', status: row['初始状态'] === '上架' ? 'active' : 'pending',
                             isUserUpload: false, updatedAt: now,
                             details: {
+                                serviceDomain,
+                                clinicalSubCategory: serviceDomain === 'clinical' ? subId : undefined,
+                                healthServiceSubCategory: serviceDomain === 'health_service' ? subId : undefined,
                                 deptCode: row['归属科室编码'], categoryL1: row['一级分类'], categoryL2: row['二级分类'],
                                 workflow: row['项目详情/流程'], audience: row['适宜人群'], contraindications: row['禁忌与注意事项'],
                                 clinicalSignificance: row['临床意义'], bookingType: row['预约类型'], bookingTemplate: row['预约规则模板'],
@@ -1065,7 +1200,23 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const openEdit = (item?: ContentItem) => {
         setIsAnalyzing(false);
         if (item) {
-            setEditItem({...item});
+            if (item.type === 'service') {
+                const classified = classifyServiceItem(item);
+                const domain = classified.domain === 'checkup' ? 'clinical' : classified.domain;
+                const details = { ...item.details };
+                if (!details.serviceDomain || details.serviceDomain === 'checkup') {
+                    details.serviceDomain = domain;
+                }
+                if (domain === 'clinical' && !details.clinicalSubCategory) {
+                    details.clinicalSubCategory = classified.subId as ClinicalSubCategory;
+                }
+                if (domain === 'health_service' && !details.healthServiceSubCategory) {
+                    details.healthServiceSubCategory = classified.subId as HealthServiceSubCategory;
+                }
+                setEditItem({ ...item, details });
+            } else {
+                setEditItem({ ...item });
+            }
             setServiceClosedDateInput('');
         } else {
             let type: any = 'meal';
@@ -1074,6 +1225,22 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             if (activeTab === 'service') type = serviceSubTab === 'package' ? 'checkup_package' : 'service';
             if (activeTab === 'drug') type = 'drug';
             if (activeTab === 'doctor') type = 'doctor';
+
+            let details: Record<string, unknown> = {};
+            if (activeTab === 'service' && serviceSubTab === 'item') {
+                const domain = serviceCatalogFilter === 'health_service' ? 'health_service' : 'clinical';
+                details = {
+                    serviceDomain: domain,
+                    clinicalSubCategory:
+                        domain === 'clinical'
+                            ? (serviceSubCategoryFilter !== 'all' ? serviceSubCategoryFilter : 'lab')
+                            : undefined,
+                    healthServiceSubCategory:
+                        domain === 'health_service'
+                            ? (serviceSubCategoryFilter !== 'all' ? serviceSubCategoryFilter : 'consultation')
+                            : undefined,
+                };
+            }
             
             setEditItem({
                 id: Date.now().toString(),
@@ -1082,7 +1249,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 status: 'active',
                 tags: [],
                 image: type === 'meal' ? '🍲' : type === 'exercise' ? '🏃' : type === 'event' ? '🎉' : type === 'service' ? '🏥' : type === 'checkup_package' ? '🩺' : type === 'drug' ? '💊' : type === 'circle' ? '⭕' : '👨‍⚕️',
-                details: {}
+                details
             });
             setServiceClosedDateInput('');
         }
@@ -1317,28 +1484,98 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 )}
 
                                 {activeTab === 'service' && serviceSubTab === 'item' && (
-                                    <div className="flex flex-wrap gap-2 border-b border-slate-100 pb-3">
-                                        {([
-                                            { id: 'all' as const, label: '全部项目' },
-                                            { id: 'clinical' as const, label: '临床检查' },
-                                            { id: 'health_service' as const, label: '健康服务' },
-                                        ]).map((f) => (
-                                            <button
-                                                key={f.id}
-                                                type="button"
-                                                onClick={() => setServiceCatalogFilter(f.id)}
-                                                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
-                                                    serviceCatalogFilter === f.id
-                                                        ? 'bg-teal-600 text-white border-teal-600'
-                                                        : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'
-                                                }`}
-                                            >
-                                                {f.label}
-                                            </button>
-                                        ))}
-                                        <span className="text-xs text-slate-400 self-center ml-auto">
-                                            共 {displayItems.length} 项
-                                        </span>
+                                    <div className="border-b border-slate-100 pb-3 space-y-3">
+                                        <div className="flex flex-wrap gap-2 items-center">
+                                            {([
+                                                { id: 'all' as const, label: '全部项目' },
+                                                { id: 'clinical' as const, label: '临床检查' },
+                                                { id: 'health_service' as const, label: '健康服务' },
+                                            ]).map((f) => (
+                                                <button
+                                                    key={f.id}
+                                                    type="button"
+                                                    onClick={() => setServiceCatalogFilter(f.id)}
+                                                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                                                        serviceCatalogFilter === f.id
+                                                            ? 'bg-teal-600 text-white border-teal-600'
+                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'
+                                                    }`}
+                                                >
+                                                    {f.label}
+                                                </button>
+                                            ))}
+                                            <div className="relative ml-auto min-w-[200px] flex-1 max-w-sm">
+                                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">🔍</span>
+                                                <input
+                                                    type="search"
+                                                    placeholder="搜索名称、科室、标签、分类..."
+                                                    value={serviceSearchTerm}
+                                                    onChange={(e) => setServiceSearchTerm(e.target.value)}
+                                                    className="w-full border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:ring-teal-500 focus:border-teal-500"
+                                                />
+                                            </div>
+                                            <span className="text-xs text-slate-400 shrink-0">
+                                                共 {displayItems.length} 项
+                                            </span>
+                                        </div>
+                                        {serviceCatalogFilter === 'clinical' && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setServiceSubCategoryFilter('all')}
+                                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                        serviceSubCategoryFilter === 'all'
+                                                            ? 'bg-slate-700 text-white border-slate-700'
+                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                    }`}
+                                                >
+                                                    全部子类
+                                                </button>
+                                                {CLINICAL_SUB_CATEGORIES.map((sub) => (
+                                                    <button
+                                                        key={sub.id}
+                                                        type="button"
+                                                        onClick={() => setServiceSubCategoryFilter(sub.id)}
+                                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                            serviceSubCategoryFilter === sub.id
+                                                                ? 'bg-slate-700 text-white border-slate-700'
+                                                                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                        }`}
+                                                    >
+                                                        {sub.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {serviceCatalogFilter === 'health_service' && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setServiceSubCategoryFilter('all')}
+                                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                        serviceSubCategoryFilter === 'all'
+                                                            ? 'bg-slate-700 text-white border-slate-700'
+                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                    }`}
+                                                >
+                                                    全部子类
+                                                </button>
+                                                {HEALTH_SERVICE_SUB_CATEGORIES.map((sub) => (
+                                                    <button
+                                                        key={sub.id}
+                                                        type="button"
+                                                        onClick={() => setServiceSubCategoryFilter(sub.id)}
+                                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                            serviceSubCategoryFilter === sub.id
+                                                                ? 'bg-slate-700 text-white border-slate-700'
+                                                                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                        }`}
+                                                    >
+                                                        {sub.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -1382,7 +1619,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人 • 负责人:${item.details?.leader || '-'}`}
                                                     {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
                                                     {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
-                                                    {item.type === 'service' && `¥${item.details?.price} • ${item.details?.serviceDomain === 'health_service' ? '健康服务' : '临床检查'}${item.details?.healthServiceSubCategory ? ` · ${HEALTH_SERVICE_SUB_CATEGORIES.find((x) => x.id === item.details?.healthServiceSubCategory)?.label || ''}` : item.details?.clinicalSubCategory ? ` · ${CLINICAL_SUB_CATEGORIES.find((x) => x.id === item.details?.clinicalSubCategory)?.label || ''}` : ''}`}
+                                                    {item.type === 'service' && `¥${item.details?.price} • ${serviceCatalogLabel(item)}`}
                                                     {item.type === 'checkup_package' && (
                                                         <>
                                                             {`套餐 ¥${item.details?.price || '-'} • 含${(item.details?.includedServiceIds || []).length}项`}
