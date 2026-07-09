@@ -6,6 +6,7 @@ import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
 import { BookingContactModal } from './BookingContactModal';
+import { ModalPortal } from './ModalPortal';
 import {
     CLINICAL_SUB_CATEGORIES,
     HEALTH_SERVICE_SUB_CATEGORIES,
@@ -594,8 +595,9 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
 
             {/* Detail Modal */}
             {selectedItem && (
-                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedItem(null)}>
-                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedItem(null)}>
+                        <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85dvh] flex flex-col pb-[env(safe-area-inset-bottom)]" onClick={e => e.stopPropagation()}>
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
                             <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-400 font-bold shadow-sm">×</button>
                             <div className="mx-auto mb-4 h-20 w-20">
@@ -747,7 +749,8 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                             )}
                         </div>
                     </div>
-                </div>
+                    </div>
+                </ModalPortal>
             )}
             <BookingContactModal
                 open={serviceContactOpen}
@@ -774,8 +777,9 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                 onConfirm={({ name, phone }) => completeEventSignup(name, phone)}
             />
             {bookingService && (
-                <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setBookingService(null)}>
-                    <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setBookingService(null)}>
+                        <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
                         <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
                         <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择服务时间</h3>
                         <p className="text-xs text-slate-400 text-center mb-6">预约服务：{bookingService.title}</p>
@@ -813,8 +817,9 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                             })()}
                         </div>
                         <button onClick={() => setBookingService(null)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm">取消</button>
+                        </div>
                     </div>
-                </div>
+                </ModalPortal>
             )}
         </div>
     );

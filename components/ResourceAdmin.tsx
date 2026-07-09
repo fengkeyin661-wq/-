@@ -2162,7 +2162,7 @@ const PackageImageUploadField: React.FC<{
                         placeholder="输入 https 图片地址，或点击下方上传"
                     />
                     <div className="flex flex-wrap gap-2">
-                        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
+                        <input ref={inputRef as React.RefObject<HTMLInputElement>} type="file" accept="image/*" className="hidden" onChange={onUpload} />
                         <button
                             type="button"
                             onClick={() => inputRef.current?.click()}
