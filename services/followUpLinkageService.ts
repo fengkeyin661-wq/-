@@ -81,6 +81,33 @@ export const mergeFocusItems = (...sources: (string[] | string | undefined)[]): 
   return Array.from(set);
 };
 
+/** 危急值名单检索：姓名、体检编号、危急项目/描述/等级/警示 */
+export const matchesCriticalArchiveSearch = (arch: HealthArchive, query: string): boolean => {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const track = arch.critical_track;
+  const haystack = [
+    arch.name,
+    arch.checkup_id,
+    track?.critical_item,
+    track?.critical_desc,
+    track?.critical_level,
+    arch.assessment_data?.criticalWarning,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(q);
+};
+
+export const formatArchiveCheckupDate = (arch: HealthArchive): string => {
+  const raw = arch.health_record?.profile?.checkupDate;
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw);
+  return d.toLocaleDateString('zh-CN');
+};
+
 /** 当前评估是否仍标记为危急值 */
 export const hasCurrentCriticalFlag = (arch: HealthArchive): boolean => {
   if (arch.assessment_data?.isCritical) return true;

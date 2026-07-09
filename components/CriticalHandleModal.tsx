@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { HealthArchive } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
+import { formatArchiveCheckupDate } from '../services/followUpLinkageService';
 
 export const formatCriticalRecorder = (name?: string, role?: string) => {
     if (!name) return '';
@@ -139,9 +140,15 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                     </div>
                     <div className="grid grid-cols-4 border-b border-slate-300 bg-slate-50 text-sm">
                         <div className="p-3 border-r border-slate-300 font-bold text-slate-700">体检编号</div>
-                        <div className="p-3 border-r border-slate-300">{archive.checkup_id}</div>
+                        <div className="p-3 border-r border-slate-300 font-mono">{archive.checkup_id}</div>
+                        <div className="p-3 border-r border-slate-300 font-bold text-slate-700">体检日期</div>
+                        <div className="p-3 font-mono font-bold text-slate-800">{formatArchiveCheckupDate(archive)}</div>
+                    </div>
+                    <div className="grid grid-cols-4 bg-slate-50 text-sm">
                         <div className="p-3 border-r border-slate-300 font-bold text-slate-700">联系电话</div>
-                        <div className="p-3 font-mono">{archive.phone || '-'}</div>
+                        <div className="p-3 border-r border-slate-300 font-mono">{archive.phone || '-'}</div>
+                        <div className="p-3 border-r border-slate-300 font-bold text-slate-700">单位/部门</div>
+                        <div className="p-3 truncate" title={archive.department || ''}>{archive.department || '-'}</div>
                     </div>
                 </div>
 

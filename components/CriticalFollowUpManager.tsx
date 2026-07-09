@@ -5,10 +5,11 @@ import { CriticalTrackRecord } from '../types';
 import {
   getLatestFollowUp,
   resolveCriticalTrackStatus,
-  getCriticalStatusLabel,
   getCriticalStatusBadge,
   isCriticalFollowUpPending,
   isCriticalFollowUpArchived,
+  matchesCriticalArchiveSearch,
+  formatArchiveCheckupDate,
 } from '../services/followUpLinkageService';
 import { CriticalHandleModal, formatCriticalRecorder } from './CriticalHandleModal';
 import {
@@ -113,6 +114,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
     const [subTab, setSubTab] = useState<'pending' | 'archived'>('pending');
     const [selectedPatient, setSelectedPatient] = useState<HealthArchive | null>(null);
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>(PENDING_DEFAULT_SORT);
+    const [searchQuery, setSearchQuery] = useState('');
 
     // 逻辑分层：仅纳入真正需要危急值随访的人员
     const criticalGroups = useMemo(() => {
@@ -133,10 +135,13 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
     const baseList = subTab === 'pending' ? criticalGroups.pending : criticalGroups.archived;
 
     const activeList = useMemo(() => {
-        const result = [...baseList];
+        const filtered = searchQuery.trim()
+            ? baseList.filter((arch) => matchesCriticalArchiveSearch(arch, searchQuery))
+            : baseList;
+        const result = [...filtered];
         result.sort((a, b) => compareArchives(a, b, sortConfig));
         return result;
-    }, [baseList, sortConfig]);
+    }, [baseList, sortConfig, searchQuery]);
 
     const sortIndicator = (key: SortKey) =>
         sortConfig.key === key ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : '';
@@ -178,9 +183,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                 "二次记录人": track?.secondary_recorder_name
                     ? formatCriticalRecorder(track.secondary_recorder_name, track.secondary_recorder_role)
                     : "-",
-                "建档日期": arch.created_at
-                    ? new Date(arch.created_at).toLocaleDateString()
-                    : arch.health_record?.profile?.checkupDate || '-',
+                "体检日期": formatArchiveCheckupDate(arch),
                 "处置记录": track?.initial_feedback || "-",
                 "最后更新": new Date(arch.updated_at || arch.created_at).toLocaleString()
             };
@@ -220,11 +223,44 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                 </button>
             </div>
 
+            <div className="px-6 py-3 border-b border-slate-100 bg-white flex flex-wrap items-center gap-3 shrink-0">
+                <div className="relative flex-1 min-w-[240px] max-w-md">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+                    <input
+                        type="search"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="搜索姓名、体检编号、危急值关键字…"
+                        className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-slate-50"
+                    />
+                </div>
+                {searchQuery.trim() && (
+                    <>
+                        <span className="text-xs text-slate-500">
+                            检索到 <strong className="text-slate-700">{activeList.length}</strong> 条
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setSearchQuery('')}
+                            className="text-xs text-teal-600 hover:text-teal-800 font-bold"
+                        >
+                            清除
+                        </button>
+                    </>
+                )}
+            </div>
+
             <div className="flex-1 overflow-auto">
                 {activeList.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-slate-400 opacity-60">
-                        <div className="text-6xl mb-4">{subTab === 'pending' ? '✅' : '📁'}</div>
-                        <p className="font-bold">{subTab === 'pending' ? '目前没有待处理的危急值' : '暂无已归档的历史记录'}</p>
+                        <div className="text-6xl mb-4">{searchQuery.trim() ? '🔍' : subTab === 'pending' ? '✅' : '📁'}</div>
+                        <p className="font-bold">
+                            {searchQuery.trim()
+                                ? '未找到匹配的危急值随访记录'
+                                : subTab === 'pending'
+                                ? '目前没有待处理的危急值'
+                                : '暂无已归档的历史记录'}
+                        </p>
                     </div>
                 ) : (
                     <table className="w-full text-left text-sm">
@@ -237,7 +273,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                                     危急项目与描述{sortIndicator('critical_item')}
                                 </th>
                                 <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort('created_at')}>
-                                    建档日期{sortIndicator('created_at')}
+                                    体检日期{sortIndicator('created_at')}
                                 </th>
                                 <th className="p-4 cursor-pointer hover:text-teal-600 select-none" onClick={() => handleSort('secondary_due_date')}>
                                     回访计划{sortIndicator('secondary_due_date')}
@@ -257,9 +293,7 @@ export const CriticalFollowUpManager: React.FC<Props> = ({ archives, onRefresh, 
                                 const badge = getCriticalStatusBadge(arch, subTab);
                                 const isUrgent = subTab === 'pending' && status !== 'pending_secondary';
                                 const isPendingSecondary = status === 'pending_secondary';
-                                const createdLabel = arch.created_at
-                                    ? new Date(arch.created_at).toLocaleDateString()
-                                    : arch.health_record?.profile?.checkupDate || '—';
+                                const createdLabel = formatArchiveCheckupDate(arch);
                                 
                                 let countdownText = '';
                                 let countdownStyle = 'text-slate-400';
