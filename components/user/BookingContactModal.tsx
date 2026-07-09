@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { validateChinaMobile } from '../../services/bookingContact';
+import { ModalPortal } from './ModalPortal';
 
 export interface BookingContactPayload {
   name: string;
@@ -56,14 +57,15 @@ export const BookingContactModal: React.FC<Props> = ({
   };
 
   return (
-    <div
-      className={`fixed inset-0 ${zIndexClass} flex items-end justify-center bg-slate-900/65 backdrop-blur-sm`}
-      onClick={onCancel}
-    >
+    <ModalPortal>
       <div
-        className="w-full max-w-md rounded-t-3xl bg-white p-6 shadow-2xl animate-slideUp"
-        onClick={(e) => e.stopPropagation()}
+        className={`fixed inset-0 ${zIndexClass} flex items-end justify-center bg-slate-900/65 backdrop-blur-sm`}
+        onClick={onCancel}
       >
+        <div
+          className="w-full max-w-md rounded-t-3xl bg-white p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl animate-slideUp"
+          onClick={(e) => e.stopPropagation()}
+        >
         <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4" />
         <h3 className="text-lg font-black text-slate-800 text-center">{title}</h3>
         {subtitle ? <p className="text-center text-xs text-slate-500 mt-1 mb-4">{subtitle}</p> : <div className="mb-4" />}
@@ -102,7 +104,8 @@ export const BookingContactModal: React.FC<Props> = ({
             确认提交
           </button>
         </div>
+        </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 };

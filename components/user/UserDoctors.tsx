@@ -13,6 +13,7 @@ import { HealthArchive } from '../../services/dataService';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
 import { BookingContactModal } from './BookingContactModal';
+import { ModalPortal } from './ModalPortal';
 import {
   HEALTH_MANAGEMENT_HOTLINE,
   HEALTH_MANAGEMENT_HOTLINE_TEL,
@@ -523,8 +524,9 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
       </section>
 
       {selectedDoctor && (
-        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center" onClick={() => setSelectedDoctor(null)}>
-          <div className="w-full max-w-md rounded-t-3xl bg-white p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <ModalPortal>
+          <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center" onClick={() => setSelectedDoctor(null)}>
+            <div className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] space-y-4 animate-slideUp" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3">
               {avatar(selectedDoctor)}
               <div>
@@ -570,19 +572,21 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
                 {signedDoctorIdSet.has(selectedDoctor.id) ? '已签约' : '签约医生'}
               </button>
             </div>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {teamRecommendRole && (
-        <div
-          className="fixed inset-0 z-[75] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center"
-          onClick={() => setTeamRecommendRole(null)}
-        >
+        <ModalPortal>
           <div
-            className="w-full max-w-md rounded-t-3xl bg-white p-5 space-y-4 max-h-[80vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[75] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center"
+            onClick={() => setTeamRecommendRole(null)}
           >
+            <div
+              className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] space-y-4 max-h-[80vh] overflow-y-auto animate-slideUp"
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-black text-slate-800">{teamRecommendRole}推荐签约对象</h3>
               <button
@@ -616,8 +620,9 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
                 </button>
               ))}
             </div>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       <BookingContactModal
@@ -634,8 +639,9 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
       />
 
       {bookingDoctor && (
-        <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center" onClick={() => setBookingDoctor(null)}>
-          <div className="w-full max-w-md rounded-t-3xl bg-white p-5 space-y-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <ModalPortal>
+          <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-end justify-center" onClick={() => setBookingDoctor(null)}>
+            <div className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] space-y-4 max-h-[80vh] overflow-y-auto animate-slideUp" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-black text-slate-800">选择预约时段</h3>
             <p className="text-xs text-slate-500">{bookingDoctor.title}</p>
             {(() => {
@@ -669,8 +675,9 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
                 </div>
               );
             })()}
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );
