@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     ContentItem, InteractionItem, 
     fetchContent, saveContent, deleteContent, 
@@ -16,7 +16,7 @@ import {
     type ResourcePresets,
     type ResourcePresetKey,
 } from '../services/resourcePresetStore';
-import { HEALTH_MANAGEMENT_HOTLINE } from '../services/userServiceCatalog';
+import { HEALTH_MANAGEMENT_HOTLINE, CLINICAL_SUB_CATEGORIES, HEALTH_SERVICE_SUB_CATEGORIES } from '../services/userServiceCatalog';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -155,6 +155,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // Sub-tab for Event (Community) section
     const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
     const [serviceSubTab, setServiceSubTab] = useState<'item' | 'package'>('item');
+    const [serviceCatalogFilter, setServiceCatalogFilter] = useState<'all' | 'clinical' | 'health_service'>('all');
     const [clinicalServiceCatalog, setClinicalServiceCatalog] = useState<ContentItem[]>([]);
     
     const [items, setItems] = useState<ContentItem[]>([]);
@@ -175,6 +176,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [serviceClosedDateInput, setServiceClosedDateInput] = useState('');
 
+    /** 批量预约时段 */
+    const [isBatchScheduleOpen, setIsBatchScheduleOpen] = useState(false);
+    const [batchScheduleDraft, setBatchScheduleDraft] = useState<{
+        serviceWeeklySchedule: Record<string, string[]>;
+        serviceSlotQuotas: Record<string, Record<string, number>>;
+        defaultQuota: number;
+    }>({ serviceWeeklySchedule: {}, serviceSlotQuotas: {}, defaultQuota: 10 });
+
     // Batch Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -186,6 +195,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
     useEffect(() => {
         loadData();
+        setServiceCatalogFilter('all');
     }, [activeTab, eventSubTab, serviceSubTab]);
 
     useEffect(() => {
@@ -276,9 +286,18 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    const displayItems = useMemo(() => {
+        if (activeTab !== 'service' || serviceSubTab !== 'item') return items;
+        if (serviceCatalogFilter === 'all') return items;
+        if (serviceCatalogFilter === 'health_service') {
+            return items.filter((i) => i.details?.serviceDomain === 'health_service');
+        }
+        return items.filter((i) => i.details?.serviceDomain !== 'health_service');
+    }, [items, activeTab, serviceSubTab, serviceCatalogFilter]);
+
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
-            setSelectedIds(new Set(items.map(i => i.id)));
+            setSelectedIds(new Set(displayItems.map(i => i.id)));
         } else {
             setSelectedIds(new Set());
         }
@@ -341,6 +360,114 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         } catch (e) {
             console.error(e);
             alert(`批量${actionText}过程中发生错误`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openBatchScheduleModal = () => {
+        if (selectedIds.size === 0) return;
+        setBatchScheduleDraft({ serviceWeeklySchedule: {}, serviceSlotQuotas: {}, defaultQuota: 10 });
+        setIsBatchScheduleOpen(true);
+    };
+
+    const toggleBatchSchedule = (dayKey: string, slotId: string) => {
+        setBatchScheduleDraft((prev) => {
+            const weekly = { ...prev.serviceWeeklySchedule };
+            const quotas = { ...prev.serviceSlotQuotas };
+            const current = weekly[dayKey] || [];
+            const updated = current.includes(slotId)
+                ? current.filter((s) => s !== slotId)
+                : [...current, slotId];
+            weekly[dayKey] = updated;
+            if (!current.includes(slotId)) {
+                quotas[dayKey] = {
+                    ...(quotas[dayKey] || {}),
+                    [slotId]: prev.defaultQuota,
+                };
+            }
+            return { ...prev, serviceWeeklySchedule: weekly, serviceSlotQuotas: quotas };
+        });
+    };
+
+    const handleBatchQuotaChange = (dayKey: string, slotId: string, value: number) => {
+        setBatchScheduleDraft((prev) => ({
+            ...prev,
+            serviceSlotQuotas: {
+                ...prev.serviceSlotQuotas,
+                [dayKey]: {
+                    ...(prev.serviceSlotQuotas[dayKey] || {}),
+                    [slotId]: Math.max(1, value || 1),
+                },
+            },
+        }));
+    };
+
+    const applyBatchSchedulePreset = (preset: 'weekday_all' | 'weekday_am' | 'daily_all') => {
+        setBatchScheduleDraft((prev) => {
+            const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+            const allDays = [...weekdays, 'Sat', 'Sun'];
+            const days = preset === 'daily_all' ? allDays : weekdays;
+            const slots = preset === 'weekday_am' ? ['AM'] : ['AM', 'PM'];
+            const weekly: Record<string, string[]> = {};
+            const quotas: Record<string, Record<string, number>> = {};
+            days.forEach((d) => {
+                weekly[d] = [...slots];
+                quotas[d] = {};
+                slots.forEach((s) => {
+                    quotas[d][s] = prev.defaultQuota;
+                });
+            });
+            return { ...prev, serviceWeeklySchedule: weekly, serviceSlotQuotas: quotas };
+        });
+    };
+
+    const handleBatchApplySchedule = async () => {
+        const { serviceWeeklySchedule, serviceSlotQuotas } = batchScheduleDraft;
+        const hasSlots = Object.values(serviceWeeklySchedule).some((slots) => slots?.length);
+        if (!hasSlots) {
+            alert('请至少开启一个可预约时段，或使用下方快捷模板');
+            return;
+        }
+        const selectedItems = items.filter((i) => selectedIds.has(i.id));
+        const schedulable = selectedItems.filter(
+            (i) => i.type === 'service' || i.type === 'checkup_package',
+        );
+        if (!schedulable.length) {
+            alert('所选项目中没有可设置预约时段的服务或套餐');
+            return;
+        }
+        if (
+            !confirm(
+                `将为 ${schedulable.length} 项资源统一写入预约排期（覆盖原有排期设置），是否继续？`,
+            )
+        ) {
+            return;
+        }
+        setLoading(true);
+        setLoadingText('正在批量设置预约时段...');
+        try {
+            await Promise.all(
+                schedulable.map((item) =>
+                    saveContent({
+                        ...item,
+                        details: {
+                            ...item.details,
+                            bookingType: item.details?.bookingType || '需预约',
+                            serviceWeeklySchedule: { ...serviceWeeklySchedule },
+                            serviceSlotQuotas: { ...serviceSlotQuotas },
+                        },
+                        updatedAt: new Date().toISOString(),
+                    }),
+                ),
+            );
+            setIsBatchScheduleOpen(false);
+            setSelectedIds(new Set());
+            await loadData();
+            alert(`已成功为 ${schedulable.length} 项资源设置预约时段`);
+        } catch (e) {
+            console.error(e);
+            alert('批量设置失败，请重试');
         } finally {
             setLoading(false);
         }
@@ -921,7 +1048,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 flex flex-col">
+        <div className="h-screen bg-slate-100 flex flex-col overflow-hidden">
              <header className="bg-teal-700 text-white px-6 py-4 flex justify-between items-center shadow-md">
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center font-bold">R</div>
@@ -1013,7 +1140,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     </nav>
                 </aside>
 
-                <main className="flex-1 p-8 overflow-y-auto">
+                <main className="flex-1 min-h-0 p-8 overflow-y-auto">
                     {activeTab === 'audit' ? (
                         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
@@ -1022,8 +1149,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {renderInteractionTable(interactions)}
                         </section>
                     ) : (
-                        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                            <div className="flex flex-col gap-4 mb-4">
+                        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col min-h-0">
+                            <div className="flex flex-col gap-4 mb-4 shrink-0">
                                 <div className="flex justify-between items-center">
                                     <h3 className="text-lg font-bold text-slate-700">
                                         {activeTab === 'recipe' ? '膳食资源库' : 
@@ -1055,6 +1182,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
                                         {selectedIds.size > 0 && (
                                             <>
+                                                {activeTab === 'service' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={openBatchScheduleModal}
+                                                        className="bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-100 flex items-center gap-1 animate-fadeIn"
+                                                    >
+                                                        📅 批量设置预约时段 ({selectedIds.size})
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() => handleBatchSetPublishStatus('active')}
                                                     className="bg-green-50 text-green-700 border border-green-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-green-100 flex items-center gap-1 animate-fadeIn"
@@ -1081,8 +1217,34 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 {/* Event Sub-Tabs */}
                                 {activeTab === 'service' && (
                                     <div className="flex border-b border-slate-100">
-                                        <button onClick={() => setServiceSubTab('item')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'item' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🔬 临床/健康服务项目</button>
-                                        <button onClick={() => setServiceSubTab('package')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'package' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🩺 健康体检套餐</button>
+                                        <button type="button" onClick={() => setServiceSubTab('item')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'item' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🔬 临床/健康服务项目</button>
+                                        <button type="button" onClick={() => setServiceSubTab('package')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'package' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🩺 健康体检套餐</button>
+                                    </div>
+                                )}
+
+                                {activeTab === 'service' && serviceSubTab === 'item' && (
+                                    <div className="flex flex-wrap gap-2 border-b border-slate-100 pb-3">
+                                        {([
+                                            { id: 'all' as const, label: '全部项目' },
+                                            { id: 'clinical' as const, label: '临床检查' },
+                                            { id: 'health_service' as const, label: '健康服务' },
+                                        ]).map((f) => (
+                                            <button
+                                                key={f.id}
+                                                type="button"
+                                                onClick={() => setServiceCatalogFilter(f.id)}
+                                                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                                                    serviceCatalogFilter === f.id
+                                                        ? 'bg-teal-600 text-white border-teal-600'
+                                                        : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'
+                                                }`}
+                                            >
+                                                {f.label}
+                                            </button>
+                                        ))}
+                                        <span className="text-xs text-slate-400 self-center ml-auto">
+                                            共 {displayItems.length} 项
+                                        </span>
                                     </div>
                                 )}
 
@@ -1101,10 +1263,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     <p className="text-slate-500 font-bold">{loadingText}</p>
                                 </div>
                             ) : (
+                                <div className="overflow-auto flex-1 min-h-0 max-h-[calc(100vh-18rem)] rounded-lg border border-slate-100">
                                 <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-50 text-slate-500">
+                                    <thead className="bg-slate-50 text-slate-500 sticky top-0 z-10">
                                         <tr>
-                                            <th className="p-3 w-10"><input type="checkbox" onChange={handleSelectAll} checked={items.length > 0 && selectedIds.size === items.length} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></th>
+                                            <th className="p-3 w-10"><input type="checkbox" onChange={handleSelectAll} checked={displayItems.length > 0 && selectedIds.size === displayItems.length} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></th>
                                             <th className="p-3">名称</th>
                                             <th className="p-3">核心信息</th>
                                             <th className="p-3">状态/标签</th>
@@ -1112,7 +1275,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {items.map(item => (
+                                        {displayItems.map(item => (
                                             <tr key={item.id} className={`hover:bg-slate-50 ${selectedIds.has(item.id) ? 'bg-blue-50/30' : ''}`}>
                                                 <td className="p-3"><input type="checkbox" onChange={() => handleSelectRow(item.id)} checked={selectedIds.has(item.id)} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></td>
                                                 <td className="p-3 font-bold flex items-center gap-2">
@@ -1125,7 +1288,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人 • 负责人:${item.details?.leader || '-'}`}
                                                     {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
                                                     {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
-                                                    {item.type === 'service' && `¥${item.details?.price} • ${item.details?.serviceDomain || item.details?.categoryL1 || '临床检查'}`}
+                                                    {item.type === 'service' && `¥${item.details?.price} • ${item.details?.serviceDomain === 'health_service' ? '健康服务' : '临床检查'}${item.details?.healthServiceSubCategory ? ` · ${HEALTH_SERVICE_SUB_CATEGORIES.find((x) => x.id === item.details?.healthServiceSubCategory)?.label || ''}` : item.details?.clinicalSubCategory ? ` · ${CLINICAL_SUB_CATEGORIES.find((x) => x.id === item.details?.clinicalSubCategory)?.label || ''}` : ''}`}
                                                     {item.type === 'checkup_package' && (
                                                         <>
                                                             {`套餐 ¥${item.details?.price || '-'} • 含${(item.details?.includedServiceIds || []).length}项`}
@@ -1157,9 +1320,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                 </td>
                                             </tr>
                                         ))}
-                                        {items.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无数据</td></tr>}
+                                        {displayItems.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无数据</td></tr>}
                                     </tbody>
                                 </table>
+                                </div>
                             )}
                         </section>
                     )}
@@ -1283,11 +1447,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {activeTab === 'service' && editItem.type === 'service' && (
                                 <>
                                     <FormSection title="用户端分类（服务页展示）">
-                                        <SelectField label="服务大类" value={editItem.details?.serviceDomain || 'clinical'} onChange={(v:any) => updateDetail('serviceDomain', v)} options={['clinical', 'health_service']} />
+                                        <LabeledSelectField label="服务大类" value={editItem.details?.serviceDomain || 'clinical'} onChange={(v:any) => updateDetail('serviceDomain', v)} options={[{ value: 'clinical', label: '临床检查 clinical' }, { value: 'health_service', label: '健康服务 health_service' }]} />
                                         {(editItem.details?.serviceDomain || 'clinical') === 'clinical' ? (
-                                            <SelectField label="临床检查子类" value={editItem.details?.clinicalSubCategory || 'lab'} onChange={(v:any) => updateDetail('clinicalSubCategory', v)} options={['lab', 'physical', 'imaging', 'other']} />
+                                            <LabeledSelectField label="临床检查子类" value={editItem.details?.clinicalSubCategory || 'lab'} onChange={(v:any) => updateDetail('clinicalSubCategory', v)} options={CLINICAL_SUB_CATEGORIES.map((x) => ({ value: x.id, label: x.label }))} />
                                         ) : (
-                                            <SelectField label="健康服务子类" value={editItem.details?.healthServiceSubCategory || 'consultation'} onChange={(v:any) => updateDetail('healthServiceSubCategory', v)} options={['tcm', 'ophthalmology', 'report', 'consultation', 'contract']} />
+                                            <LabeledSelectField label="健康服务子类" value={editItem.details?.healthServiceSubCategory || 'consultation'} onChange={(v:any) => updateDetail('healthServiceSubCategory', v)} options={HEALTH_SERVICE_SUB_CATEGORIES.filter((x) => x.id !== 'education').map((x) => ({ value: x.id, label: x.label }))} />
                                         )}
                                     </FormSection>
                                     <FormSection title="基础分类与标识">
@@ -1410,7 +1574,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             {clinicalServiceCatalog.length === 0 ? (
                                                 <p className="text-xs text-emerald-700">请先在「临床/健康服务项目」中维护检查项目</p>
                                             ) : (
-                                                <div className="max-h-48 overflow-y-auto space-y-2">
+                                                <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
                                                     {clinicalServiceCatalog.map((svc) => {
                                                         const selected = ((editItem.details?.includedServiceIds || []) as string[]).includes(svc.id);
                                                         return (
@@ -1733,6 +1897,49 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 </div>
             )}
 
+            {isBatchScheduleOpen && (
+                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">批量设置预约时段</h3>
+                                <p className="text-xs text-slate-500 mt-1">已选 {selectedIds.size} 项，将统一写入排期（覆盖原有设置）</p>
+                            </div>
+                            <button type="button" onClick={() => setIsBatchScheduleOpen(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-slate-600">快捷模板：</span>
+                                <button type="button" onClick={() => applyBatchSchedulePreset('weekday_all')} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">工作日 上/下午</button>
+                                <button type="button" onClick={() => applyBatchSchedulePreset('weekday_am')} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">工作日 仅上午</button>
+                                <button type="button" onClick={() => applyBatchSchedulePreset('daily_all')} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">每日 上/下午</button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-bold text-slate-600">默认每时段限额</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    className="w-20 rounded border border-slate-300 px-2 py-1 text-sm"
+                                    value={batchScheduleDraft.defaultQuota}
+                                    onChange={(e) => setBatchScheduleDraft((prev) => ({ ...prev, defaultQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                />
+                                <span className="text-xs text-slate-400">新开时段时使用；已开时段可单独改限额</span>
+                            </div>
+                            <ServiceScheduleGrid
+                                weekly={batchScheduleDraft.serviceWeeklySchedule}
+                                quotas={batchScheduleDraft.serviceSlotQuotas}
+                                onToggle={toggleBatchSchedule}
+                                onQuotaChange={handleBatchQuotaChange}
+                            />
+                        </div>
+                        <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+                            <button type="button" onClick={() => setIsBatchScheduleOpen(false)} className="px-6 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200">取消</button>
+                            <button type="button" onClick={handleBatchApplySchedule} className="px-8 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700">应用到选中项</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isPresetModalOpen && presetDraft && (
                 <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -1798,6 +2005,56 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 };
 
 // --- Helper Components ---
+const ServiceScheduleGrid: React.FC<{
+    weekly: Record<string, string[]>;
+    quotas: Record<string, Record<string, number>>;
+    onToggle: (dayKey: string, slotId: string) => void;
+    onQuotaChange: (dayKey: string, slotId: string, value: number) => void;
+}> = ({ weekly, quotas, onToggle, onQuotaChange }) => (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="grid grid-cols-3 gap-2 text-center mb-3">
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">时段</div>
+            {SLOTS.map((slot) => (
+                <div key={slot.id} className="text-xs font-bold text-slate-600">{slot.label}</div>
+            ))}
+        </div>
+        <div className="space-y-2">
+            {DAY_KEYS.map((dayKey) => (
+                <div key={dayKey} className="grid grid-cols-3 gap-2 items-center">
+                    <div className="text-xs font-bold text-slate-600">{DAY_LABELS[dayKey]}</div>
+                    {SLOTS.map((slot) => {
+                        const isActive = (weekly[dayKey] || []).includes(slot.id);
+                        const quota = quotas?.[dayKey]?.[slot.id] || 10;
+                        return (
+                            <div key={`${dayKey}-${slot.id}`} className={`rounded-lg border p-2 ${isActive ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}>
+                                <button
+                                    type="button"
+                                    className={`w-full rounded-md py-1 text-[11px] font-bold ${isActive ? 'bg-teal-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}
+                                    onClick={() => onToggle(dayKey, slot.id)}
+                                >
+                                    {isActive ? '可预约' : '关闭'}
+                                </button>
+                                {isActive && (
+                                    <div className="mt-1 flex items-center justify-center gap-1">
+                                        <span className="text-[10px] text-slate-400">限额</span>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            value={quota}
+                                            onChange={(e) => onQuotaChange(dayKey, slot.id, parseInt(e.target.value) || 1)}
+                                            className="w-14 rounded border border-slate-200 bg-white px-1 py-0.5 text-center text-[11px] font-bold text-teal-700"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
 const NavButton = ({ id, icon, label, active, onClick }: any) => (
     <button onClick={() => onClick(id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-bold ${active === id ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`}>
         <span className="text-lg">{icon}</span>
@@ -1822,6 +2079,28 @@ const InputField = ({ label, value, onChange, placeholder, full = false, type = 
             onChange={e => onChange(e.target.value)}
             placeholder={placeholder}
         />
+    </div>
+);
+
+const LabeledSelectField = ({ label, value, onChange, options, full = false }: {
+    label: string;
+    value?: string;
+    onChange: (v: string) => void;
+    options: { value: string; label: string }[];
+    full?: boolean;
+}) => (
+    <div className={full ? 'col-span-2' : ''}>
+        <label className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
+        <select
+            className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-teal-500 outline-none"
+            value={value || ''}
+            onChange={(e) => onChange(e.target.value)}
+        >
+            <option value="">请选择...</option>
+            {options.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+        </select>
     </div>
 );
 
