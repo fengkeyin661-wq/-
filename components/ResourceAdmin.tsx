@@ -25,6 +25,8 @@ import {
     type ClinicalSubCategory,
     type HealthServiceSubCategory,
 } from '../services/userServiceCatalog';
+import { isSupabaseConfigured } from '../services/supabaseClient';
+import { prepareContentItemImages, uploadPackageImageFile } from '../services/resourceImageStorage';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -245,6 +247,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [serviceCatalogFilter, setServiceCatalogFilter] = useState<'all' | 'clinical' | 'health_service'>('all');
     const [serviceSubCategoryFilter, setServiceSubCategoryFilter] = useState<string>('all');
     const [serviceSearchTerm, setServiceSearchTerm] = useState('');
+    const [packageImageUploading, setPackageImageUploading] = useState<'cover' | 'poster' | null>(null);
     const [clinicalServiceCatalog, setClinicalServiceCatalog] = useState<ContentItem[]>([]);
     
     const [items, setItems] = useState<ContentItem[]>([]);
@@ -613,15 +616,39 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
         setLoading(true);
         setLoadingText('正在保存...');
-        
-        const result = await saveContent(editItem as ContentItem);
-        
-        setLoading(false);
-        setIsModalOpen(false);
-        loadData();
 
-        if (result.mode === 'local' && result.error) {
-            alert(`⚠️ 保存成功，但云端同步失败。\n原因: ${result.error}\n\n数据已暂存至本地。`);
+        try {
+            let itemToSave = { ...editItem, updatedAt: editItem.updatedAt || new Date().toISOString() } as ContentItem;
+
+            const hasPendingImages =
+                (itemToSave.image || '').startsWith('data:image') ||
+                (itemToSave.details?.posterImage || '').startsWith('data:image') ||
+                (itemToSave.details?.wechat_qr || '').startsWith('data:image');
+
+            if (hasPendingImages) {
+                if (!isSupabaseConfigured()) {
+                    alert('当前未配置 Supabase，大图无法写入云端。请配置 VITE_SUPABASE_URL 与密钥，或使用 https 图片地址。');
+                    return;
+                }
+                setLoadingText('正在上传图片到云端...');
+                itemToSave = await prepareContentItemImages(itemToSave);
+            }
+
+            setLoadingText('正在保存...');
+            const result = await saveContent(itemToSave);
+
+            setIsModalOpen(false);
+            await loadData();
+
+            if (result.mode === 'local' && result.error) {
+                alert(`⚠️ 保存成功，但云端同步失败。\n原因: ${result.error}\n\n数据已暂存至本地。`);
+            }
+        } catch (e: unknown) {
+            console.error(e);
+            const msg = e instanceof Error ? e.message : '未知错误';
+            alert(`保存失败：${msg}`);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -712,7 +739,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         e.target.value = '';
     };
 
-    const handlePackageImageFile = (
+    const handlePackageImageFile = async (
         e: React.ChangeEvent<HTMLInputElement>,
         target: 'cover' | 'poster',
     ) => {
@@ -723,26 +750,43 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             e.target.value = '';
             return;
         }
-        const max = 3 * 1024 * 1024;
+        const max = 8 * 1024 * 1024;
         if (file.size > max) {
-            alert('海报图片请控制在 3MB 以内，可压缩后再上传');
+            alert('图片请控制在 8MB 以内，系统会自动压缩后上传');
             e.target.value = '';
             return;
         }
-        const reader = new FileReader();
-        reader.onload = () => {
-            const dataUrl = reader.result as string;
-            if (target === 'cover') {
-                setEditItem((prev) => ({ ...prev, image: dataUrl }));
+
+        const itemId = editItem.id || Date.now().toString();
+        if (!editItem.id) {
+            setEditItem((prev) => ({ ...prev, id: itemId }));
+        }
+
+        setPackageImageUploading(target);
+        try {
+            if (isSupabaseConfigured()) {
+                const url = await uploadPackageImageFile(file, itemId, target);
+                setPackageImageUrl(target, url);
             } else {
-                setEditItem((prev) => ({
-                    ...prev,
-                    details: { ...prev.details, posterImage: dataUrl },
-                }));
+                const { readFileAsDataUrl, compressImageDataUrl } = await import('../services/resourceImageStorage');
+                const dataUrl = await readFileAsDataUrl(file);
+                const blob = await compressImageDataUrl(dataUrl, target === 'cover' ? 800 : 1920);
+                const localUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = () => reject(new Error('读取压缩图片失败'));
+                    reader.readAsDataURL(blob);
+                });
+                setPackageImageUrl(target, localUrl);
             }
-        };
-        reader.readAsDataURL(file);
-        e.target.value = '';
+        } catch (err: unknown) {
+            console.error(err);
+            const msg = err instanceof Error ? err.message : '上传失败';
+            alert(`图片上传失败：${msg}`);
+        } finally {
+            setPackageImageUploading(null);
+            e.target.value = '';
+        }
     };
 
     const setPackageImageUrl = (target: 'cover' | 'poster', url: string) => {
@@ -1901,10 +1945,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     <FormSection title="海报与封面">
                                         <PackageImageUploadField
                                             label="列表封面图"
-                                            hint="用于套餐列表卡片缩略图，建议正方形 1:1"
+                                            hint="用于套餐列表卡片缩略图，建议正方形 1:1；上传后自动压缩并写入 Supabase Storage"
                                             value={editItem.image}
                                             previewClassName="h-24 w-24 rounded-xl"
                                             inputRef={packageCoverInputRef}
+                                            uploading={packageImageUploading === 'cover'}
                                             onUpload={(e) => handlePackageImageFile(e, 'cover')}
                                             onUrlChange={(v) => setPackageImageUrl('cover', v)}
                                             onClear={() => clearPackageImage('cover')}
@@ -1912,10 +1957,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         />
                                         <PackageImageUploadField
                                             label="详情页海报"
-                                            hint="用于套餐详情页顶部大图展示，建议竖版或横版海报"
+                                            hint="用于套餐详情页顶部大图展示；上传后自动压缩并写入 Supabase Storage"
                                             value={editItem.details?.posterImage as string | undefined}
                                             previewClassName="h-36 w-full max-w-xs rounded-xl"
                                             inputRef={packagePosterInputRef}
+                                            uploading={packageImageUploading === 'poster'}
                                             onUpload={(e) => handlePackageImageFile(e, 'poster')}
                                             onUrlChange={(v) => setPackageImageUrl('poster', v)}
                                             onClear={() => clearPackageImage('poster')}
@@ -2368,13 +2414,15 @@ const PackageImageUploadField: React.FC<{
     value?: string;
     previewClassName: string;
     inputRef: React.RefObject<HTMLInputElement | null>;
+    uploading?: boolean;
     onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onUrlChange: (url: string) => void;
     onClear: () => void;
     fallbackEmoji?: string;
     widePreview?: boolean;
-}> = ({ label, hint, value, previewClassName, inputRef, onUpload, onUrlChange, onClear, fallbackEmoji = '🩺', widePreview }) => {
+}> = ({ label, hint, value, previewClassName, inputRef, uploading, onUpload, onUrlChange, onClear, fallbackEmoji = '🩺', widePreview }) => {
     const isImage = isImageLike(value);
+    const isCloudUrl = !!value && (value.startsWith('http://') || value.startsWith('https://'));
     return (
         <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
             <div>
@@ -2383,7 +2431,9 @@ const PackageImageUploadField: React.FC<{
             </div>
             <div className={`flex ${widePreview ? 'flex-col sm:flex-row' : 'flex-row'} gap-3 items-start`}>
                 <div className={`shrink-0 overflow-hidden border border-emerald-200 bg-white flex items-center justify-center ${previewClassName}`}>
-                    {isImage ? (
+                    {uploading ? (
+                        <span className="text-xs text-emerald-600 font-bold animate-pulse">上传中…</span>
+                    ) : isImage ? (
                         <img src={value} alt={label} className="h-full w-full object-cover" />
                     ) : value && !isImage ? (
                         <span className="text-3xl">{value}</span>
@@ -2397,24 +2447,29 @@ const PackageImageUploadField: React.FC<{
                         value={value?.startsWith('data:') ? '' : value || ''}
                         onChange={(e) => onUrlChange(e.target.value)}
                         placeholder="输入 https 图片地址，或点击下方上传"
+                        disabled={uploading}
                     />
                     <div className="flex flex-wrap gap-2">
                         <input ref={inputRef as React.RefObject<HTMLInputElement>} type="file" accept="image/*" className="hidden" onChange={onUpload} />
                         <button
                             type="button"
+                            disabled={uploading}
                             onClick={() => inputRef.current?.click()}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
                         >
-                            上传图片
+                            {uploading ? '上传中…' : '上传图片'}
                         </button>
-                        {isImage && (
+                        {isImage && !uploading && (
                             <button type="button" onClick={onClear} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-600 hover:bg-white">
                                 清除
                             </button>
                         )}
                     </div>
+                    {isCloudUrl && (
+                        <p className="text-[11px] text-emerald-700">已上传至 Supabase Storage（数据库仅存 URL）</p>
+                    )}
                     {value?.startsWith('data:') && (
-                        <p className="text-[11px] text-amber-700">已本地上传（Base64 存入资源数据）</p>
+                        <p className="text-[11px] text-amber-700">本地预览模式，保存前将尝试上传到云端</p>
                     )}
                 </div>
             </div>

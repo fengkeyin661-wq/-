@@ -70,6 +70,7 @@ const CHAT_TABLE = 'app_chat_messages';
 const CHAT_RETENTION_DAYS = 90;
 const CHAT_CLEANUP_STAMP_KEY = 'HEALTH_GUARD_CHAT_CLEANUP_TS';
 const CLOUD_QUERY_TIMEOUT_MS = 6000;
+const CLOUD_WRITE_TIMEOUT_MS = 45000;
 
 const withTimeout = async <T>(promiseLike: PromiseLike<T> | Promise<T>, timeoutMs = CLOUD_QUERY_TIMEOUT_MS): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -288,7 +289,10 @@ export const saveContent = async (item: ContentItem): Promise<{success: boolean,
               updated_at: new Date().toISOString()
           };
           
-          const { error } = await supabase.from('app_content').upsert(payload);
+          const { error } = await withTimeout(
+              supabase.from('app_content').upsert(payload),
+              CLOUD_WRITE_TIMEOUT_MS,
+          );
           
           if (error) {
               console.error("Supabase Write Failed:", error.message);
