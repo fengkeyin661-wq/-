@@ -1,6 +1,7 @@
 import React from 'react';
 import type { ContentItem } from '../../services/contentService';
 import { ResourceCover } from '../user/ResourceCover';
+import { isResourceImageUrl } from '../user/ResourceCover';
 import { resolveIncludedServiceTitles } from '../../services/userServiceCatalog';
 
 interface Props {
@@ -17,6 +18,7 @@ export const CheckupPackageDetail: React.FC<Props> = ({
   onBook,
 }) => {
   const includedTitles = resolveIncludedServiceTitles(packageItem, allServices);
+  const posterSrc = packageItem.details?.posterImage as string | undefined;
 
   return (
     <div className="min-h-full bg-slate-50 pb-28">
@@ -32,6 +34,12 @@ export const CheckupPackageDetail: React.FC<Props> = ({
       </div>
 
       <div className="p-4 space-y-4">
+        {posterSrc && isResourceImageUrl(posterSrc) && (
+          <div className="rounded-2xl overflow-hidden shadow-sm border border-slate-100 bg-white">
+            <img src={posterSrc} alt={`${packageItem.title} 海报`} className="w-full max-h-80 object-cover" />
+          </div>
+        )}
+
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
           <div className="flex gap-4 mb-4">
             <ResourceCover

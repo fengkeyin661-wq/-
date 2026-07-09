@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLocalInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
-import { ResourceCover } from './ResourceCover';
+import { ResourceCover, isResourceImageUrl } from './ResourceCover';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
@@ -629,6 +629,18 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                             <div className="flex flex-wrap gap-2 justify-center">
                                 {selectedItem.tags.map(t => <span key={t} className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs">{t}</span>)}
                             </div>
+
+                            {selectedItem.type === 'checkup_package' &&
+                                selectedItem.details?.posterImage &&
+                                isResourceImageUrl(String(selectedItem.details.posterImage)) && (
+                                <div className="rounded-xl overflow-hidden border border-emerald-100">
+                                    <img
+                                        src={String(selectedItem.details.posterImage)}
+                                        alt={`${selectedItem.title} 海报`}
+                                        className="w-full max-h-64 object-cover"
+                                    />
+                                </div>
+                            )}
 
                             {/* Event Info */}
                             {selectedItem.type === 'event' && (

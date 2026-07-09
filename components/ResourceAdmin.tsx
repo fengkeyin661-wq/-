@@ -191,6 +191,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // Generic ref for Excel Import
     const batchImportRef = useRef<HTMLInputElement>(null);
     const coverImageInputRef = useRef<HTMLInputElement>(null);
+    const packagePosterInputRef = useRef<HTMLInputElement>(null);
+    const packageCoverInputRef = useRef<HTMLInputElement>(null);
     const wechatQrInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -580,6 +582,62 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         e.target.value = '';
     };
 
+    const handlePackageImageFile = (
+        e: React.ChangeEvent<HTMLInputElement>,
+        target: 'cover' | 'poster',
+    ) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件');
+            e.target.value = '';
+            return;
+        }
+        const max = 3 * 1024 * 1024;
+        if (file.size > max) {
+            alert('海报图片请控制在 3MB 以内，可压缩后再上传');
+            e.target.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = reader.result as string;
+            if (target === 'cover') {
+                setEditItem((prev) => ({ ...prev, image: dataUrl }));
+            } else {
+                setEditItem((prev) => ({
+                    ...prev,
+                    details: { ...prev.details, posterImage: dataUrl },
+                }));
+            }
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    };
+
+    const setPackageImageUrl = (target: 'cover' | 'poster', url: string) => {
+        if (target === 'cover') {
+            setEditItem((prev) => ({ ...prev, image: url }));
+        } else {
+            setEditItem((prev) => ({
+                ...prev,
+                details: { ...prev.details, posterImage: url },
+            }));
+        }
+    };
+
+    const clearPackageImage = (target: 'cover' | 'poster') => {
+        if (target === 'cover') {
+            setEditItem((prev) => ({ ...prev, image: defaultResourceEmoji('checkup_package') }));
+        } else {
+            setEditItem((prev) => {
+                const next = { ...(prev.details || {}) };
+                delete next.posterImage;
+                return { ...prev, details: next };
+            });
+        }
+    };
+
     const handleWechatQrFile = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -670,7 +728,23 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             case 'doctor': return { name: '医生信息库导入模板', data: [{ "医生ID（系统生成）": "", "医生工号": "YS1001", "医生姓名": "张伟", "所属科室编码": "REHAB001", "职称": "主任医师", "专长/简介": "擅长颈椎病、腰椎间盘突出...", "详细履历": "医学博士，毕业于...", "头像URL": "", "出诊地点": "校医院门诊二楼内科诊区", "是否可在线咨询": "是", "咨询费用（元）": 20, "状态": "在职", "排序值": 1 }] };
             case 'drug': return { name: '药品信息库导入模板', data: [{ "药品ID（系统生成）": "", "药品通用名": "阿司匹林肠溶片", "商品名": "拜阿司匹灵", "规格": "100mg*30片", "剂型": "片剂", "生产厂家": "拜耳医药保健有限公司", "药品分类": "心血管系统用药", "医保类型": "甲类", "参考单价（元）": 15.80, "库存单位": "盒", "用法用量": "口服，一次1片，一日1次", "主要功效": "抗血小板聚集", "重要注意事项": "活动性溃疡禁用", "说明书URL": "", "是否处方药": "是", "状态": "在售" }] };
             case 'exercise': return { name: '运动方案库导入模板', data: [{ "方案ID（系统生成）": "", "运动方案名称": "办公室颈椎保健操", "运动类型": "综合保健操", "适用人群/场景": "久坐办公族", "禁忌人群": "急性损伤期", "单次时长": "10分钟", "建议频率": "每日1-2次", "核心动作与流程": "热身→米字操→肩部绕环→放松", "强度提示": "低强度", "所需器材": "无", "教学视频/图解URL": "", "注意事项": "动作宜慢不宜快", "关联疾病/标签": "颈椎病,亚健康", "状态": "启用" }] };
-            case 'service': return { name: '医院服务项目', data: [{ "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架" }] };
+            case 'service':
+                if (serviceSubTab === 'package') {
+                    return {
+                        name: '体检套餐导入模板',
+                        data: [{
+                            '套餐ID（系统生成）': '',
+                            '套餐名称': '教职工年度体检套餐',
+                            '套餐简介': '面向在职教职工的基础健康体检',
+                            '列表封面图URL': '',
+                            '详情海报URL': '',
+                            '套餐价格(元)': 580,
+                            '排序值': 1,
+                            '初始状态': '上架',
+                        }],
+                    };
+                }
+                return { name: '医院服务项目', data: [{ "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架" }] };
             case 'recipe': return { name: '膳食食谱库导入模板', data: [{ "食谱ID (系统生成)": "", "食谱名称": "控糖饱腹：西兰花炒鸡胸肉", "食谱描述/简介": "低脂高蛋白的快手菜，饱腹感强，适合控糖减脂期。", "制作难度": "初级", "预估准备时间(分)": 10, "预估烹饪时间(分)": 15, "用餐类型": "午餐", "适宜人数": 2, "核心健康标签": "高蛋白, 低GI", "关联疾病/场景": "2型糖尿病, 减重", "禁忌提醒": "对鸡肉过敏者禁用", "封面图URL/路径": "", "食材清单 (格式: 食材:用量; 食材:用量)": "鸡胸肉:200g;西兰花:300g;橄榄油:5ml;大蒜:2瓣", "制作步骤": "鸡胸肉切丁... → 热锅少油... → 出锅", "烹饪技巧/小贴士": "鸡胸肉腌制时加少许淀粉...", "单份预估热量(kcal)": "", "单份蛋白质含量(g)": "", "单份脂肪含量(g)": "", "单份碳水化合物含量(g)": "", "单份膳食纤维含量(g)": "", "营养素总结": "", "状态": "上架", "排序值": 10 }] };
             default: return null;
         }
@@ -829,6 +903,26 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         }
                         break;
                     case 'service':
+                        if (serviceSubTab === 'package') {
+                            if (!row['套餐名称']) continue;
+                            item = {
+                                id,
+                                type: 'checkup_package',
+                                title: row['套餐名称'],
+                                description: row['套餐简介'] || '',
+                                image: row['列表封面图URL'] || '🩺',
+                                tags: row['标签'] ? String(row['标签']).split(/[,，]/).map((t: string) => t.trim()).filter(Boolean) : [],
+                                status: row['初始状态'] === '上架' ? 'active' : 'pending',
+                                isUserUpload: false,
+                                updatedAt: now,
+                                details: {
+                                    price: row['套餐价格(元)'],
+                                    sortOrder: row['排序值'] || 999,
+                                    posterImage: row['详情海报URL'] || undefined,
+                                },
+                            };
+                            break;
+                        }
                         if (!row['项目名称']) continue;
                         item = {
                             id, type: 'service', title: row['项目名称'], tags: row['标签']?.split(/[,，]/) || [],
@@ -1351,6 +1445,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {/* --- Common Fields --- */}
                             <FormSection title="基础信息">
                                 <InputField label="标题 / 名称" placeholder="请输入名称" value={editItem.title} onChange={(v:any) => setEditItem({...editItem, title: v})} />
+                                {editItem.type !== 'checkup_package' && (
                                 <div className="col-span-2 space-y-2">
                                     <label className="block text-xs font-bold text-slate-700 mb-1">封面 / 头像（Emoji、图片链接或本地上传）</label>
                                     <div className="flex flex-wrap items-start gap-3">
@@ -1394,6 +1489,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         </div>
                                     </div>
                                 </div>
+                                )}
                                 <SelectField label="状态" value={editItem.status} onChange={(v:any) => setEditItem({...editItem, status: v})} options={['active', 'pending']} />
                             </FormSection>
 
@@ -1565,6 +1661,30 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
                             {activeTab === 'service' && editItem.type === 'checkup_package' && (
                                 <>
+                                    <FormSection title="海报与封面">
+                                        <PackageImageUploadField
+                                            label="列表封面图"
+                                            hint="用于套餐列表卡片缩略图，建议正方形 1:1"
+                                            value={editItem.image}
+                                            previewClassName="h-24 w-24 rounded-xl"
+                                            inputRef={packageCoverInputRef}
+                                            onUpload={(e) => handlePackageImageFile(e, 'cover')}
+                                            onUrlChange={(v) => setPackageImageUrl('cover', v)}
+                                            onClear={() => clearPackageImage('cover')}
+                                            fallbackEmoji="🩺"
+                                        />
+                                        <PackageImageUploadField
+                                            label="详情页海报"
+                                            hint="用于套餐详情页顶部大图展示，建议竖版或横版海报"
+                                            value={editItem.details?.posterImage as string | undefined}
+                                            previewClassName="h-36 w-full max-w-xs rounded-xl"
+                                            inputRef={packagePosterInputRef}
+                                            onUpload={(e) => handlePackageImageFile(e, 'poster')}
+                                            onUrlChange={(v) => setPackageImageUrl('poster', v)}
+                                            onClear={() => clearPackageImage('poster')}
+                                            widePreview
+                                        />
+                                    </FormSection>
                                     <FormSection title="体检套餐">
                                         <TextAreaField label="套餐简介" placeholder="面向人群、检查意义等" value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
                                         <InputField label="套餐价格 (元)" type="number" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
@@ -2005,6 +2125,66 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 };
 
 // --- Helper Components ---
+const PackageImageUploadField: React.FC<{
+    label: string;
+    hint: string;
+    value?: string;
+    previewClassName: string;
+    inputRef: React.RefObject<HTMLInputElement | null>;
+    onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onUrlChange: (url: string) => void;
+    onClear: () => void;
+    fallbackEmoji?: string;
+    widePreview?: boolean;
+}> = ({ label, hint, value, previewClassName, inputRef, onUpload, onUrlChange, onClear, fallbackEmoji = '🩺', widePreview }) => {
+    const isImage = isImageLike(value);
+    return (
+        <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
+            <div>
+                <div className="text-xs font-bold text-emerald-900">{label}</div>
+                <p className="text-[11px] text-emerald-700 mt-0.5">{hint}</p>
+            </div>
+            <div className={`flex ${widePreview ? 'flex-col sm:flex-row' : 'flex-row'} gap-3 items-start`}>
+                <div className={`shrink-0 overflow-hidden border border-emerald-200 bg-white flex items-center justify-center ${previewClassName}`}>
+                    {isImage ? (
+                        <img src={value} alt={label} className="h-full w-full object-cover" />
+                    ) : value && !isImage ? (
+                        <span className="text-3xl">{value}</span>
+                    ) : (
+                        <span className="text-3xl text-emerald-300">{fallbackEmoji}</span>
+                    )}
+                </div>
+                <div className="flex-1 min-w-[200px] space-y-2">
+                    <input
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white"
+                        value={value?.startsWith('data:') ? '' : value || ''}
+                        onChange={(e) => onUrlChange(e.target.value)}
+                        placeholder="输入 https 图片地址，或点击下方上传"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
+                        <button
+                            type="button"
+                            onClick={() => inputRef.current?.click()}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
+                        >
+                            上传图片
+                        </button>
+                        {isImage && (
+                            <button type="button" onClick={onClear} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-600 hover:bg-white">
+                                清除
+                            </button>
+                        )}
+                    </div>
+                    {value?.startsWith('data:') && (
+                        <p className="text-[11px] text-amber-700">已本地上传（Base64 存入资源数据）</p>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const ServiceScheduleGrid: React.FC<{
     weekly: Record<string, string[]>;
     quotas: Record<string, Record<string, number>>;
