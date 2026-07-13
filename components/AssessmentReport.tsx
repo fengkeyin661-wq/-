@@ -590,6 +590,48 @@ export const AssessmentReport: React.FC<Props> = ({
         </div>
       </div>
 
+      {(editData.elderlyRiskLevel || (profile?.age && profile.age >= 60)) && (
+          <div className="bg-violet-50 border border-violet-200 rounded-lg p-5 mb-6">
+              <h3 className="text-lg font-bold text-violet-900 flex items-center gap-2 mb-2">
+                  <span>👴</span> 老年专项评估（CGA）
+              </h3>
+              {editData.elderlyRiskLevel ? (
+                  <div className="text-sm text-slate-700 space-y-2">
+                      <p>
+                          <span className="font-bold">分级：</span>
+                          <span className={
+                            editData.elderlyRiskLevel === RiskLevel.RED ? 'text-red-700 font-bold' :
+                            editData.elderlyRiskLevel === RiskLevel.YELLOW ? 'text-amber-700 font-bold' :
+                            'text-emerald-700 font-bold'
+                          }>
+                            {editData.elderlyRiskLevel === RiskLevel.RED ? '高风险' :
+                             editData.elderlyRiskLevel === RiskLevel.YELLOW ? '中风险' : '低风险'}
+                          </span>
+                      </p>
+                      {editData.elderlyRiskSummary && (
+                          <p><span className="font-bold">摘要：</span>{editData.elderlyRiskSummary}</p>
+                      )}
+                      {(editData.elderlyRiskReasons || []).length > 0 && (
+                          <ul className="list-disc pl-5 space-y-0.5">
+                              {(editData.elderlyRiskReasons || []).slice(0, 5).map((r, i) => (
+                                  <li key={i}>{r}</li>
+                              ))}
+                          </ul>
+                      )}
+                      {editData.elderlyPersonalizedPlan?.followup?.length ? (
+                          <p className="text-xs text-violet-700">
+                              随访建议：{editData.elderlyPersonalizedPlan.followup[0]}
+                          </p>
+                      ) : null}
+                  </div>
+              ) : (
+                  <p className="text-sm text-violet-800">
+                      受检人年龄 ≥60 岁，建议在「老年专项评估」模块完成 CGA 量表筛查。
+                  </p>
+              )}
+          </div>
+      )}
+
       {/* Risk Factors Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-red-50 p-4 rounded border-l-4 border-red-500">

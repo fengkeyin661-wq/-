@@ -317,7 +317,40 @@ export interface QuestionnaireData {
 }
 
 // --- 老年专项评估数据 ---
+export interface ElderlyScaleResponses {
+  barthel?: number[];
+  lawton?: number[];
+  morse?: number[];
+  miniCog?: { recall?: number; clock?: number };
+  gds15?: number[];
+  phq9?: number[];
+  gad7?: number[];
+  ucla3?: number[];
+  mnaSf?: number[];
+  hhieS?: number[];
+  gohai?: number[];
+  isi?: number[];
+  frail?: boolean[];
+  lsns6?: number[];
+}
+
+export interface ElderlyScaleScoreEntry {
+  total: number;
+  level: string;
+  label: string;
+}
+
 export interface ElderlyAssessmentData {
+  meta?: {
+    version?: '2' | '1';
+    assessedAt?: string;
+    completedDomains?: string[];
+    assessor?: string;
+  };
+  scaleResponses?: ElderlyScaleResponses;
+  scaleScores?: Record<string, ElderlyScaleScoreEntry>;
+  ostaInput?: { age?: number; weightKg?: number; gender?: string };
+  socialNetwork?: { lsns6Score?: number; isolationRisk?: boolean };
   checkupMetrics: {
     sbp?: number;
     dbp?: number;
@@ -328,9 +361,9 @@ export interface ElderlyAssessmentData {
     hgb?: number;
   };
   functionalStatus: {
-    adlScore?: number; // 0-100
-    iadlScore?: number; // 0-8
-    gaitSpeed?: number; // m/s
+    adlScore?: number; // 0-100 Barthel
+    iadlScore?: number; // 0-8 Lawton
+    gaitSpeed?: number; // m/s, <0.8 风险
     fallRisk?: 'low' | 'medium' | 'high';
     recentFalls?: number; // last 12 months
   };
@@ -340,7 +373,7 @@ export interface ElderlyAssessmentData {
     loneliness?: 'none' | 'mild' | 'moderate' | 'severe';
   };
   nutrition: {
-    mnaScore?: number; // 0-14
+    mnaScore?: number; // 0-14 MNA-SF
     appetiteLoss?: boolean;
     weightLoss3m?: boolean;
   };
@@ -364,6 +397,34 @@ export interface ElderlyAssessmentData {
     osteoporosisRisk?: 'low' | 'medium' | 'high';
     depressionScreenPositive?: boolean;
   };
+}
+
+export interface ElderlyAssessmentResult {
+  riskLevel: RiskLevel;
+  summary: string;
+  reasons: string[];
+  domainFindings?: { domain: string; label: string; findings: string[] }[];
+  scaleSummaries?: { scaleId: string; name: string; total: number; label: string }[];
+  personalizedPlan: {
+    diet: string[];
+    exercise: string[];
+    sleep: string[];
+    psychosocial: string[];
+    followup: string[];
+  };
+}
+
+export interface ElderlyStandaloneParticipant {
+  id: string;
+  participantKey: string;
+  checkupId?: string;
+  name?: string;
+  payload: ElderlyAssessmentData & {
+    assessmentResult?: ElderlyAssessmentResult;
+    profile?: Partial<HealthProfile>;
+  };
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // --- 糖尿病管理专栏数据 ---

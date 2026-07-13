@@ -39,4 +39,5 @@ export const ensureCheckupShape = (checkup: CheckupData): CheckupData => {
 export const ensureHealthRecordShape = (record: HealthRecord): HealthRecord => ({
   ...record,
   checkup: ensureCheckupShape(record.checkup),
+  elderlyAssessment: record.elderlyAssessment || undefined,
 });
