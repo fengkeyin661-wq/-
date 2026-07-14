@@ -198,3 +198,53 @@ export const resolveIncludedServiceLines = (
     lineAmount: l.lineAmount,
   }));
 };
+
+/** 是否在前端展示划线原价（默认展示；显式 false 时隐藏） */
+export const shouldShowPackageOriginalPrice = (packageItem: ContentItem): boolean =>
+  packageItem.details?.showOriginalPrice !== false;
+
+/**
+ * 按当前临床项目单价实时计算套餐售价与原价。
+ * 未手动覆盖售价时，售价随项目单价与折扣联动。
+ */
+export const resolvePackageDisplayPricing = (
+  packageItem: ContentItem,
+  allServices: ContentItem[],
+): { packagePrice: number; originalPrice: number; showOriginalPrice: boolean } => {
+  const breakdown = calcPackagePriceBreakdown(packageItem, allServices);
+  const manual = !!packageItem.details?.priceManualOverride;
+  const stored = Number(packageItem.details?.price);
+  const packagePrice = manual && Number.isFinite(stored)
+    ? stored
+    : (breakdown.packagePrice || (Number.isFinite(stored) ? stored : 0));
+  const originalPrice = breakdown.originalTotal || Number(packageItem.details?.originalPrice) || 0;
+  return {
+    packagePrice,
+    originalPrice,
+    showOriginalPrice: shouldShowPackageOriginalPrice(packageItem) && originalPrice > packagePrice,
+  };
+};
+
+/** 将实时计价写回套餐 details（保存时用） */
+export const applyLivePackagePricing = (
+  packageItem: ContentItem,
+  allServices: ContentItem[],
+): ContentItem => {
+  const breakdown = calcPackagePriceBreakdown(packageItem, allServices);
+  return {
+    ...packageItem,
+    details: {
+      ...packageItem.details,
+      originalPrice: breakdown.originalTotal,
+      calculatedPrice: breakdown.packagePrice,
+      price: packageItem.details?.priceManualOverride
+        ? packageItem.details?.price
+        : breakdown.packagePrice,
+      showOriginalPrice: packageItem.details?.showOriginalPrice !== false,
+    },
+  };
+};
+
+/** 判断套餐是否包含某临床项目 */
+export const packageIncludesService = (packageItem: ContentItem, serviceId: string): boolean =>
+  getPackageIncludedItems(packageItem).some((i) => i.serviceId === serviceId);

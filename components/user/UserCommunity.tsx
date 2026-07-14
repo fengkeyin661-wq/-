@@ -13,8 +13,8 @@ import {
     SERVICE_MAIN_CATEGORIES,
     ServiceMainCategory,
     classifyServiceItem,
-    resolveIncludedServiceTitles,
     resolveIncludedServiceLines,
+    resolvePackageDisplayPricing,
 } from '../../services/userServiceCatalog';
 
 interface Props {
@@ -389,7 +389,10 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
         return '当前无可预约时段';
     };
 
-    const renderServiceCard = (svc: ContentItem) => (
+    const renderServiceCard = (svc: ContentItem) => {
+        const isPackage = svc.type === 'checkup_package';
+        const pricing = isPackage ? resolvePackageDisplayPricing(svc, allServices) : null;
+        return (
         <div
             key={svc.id}
             onClick={() => setSelectedItem(svc)}
@@ -406,7 +409,14 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                 <p className="text-xs text-slate-500 line-clamp-2 mb-2">{svc.description || '暂无简介'}</p>
                 <div className="flex justify-between items-center">
                     <span className="text-sm font-bold text-blue-600">
-                        {svc.details?.price ? `¥${svc.details.price}` : '免费'}
+                        {isPackage
+                            ? (pricing?.packagePrice ? `¥${pricing.packagePrice}` : '价格待定')
+                            : (svc.details?.price ? `¥${svc.details.price}` : '免费')}
+                        {isPackage && pricing?.showOriginalPrice && (
+                            <span className="ml-2 text-xs font-normal text-slate-400 line-through">
+                                ¥{pricing.originalPrice}
+                            </span>
+                        )}
                     </span>
                     <span className="text-xs text-slate-400">{svc.details?.categoryL2 || svc.details?.categoryL1 || '服务项目'}</span>
                 </div>
@@ -415,7 +425,8 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                 )}
             </div>
         </div>
-    );
+        );
+    };
 
     const renderEventCard = (evt: EventWithStatus) => (
         <div
@@ -529,9 +540,11 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                                         filteredPackages.map((pkg) => (
                                             <div key={pkg.id}>
                                                 {renderServiceCard(pkg)}
-                                                {resolveIncludedServiceTitles(pkg, allServices).length > 0 && (
+                                                {resolveIncludedServiceLines(pkg, allServices).length > 0 && (
                                                     <div className="mt-1 px-4 text-[11px] text-slate-500 line-clamp-2">
-                                                        含：{resolveIncludedServiceTitles(pkg, allServices).join('、')}
+                                                        含：{resolveIncludedServiceLines(pkg, allServices).map((l) =>
+                                                            l.quantity > 1 ? `${l.title}×${l.quantity}` : l.title
+                                                        ).join('、')}
                                                     </div>
                                                 )}
                                             </div>
@@ -685,14 +698,23 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                             {(selectedItem.type === 'service' || selectedItem.type === 'checkup_package') && (
                                 <div className="bg-blue-50 p-4 rounded-xl text-center">
                                     <div className="text-xs text-blue-400 mb-1">{selectedItem.type === 'checkup_package' ? '套餐价格' : '服务价格'}</div>
-                                    <div className="text-2xl font-bold text-blue-700">
-                                        {selectedItem.details?.price ? `¥${selectedItem.details.price}` : '免费'}
-                                    </div>
-                                    {selectedItem.type === 'checkup_package' &&
-                                        selectedItem.details?.originalPrice &&
-                                        Number(selectedItem.details.originalPrice) > Number(selectedItem.details?.price || 0) && (
-                                        <div className="text-xs text-slate-400 line-through mt-1">
-                                            原价 ¥{selectedItem.details.originalPrice}
+                                    {selectedItem.type === 'checkup_package' ? (() => {
+                                        const pricing = resolvePackageDisplayPricing(selectedItem, allServices);
+                                        return (
+                                            <>
+                                                <div className="text-2xl font-bold text-blue-700">
+                                                    {pricing.packagePrice ? `¥${pricing.packagePrice}` : '价格待定'}
+                                                </div>
+                                                {pricing.showOriginalPrice && (
+                                                    <div className="text-xs text-slate-400 line-through mt-1">
+                                                        原价 ¥{pricing.originalPrice}
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })() : (
+                                        <div className="text-2xl font-bold text-blue-700">
+                                            {selectedItem.details?.price ? `¥${selectedItem.details.price}` : '免费'}
                                         </div>
                                     )}
                                 </div>
@@ -701,31 +723,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                             {selectedItem.type === 'checkup_package' && resolveIncludedServiceLines(selectedItem, allServices).length > 0 && (
                                 <div className="bg-emerald-50 p-4 rounded-xl">
                                     <div className="text-xs text-emerald-600 mb-2 font-bold">套餐包含项目</div>
-                                    <ul className="text-sm text-emerald-900 space-y-1.5">
+                                    <ul className="text-sm text-emerald-900 space-y-1.5 list-disc pl-4">
                                         {resolveIncludedServiceLines(selectedItem, allServices).map((line) => (
-                                            <li key={line.title} className="flex justify-between gap-2">
-                                                <span>
-                                                    {line.title}
-                                                    {line.quantity > 1 ? ` ×${line.quantity}` : ''}
-                                                    {line.discountRate < 100 ? `（折扣 ${line.discountRate}%）` : ''}
-                                                </span>
-                                                {line.lineAmount > 0 && (
-                                                    <span className="font-semibold text-emerald-700 shrink-0">¥{line.lineAmount}</span>
-                                                )}
+                                            <li key={line.title}>
+                                                {line.title}
+                                                {line.quantity > 1 ? ` ×${line.quantity}` : ''}
                                             </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-
-                            {selectedItem.type === 'checkup_package' &&
-                                resolveIncludedServiceLines(selectedItem, allServices).length === 0 &&
-                                resolveIncludedServiceTitles(selectedItem, allServices).length > 0 && (
-                                <div className="bg-emerald-50 p-4 rounded-xl">
-                                    <div className="text-xs text-emerald-600 mb-2 font-bold">套餐包含项目</div>
-                                    <ul className="text-sm text-emerald-900 space-y-1 list-disc pl-4">
-                                        {resolveIncludedServiceTitles(selectedItem, allServices).map((title) => (
-                                            <li key={title}>{title}</li>
                                         ))}
                                     </ul>
                                 </div>

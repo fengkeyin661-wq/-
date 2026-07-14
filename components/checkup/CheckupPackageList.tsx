@@ -6,10 +6,11 @@ import {
   getNextMonthSlotsForService,
   getServiceSlotQuota,
 } from '../../services/doctorScheduleUtils';
-import { getPackageIncludedItems } from '../../services/userServiceCatalog';
+import { getPackageIncludedItems, resolvePackageDisplayPricing } from '../../services/userServiceCatalog';
 
 interface Props {
   packages: ContentItem[];
+  allServices?: ContentItem[];
   interactions: InteractionItem[];
   onSelect: (item: ContentItem) => void;
 }
@@ -34,7 +35,7 @@ function getEarliestSlotLabel(item: ContentItem, interactions: InteractionItem[]
   return '当前无可预约时段';
 }
 
-export const CheckupPackageList: React.FC<Props> = ({ packages, interactions, onSelect }) => {
+export const CheckupPackageList: React.FC<Props> = ({ packages, allServices = [], interactions, onSelect }) => {
   if (packages.length === 0) {
     return (
       <div className="text-center py-16 px-6">
@@ -64,9 +65,19 @@ export const CheckupPackageList: React.FC<Props> = ({ packages, interactions, on
             <h3 className="font-bold text-slate-800 line-clamp-1 mb-1">{pkg.title}</h3>
             <p className="text-xs text-slate-500 line-clamp-2 mb-2">{pkg.description || '暂无简介'}</p>
             <div className="flex justify-between items-center">
-              <span className="text-base font-bold text-emerald-600">
-                {pkg.details?.price ? `¥${pkg.details.price}` : '价格待定'}
-              </span>
+              {(() => {
+                const { packagePrice, originalPrice, showOriginalPrice } = resolvePackageDisplayPricing(pkg, allServices);
+                return (
+                  <div>
+                    <span className="text-base font-bold text-emerald-600">
+                      {packagePrice ? `¥${packagePrice}` : '价格待定'}
+                    </span>
+                    {showOriginalPrice && (
+                      <span className="ml-2 text-xs text-slate-400 line-through">¥{originalPrice}</span>
+                    )}
+                  </div>
+                );
+              })()}
               {getPackageIncludedItems(pkg).length ? (
                 <span className="text-xs text-slate-400">
                   含 {getPackageIncludedItems(pkg).length} 项检查

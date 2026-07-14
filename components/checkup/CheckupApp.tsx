@@ -158,6 +158,7 @@ export const CheckupApp: React.FC = () => {
           ) : (
             <CheckupPackageList
               packages={sortedPackages}
+              allServices={allServices}
               interactions={interactions}
               onSelect={handleSelectPackage}
             />

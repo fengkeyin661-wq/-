@@ -24,6 +24,8 @@ import {
     inferServiceDomain,
     calcPackagePriceBreakdown,
     getPackageIncludedItems,
+    applyLivePackagePricing,
+    packageIncludesService,
     type ClinicalSubCategory,
     type HealthServiceSubCategory,
     type PackageIncludedItem,
@@ -638,7 +640,41 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             }
 
             setLoadingText('正在保存...');
+            if (itemToSave.type === 'checkup_package') {
+                // merge latest clinical catalog for pricing (include any in-memory edits)
+                const catalogForPrice =
+                    clinicalServiceCatalog.length > 0
+                        ? clinicalServiceCatalog
+                        : (await fetchContent('service')).filter((s) => classifyServiceItem(s).domain === 'clinical');
+                itemToSave = applyLivePackagePricing(itemToSave, catalogForPrice);
+                if (itemToSave.details?.showOriginalPrice === undefined) {
+                    itemToSave = {
+                        ...itemToSave,
+                        details: { ...itemToSave.details, showOriginalPrice: true },
+                    };
+                }
+            }
+
             const result = await saveContent(itemToSave);
+
+            // 临床项目单价变更后，联动刷新引用该项目的套餐原价/套餐价
+            if (itemToSave.type === 'service') {
+                setLoadingText('正在同步关联套餐价格...');
+                const packages = await fetchContent('checkup_package');
+                const services = await fetchContent('service');
+                // 当前刚保存的项目覆盖进价目表
+                const serviceMap = services.map((s) => (s.id === itemToSave.id ? itemToSave : s));
+                let synced = 0;
+                for (const pkg of packages) {
+                    if (!packageIncludesService(pkg, itemToSave.id)) continue;
+                    const updated = applyLivePackagePricing(pkg, serviceMap);
+                    await saveContent(updated);
+                    synced++;
+                }
+                if (synced > 0) {
+                    console.log(`[package pricing] synced ${synced} checkup packages after service price change`);
+                }
+            }
 
             setIsModalOpen(false);
             await loadData();
@@ -1303,6 +1339,16 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     details.healthServiceSubCategory = classified.subId as HealthServiceSubCategory;
                 }
                 setEditItem({ ...item, details });
+            } else if (item.type === 'checkup_package') {
+                // 打开编辑时按当前临床项目单价重算原价/套餐价
+                const refreshed = applyLivePackagePricing(item, clinicalServiceCatalog);
+                setEditItem({
+                    ...refreshed,
+                    details: {
+                        ...refreshed.details,
+                        showOriginalPrice: refreshed.details?.showOriginalPrice !== false,
+                    },
+                });
             } else {
                 setEditItem({ ...item });
             }
@@ -1712,7 +1758,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'checkup_package' && (
                                                         <>
                                                             {`套餐 ¥${item.details?.price || '-'} • 含${getPackageIncludedItems(item).length}项`}
-                                                            {item.details?.originalPrice && Number(item.details.originalPrice) > Number(item.details?.price || 0) ? (
+                                                            {item.details?.showOriginalPrice !== false &&
+                                                            item.details?.originalPrice &&
+                                                            Number(item.details.originalPrice) > Number(item.details?.price || 0) ? (
                                                                 <span className="text-slate-400">（原价 ¥{item.details.originalPrice}）</span>
                                                             ) : null}
                                                             {' • '}
@@ -2044,6 +2092,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     );
                                                 })()}
                                             </div>
+                                            <label className="flex items-center gap-2 text-xs text-slate-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editItem.details?.showOriginalPrice !== false}
+                                                    onChange={(e) => updateDetail('showOriginalPrice', e.target.checked)}
+                                                />
+                                                前端显示划线原价（关闭后用户端仅显示套餐价）
+                                            </label>
                                             <label className="flex items-center gap-2 text-xs text-slate-600">
                                                 <input
                                                     type="checkbox"
