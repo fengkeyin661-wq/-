@@ -18,14 +18,11 @@ import { CheckupSlotPicker } from './CheckupSlotPicker';
 import { submitCheckupBooking } from './checkupBooking';
 import { CheckupNoticePanel } from './CheckupNoticePanel';
 
-type View = 'list' | 'detail';
-
 export const CheckupApp: React.FC = () => {
   const [packages, setPackages] = useState<ContentItem[]>([]);
   const [allServices, setAllServices] = useState<ContentItem[]>([]);
   const [interactions, setInteractions] = useState<InteractionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<View>('list');
   const [selectedPackage, setSelectedPackage] = useState<ContentItem | null>(null);
   const [slotPickerPackage, setSlotPickerPackage] = useState<ContentItem | null>(null);
   const [pendingBook, setPendingBook] = useState<{
@@ -73,11 +70,9 @@ export const CheckupApp: React.FC = () => {
 
   const handleSelectPackage = (item: ContentItem) => {
     setSelectedPackage(item);
-    setView('detail');
   };
 
-  const handleBackToList = () => {
-    setView('list');
+  const handleCloseDetail = () => {
     setSelectedPackage(null);
   };
 
@@ -106,7 +101,6 @@ export const CheckupApp: React.FC = () => {
       alert('预约申请已提交，请保持手机畅通。');
       setPendingBook(null);
       setContactOpen(false);
-      setView('list');
       setSelectedPackage(null);
       await loadData();
     } catch {
@@ -118,66 +112,62 @@ export const CheckupApp: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 max-w-md mx-auto shadow-xl">
-      {view === 'list' && (
-        <>
-          <header className="sticky top-0 z-10 border-b border-emerald-100 bg-white/95 backdrop-blur-md">
-            <div className="px-5 py-5">
-              <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">
-                  Z
-                </div>
-                <div>
-                  <h1 className="text-xl font-black text-slate-800 tracking-tight">体检预约</h1>
-                  <p className="text-xs text-slate-500">郑州大学医院</p>
-                </div>
-              </div>
+      <header className="sticky top-0 z-10 border-b border-emerald-100 bg-white/95 backdrop-blur-md">
+        <div className="px-5 py-5">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">
+              Z
             </div>
-            <div className="mx-4 mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-bold text-emerald-800">健康管理服务电话</div>
-                <a
-                  href={HEALTH_MANAGEMENT_HOTLINE_TEL}
-                  className="text-lg font-black text-emerald-700 tracking-wide"
-                >
-                  {HEALTH_MANAGEMENT_HOTLINE}
-                </a>
-              </div>
-              <a
-                href={HEALTH_MANAGEMENT_HOTLINE_TEL}
-                className="shrink-0 bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-lg"
-              >
-                拨打
-              </a>
+            <div>
+              <h1 className="text-xl font-black text-slate-800 tracking-tight">体检预约</h1>
+              <p className="text-xs text-slate-500">郑州大学医院</p>
             </div>
-          </header>
+          </div>
+        </div>
+        <div className="mx-4 mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-bold text-emerald-800">健康管理服务电话</div>
+            <a
+              href={HEALTH_MANAGEMENT_HOTLINE_TEL}
+              className="text-lg font-black text-emerald-700 tracking-wide"
+            >
+              {HEALTH_MANAGEMENT_HOTLINE}
+            </a>
+          </div>
+          <a
+            href={HEALTH_MANAGEMENT_HOTLINE_TEL}
+            className="shrink-0 bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-lg"
+          >
+            拨打
+          </a>
+        </div>
+      </header>
 
-          <CheckupNoticePanel />
+      <CheckupNoticePanel />
 
-          {loading ? (
-            <div className="text-center py-20">
-              <div className="text-4xl animate-spin mb-4">⏳</div>
-              <p className="text-slate-500 font-medium">加载套餐中…</p>
-            </div>
-          ) : (
-            <CheckupPackageList
-              packages={sortedPackages}
-              allServices={allServices}
-              interactions={interactions}
-              onSelect={handleSelectPackage}
-            />
-          )}
-
-          <footer className="px-4 py-6 text-center text-xs text-slate-400">
-            访客预约 · 填写姓名与手机号即可提交，无需登录
-          </footer>
-        </>
+      {loading ? (
+        <div className="text-center py-20">
+          <div className="text-4xl animate-spin mb-4">⏳</div>
+          <p className="text-slate-500 font-medium">加载套餐中…</p>
+        </div>
+      ) : (
+        <CheckupPackageList
+          packages={sortedPackages}
+          allServices={allServices}
+          interactions={interactions}
+          onSelect={handleSelectPackage}
+        />
       )}
 
-      {view === 'detail' && selectedPackage && (
+      <footer className="px-4 py-6 text-center text-xs text-slate-400">
+        访客预约 · 填写姓名与手机号即可提交，无需登录
+      </footer>
+
+      {selectedPackage && (
         <CheckupPackageDetail
           packageItem={selectedPackage}
           allServices={allServices}
-          onBack={handleBackToList}
+          onBack={handleCloseDetail}
           onBook={handleStartBook}
         />
       )}
