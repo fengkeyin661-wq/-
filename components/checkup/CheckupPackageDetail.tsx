@@ -5,6 +5,7 @@ import { isResourceImageUrl } from '../user/ResourceCover';
 import { ModalPortal } from '../user/ModalPortal';
 import {
   resolveIncludedServiceLines,
+  resolveOptionalGroupLines,
   resolvePackageDisplayPricing,
 } from '../../services/userServiceCatalog';
 
@@ -22,6 +23,7 @@ export const CheckupPackageDetail: React.FC<Props> = ({
   onBook,
 }) => {
   const includedLines = resolveIncludedServiceLines(packageItem, allServices);
+  const optionalGroups = resolveOptionalGroupLines(packageItem, allServices);
   const posterSrc = packageItem.details?.posterImage as string | undefined;
   const { packagePrice, originalPrice, showOriginalPrice } = resolvePackageDisplayPricing(
     packageItem,
@@ -101,7 +103,7 @@ export const CheckupPackageDetail: React.FC<Props> = ({
 
               {includedLines.length > 0 && (
                 <div className="bg-emerald-50 p-4 rounded-xl mb-4">
-                  <div className="text-xs text-emerald-600 mb-2 font-bold">套餐包含项目</div>
+                  <div className="text-xs text-emerald-600 mb-2 font-bold">固定包含项目</div>
                   <ul className="text-sm text-emerald-900 space-y-1.5 list-disc pl-4">
                     {includedLines.map((line) => (
                       <li key={line.title}>
@@ -112,6 +114,28 @@ export const CheckupPackageDetail: React.FC<Props> = ({
                   </ul>
                 </div>
               )}
+
+              {optionalGroups.map(({ group, label, titles }) => (
+                <div key={group.id} className="bg-indigo-50 p-4 rounded-xl mb-4">
+                  <div className="text-xs text-indigo-700 mb-1 font-bold">{label}</div>
+                  {group.note ? (
+                    <p className="text-[11px] text-indigo-600/90 mb-2">{group.note}</p>
+                  ) : (
+                    <p className="text-[11px] text-indigo-600/90 mb-2">
+                      到检时可在以下候选项目中任选 {Math.min(group.pickCount, titles.length || group.pickCount)} 项
+                    </p>
+                  )}
+                  {titles.length > 0 ? (
+                    <ul className="text-sm text-indigo-950 space-y-1.5 list-disc pl-4">
+                      {titles.map((title) => (
+                        <li key={title}>{title}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-indigo-400">候选项目待配置</p>
+                  )}
+                </div>
+              ))}
 
               <div>
                 <h4 className="font-bold text-slate-800 text-sm mb-2">套餐介绍</h4>

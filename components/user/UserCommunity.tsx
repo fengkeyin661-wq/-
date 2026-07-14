@@ -14,6 +14,7 @@ import {
     ServiceMainCategory,
     classifyServiceItem,
     resolveIncludedServiceLines,
+    resolveOptionalGroupLines,
     resolvePackageDisplayPricing,
 } from '../../services/userServiceCatalog';
 
@@ -722,7 +723,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
 
                             {selectedItem.type === 'checkup_package' && resolveIncludedServiceLines(selectedItem, allServices).length > 0 && (
                                 <div className="bg-emerald-50 p-4 rounded-xl">
-                                    <div className="text-xs text-emerald-600 mb-2 font-bold">套餐包含项目</div>
+                                    <div className="text-xs text-emerald-600 mb-2 font-bold">固定包含项目</div>
                                     <ul className="text-sm text-emerald-900 space-y-1.5 list-disc pl-4">
                                         {resolveIncludedServiceLines(selectedItem, allServices).map((line) => (
                                             <li key={line.title}>
@@ -733,6 +734,21 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                                     </ul>
                                 </div>
                             )}
+
+                            {selectedItem.type === 'checkup_package' &&
+                                resolveOptionalGroupLines(selectedItem, allServices).map(({ group, label, titles }) => (
+                                    <div key={group.id} className="bg-indigo-50 p-4 rounded-xl">
+                                        <div className="text-xs text-indigo-700 mb-1 font-bold">{label}</div>
+                                        {group.note ? (
+                                            <p className="text-[11px] text-indigo-600 mb-2">{group.note}</p>
+                                        ) : null}
+                                        <ul className="text-sm text-indigo-950 space-y-1.5 list-disc pl-4">
+                                            {titles.map((title) => (
+                                                <li key={title}>{title}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ))}
 
                             {selectedItem.type === 'circle' && (
                                 <div className="space-y-2">

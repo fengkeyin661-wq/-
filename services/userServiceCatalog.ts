@@ -109,6 +109,22 @@ export interface PackageIncludedItem {
   discountRate: number;
 }
 
+/**
+ * 自选项目分组：从候选池中选取规定数量（如 20 选 5）。
+ * 候选池不参与「原价=Σ全部候选」累加，套餐价仍以固定项合计为主（或手动定价）。
+ */
+export interface PackageOptionalGroup {
+  id: string;
+  /** 分组名称，如「自选检查项目」 */
+  name: string;
+  /** 须选几项 */
+  pickCount: number;
+  /** 候选检查项目 ID 列表 */
+  candidateServiceIds: string[];
+  /** 可选说明，展示给用户 */
+  note?: string;
+}
+
 export const normalizeDiscountRate = (v?: number): number => {
   if (v === undefined || v === null || Number.isNaN(Number(v))) return 100;
   return Math.min(100, Math.max(0, Number(v)));
@@ -131,6 +147,51 @@ export const getPackageIncludedItems = (packageItem: ContentItem): PackageInclud
   }
   const ids: string[] = packageItem.details?.includedServiceIds || [];
   return ids.map((serviceId) => ({ serviceId, quantity: 1, discountRate: 100 }));
+};
+
+export const getPackageOptionalGroups = (packageItem: ContentItem): PackageOptionalGroup[] => {
+  const raw = packageItem.details?.optionalGroups as PackageOptionalGroup[] | undefined;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((g) => g && Array.isArray(g.candidateServiceIds))
+    .map((g) => ({
+      id: g.id || `opt_${Date.now()}`,
+      name: (g.name || '自选项目').trim() || '自选项目',
+      pickCount: Math.max(1, Math.round(Number(g.pickCount) || 1)),
+      candidateServiceIds: [...new Set((g.candidateServiceIds || []).filter(Boolean))],
+      note: g.note || undefined,
+    }));
+};
+
+export const createEmptyOptionalGroup = (): PackageOptionalGroup => ({
+  id: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+  name: '自选检查项目',
+  pickCount: 5,
+  candidateServiceIds: [],
+  note: '',
+});
+
+export const formatOptionalGroupLabel = (group: PackageOptionalGroup): string => {
+  const total = group.candidateServiceIds.length;
+  const pick = group.pickCount;
+  if (total <= 0) return `${group.name}（待配置候选项目）`;
+  return `${group.name}：${total} 项中任选 ${Math.min(pick, total)} 项`;
+};
+
+export const resolveOptionalGroupLines = (
+  packageItem: ContentItem,
+  allServices: ContentItem[],
+): {
+  group: PackageOptionalGroup;
+  label: string;
+  titles: string[];
+}[] => {
+  const map = new Map(allServices.map((s) => [s.id, s.title]));
+  return getPackageOptionalGroups(packageItem).map((group) => ({
+    group,
+    label: formatOptionalGroupLabel(group),
+    titles: group.candidateServiceIds.map((id) => map.get(id) || id).filter(Boolean),
+  }));
 };
 
 export const calcPackageLineAmount = (
@@ -245,6 +306,21 @@ export const applyLivePackagePricing = (
   };
 };
 
-/** 判断套餐是否包含某临床项目 */
+/** 判断套餐是否包含某临床项目（固定项或自选候选） */
 export const packageIncludesService = (packageItem: ContentItem, serviceId: string): boolean =>
-  getPackageIncludedItems(packageItem).some((i) => i.serviceId === serviceId);
+  getPackageIncludedItems(packageItem).some((i) => i.serviceId === serviceId) ||
+  getPackageOptionalGroups(packageItem).some((g) => g.candidateServiceIds.includes(serviceId));
+
+/** 列表摘要：固定 N 项 · 自选文案 */
+export const summarizePackageComposition = (packageItem: ContentItem): string => {
+  const fixed = getPackageIncludedItems(packageItem).length;
+  const groups = getPackageOptionalGroups(packageItem);
+  const parts: string[] = [];
+  if (fixed > 0) parts.push(`固定 ${fixed} 项`);
+  groups.forEach((g) => {
+    if (g.candidateServiceIds.length > 0) {
+      parts.push(`${g.candidateServiceIds.length}选${Math.min(g.pickCount, g.candidateServiceIds.length)}`);
+    }
+  });
+  return parts.length ? parts.join(' · ') : '未配置项目';
+};

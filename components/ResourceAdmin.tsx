@@ -24,11 +24,16 @@ import {
     inferServiceDomain,
     calcPackagePriceBreakdown,
     getPackageIncludedItems,
+    getPackageOptionalGroups,
+    createEmptyOptionalGroup,
+    formatOptionalGroupLabel,
     applyLivePackagePricing,
     packageIncludesService,
+    summarizePackageComposition,
     type ClinicalSubCategory,
     type HealthServiceSubCategory,
     type PackageIncludedItem,
+    type PackageOptionalGroup,
 } from '../services/userServiceCatalog';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { prepareContentItemImages, uploadPackageImageFile } from '../services/resourceImageStorage';
@@ -738,6 +743,38 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             return { ...i, discountRate: Math.min(100, Math.max(0, value)) };
         });
         syncPackageIncluded(next);
+    };
+
+    const setOptionalGroups = (groups: PackageOptionalGroup[]) => {
+        updateDetail('optionalGroups', groups);
+    };
+
+    const addOptionalGroup = () => {
+        const current = getPackageOptionalGroups(editItem as ContentItem);
+        setOptionalGroups([...current, createEmptyOptionalGroup()]);
+    };
+
+    const updateOptionalGroup = (groupId: string, patch: Partial<PackageOptionalGroup>) => {
+        const current = getPackageOptionalGroups(editItem as ContentItem);
+        setOptionalGroups(current.map((g) => (g.id === groupId ? { ...g, ...patch } : g)));
+    };
+
+    const removeOptionalGroup = (groupId: string) => {
+        const current = getPackageOptionalGroups(editItem as ContentItem);
+        setOptionalGroups(current.filter((g) => g.id !== groupId));
+    };
+
+    const toggleOptionalCandidate = (groupId: string, serviceId: string, selected: boolean) => {
+        const current = getPackageOptionalGroups(editItem as ContentItem);
+        setOptionalGroups(
+            current.map((g) => {
+                if (g.id !== groupId) return g;
+                const ids = selected
+                    ? g.candidateServiceIds.filter((id) => id !== serviceId)
+                    : [...g.candidateServiceIds, serviceId];
+                return { ...g, candidateServiceIds: ids };
+            }),
+        );
     };
 
     const toggleServiceSchedule = (dayKey: string, slotId: string) => {
@@ -1757,7 +1794,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'service' && `¥${item.details?.price} • ${serviceCatalogLabel(item)}`}
                                                     {item.type === 'checkup_package' && (
                                                         <>
-                                                            {`套餐 ¥${item.details?.price || '-'} • 含${getPackageIncludedItems(item).length}项`}
+                                                            {`套餐 ¥${item.details?.price || '-'} • ${summarizePackageComposition(item)}`}
                                                             {item.details?.showOriginalPrice !== false &&
                                                             item.details?.originalPrice &&
                                                             Number(item.details.originalPrice) > Number(item.details?.price || 0) ? (
@@ -2070,8 +2107,8 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-4">
                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                 <div>
-                                                    <div className="text-xs font-bold text-emerald-800">组合临床检查项目</div>
-                                                    <p className="text-[11px] text-emerald-700 mt-0.5">勾选项目后可设数量与折扣比例（100=全价，80=八折），套餐价 = Σ(单价×数量×折扣÷100)</p>
+                                                    <div className="text-xs font-bold text-emerald-800">固定检查项目</div>
+                                                    <p className="text-[11px] text-emerald-700 mt-0.5">套餐必含项目；勾选后可设数量与折扣。套餐自动价 = Σ(单价×数量×折扣÷100)。自选项目另设下方分组，不整池计入原价。</p>
                                                 </div>
                                                 {(() => {
                                                     const breakdown = calcPackagePriceBreakdown(editItem as ContentItem, clinicalServiceCatalog);
@@ -2194,6 +2231,111 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                             </div>
                                                         );
                                                     })}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* 自选项目分组（如 20 选 5） */}
+                                        <div className="col-span-2 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 space-y-3">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <div>
+                                                    <div className="text-xs font-bold text-indigo-900">自选检查项目</div>
+                                                    <p className="text-[11px] text-indigo-700 mt-0.5">
+                                                        适用于「20 项中任选 5 项」等规则：配置候选池 + 须选数量；用户端展示任选说明。自选候选不叠加计入原价合计，套餐总价建议手动覆盖或仅含固定项自动价。
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={addOptionalGroup}
+                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
+                                                >
+                                                    + 添加自选分组
+                                                </button>
+                                            </div>
+                                            {getPackageOptionalGroups(editItem as ContentItem).length === 0 ? (
+                                                <p className="text-xs text-indigo-600">暂无自选分组。若套餐仅含固定项目，可跳过本区。</p>
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    {getPackageOptionalGroups(editItem as ContentItem).map((group) => (
+                                                        <div key={group.id} className="rounded-xl border border-indigo-200 bg-white p-4 space-y-3">
+                                                            <div className="flex flex-wrap gap-3 items-end">
+                                                                <label className="text-[11px] text-slate-600 flex-1 min-w-[140px]">
+                                                                    分组名称
+                                                                    <input
+                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                                                                        value={group.name}
+                                                                        onChange={(e) => updateOptionalGroup(group.id, { name: e.target.value })}
+                                                                        placeholder="如：自选检查项目"
+                                                                    />
+                                                                </label>
+                                                                <label className="text-[11px] text-slate-600 w-28">
+                                                                    须选几项
+                                                                    <input
+                                                                        type="number"
+                                                                        min={1}
+                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                                                                        value={group.pickCount}
+                                                                        onChange={(e) =>
+                                                                            updateOptionalGroup(group.id, {
+                                                                                pickCount: Math.max(1, Number(e.target.value) || 1),
+                                                                            })
+                                                                        }
+                                                                    />
+                                                                </label>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => removeOptionalGroup(group.id)}
+                                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-red-200 text-red-600 hover:bg-red-50"
+                                                                >
+                                                                    删除分组
+                                                                </button>
+                                                            </div>
+                                                            <label className="text-[11px] text-slate-600 block">
+                                                                用户端补充说明（可选）
+                                                                <input
+                                                                    className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                                                                    value={group.note || ''}
+                                                                    onChange={(e) => updateOptionalGroup(group.id, { note: e.target.value })}
+                                                                    placeholder="如：请在到检当日由导检确认所选项目"
+                                                                />
+                                                            </label>
+                                                            <div className="text-xs font-bold text-indigo-800">
+                                                                {formatOptionalGroupLabel(group)}
+                                                            </div>
+                                                            {clinicalServiceCatalog.length === 0 ? (
+                                                                <p className="text-xs text-slate-400">请先维护临床检查项目</p>
+                                                            ) : (
+                                                                <div className="max-h-56 overflow-y-auto space-y-1.5 border border-slate-100 rounded-lg p-2">
+                                                                    {clinicalServiceCatalog.map((svc) => {
+                                                                        const checked = group.candidateServiceIds.includes(svc.id);
+                                                                        const inFixed = getPackageIncludedItems(editItem as ContentItem).some(
+                                                                            (i) => i.serviceId === svc.id,
+                                                                        );
+                                                                        return (
+                                                                            <label
+                                                                                key={svc.id}
+                                                                                className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg cursor-pointer ${
+                                                                                    checked ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                                                                                } ${inFixed ? 'opacity-50' : ''}`}
+                                                                            >
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={checked}
+                                                                                    disabled={inFixed}
+                                                                                    onChange={() => toggleOptionalCandidate(group.id, svc.id, checked)}
+                                                                                    className="rounded border-slate-300 text-indigo-600"
+                                                                                />
+                                                                                <span className="flex-1 text-slate-800">{svc.title}</span>
+                                                                                {inFixed && (
+                                                                                    <span className="text-[10px] text-slate-400">已作固定项</span>
+                                                                                )}
+                                                                            </label>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             )}
                                         </div>
