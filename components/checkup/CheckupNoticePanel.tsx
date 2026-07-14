@@ -5,6 +5,8 @@ import {
   CHECKUP_CONTACT_PHONES,
   CHECKUP_NOTICE_ITEMS,
   CHECKUP_NOTICE_TITLE,
+  CHECKUP_POST_SERVICE_ITEMS,
+  CHECKUP_POST_SERVICE_TITLE,
   CHECKUP_TIME_INFO,
   CHECKUP_TRANSPORT_INFO,
 } from './checkupNoticeContent';
@@ -31,7 +33,7 @@ export const CheckupNoticePanel: React.FC<Props> = ({ defaultExpanded = false })
           <div className="min-w-0">
             <div className="text-sm font-black text-amber-900">{CHECKUP_NOTICE_TITLE}</div>
             <div className="text-[11px] text-amber-700/80 truncate">
-              空腹须知 · 时间地址 · 乘车路线
+              到检须知 · 时间地址 · 检后服务
             </div>
           </div>
         </div>
@@ -67,6 +69,23 @@ export const CheckupNoticePanel: React.FC<Props> = ({ defaultExpanded = false })
                 ))}
               </ul>
             </div>
+          </div>
+
+          <div className="rounded-xl bg-emerald-50/90 border border-emerald-100 p-3">
+            <h3 className="text-xs font-black text-emerald-900 mb-3 flex items-center gap-1.5">
+              <span aria-hidden>💚</span>
+              {CHECKUP_POST_SERVICE_TITLE}
+            </h3>
+            <ol className="space-y-3">
+              {CHECKUP_POST_SERVICE_ITEMS.map((item, idx) => (
+                <li key={item.title} className="text-[13px] leading-relaxed text-slate-700">
+                  <div className="font-bold text-emerald-800 mb-0.5">
+                    {idx + 1}. {item.title}
+                  </div>
+                  <p className="text-[12px] text-slate-600 pl-0 sm:pl-4">{item.content}</p>
+                </li>
+              ))}
+            </ol>
           </div>
 
           <div className="rounded-xl bg-white border border-amber-100 p-3">

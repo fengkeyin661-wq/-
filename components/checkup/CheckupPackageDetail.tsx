@@ -103,7 +103,7 @@ export const CheckupPackageDetail: React.FC<Props> = ({
         <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
           <div className="text-xs font-black text-amber-900 mb-1">预约提醒</div>
           <p className="text-[12px] leading-relaxed text-amber-800/90">
-            请携带身份证；体检当天须禁食禁水 8 小时。完整须知请返回首页展开「体检须知」。时间：周一至周五上午 8:00–10:30。咨询：0371-67739261 / 67739538。
+            请携带身份证；体检当天须禁食禁水 8 小时。完整须知与检后服务（报告查询、异常通知、健康管家等）请返回首页展开「体检须知」。咨询：0371-67739261 / 67739538。
           </p>
         </div>
       </div>

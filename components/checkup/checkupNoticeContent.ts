@@ -37,3 +37,28 @@ export const CHECKUP_CONTACT_PHONES = ['0371-67739261', '0371-67739538'] as cons
 
 export const CHECKUP_CONTACT_FOOTER =
   '若您有任何疑问请致电以上电话，校医院竭诚为您服务！';
+
+export const CHECKUP_POST_SERVICE_TITLE = '检后服务';
+
+export const CHECKUP_POST_SERVICE_ITEMS: { title: string; content: string }[] = [
+  {
+    title: '报告查询',
+    content:
+      '个人体检结果一般当天即可出具，团体体检结果一般在1–2周内出具。您可以通过“郑州大学医院”公众号，进入“体检服务-报告查询”模块获取电子版体检结果；纸质版结果可到医院前台领取，团体体检的结果将统一配送到各单位。',
+  },
+  {
+    title: '重要异常结果通知',
+    content:
+      '若体检发现重要异常结果，体检中心会在24小时内通知您，并提供相应的健康咨询与建议。',
+  },
+  {
+    title: '检后答疑',
+    content:
+      '如果您需要咨询体检报告相关问题，请拨打检后服务热线：0371-67739538 / 67739261。',
+  },
+  {
+    title: '检后追踪',
+    content:
+      '针对年度体检客户，健康管家会为您提供定期健康随访，并给出健康改善建议。您也可以通过“郑州大学医院”微信公众号的“体检服务-健康管家”板块享受相关服务。',
+  },
+];
