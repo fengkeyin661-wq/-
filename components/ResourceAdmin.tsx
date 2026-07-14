@@ -260,6 +260,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [serviceSubCategoryFilter, setServiceSubCategoryFilter] = useState<string>('all');
     const [serviceSearchTerm, setServiceSearchTerm] = useState('');
     const [packageImageUploading, setPackageImageUploading] = useState<'cover' | 'poster' | null>(null);
+    /** 套餐编辑：临床项目多选列表搜索（按区块） */
+    const [packageFixedItemSearch, setPackageFixedItemSearch] = useState('');
+    const [packageOptionalItemSearch, setPackageOptionalItemSearch] = useState('');
+    const [packageGiftItemSearch, setPackageGiftItemSearch] = useState('');
     const [clinicalServiceCatalog, setClinicalServiceCatalog] = useState<ContentItem[]>([]);
     
     const [items, setItems] = useState<ContentItem[]>([]);
@@ -1416,6 +1420,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 setEditItem({ ...item });
             }
             setServiceClosedDateInput('');
+            setPackageFixedItemSearch('');
+            setPackageOptionalItemSearch('');
+            setPackageGiftItemSearch('');
         } else {
             let type: any = 'meal';
             if (activeTab === 'exercise') type = 'exercise';
@@ -1450,8 +1457,32 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 details
             });
             setServiceClosedDateInput('');
+            setPackageFixedItemSearch('');
+            setPackageOptionalItemSearch('');
+            setPackageGiftItemSearch('');
         }
         setIsModalOpen(true);
+    };
+
+    const filterPackageClinicalCatalog = (query: string, alwaysIncludeIds: string[]) => {
+        const q = query.trim().toLowerCase();
+        const pinned = new Set(alwaysIncludeIds);
+        if (!q) {
+            return clinicalServiceCatalog.filter((svc) => pinned.has(svc.id));
+        }
+        return clinicalServiceCatalog.filter((svc) => {
+            if (pinned.has(svc.id)) return true;
+            const hay = [
+                svc.title,
+                svc.description || '',
+                ...(svc.tags || []),
+                String(svc.details?.clinicalSubCategory || ''),
+                String(svc.details?.healthServiceSubCategory || ''),
+            ]
+                .join(' ')
+                .toLowerCase();
+            return hay.includes(q);
+        });
     };
 
     const renderInteractionTable = (data: InteractionItem[]) => {
@@ -2199,64 +2230,93 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             {clinicalServiceCatalog.length === 0 ? (
                                                 <p className="text-xs text-emerald-700">请先在「临床/健康服务项目」中维护检查项目</p>
                                             ) : (
-                                                <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
-                                                    {clinicalServiceCatalog.map((svc) => {
-                                                        const items = getPackageIncludedItems(editItem as ContentItem);
-                                                        const included = items.find((i) => i.serviceId === svc.id);
-                                                        const selected = !!included;
-                                                        const unitPrice = Number(svc.details?.price) || 0;
-                                                        const lineAmount = selected
-                                                            ? Math.round(unitPrice * (included!.quantity) * (included!.discountRate / 100) * 100) / 100
-                                                            : 0;
-                                                        return (
-                                                            <div
-                                                                key={svc.id}
-                                                                className={`rounded-lg border bg-white p-3 ${selected ? 'border-emerald-300' : 'border-slate-100'}`}
-                                                            >
-                                                                <div className="flex items-center gap-2">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={selected}
-                                                                        onChange={() => togglePackageService(svc, selected)}
-                                                                        className="rounded border-slate-300 text-teal-600"
-                                                                    />
-                                                                    <span className="font-medium text-sm text-slate-800 flex-1">{svc.title}</span>
-                                                                    <span className="text-xs text-slate-400">单价 ¥{unitPrice || '-'}</span>
-                                                                </div>
-                                                                {selected && (
-                                                                    <div className="mt-2 grid grid-cols-3 gap-2 items-end pl-6">
-                                                                        <label className="text-[11px] text-slate-600">
-                                                                            数量
+                                                <div className="space-y-2">
+                                                    <input
+                                                        type="search"
+                                                        value={packageFixedItemSearch}
+                                                        onChange={(e) => setPackageFixedItemSearch(e.target.value)}
+                                                        placeholder="搜索项目名称后勾选…"
+                                                        className="w-full border border-emerald-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                                                    />
+                                                    {!packageFixedItemSearch.trim() && (
+                                                        <p className="text-[11px] text-emerald-700/80">
+                                                            输入关键词筛选项目再勾选；下方优先显示已选项目（共 {clinicalServiceCatalog.length} 项可选）。
+                                                        </p>
+                                                    )}
+                                                    <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                                                        {(() => {
+                                                            const items = getPackageIncludedItems(editItem as ContentItem);
+                                                            const visible = filterPackageClinicalCatalog(
+                                                                packageFixedItemSearch,
+                                                                items.map((i) => i.serviceId),
+                                                            );
+                                                            if (visible.length === 0) {
+                                                                return (
+                                                                    <p className="text-xs text-slate-400 py-4 text-center">
+                                                                        {packageFixedItemSearch.trim()
+                                                                            ? '无匹配项目，请调整关键词'
+                                                                            : '暂无已选项目，请先搜索后勾选'}
+                                                                    </p>
+                                                                );
+                                                            }
+                                                            return visible.map((svc) => {
+                                                                const included = items.find((i) => i.serviceId === svc.id);
+                                                                const selected = !!included;
+                                                                const unitPrice = Number(svc.details?.price) || 0;
+                                                                const lineAmount = selected
+                                                                    ? Math.round(unitPrice * (included!.quantity) * (included!.discountRate / 100) * 100) / 100
+                                                                    : 0;
+                                                                return (
+                                                                    <div
+                                                                        key={svc.id}
+                                                                        className={`rounded-lg border bg-white p-3 ${selected ? 'border-emerald-300' : 'border-slate-100'}`}
+                                                                    >
+                                                                        <div className="flex items-center gap-2">
                                                                             <input
-                                                                                type="number"
-                                                                                min={1}
-                                                                                step={1}
-                                                                                value={included!.quantity}
-                                                                                onChange={(e) => updatePackageItemField(svc.id, 'quantity', Number(e.target.value))}
-                                                                                className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                type="checkbox"
+                                                                                checked={selected}
+                                                                                onChange={() => togglePackageService(svc, selected)}
+                                                                                className="rounded border-slate-300 text-teal-600"
                                                                             />
-                                                                        </label>
-                                                                        <label className="text-[11px] text-slate-600">
-                                                                            折扣比例 (%)
-                                                                            <input
-                                                                                type="number"
-                                                                                min={0}
-                                                                                max={100}
-                                                                                step={1}
-                                                                                value={included!.discountRate}
-                                                                                onChange={(e) => updatePackageItemField(svc.id, 'discountRate', Number(e.target.value))}
-                                                                                className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
-                                                                            />
-                                                                        </label>
-                                                                        <div className="text-right pb-1">
-                                                                            <div className="text-[10px] text-slate-400">小计</div>
-                                                                            <div className="text-sm font-bold text-emerald-700">¥{lineAmount}</div>
+                                                                            <span className="font-medium text-sm text-slate-800 flex-1">{svc.title}</span>
+                                                                            <span className="text-xs text-slate-400">单价 ¥{unitPrice || '-'}</span>
                                                                         </div>
+                                                                        {selected && (
+                                                                            <div className="mt-2 grid grid-cols-3 gap-2 items-end pl-6">
+                                                                                <label className="text-[11px] text-slate-600">
+                                                                                    数量
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={1}
+                                                                                        step={1}
+                                                                                        value={included!.quantity}
+                                                                                        onChange={(e) => updatePackageItemField(svc.id, 'quantity', Number(e.target.value))}
+                                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                    />
+                                                                                </label>
+                                                                                <label className="text-[11px] text-slate-600">
+                                                                                    折扣比例 (%)
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={0}
+                                                                                        max={100}
+                                                                                        step={1}
+                                                                                        value={included!.discountRate}
+                                                                                        onChange={(e) => updatePackageItemField(svc.id, 'discountRate', Number(e.target.value))}
+                                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                    />
+                                                                                </label>
+                                                                                <div className="text-right pb-1">
+                                                                                    <div className="text-[10px] text-slate-400">小计</div>
+                                                                                    <div className="text-sm font-bold text-emerald-700">¥{lineAmount}</div>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
+                                                                );
+                                                            });
+                                                        })()}
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
@@ -2331,33 +2391,62 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                             {clinicalServiceCatalog.length === 0 ? (
                                                                 <p className="text-xs text-slate-400">请先维护临床检查项目</p>
                                                             ) : (
-                                                                <div className="max-h-56 overflow-y-auto space-y-1.5 border border-slate-100 rounded-lg p-2">
-                                                                    {clinicalServiceCatalog.map((svc) => {
-                                                                        const checked = group.candidateServiceIds.includes(svc.id);
-                                                                        const inFixed = getPackageIncludedItems(editItem as ContentItem).some(
-                                                                            (i) => i.serviceId === svc.id,
-                                                                        );
-                                                                        return (
-                                                                            <label
-                                                                                key={svc.id}
-                                                                                className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg cursor-pointer ${
-                                                                                    checked ? 'bg-indigo-50' : 'hover:bg-slate-50'
-                                                                                } ${inFixed ? 'opacity-50' : ''}`}
-                                                                            >
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={checked}
-                                                                                    disabled={inFixed}
-                                                                                    onChange={() => toggleOptionalCandidate(group.id, svc.id, checked)}
-                                                                                    className="rounded border-slate-300 text-indigo-600"
-                                                                                />
-                                                                                <span className="flex-1 text-slate-800">{svc.title}</span>
-                                                                                {inFixed && (
-                                                                                    <span className="text-[10px] text-slate-400">已作固定项</span>
-                                                                                )}
-                                                                            </label>
-                                                                        );
-                                                                    })}
+                                                                <div className="space-y-2">
+                                                                    <input
+                                                                        type="search"
+                                                                        value={packageOptionalItemSearch}
+                                                                        onChange={(e) => setPackageOptionalItemSearch(e.target.value)}
+                                                                        placeholder="搜索项目名称后勾选候选…"
+                                                                        className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                                                    />
+                                                                    {!packageOptionalItemSearch.trim() && (
+                                                                        <p className="text-[11px] text-indigo-700/80">
+                                                                            输入关键词筛选后勾选；已入选候选始终显示。
+                                                                        </p>
+                                                                    )}
+                                                                    <div className="max-h-56 overflow-y-auto space-y-1.5 border border-slate-100 rounded-lg p-2">
+                                                                        {(() => {
+                                                                            const visible = filterPackageClinicalCatalog(
+                                                                                packageOptionalItemSearch,
+                                                                                group.candidateServiceIds,
+                                                                            );
+                                                                            if (visible.length === 0) {
+                                                                                return (
+                                                                                    <p className="text-xs text-slate-400 py-3 text-center">
+                                                                                        {packageOptionalItemSearch.trim()
+                                                                                            ? '无匹配项目，请调整关键词'
+                                                                                            : '暂无候选，请先搜索后勾选'}
+                                                                                    </p>
+                                                                                );
+                                                                            }
+                                                                            return visible.map((svc) => {
+                                                                                const checked = group.candidateServiceIds.includes(svc.id);
+                                                                                const inFixed = getPackageIncludedItems(editItem as ContentItem).some(
+                                                                                    (i) => i.serviceId === svc.id,
+                                                                                );
+                                                                                return (
+                                                                                    <label
+                                                                                        key={svc.id}
+                                                                                        className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg cursor-pointer ${
+                                                                                            checked ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                                                                                        } ${inFixed ? 'opacity-50' : ''}`}
+                                                                                    >
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={checked}
+                                                                                            disabled={inFixed}
+                                                                                            onChange={() => toggleOptionalCandidate(group.id, svc.id, checked)}
+                                                                                            className="rounded border-slate-300 text-indigo-600"
+                                                                                        />
+                                                                                        <span className="flex-1 text-slate-800">{svc.title}</span>
+                                                                                        {inFixed && (
+                                                                                            <span className="text-[10px] text-slate-400">已作固定项</span>
+                                                                                        )}
+                                                                                    </label>
+                                                                                );
+                                                                            });
+                                                                        })()}
+                                                                    </div>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -2377,57 +2466,86 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                             {clinicalServiceCatalog.length === 0 ? (
                                                 <p className="text-xs text-rose-600">请先在「临床/健康服务项目」中维护项目</p>
                                             ) : (
-                                                <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
-                                                    {clinicalServiceCatalog.map((svc) => {
-                                                        const gifts = getPackageGiftItems(editItem as ContentItem);
-                                                        const gift = gifts.find((i) => i.serviceId === svc.id);
-                                                        const selected = !!gift;
-                                                        const inFixed = getPackageIncludedItems(editItem as ContentItem).some((i) => i.serviceId === svc.id);
-                                                        const inOptional = getPackageOptionalGroups(editItem as ContentItem).some((g) =>
-                                                            g.candidateServiceIds.includes(svc.id),
-                                                        );
-                                                        return (
-                                                            <div
-                                                                key={svc.id}
-                                                                className={`rounded-lg border bg-white p-3 ${selected ? 'border-rose-300' : 'border-slate-100'}`}
-                                                            >
-                                                                <div className="flex items-center gap-2">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={selected}
-                                                                        onChange={() => togglePackageGift(svc, selected)}
-                                                                        className="rounded border-slate-300 text-rose-600"
-                                                                    />
-                                                                    <span className="font-medium text-sm text-slate-800 flex-1">{svc.title}</span>
-                                                                    {inFixed && <span className="text-[10px] text-slate-400">亦在固定项</span>}
-                                                                    {inOptional && <span className="text-[10px] text-slate-400">亦在自选池</span>}
-                                                                </div>
-                                                                {selected && (
-                                                                    <div className="mt-2 grid grid-cols-2 gap-2 pl-6">
-                                                                        <label className="text-[11px] text-slate-600">
-                                                                            数量
+                                                <div className="space-y-2">
+                                                    <input
+                                                        type="search"
+                                                        value={packageGiftItemSearch}
+                                                        onChange={(e) => setPackageGiftItemSearch(e.target.value)}
+                                                        placeholder="搜索项目名称后勾选…"
+                                                        className="w-full border border-rose-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-rose-300"
+                                                    />
+                                                    {!packageGiftItemSearch.trim() && (
+                                                        <p className="text-[11px] text-rose-700/80">
+                                                            输入关键词筛选后勾选；已选赠送项始终显示。
+                                                        </p>
+                                                    )}
+                                                    <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                                                        {(() => {
+                                                            const gifts = getPackageGiftItems(editItem as ContentItem);
+                                                            const visible = filterPackageClinicalCatalog(
+                                                                packageGiftItemSearch,
+                                                                gifts.map((i) => i.serviceId),
+                                                            );
+                                                            if (visible.length === 0) {
+                                                                return (
+                                                                    <p className="text-xs text-slate-400 py-4 text-center">
+                                                                        {packageGiftItemSearch.trim()
+                                                                            ? '无匹配项目，请调整关键词'
+                                                                            : '暂无赠送项，请先搜索后勾选'}
+                                                                    </p>
+                                                                );
+                                                            }
+                                                            return visible.map((svc) => {
+                                                                const gift = gifts.find((i) => i.serviceId === svc.id);
+                                                                const selected = !!gift;
+                                                                const inFixed = getPackageIncludedItems(editItem as ContentItem).some((i) => i.serviceId === svc.id);
+                                                                const inOptional = getPackageOptionalGroups(editItem as ContentItem).some((g) =>
+                                                                    g.candidateServiceIds.includes(svc.id),
+                                                                );
+                                                                return (
+                                                                    <div
+                                                                        key={svc.id}
+                                                                        className={`rounded-lg border bg-white p-3 ${selected ? 'border-rose-300' : 'border-slate-100'}`}
+                                                                    >
+                                                                        <div className="flex items-center gap-2">
                                                                             <input
-                                                                                type="number"
-                                                                                min={1}
-                                                                                value={gift!.quantity}
-                                                                                onChange={(e) => updatePackageGiftField(svc.id, 'quantity', e.target.value)}
-                                                                                className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                type="checkbox"
+                                                                                checked={selected}
+                                                                                onChange={() => togglePackageGift(svc, selected)}
+                                                                                className="rounded border-slate-300 text-rose-600"
                                                                             />
-                                                                        </label>
-                                                                        <label className="text-[11px] text-slate-600">
-                                                                            说明（可选）
-                                                                            <input
-                                                                                value={gift!.note || ''}
-                                                                                onChange={(e) => updatePackageGiftField(svc.id, 'note', e.target.value)}
-                                                                                placeholder="如：到检当日领取"
-                                                                                className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
-                                                                            />
-                                                                        </label>
+                                                                            <span className="font-medium text-sm text-slate-800 flex-1">{svc.title}</span>
+                                                                            {inFixed && <span className="text-[10px] text-slate-400">亦在固定项</span>}
+                                                                            {inOptional && <span className="text-[10px] text-slate-400">亦在自选池</span>}
+                                                                        </div>
+                                                                        {selected && (
+                                                                            <div className="mt-2 grid grid-cols-2 gap-2 pl-6">
+                                                                                <label className="text-[11px] text-slate-600">
+                                                                                    数量
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={1}
+                                                                                        value={gift!.quantity}
+                                                                                        onChange={(e) => updatePackageGiftField(svc.id, 'quantity', e.target.value)}
+                                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                    />
+                                                                                </label>
+                                                                                <label className="text-[11px] text-slate-600">
+                                                                                    说明（可选）
+                                                                                    <input
+                                                                                        value={gift!.note || ''}
+                                                                                        onChange={(e) => updatePackageGiftField(svc.id, 'note', e.target.value)}
+                                                                                        placeholder="如：到检当日领取"
+                                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                    />
+                                                                                </label>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
+                                                                );
+                                                            });
+                                                        })()}
+                                                    </div>
                                                 </div>
                                             )}
                                             {getPackageGiftItems(editItem as ContentItem).length > 0 && (
