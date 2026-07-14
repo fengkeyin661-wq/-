@@ -72,16 +72,6 @@ export const CheckupPackageDetail: React.FC<Props> = ({
 
           {/* 可上拉滚动内容区 */}
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 [-webkit-overflow-scrolling:touch]">
-            {posterSrc && isResourceImageUrl(posterSrc) && (
-              <div className="rounded-2xl overflow-hidden shadow-sm border border-slate-100 bg-white">
-                <img
-                  src={posterSrc}
-                  alt={`${packageItem.title} 海报`}
-                  className="w-full max-h-72 object-cover"
-                />
-              </div>
-            )}
-
             <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
               <div className="flex gap-4 mb-4">
                 <ResourceCover
@@ -160,6 +150,16 @@ export const CheckupPackageDetail: React.FC<Props> = ({
                   {packageItem.description || '暂无详细介绍'}
                 </p>
               </div>
+
+              {posterSrc && isResourceImageUrl(posterSrc) && (
+                <div className="mt-4 rounded-2xl overflow-hidden shadow-sm border border-slate-100 bg-white">
+                  <img
+                    src={posterSrc}
+                    alt={`${packageItem.title} 海报`}
+                    className="w-full max-h-72 object-cover"
+                  />
+                </div>
+              )}
 
               {packageItem.tags?.length ? (
                 <div className="mt-4 flex flex-wrap gap-1">

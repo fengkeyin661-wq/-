@@ -7,16 +7,13 @@ import {
   type ContentItem,
   type InteractionItem,
 } from '../../services/contentService';
-import {
-  HEALTH_MANAGEMENT_HOTLINE,
-  HEALTH_MANAGEMENT_HOTLINE_TEL,
-} from '../../services/userServiceCatalog';
 import { BookingContactModal } from '../user/BookingContactModal';
 import { CheckupPackageList } from './CheckupPackageList';
 import { CheckupPackageDetail } from './CheckupPackageDetail';
 import { CheckupSlotPicker } from './CheckupSlotPicker';
 import { submitCheckupBooking } from './checkupBooking';
 import { CheckupNoticePanel } from './CheckupNoticePanel';
+import { CHECKUP_CONTACT_PHONES } from './checkupNoticeContent';
 
 export const CheckupApp: React.FC = () => {
   const [packages, setPackages] = useState<ContentItem[]>([]);
@@ -110,7 +107,7 @@ export const CheckupApp: React.FC = () => {
       setSelectedPackage(null);
       await loadData();
     } catch {
-      alert('预约提交失败，请稍后重试或致电健康管理热线。');
+      alert('预约提交失败，请稍后重试或致电体检预约咨询热线。');
     } finally {
       setSubmitting(false);
     }
@@ -130,22 +127,21 @@ export const CheckupApp: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="mx-4 mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-bold text-emerald-800">健康管理服务电话</div>
-            <a
-              href={HEALTH_MANAGEMENT_HOTLINE_TEL}
-              className="text-lg font-black text-emerald-700 tracking-wide"
-            >
-              {HEALTH_MANAGEMENT_HOTLINE}
-            </a>
+        <div className="mx-4 mb-4 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+          <div className="text-xs font-bold text-emerald-800 mb-1.5">体检预约咨询热线</div>
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+            {CHECKUP_CONTACT_PHONES.map((phone, idx) => (
+              <React.Fragment key={phone}>
+                {idx > 0 && <span className="text-emerald-600/50 font-bold px-0.5">/</span>}
+                <a
+                  href={`tel:${phone.replace(/-/g, '')}`}
+                  className="text-base font-black text-emerald-700 tracking-wide"
+                >
+                  {phone}
+                </a>
+              </React.Fragment>
+            ))}
           </div>
-          <a
-            href={HEALTH_MANAGEMENT_HOTLINE_TEL}
-            className="shrink-0 bg-emerald-600 text-white text-xs font-bold px-3 py-2 rounded-lg"
-          >
-            拨打
-          </a>
         </div>
       </header>
 
