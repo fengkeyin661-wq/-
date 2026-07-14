@@ -185,6 +185,7 @@ export const CheckupApp: React.FC = () => {
         open={contactOpen}
         title="填写体检预约信息"
         subtitle={pendingBook ? `预约：${pendingBook.packageItem.title}` : undefined}
+        zIndexClass="z-[110]"
         onCancel={() => {
           if (submitting) return;
           setContactOpen(false);
