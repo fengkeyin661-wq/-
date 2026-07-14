@@ -6,6 +6,7 @@ import { ModalPortal } from '../user/ModalPortal';
 import {
   resolveIncludedServiceLines,
   resolveOptionalGroupLines,
+  resolveGiftItemLines,
   resolvePackageDisplayPricing,
 } from '../../services/userServiceCatalog';
 
@@ -24,6 +25,7 @@ export const CheckupPackageDetail: React.FC<Props> = ({
 }) => {
   const includedLines = resolveIncludedServiceLines(packageItem, allServices);
   const optionalGroups = resolveOptionalGroupLines(packageItem, allServices);
+  const giftLines = resolveGiftItemLines(packageItem, allServices);
   const posterSrc = packageItem.details?.posterImage as string | undefined;
   const { packagePrice, originalPrice, showOriginalPrice } = resolvePackageDisplayPricing(
     packageItem,
@@ -136,6 +138,21 @@ export const CheckupPackageDetail: React.FC<Props> = ({
                   )}
                 </div>
               ))}
+
+              {giftLines.length > 0 && (
+                <div className="bg-rose-50 p-4 rounded-xl mb-4">
+                  <div className="text-xs text-rose-700 mb-2 font-bold">赠送项目</div>
+                  <ul className="text-sm text-rose-950 space-y-1.5 list-disc pl-4">
+                    {giftLines.map((line) => (
+                      <li key={line.serviceId}>
+                        {line.title}
+                        {line.quantity > 1 ? ` ×${line.quantity}` : ''}
+                        {line.note ? <span className="text-rose-600/80 text-xs">（{line.note}）</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div>
                 <h4 className="font-bold text-slate-800 text-sm mb-2">套餐介绍</h4>

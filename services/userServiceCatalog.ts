@@ -194,6 +194,39 @@ export const resolveOptionalGroupLines = (
   }));
 };
 
+/** 赠送项目：套餐附赠，不参与套餐原价/售价合计 */
+export interface PackageGiftItem {
+  serviceId: string;
+  quantity: number;
+  /** 展示说明，如「赠漱口液一瓶」 */
+  note?: string;
+}
+
+export const getPackageGiftItems = (packageItem: ContentItem): PackageGiftItem[] => {
+  const raw = packageItem.details?.giftItems as PackageGiftItem[] | undefined;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((it) => it && it.serviceId)
+    .map((it) => ({
+      serviceId: it.serviceId,
+      quantity: normalizeQuantity(it.quantity),
+      note: it.note || undefined,
+    }));
+};
+
+export const resolveGiftItemLines = (
+  packageItem: ContentItem,
+  allServices: ContentItem[],
+): { serviceId: string; title: string; quantity: number; note?: string }[] => {
+  const map = new Map(allServices.map((s) => [s.id, s.title]));
+  return getPackageGiftItems(packageItem).map((it) => ({
+    serviceId: it.serviceId,
+    title: map.get(it.serviceId) || it.serviceId,
+    quantity: it.quantity,
+    note: it.note,
+  }));
+};
+
 export const calcPackageLineAmount = (
   unitPrice: number,
   quantity: number,
@@ -306,15 +339,17 @@ export const applyLivePackagePricing = (
   };
 };
 
-/** 判断套餐是否包含某临床项目（固定项或自选候选） */
+/** 判断套餐是否包含某临床项目（固定项、自选候选或赠送项） */
 export const packageIncludesService = (packageItem: ContentItem, serviceId: string): boolean =>
   getPackageIncludedItems(packageItem).some((i) => i.serviceId === serviceId) ||
-  getPackageOptionalGroups(packageItem).some((g) => g.candidateServiceIds.includes(serviceId));
+  getPackageOptionalGroups(packageItem).some((g) => g.candidateServiceIds.includes(serviceId)) ||
+  getPackageGiftItems(packageItem).some((i) => i.serviceId === serviceId);
 
-/** 列表摘要：固定 N 项 · 自选文案 */
+/** 列表摘要：固定 N 项 · 自选文案 · 赠送 */
 export const summarizePackageComposition = (packageItem: ContentItem): string => {
   const fixed = getPackageIncludedItems(packageItem).length;
   const groups = getPackageOptionalGroups(packageItem);
+  const gifts = getPackageGiftItems(packageItem).length;
   const parts: string[] = [];
   if (fixed > 0) parts.push(`固定 ${fixed} 项`);
   groups.forEach((g) => {
@@ -322,5 +357,6 @@ export const summarizePackageComposition = (packageItem: ContentItem): string =>
       parts.push(`${g.candidateServiceIds.length}选${Math.min(g.pickCount, g.candidateServiceIds.length)}`);
     }
   });
+  if (gifts > 0) parts.push(`赠送 ${gifts} 项`);
   return parts.length ? parts.join(' · ') : '未配置项目';
 };

@@ -25,6 +25,7 @@ import {
     calcPackagePriceBreakdown,
     getPackageIncludedItems,
     getPackageOptionalGroups,
+    getPackageGiftItems,
     createEmptyOptionalGroup,
     formatOptionalGroupLabel,
     applyLivePackagePricing,
@@ -34,6 +35,7 @@ import {
     type HealthServiceSubCategory,
     type PackageIncludedItem,
     type PackageOptionalGroup,
+    type PackageGiftItem,
 } from '../services/userServiceCatalog';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { prepareContentItemImages, uploadPackageImageFile } from '../services/resourceImageStorage';
@@ -773,6 +775,30 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     ? g.candidateServiceIds.filter((id) => id !== serviceId)
                     : [...g.candidateServiceIds, serviceId];
                 return { ...g, candidateServiceIds: ids };
+            }),
+        );
+    };
+
+    const syncPackageGifts = (items: PackageGiftItem[]) => {
+        updateDetail('giftItems', items);
+    };
+
+    const togglePackageGift = (svc: ContentItem, selected: boolean) => {
+        const current = getPackageGiftItems(editItem as ContentItem);
+        if (selected) {
+            syncPackageGifts(current.filter((i) => i.serviceId !== svc.id));
+        } else {
+            syncPackageGifts([...current, { serviceId: svc.id, quantity: 1 }]);
+        }
+    };
+
+    const updatePackageGiftField = (serviceId: string, field: 'quantity' | 'note', value: string | number) => {
+        const current = getPackageGiftItems(editItem as ContentItem);
+        syncPackageGifts(
+            current.map((i) => {
+                if (i.serviceId !== serviceId) return i;
+                if (field === 'quantity') return { ...i, quantity: Math.max(1, Math.round(Number(value)) || 1) };
+                return { ...i, note: String(value || '') || undefined };
             }),
         );
     };
@@ -2336,6 +2362,77 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                             )}
                                                         </div>
                                                     ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* 赠送项目 */}
+                                        <div className="col-span-2 rounded-xl border border-rose-200 bg-rose-50/60 p-4 space-y-3">
+                                            <div>
+                                                <div className="text-xs font-bold text-rose-900">赠送项目</div>
+                                                <p className="text-[11px] text-rose-700 mt-0.5">
+                                                    套餐附赠项目（检查或实物服务资源），不参与套餐价格合计，用户端单独展示为「赠送」。
+                                                </p>
+                                            </div>
+                                            {clinicalServiceCatalog.length === 0 ? (
+                                                <p className="text-xs text-rose-600">请先在「临床/健康服务项目」中维护项目</p>
+                                            ) : (
+                                                <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                                                    {clinicalServiceCatalog.map((svc) => {
+                                                        const gifts = getPackageGiftItems(editItem as ContentItem);
+                                                        const gift = gifts.find((i) => i.serviceId === svc.id);
+                                                        const selected = !!gift;
+                                                        const inFixed = getPackageIncludedItems(editItem as ContentItem).some((i) => i.serviceId === svc.id);
+                                                        const inOptional = getPackageOptionalGroups(editItem as ContentItem).some((g) =>
+                                                            g.candidateServiceIds.includes(svc.id),
+                                                        );
+                                                        return (
+                                                            <div
+                                                                key={svc.id}
+                                                                className={`rounded-lg border bg-white p-3 ${selected ? 'border-rose-300' : 'border-slate-100'}`}
+                                                            >
+                                                                <div className="flex items-center gap-2">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selected}
+                                                                        onChange={() => togglePackageGift(svc, selected)}
+                                                                        className="rounded border-slate-300 text-rose-600"
+                                                                    />
+                                                                    <span className="font-medium text-sm text-slate-800 flex-1">{svc.title}</span>
+                                                                    {inFixed && <span className="text-[10px] text-slate-400">亦在固定项</span>}
+                                                                    {inOptional && <span className="text-[10px] text-slate-400">亦在自选池</span>}
+                                                                </div>
+                                                                {selected && (
+                                                                    <div className="mt-2 grid grid-cols-2 gap-2 pl-6">
+                                                                        <label className="text-[11px] text-slate-600">
+                                                                            数量
+                                                                            <input
+                                                                                type="number"
+                                                                                min={1}
+                                                                                value={gift!.quantity}
+                                                                                onChange={(e) => updatePackageGiftField(svc.id, 'quantity', e.target.value)}
+                                                                                className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                            />
+                                                                        </label>
+                                                                        <label className="text-[11px] text-slate-600">
+                                                                            说明（可选）
+                                                                            <input
+                                                                                value={gift!.note || ''}
+                                                                                onChange={(e) => updatePackageGiftField(svc.id, 'note', e.target.value)}
+                                                                                placeholder="如：到检当日领取"
+                                                                                className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                            />
+                                                                        </label>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                            {getPackageGiftItems(editItem as ContentItem).length > 0 && (
+                                                <div className="text-[11px] text-rose-700 font-bold">
+                                                    已选赠送 {getPackageGiftItems(editItem as ContentItem).length} 项
                                                 </div>
                                             )}
                                         </div>

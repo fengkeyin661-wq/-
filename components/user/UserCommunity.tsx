@@ -15,6 +15,7 @@ import {
     classifyServiceItem,
     resolveIncludedServiceLines,
     resolveOptionalGroupLines,
+    resolveGiftItemLines,
     resolvePackageDisplayPricing,
 } from '../../services/userServiceCatalog';
 
@@ -749,6 +750,21 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                                         </ul>
                                     </div>
                                 ))}
+
+                            {selectedItem.type === 'checkup_package' && resolveGiftItemLines(selectedItem, allServices).length > 0 && (
+                                <div className="bg-rose-50 p-4 rounded-xl">
+                                    <div className="text-xs text-rose-700 mb-2 font-bold">赠送项目</div>
+                                    <ul className="text-sm text-rose-950 space-y-1.5 list-disc pl-4">
+                                        {resolveGiftItemLines(selectedItem, allServices).map((line) => (
+                                            <li key={line.serviceId}>
+                                                {line.title}
+                                                {line.quantity > 1 ? ` ×${line.quantity}` : ''}
+                                                {line.note ? <span className="text-xs text-rose-600">（{line.note}）</span> : null}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
 
                             {selectedItem.type === 'circle' && (
                                 <div className="space-y-2">
