@@ -111,8 +111,8 @@ export const CheckupApp: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 max-w-md mx-auto shadow-xl">
-      <header className="sticky top-0 z-10 border-b border-emerald-100 bg-white/95 backdrop-blur-md">
+    <div className="mx-auto flex h-[100dvh] w-full max-w-md flex-col bg-slate-50 shadow-xl">
+      <header className="shrink-0 z-10 border-b border-emerald-100 bg-white/95 backdrop-blur-md">
         <div className="px-5 py-5">
           <div className="flex items-center gap-3 mb-1">
             <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white font-bold text-lg">
@@ -143,25 +143,28 @@ export const CheckupApp: React.FC = () => {
         </div>
       </header>
 
-      <CheckupNoticePanel />
+      {/* 全局 html/body 为 overflow:hidden，须在此容器内滚动 */}
+      <main className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain scrollbar-hide [-webkit-overflow-scrolling:touch]">
+        <CheckupNoticePanel />
 
-      {loading ? (
-        <div className="text-center py-20">
-          <div className="text-4xl animate-spin mb-4">⏳</div>
-          <p className="text-slate-500 font-medium">加载套餐中…</p>
-        </div>
-      ) : (
-        <CheckupPackageList
-          packages={sortedPackages}
-          allServices={allServices}
-          interactions={interactions}
-          onSelect={handleSelectPackage}
-        />
-      )}
+        {loading ? (
+          <div className="text-center py-20">
+            <div className="text-4xl animate-spin mb-4">⏳</div>
+            <p className="text-slate-500 font-medium">加载套餐中…</p>
+          </div>
+        ) : (
+          <CheckupPackageList
+            packages={sortedPackages}
+            allServices={allServices}
+            interactions={interactions}
+            onSelect={handleSelectPackage}
+          />
+        )}
 
-      <footer className="px-4 py-6 text-center text-xs text-slate-400">
-        访客预约 · 填写姓名与手机号即可提交，无需登录
-      </footer>
+        <footer className="px-4 py-6 text-center text-xs text-slate-400">
+          访客预约 · 填写姓名与手机号即可提交，无需登录
+        </footer>
+      </main>
 
       {selectedPackage && (
         <CheckupPackageDetail
