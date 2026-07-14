@@ -2,7 +2,7 @@ import React from 'react';
 import type { ContentItem } from '../../services/contentService';
 import { ResourceCover } from '../user/ResourceCover';
 import { isResourceImageUrl } from '../user/ResourceCover';
-import { resolveIncludedServiceTitles } from '../../services/userServiceCatalog';
+import { resolveIncludedServiceTitles, resolveIncludedServiceLines } from '../../services/userServiceCatalog';
 
 interface Props {
   packageItem: ContentItem;
@@ -18,7 +18,10 @@ export const CheckupPackageDetail: React.FC<Props> = ({
   onBook,
 }) => {
   const includedTitles = resolveIncludedServiceTitles(packageItem, allServices);
+  const includedLines = resolveIncludedServiceLines(packageItem, allServices);
   const posterSrc = packageItem.details?.posterImage as string | undefined;
+  const packagePrice = packageItem.details?.price;
+  const originalPrice = packageItem.details?.originalPrice;
 
   return (
     <div className="min-h-full bg-slate-50 pb-28">
@@ -53,18 +56,32 @@ export const CheckupPackageDetail: React.FC<Props> = ({
                 体检套餐
               </span>
               <div className="text-2xl font-black text-emerald-700">
-                {packageItem.details?.price ? `¥${packageItem.details.price}` : '价格待定'}
+                {packagePrice ? `¥${packagePrice}` : '价格待定'}
               </div>
+              {originalPrice && Number(originalPrice) > Number(packagePrice || 0) && (
+                <div className="text-xs text-slate-400 line-through">原价 ¥{originalPrice}</div>
+              )}
             </div>
           </div>
 
-          {includedTitles.length > 0 && (
+          {(includedLines.length > 0 ? includedLines : includedTitles.map((t) => ({ title: t, quantity: 1, discountRate: 100, unitPrice: 0, lineAmount: 0 }))).length > 0 && (
             <div className="bg-emerald-50 p-4 rounded-xl mb-4">
               <div className="text-xs text-emerald-600 mb-2 font-bold">套餐包含项目</div>
-              <ul className="text-sm text-emerald-900 space-y-1 list-disc pl-4">
-                {includedTitles.map((title) => (
-                  <li key={title}>{title}</li>
-                ))}
+              <ul className="text-sm text-emerald-900 space-y-1.5">
+                {includedLines.length > 0
+                  ? includedLines.map((line) => (
+                      <li key={line.title} className="flex justify-between gap-2">
+                        <span>
+                          {line.title}
+                          {line.quantity > 1 ? ` ×${line.quantity}` : ''}
+                          {line.discountRate < 100 ? `（${line.discountRate}%）` : ''}
+                        </span>
+                        {line.lineAmount > 0 && (
+                          <span className="text-emerald-700 font-semibold shrink-0">¥{line.lineAmount}</span>
+                        )}
+                      </li>
+                    ))
+                  : includedTitles.map((title) => <li key={title} className="list-disc ml-4">{title}</li>)}
               </ul>
             </div>
           )}

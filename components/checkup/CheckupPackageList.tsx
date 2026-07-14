@@ -6,6 +6,7 @@ import {
   getNextMonthSlotsForService,
   getServiceSlotQuota,
 } from '../../services/doctorScheduleUtils';
+import { getPackageIncludedItems } from '../../services/userServiceCatalog';
 
 interface Props {
   packages: ContentItem[];
@@ -66,9 +67,9 @@ export const CheckupPackageList: React.FC<Props> = ({ packages, interactions, on
               <span className="text-base font-bold text-emerald-600">
                 {pkg.details?.price ? `¥${pkg.details.price}` : '价格待定'}
               </span>
-              {(pkg.details?.includedServiceIds as string[] | undefined)?.length ? (
+              {getPackageIncludedItems(pkg).length ? (
                 <span className="text-xs text-slate-400">
-                  含 {(pkg.details?.includedServiceIds as string[]).length} 项检查
+                  含 {getPackageIncludedItems(pkg).length} 项检查
                 </span>
               ) : null}
             </div>

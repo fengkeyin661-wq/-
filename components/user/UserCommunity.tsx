@@ -14,6 +14,7 @@ import {
     ServiceMainCategory,
     classifyServiceItem,
     resolveIncludedServiceTitles,
+    resolveIncludedServiceLines,
 } from '../../services/userServiceCatalog';
 
 interface Props {
@@ -687,10 +688,39 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                                     <div className="text-2xl font-bold text-blue-700">
                                         {selectedItem.details?.price ? `¥${selectedItem.details.price}` : '免费'}
                                     </div>
+                                    {selectedItem.type === 'checkup_package' &&
+                                        selectedItem.details?.originalPrice &&
+                                        Number(selectedItem.details.originalPrice) > Number(selectedItem.details?.price || 0) && (
+                                        <div className="text-xs text-slate-400 line-through mt-1">
+                                            原价 ¥{selectedItem.details.originalPrice}
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
-                            {selectedItem.type === 'checkup_package' && resolveIncludedServiceTitles(selectedItem, allServices).length > 0 && (
+                            {selectedItem.type === 'checkup_package' && resolveIncludedServiceLines(selectedItem, allServices).length > 0 && (
+                                <div className="bg-emerald-50 p-4 rounded-xl">
+                                    <div className="text-xs text-emerald-600 mb-2 font-bold">套餐包含项目</div>
+                                    <ul className="text-sm text-emerald-900 space-y-1.5">
+                                        {resolveIncludedServiceLines(selectedItem, allServices).map((line) => (
+                                            <li key={line.title} className="flex justify-between gap-2">
+                                                <span>
+                                                    {line.title}
+                                                    {line.quantity > 1 ? ` ×${line.quantity}` : ''}
+                                                    {line.discountRate < 100 ? `（折扣 ${line.discountRate}%）` : ''}
+                                                </span>
+                                                {line.lineAmount > 0 && (
+                                                    <span className="font-semibold text-emerald-700 shrink-0">¥{line.lineAmount}</span>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {selectedItem.type === 'checkup_package' &&
+                                resolveIncludedServiceLines(selectedItem, allServices).length === 0 &&
+                                resolveIncludedServiceTitles(selectedItem, allServices).length > 0 && (
                                 <div className="bg-emerald-50 p-4 rounded-xl">
                                     <div className="text-xs text-emerald-600 mb-2 font-bold">套餐包含项目</div>
                                     <ul className="text-sm text-emerald-900 space-y-1 list-disc pl-4">

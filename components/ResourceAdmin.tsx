@@ -22,8 +22,11 @@ import {
     HEALTH_SERVICE_SUB_CATEGORIES,
     classifyServiceItem,
     inferServiceDomain,
+    calcPackagePriceBreakdown,
+    getPackageIncludedItems,
     type ClinicalSubCategory,
     type HealthServiceSubCategory,
+    type PackageIncludedItem,
 } from '../services/userServiceCatalog';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { prepareContentItemImages, uploadPackageImageFile } from '../services/resourceImageStorage';
@@ -657,6 +660,48 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             ...prev,
             details: { ...prev.details, [key]: val }
         }));
+    };
+
+    const syncPackageIncluded = (items: PackageIncludedItem[]) => {
+        const stub = {
+            ...editItem,
+            details: { ...editItem.details, includedItems: items, includedServiceIds: items.map((i) => i.serviceId) },
+        } as ContentItem;
+        const breakdown = calcPackagePriceBreakdown(stub, clinicalServiceCatalog);
+        setEditItem((prev) => ({
+            ...prev,
+            details: {
+                ...prev.details,
+                includedItems: items,
+                includedServiceIds: items.map((i) => i.serviceId),
+                originalPrice: breakdown.originalTotal,
+                price: prev.details?.priceManualOverride ? prev.details?.price : breakdown.packagePrice,
+                calculatedPrice: breakdown.packagePrice,
+            },
+        }));
+    };
+
+    const togglePackageService = (svc: ContentItem, selected: boolean) => {
+        const current = getPackageIncludedItems(editItem as ContentItem);
+        if (selected) {
+            syncPackageIncluded(current.filter((i) => i.serviceId !== svc.id));
+        } else {
+            syncPackageIncluded([...current, { serviceId: svc.id, quantity: 1, discountRate: 100 }]);
+        }
+    };
+
+    const updatePackageItemField = (
+        serviceId: string,
+        field: 'quantity' | 'discountRate',
+        value: number,
+    ) => {
+        const current = getPackageIncludedItems(editItem as ContentItem);
+        const next = current.map((i) => {
+            if (i.serviceId !== serviceId) return i;
+            if (field === 'quantity') return { ...i, quantity: Math.max(1, Math.round(value) || 1) };
+            return { ...i, discountRate: Math.min(100, Math.max(0, value)) };
+        });
+        syncPackageIncluded(next);
     };
 
     const toggleServiceSchedule = (dayKey: string, slotId: string) => {
@@ -1666,7 +1711,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'service' && `¥${item.details?.price} • ${serviceCatalogLabel(item)}`}
                                                     {item.type === 'checkup_package' && (
                                                         <>
-                                                            {`套餐 ¥${item.details?.price || '-'} • 含${(item.details?.includedServiceIds || []).length}项`}
+                                                            {`套餐 ¥${item.details?.price || '-'} • 含${getPackageIncludedItems(item).length}项`}
+                                                            {item.details?.originalPrice && Number(item.details.originalPrice) > Number(item.details?.price || 0) ? (
+                                                                <span className="text-slate-400">（原价 ¥{item.details.originalPrice}）</span>
+                                                            ) : null}
                                                             {' • '}
                                                             {Object.values((item.details?.serviceWeeklySchedule || {}) as Record<string, string[]>).some((slots) => slots?.length)
                                                                 ? '已配置排期'
@@ -1970,30 +2018,124 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     </FormSection>
                                     <FormSection title="体检套餐">
                                         <TextAreaField label="套餐简介" placeholder="面向人群、检查意义等" value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
-                                        <InputField label="套餐价格 (元)" type="number" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
                                         <InputField label="排序值" type="number" value={editItem.details?.sortOrder} onChange={(v:any) => updateDetail('sortOrder', v)} />
-                                        <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                                            <div className="text-xs font-bold text-emerald-800 mb-2">组合临床检查项目（勾选后用户端展示套餐明细）</div>
+                                        <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-4">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <div className="text-xs font-bold text-emerald-800">组合临床检查项目</div>
+                                                    <p className="text-[11px] text-emerald-700 mt-0.5">勾选项目后可设数量与折扣比例（100=全价，80=八折），套餐价 = Σ(单价×数量×折扣÷100)</p>
+                                                </div>
+                                                {(() => {
+                                                    const breakdown = calcPackagePriceBreakdown(editItem as ContentItem, clinicalServiceCatalog);
+                                                    const price = editItem.details?.priceManualOverride
+                                                        ? Number(editItem.details?.price) || 0
+                                                        : breakdown.packagePrice;
+                                                    return (
+                                                        <div className="text-right bg-white rounded-xl border border-emerald-200 px-4 py-2 min-w-[160px]">
+                                                            <div className="text-[10px] text-slate-400 font-bold">套餐价格</div>
+                                                            <div className="text-2xl font-black text-emerald-700">¥{price}</div>
+                                                            {breakdown.originalTotal > breakdown.packagePrice && (
+                                                                <div className="text-[11px] text-slate-400 line-through">原价 ¥{breakdown.originalTotal}</div>
+                                                            )}
+                                                            <div className="text-[10px] text-emerald-600 mt-0.5">
+                                                                已选 {breakdown.lines.length} 项 · 自动合计 ¥{breakdown.packagePrice}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                            <label className="flex items-center gap-2 text-xs text-slate-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!editItem.details?.priceManualOverride}
+                                                    onChange={(e) => {
+                                                        const manual = e.target.checked;
+                                                        if (!manual) {
+                                                            const breakdown = calcPackagePriceBreakdown(editItem as ContentItem, clinicalServiceCatalog);
+                                                            setEditItem((prev) => ({
+                                                                ...prev,
+                                                                details: {
+                                                                    ...prev.details,
+                                                                    priceManualOverride: false,
+                                                                    price: breakdown.packagePrice,
+                                                                    calculatedPrice: breakdown.packagePrice,
+                                                                    originalPrice: breakdown.originalTotal,
+                                                                },
+                                                            }));
+                                                        } else {
+                                                            updateDetail('priceManualOverride', true);
+                                                        }
+                                                    }}
+                                                />
+                                                手动覆盖套餐价格（关闭后恢复自动合计）
+                                            </label>
+                                            {editItem.details?.priceManualOverride && (
+                                                <InputField
+                                                    label="手动套餐价格 (元)"
+                                                    type="number"
+                                                    value={editItem.details?.price}
+                                                    onChange={(v: any) => updateDetail('price', v)}
+                                                />
+                                            )}
                                             {clinicalServiceCatalog.length === 0 ? (
                                                 <p className="text-xs text-emerald-700">请先在「临床/健康服务项目」中维护检查项目</p>
                                             ) : (
-                                                <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                                                <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
                                                     {clinicalServiceCatalog.map((svc) => {
-                                                        const selected = ((editItem.details?.includedServiceIds || []) as string[]).includes(svc.id);
+                                                        const items = getPackageIncludedItems(editItem as ContentItem);
+                                                        const included = items.find((i) => i.serviceId === svc.id);
+                                                        const selected = !!included;
+                                                        const unitPrice = Number(svc.details?.price) || 0;
+                                                        const lineAmount = selected
+                                                            ? Math.round(unitPrice * (included!.quantity) * (included!.discountRate / 100) * 100) / 100
+                                                            : 0;
                                                         return (
-                                                            <label key={svc.id} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={selected}
-                                                                    onChange={() => {
-                                                                        const current = ((editItem.details?.includedServiceIds || []) as string[]);
-                                                                        const next = selected ? current.filter((id) => id !== svc.id) : [...current, svc.id];
-                                                                        updateDetail('includedServiceIds', next);
-                                                                    }}
-                                                                />
-                                                                <span className="font-medium">{svc.title}</span>
-                                                                <span className="text-xs text-slate-400">¥{svc.details?.price || '-'}</span>
-                                                            </label>
+                                                            <div
+                                                                key={svc.id}
+                                                                className={`rounded-lg border bg-white p-3 ${selected ? 'border-emerald-300' : 'border-slate-100'}`}
+                                                            >
+                                                                <div className="flex items-center gap-2">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selected}
+                                                                        onChange={() => togglePackageService(svc, selected)}
+                                                                        className="rounded border-slate-300 text-teal-600"
+                                                                    />
+                                                                    <span className="font-medium text-sm text-slate-800 flex-1">{svc.title}</span>
+                                                                    <span className="text-xs text-slate-400">单价 ¥{unitPrice || '-'}</span>
+                                                                </div>
+                                                                {selected && (
+                                                                    <div className="mt-2 grid grid-cols-3 gap-2 items-end pl-6">
+                                                                        <label className="text-[11px] text-slate-600">
+                                                                            数量
+                                                                            <input
+                                                                                type="number"
+                                                                                min={1}
+                                                                                step={1}
+                                                                                value={included!.quantity}
+                                                                                onChange={(e) => updatePackageItemField(svc.id, 'quantity', Number(e.target.value))}
+                                                                                className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                            />
+                                                                        </label>
+                                                                        <label className="text-[11px] text-slate-600">
+                                                                            折扣比例 (%)
+                                                                            <input
+                                                                                type="number"
+                                                                                min={0}
+                                                                                max={100}
+                                                                                step={1}
+                                                                                value={included!.discountRate}
+                                                                                onChange={(e) => updatePackageItemField(svc.id, 'discountRate', Number(e.target.value))}
+                                                                                className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                            />
+                                                                        </label>
+                                                                        <div className="text-right pb-1">
+                                                                            <div className="text-[10px] text-slate-400">小计</div>
+                                                                            <div className="text-sm font-bold text-emerald-700">¥{lineAmount}</div>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         );
                                                     })}
                                                 </div>

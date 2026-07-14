@@ -95,8 +95,106 @@ export const resolveIncludedServiceTitles = (
   packageItem: ContentItem,
   allServices: ContentItem[],
 ): string[] => {
-  const ids: string[] = packageItem.details?.includedServiceIds || [];
-  if (!ids.length) return [];
+  const items = getPackageIncludedItems(packageItem);
+  if (!items.length) return [];
   const map = new Map(allServices.map((s) => [s.id, s.title]));
-  return ids.map((id) => map.get(id) || id).filter(Boolean);
+  return items.map((it) => map.get(it.serviceId) || it.serviceId).filter(Boolean);
+};
+
+/** 套餐组合项目：含数量、折扣比例（百分制：100=全价，80=八折） */
+export interface PackageIncludedItem {
+  serviceId: string;
+  quantity: number;
+  /** 折扣比例 0–100，表示实付占原价的百分比；100=无折扣 */
+  discountRate: number;
+}
+
+export const normalizeDiscountRate = (v?: number): number => {
+  if (v === undefined || v === null || Number.isNaN(Number(v))) return 100;
+  return Math.min(100, Math.max(0, Number(v)));
+};
+
+export const normalizeQuantity = (v?: number): number => {
+  if (v === undefined || v === null || Number.isNaN(Number(v))) return 1;
+  return Math.max(1, Math.round(Number(v)));
+};
+
+/** 兼容旧数据：仅有 includedServiceIds 时转为 includedItems */
+export const getPackageIncludedItems = (packageItem: ContentItem): PackageIncludedItem[] => {
+  const raw = packageItem.details?.includedItems as PackageIncludedItem[] | undefined;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw.map((it) => ({
+      serviceId: it.serviceId,
+      quantity: normalizeQuantity(it.quantity),
+      discountRate: normalizeDiscountRate(it.discountRate),
+    }));
+  }
+  const ids: string[] = packageItem.details?.includedServiceIds || [];
+  return ids.map((serviceId) => ({ serviceId, quantity: 1, discountRate: 100 }));
+};
+
+export const calcPackageLineAmount = (
+  unitPrice: number,
+  quantity: number,
+  discountRate: number,
+): number => {
+  const q = normalizeQuantity(quantity);
+  const d = normalizeDiscountRate(discountRate) / 100;
+  return Math.round(unitPrice * q * d * 100) / 100;
+};
+
+export interface PackagePriceBreakdown {
+  originalTotal: number;
+  packagePrice: number;
+  lines: {
+    serviceId: string;
+    title: string;
+    unitPrice: number;
+    quantity: number;
+    discountRate: number;
+    lineOriginal: number;
+    lineAmount: number;
+  }[];
+}
+
+export const calcPackagePriceBreakdown = (
+  packageItem: ContentItem,
+  allServices: ContentItem[],
+): PackagePriceBreakdown => {
+  const items = getPackageIncludedItems(packageItem);
+  const map = new Map(allServices.map((s) => [s.id, s]));
+  const lines = items.map((it) => {
+    const svc = map.get(it.serviceId);
+    const unitPrice = Number(svc?.details?.price) || 0;
+    const quantity = normalizeQuantity(it.quantity);
+    const discountRate = normalizeDiscountRate(it.discountRate);
+    const lineOriginal = Math.round(unitPrice * quantity * 100) / 100;
+    const lineAmount = calcPackageLineAmount(unitPrice, quantity, discountRate);
+    return {
+      serviceId: it.serviceId,
+      title: svc?.title || it.serviceId,
+      unitPrice,
+      quantity,
+      discountRate,
+      lineOriginal,
+      lineAmount,
+    };
+  });
+  const originalTotal = Math.round(lines.reduce((s, l) => s + l.lineOriginal, 0) * 100) / 100;
+  const packagePrice = Math.round(lines.reduce((s, l) => s + l.lineAmount, 0) * 100) / 100;
+  return { originalTotal, packagePrice, lines };
+};
+
+export const resolveIncludedServiceLines = (
+  packageItem: ContentItem,
+  allServices: ContentItem[],
+): { title: string; quantity: number; discountRate: number; unitPrice: number; lineAmount: number }[] => {
+  const { lines } = calcPackagePriceBreakdown(packageItem, allServices);
+  return lines.map((l) => ({
+    title: l.title,
+    quantity: l.quantity,
+    discountRate: l.discountRate,
+    unitPrice: l.unitPrice,
+    lineAmount: l.lineAmount,
+  }));
 };
