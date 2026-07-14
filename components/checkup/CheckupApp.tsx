@@ -16,6 +16,7 @@ import { CheckupPackageList } from './CheckupPackageList';
 import { CheckupPackageDetail } from './CheckupPackageDetail';
 import { CheckupSlotPicker } from './CheckupSlotPicker';
 import { submitCheckupBooking } from './checkupBooking';
+import { CheckupNoticePanel } from './CheckupNoticePanel';
 
 type View = 'list' | 'detail';
 
@@ -149,6 +150,8 @@ export const CheckupApp: React.FC = () => {
               </a>
             </div>
           </header>
+
+          <CheckupNoticePanel />
 
           {loading ? (
             <div className="text-center py-20">
