@@ -81,6 +81,12 @@ export const CheckupApp: React.FC = () => {
     setSlotPickerPackage(selectedPackage);
   };
 
+  /** 列表「预约」：直接进入时段选择 */
+  const handleBookFromList = (item: ContentItem) => {
+    setSelectedPackage(item);
+    setSlotPickerPackage(item);
+  };
+
   const handleSlotSelected = (timeSlot: string) => {
     if (!slotPickerPackage) return;
     setPendingBook({ packageItem: slotPickerPackage, timeSlot });
@@ -156,8 +162,8 @@ export const CheckupApp: React.FC = () => {
           <CheckupPackageList
             packages={sortedPackages}
             allServices={allServices}
-            interactions={interactions}
             onSelect={handleSelectPackage}
+            onBook={handleBookFromList}
           />
         )}
 
