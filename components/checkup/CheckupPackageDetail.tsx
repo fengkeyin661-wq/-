@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { ContentItem } from '../../services/contentService';
 import { ResourceCover } from '../user/ResourceCover';
 import { isResourceImageUrl } from '../user/ResourceCover';
@@ -12,6 +12,7 @@ import {
 } from '../../services/userServiceCatalog';
 import { CHECKUP_CONTACT_PHONES } from './checkupNoticeContent';
 import { PackageItemGroupedList } from './PackageItemGroupedList';
+import { CheckupPosterPreview } from './CheckupPosterPreview';
 
 interface Props {
   packageItem: ContentItem;
@@ -36,6 +37,7 @@ export const CheckupPackageDetail: React.FC<Props> = ({
   );
   const isGroup = getPackageKind(packageItem) === 'group';
   const primaryTel = `tel:${CHECKUP_CONTACT_PHONES[0].replace(/-/g, '')}`;
+  const [posterPreviewOpen, setPosterPreviewOpen] = useState(false);
 
   return (
     <ModalPortal>
@@ -135,13 +137,21 @@ export const CheckupPackageDetail: React.FC<Props> = ({
               </div>
 
               {posterSrc && isResourceImageUrl(posterSrc) && (
-                <div className="mt-4 rounded-2xl overflow-hidden shadow-sm border border-slate-100 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setPosterPreviewOpen(true)}
+                  className="mt-4 w-full rounded-2xl overflow-hidden shadow-sm border border-slate-100 bg-white text-left active:scale-[0.99] transition-transform relative group"
+                  aria-label={`查看${packageItem.title}详情海报大图`}
+                >
                   <img
                     src={posterSrc}
                     alt={`${packageItem.title} 海报`}
                     className="w-full max-h-72 object-cover"
                   />
-                </div>
+                  <span className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/55 text-white text-xs font-bold backdrop-blur-sm">
+                    点击查看大图
+                  </span>
+                </button>
               )}
 
               {packageItem.tags?.length ? (
@@ -183,6 +193,15 @@ export const CheckupPackageDetail: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {posterSrc && isResourceImageUrl(posterSrc) && (
+        <CheckupPosterPreview
+          src={posterSrc}
+          alt={`${packageItem.title} 详情海报`}
+          open={posterPreviewOpen}
+          onClose={() => setPosterPreviewOpen(false)}
+        />
+      )}
 
       <style>{`
         @keyframes slideUp {
