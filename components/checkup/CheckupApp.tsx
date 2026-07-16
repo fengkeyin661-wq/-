@@ -8,6 +8,13 @@ import {
   type InteractionItem,
 } from '../../services/contentService';
 import { getPackageKind, type PackageKind } from '../../services/userServiceCatalog';
+import {
+  DEFAULT_CHECKUP_PORTAL_GUIDE,
+  excludeCheckupPortalGuide,
+  fetchCheckupPortalGuide,
+  loadCheckupPortalGuideLocal,
+  type CheckupPortalGuide,
+} from '../../services/checkupPortalContentService';
 import { BookingContactModal } from '../user/BookingContactModal';
 import { CheckupPackageList } from './CheckupPackageList';
 import { CheckupPackageDetail } from './CheckupPackageDetail';
@@ -25,6 +32,7 @@ export const CheckupApp: React.FC = () => {
   const [packages, setPackages] = useState<ContentItem[]>([]);
   const [allServices, setAllServices] = useState<ContentItem[]>([]);
   const [interactions, setInteractions] = useState<InteractionItem[]>([]);
+  const [portalGuide, setPortalGuide] = useState<CheckupPortalGuide>(() => loadCheckupPortalGuideLocal());
   const [loading, setLoading] = useState(true);
   const [activeKind, setActiveKind] = useState<PackageKind>('personal');
   const [selectedPackage, setSelectedPackage] = useState<ContentItem | null>(null);
@@ -39,21 +47,24 @@ export const CheckupApp: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const localPkgs = readLocalContent('checkup_package', 'active');
+      const localPkgs = excludeCheckupPortalGuide(readLocalContent('checkup_package', 'active'));
       const localSvcs = readLocalContent('service', 'active');
       const localInts = readLocalInteractions();
       setPackages(localPkgs);
       setAllServices(localSvcs);
       setInteractions(localInts);
+      setPortalGuide(loadCheckupPortalGuideLocal());
 
-      const [remotePkgs, remoteSvcs, remoteInts] = await Promise.all([
+      const [remotePkgs, remoteSvcs, remoteInts, guide] = await Promise.all([
         fetchContent('checkup_package', 'active'),
         fetchContent('service', 'active'),
         fetchInteractions(),
+        fetchCheckupPortalGuide(),
       ]);
-      setPackages(remotePkgs);
+      setPackages(excludeCheckupPortalGuide(remotePkgs));
       setAllServices(remoteSvcs);
       setInteractions(remoteInts);
+      setPortalGuide(guide || DEFAULT_CHECKUP_PORTAL_GUIDE);
     } finally {
       setLoading(false);
     }
@@ -76,6 +87,11 @@ export const CheckupApp: React.FC = () => {
     () => sortedPackages.filter((p) => getPackageKind(p) === activeKind),
     [sortedPackages, activeKind],
   );
+
+  const contactTel = useMemo(() => {
+    const phone = portalGuide.phones[0] || DEFAULT_CHECKUP_PORTAL_GUIDE.phones[0];
+    return `tel:${phone.replace(/-/g, '')}`;
+  }, [portalGuide.phones]);
 
   const handleSelectPackage = (item: ContentItem) => {
     setSelectedPackage(item);
@@ -145,10 +161,10 @@ export const CheckupApp: React.FC = () => {
 
       <main className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain scrollbar-hide [-webkit-overflow-scrolling:touch]">
         <div className="pt-4">
-          <CheckupVenueInfo />
+          <CheckupVenueInfo guide={portalGuide} />
         </div>
 
-        <CheckupNoticePanel />
+        <CheckupNoticePanel guide={portalGuide} />
 
         <div className="sticky top-0 z-[5] bg-slate-50/95 backdrop-blur-md px-4 pt-1 pb-2 border-b border-slate-100">
           <div className="flex rounded-xl bg-white border border-slate-200 p-1 shadow-sm">
@@ -185,6 +201,7 @@ export const CheckupApp: React.FC = () => {
             allServices={allServices}
             onSelect={handleSelectPackage}
             onBook={handleBookFromList}
+            contactTel={contactTel}
             emptyHint={
               activeKind === 'personal'
                 ? '暂无个人体检套餐'
@@ -204,6 +221,7 @@ export const CheckupApp: React.FC = () => {
         <CheckupPackageDetail
           packageItem={selectedPackage}
           allServices={allServices}
+          contactTel={contactTel}
           onBack={handleCloseDetail}
           onBook={handleStartBook}
         />

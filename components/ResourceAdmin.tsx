@@ -39,6 +39,8 @@ import {
 } from '../services/userServiceCatalog';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { prepareContentItemImages, uploadPackageImageFile } from '../services/resourceImageStorage';
+import { excludeCheckupPortalGuide, isCheckupPortalGuideItem } from '../services/checkupPortalContentService';
+import { CheckupPortalGuideEditor } from './CheckupPortalGuideEditor';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -277,6 +279,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [presets, setPresets] = useState<ResourcePresets>(() => loadResourcePresets());
     const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
     const [presetDraft, setPresetDraft] = useState<ResourcePresets | null>(null);
+    const [isCheckupGuideEditorOpen, setIsCheckupGuideEditorOpen] = useState(false);
 
     // Content Edit State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -403,6 +406,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     };
 
     const displayItems = useMemo(() => {
+        if (activeTab === 'service' && serviceSubTab === 'package') {
+            return excludeCheckupPortalGuide(items);
+        }
         if (activeTab !== 'service' || serviceSubTab !== 'item') return items;
 
         let list = items.filter((i) => i.type === 'service');
@@ -677,6 +683,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 const serviceMap = services.map((s) => (s.id === itemToSave.id ? itemToSave : s));
                 let synced = 0;
                 for (const pkg of packages) {
+                    if (isCheckupPortalGuideItem(pkg)) continue;
                     if (!packageIncludesService(pkg, itemToSave.id)) continue;
                     const updated = applyLivePackagePricing(pkg, serviceMap);
                     await saveContent(updated);
@@ -1713,6 +1720,21 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     <div className="flex border-b border-slate-100">
                                         <button type="button" onClick={() => setServiceSubTab('item')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'item' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🔬 临床/健康服务项目</button>
                                         <button type="button" onClick={() => setServiceSubTab('package')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'package' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🩺 健康体检套餐</button>
+                                    </div>
+                                )}
+
+                                {activeTab === 'service' && serviceSubTab === 'package' && (
+                                    <div className="border-b border-slate-100 pb-3 flex flex-wrap gap-2 items-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsCheckupGuideEditorOpen(true)}
+                                            className="px-4 py-2 rounded-lg text-sm font-bold border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                                        >
+                                            📋 维护到检信息与体检须知
+                                        </button>
+                                        <span className="text-xs text-slate-400">
+                                            配置预约站首页时间、地址、电话及须知全文（全局共用）
+                                        </span>
                                     </div>
                                 )}
 
@@ -2996,6 +3018,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     </div>
                 </div>
             )}
+
+            <CheckupPortalGuideEditor
+                open={isCheckupGuideEditorOpen}
+                onClose={() => setIsCheckupGuideEditorOpen(false)}
+            />
         </div>
     );
 };

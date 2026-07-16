@@ -2,23 +2,23 @@ import React from 'react';
 import type { ContentItem } from '../../services/contentService';
 import { ResourceCover } from '../user/ResourceCover';
 import { getPackageKind, resolvePackageDisplayPricing } from '../../services/userServiceCatalog';
-import { CHECKUP_CONTACT_PHONES } from './checkupNoticeContent';
 
 interface Props {
   packages: ContentItem[];
   allServices?: ContentItem[];
   onSelect: (item: ContentItem) => void;
   onBook: (item: ContentItem) => void;
+  /** 团体咨询拨号，如 tel:037167739261 */
+  contactTel?: string;
   emptyHint?: string;
 }
-
-const PRIMARY_TEL = `tel:${CHECKUP_CONTACT_PHONES[0].replace(/-/g, '')}`;
 
 export const CheckupPackageList: React.FC<Props> = ({
   packages,
   allServices = [],
   onSelect,
   onBook,
+  contactTel = 'tel:037167739261',
   emptyHint = '暂无上架体检套餐',
 }) => {
   if (packages.length === 0) {
@@ -83,7 +83,7 @@ export const CheckupPackageList: React.FC<Props> = ({
                 </div>
                 {isGroup ? (
                   <a
-                    href={PRIMARY_TEL}
+                    href={contactTel}
                     onClick={(e) => e.stopPropagation()}
                     className="shrink-0 px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 active:scale-95 transition-transform"
                   >

@@ -10,7 +10,6 @@ import {
   resolveIncludedServiceGroups,
   resolveGiftItemGroups,
 } from '../../services/userServiceCatalog';
-import { CHECKUP_CONTACT_PHONES } from './checkupNoticeContent';
 import { PackageItemGroupedList } from './PackageItemGroupedList';
 import { CheckupPosterPreview } from './CheckupPosterPreview';
 
@@ -19,6 +18,7 @@ interface Props {
   allServices: ContentItem[];
   onBack: () => void;
   onBook: () => void;
+  contactTel?: string;
 }
 
 export const CheckupPackageDetail: React.FC<Props> = ({
@@ -26,6 +26,7 @@ export const CheckupPackageDetail: React.FC<Props> = ({
   allServices,
   onBack,
   onBook,
+  contactTel = 'tel:037167739261',
 }) => {
   const includedGroups = resolveIncludedServiceGroups(packageItem, allServices);
   const optionalGroups = resolveOptionalGroupLines(packageItem, allServices);
@@ -36,7 +37,6 @@ export const CheckupPackageDetail: React.FC<Props> = ({
     allServices,
   );
   const isGroup = getPackageKind(packageItem) === 'group';
-  const primaryTel = `tel:${CHECKUP_CONTACT_PHONES[0].replace(/-/g, '')}`;
   const [posterPreviewOpen, setPosterPreviewOpen] = useState(false);
 
   return (
@@ -176,7 +176,7 @@ export const CheckupPackageDetail: React.FC<Props> = ({
           <div className="shrink-0 p-4 border-t border-slate-100 bg-white safe-area-pb">
             {isGroup ? (
               <a
-                href={primaryTel}
+                href={contactTel}
                 className="block w-full py-3.5 rounded-2xl bg-teal-600 text-white font-bold text-base text-center shadow-lg active:scale-[0.98] transition-transform"
               >
                 电话咨询预约

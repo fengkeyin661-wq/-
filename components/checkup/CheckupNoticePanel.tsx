@@ -1,18 +1,12 @@
 import React, { useState } from 'react';
 import { ModalPortal } from '../user/ModalPortal';
-import {
-  CHECKUP_ADDRESS_INFO,
-  CHECKUP_CONTACT_FOOTER,
-  CHECKUP_CONTACT_PHONES,
-  CHECKUP_NOTICE_ITEMS,
-  CHECKUP_NOTICE_TITLE,
-  CHECKUP_POST_SERVICE_ITEMS,
-  CHECKUP_POST_SERVICE_TITLE,
-  CHECKUP_TIME_INFO,
-  CHECKUP_TRANSPORT_INFO,
-} from './checkupNoticeContent';
+import type { CheckupPortalGuide } from '../../services/checkupPortalContentService';
 
-export const CheckupNoticePanel: React.FC = () => {
+interface Props {
+  guide: CheckupPortalGuide;
+}
+
+export const CheckupNoticePanel: React.FC<Props> = ({ guide }) => {
   const [open, setOpen] = useState(false);
 
   return (
@@ -28,7 +22,7 @@ export const CheckupNoticePanel: React.FC = () => {
               📋
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-black text-amber-900">{CHECKUP_NOTICE_TITLE}</div>
+              <div className="text-sm font-black text-amber-900">{guide.noticeTitle}</div>
               <div className="text-[11px] text-amber-700/80 truncate">
                 到检须知 · 时间地址 · 检后服务（点击查看全文）
               </div>
@@ -61,7 +55,7 @@ export const CheckupNoticePanel: React.FC = () => {
               <div className="shrink-0 px-4 pb-3 flex items-center gap-3 border-b border-amber-100">
                 <div className="flex-1 min-w-0">
                   <h2 id="checkup-notice-title" className="text-base font-black text-amber-900">
-                    {CHECKUP_NOTICE_TITLE}
+                    {guide.noticeTitle}
                   </h2>
                   <p className="text-[11px] text-amber-700/80">上拉或下滑可查看完整内容</p>
                 </div>
@@ -79,7 +73,7 @@ export const CheckupNoticePanel: React.FC = () => {
                 <div>
                   <h3 className="text-xs font-black text-amber-900 mb-2">到检注意事项</h3>
                   <ol className="space-y-2">
-                    {CHECKUP_NOTICE_ITEMS.map((item, idx) => (
+                    {guide.noticeItems.map((item, idx) => (
                       <li key={idx} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
                         <span className="shrink-0 font-bold text-amber-700 w-5 text-right">{idx + 1}.</span>
                         <span>{item}</span>
@@ -89,12 +83,12 @@ export const CheckupNoticePanel: React.FC = () => {
                 </div>
 
                 <div className="rounded-xl bg-white border border-amber-100 p-3 space-y-3">
-                  <InfoBlock title={CHECKUP_TIME_INFO.title} body={CHECKUP_TIME_INFO.content} />
-                  <InfoBlock title={CHECKUP_ADDRESS_INFO.title} body={CHECKUP_ADDRESS_INFO.content} />
+                  <InfoBlock title="体检时间" body={guide.timeInfoContent} />
+                  <InfoBlock title={guide.addressTitle} body={guide.addressContent} />
                   <div>
-                    <div className="text-[11px] font-black text-amber-800 mb-1">{CHECKUP_TRANSPORT_INFO.title}</div>
+                    <div className="text-[11px] font-black text-amber-800 mb-1">{guide.transportTitle}</div>
                     <ul className="space-y-1.5">
-                      {CHECKUP_TRANSPORT_INFO.items.map((line) => (
+                      {guide.transportItems.map((line) => (
                         <li key={line} className="text-[12px] leading-relaxed text-slate-600">
                           {line}
                         </li>
@@ -106,11 +100,11 @@ export const CheckupNoticePanel: React.FC = () => {
                 <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3">
                   <h3 className="text-xs font-black text-emerald-900 mb-3 flex items-center gap-1.5">
                     <span aria-hidden>💚</span>
-                    {CHECKUP_POST_SERVICE_TITLE}
+                    {guide.postServiceTitle}
                   </h3>
                   <ol className="space-y-3">
-                    {CHECKUP_POST_SERVICE_ITEMS.map((item, idx) => (
-                      <li key={item.title} className="text-[13px] leading-relaxed text-slate-700">
+                    {guide.postServiceItems.map((item, idx) => (
+                      <li key={`${item.title}-${idx}`} className="text-[13px] leading-relaxed text-slate-700">
                         <div className="font-bold text-emerald-800 mb-0.5">
                           {idx + 1}. {item.title}
                         </div>
@@ -123,7 +117,7 @@ export const CheckupNoticePanel: React.FC = () => {
                 <div className="rounded-xl bg-white border border-amber-100 p-3 mb-2">
                   <div className="text-[11px] font-black text-amber-800 mb-2">咨询电话</div>
                   <div className="flex flex-wrap gap-2 mb-2">
-                    {CHECKUP_CONTACT_PHONES.map((phone) => (
+                    {guide.phones.map((phone) => (
                       <a
                         key={phone}
                         href={`tel:${phone.replace(/-/g, '')}`}
@@ -133,7 +127,7 @@ export const CheckupNoticePanel: React.FC = () => {
                       </a>
                     ))}
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">{CHECKUP_CONTACT_FOOTER}</p>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">{guide.contactFooter}</p>
                 </div>
               </div>
 
