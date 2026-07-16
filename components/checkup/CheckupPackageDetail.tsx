@@ -4,13 +4,14 @@ import { ResourceCover } from '../user/ResourceCover';
 import { isResourceImageUrl } from '../user/ResourceCover';
 import { ModalPortal } from '../user/ModalPortal';
 import {
-  resolveIncludedServiceLines,
   resolveOptionalGroupLines,
-  resolveGiftItemLines,
   resolvePackageDisplayPricing,
   getPackageKind,
+  resolveIncludedServiceGroups,
+  resolveGiftItemGroups,
 } from '../../services/userServiceCatalog';
 import { CHECKUP_CONTACT_PHONES } from './checkupNoticeContent';
+import { PackageItemGroupedList } from './PackageItemGroupedList';
 
 interface Props {
   packageItem: ContentItem;
@@ -25,9 +26,9 @@ export const CheckupPackageDetail: React.FC<Props> = ({
   onBack,
   onBook,
 }) => {
-  const includedLines = resolveIncludedServiceLines(packageItem, allServices);
+  const includedGroups = resolveIncludedServiceGroups(packageItem, allServices);
   const optionalGroups = resolveOptionalGroupLines(packageItem, allServices);
-  const giftLines = resolveGiftItemLines(packageItem, allServices);
+  const giftGroups = resolveGiftItemGroups(packageItem, allServices);
   const posterSrc = packageItem.details?.posterImage as string | undefined;
   const { packagePrice, originalPrice, showOriginalPrice } = resolvePackageDisplayPricing(
     packageItem,
@@ -105,55 +106,25 @@ export const CheckupPackageDetail: React.FC<Props> = ({
                 </div>
               </div>
 
-              {includedLines.length > 0 && (
-                <div className="bg-emerald-50 p-4 rounded-xl mb-4">
-                  <div className="text-xs text-emerald-600 mb-2 font-bold">固定包含项目</div>
-                  <ul className="text-sm text-emerald-900 space-y-1.5 list-disc pl-4">
-                    {includedLines.map((line) => (
-                      <li key={line.title}>
-                        {line.title}
-                        {line.quantity > 1 ? ` ×${line.quantity}` : ''}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              {includedGroups.length > 0 && (
+                <PackageItemGroupedList title="固定包含项目" groups={includedGroups} tone="emerald" />
               )}
 
-              {optionalGroups.map(({ group, label, titles }) => (
-                <div key={group.id} className="bg-indigo-50 p-4 rounded-xl mb-4">
-                  <div className="text-xs text-indigo-700 mb-1 font-bold">{label}</div>
-                  {group.note ? (
-                    <p className="text-[11px] text-indigo-600/90 mb-2">{group.note}</p>
-                  ) : (
-                    <p className="text-[11px] text-indigo-600/90 mb-2">
-                      到检时可在以下候选项目中任选 {Math.min(group.pickCount, titles.length || group.pickCount)} 项
-                    </p>
-                  )}
-                  {titles.length > 0 ? (
-                    <ul className="text-sm text-indigo-950 space-y-1.5 list-disc pl-4">
-                      {titles.map((title) => (
-                        <li key={title}>{title}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-indigo-400">候选项目待配置</p>
-                  )}
-                </div>
+              {optionalGroups.map(({ group, label, categoryGroups }) => (
+                <PackageItemGroupedList
+                  key={group.id}
+                  title={label}
+                  groups={categoryGroups}
+                  tone="indigo"
+                  note={
+                    group.note ||
+                    `到检时可在以下候选项目中任选 ${Math.min(group.pickCount, categoryGroups.reduce((n, g) => n + g.items.length, 0) || group.pickCount)} 项`
+                  }
+                />
               ))}
 
-              {giftLines.length > 0 && (
-                <div className="bg-rose-50 p-4 rounded-xl mb-4">
-                  <div className="text-xs text-rose-700 mb-2 font-bold">赠送项目</div>
-                  <ul className="text-sm text-rose-950 space-y-1.5 list-disc pl-4">
-                    {giftLines.map((line) => (
-                      <li key={line.serviceId}>
-                        {line.title}
-                        {line.quantity > 1 ? ` ×${line.quantity}` : ''}
-                        {line.note ? <span className="text-rose-600/80 text-xs">（{line.note}）</span> : null}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              {giftGroups.length > 0 && (
+                <PackageItemGroupedList title="赠送项目" groups={giftGroups} tone="rose" />
               )}
 
               <div>

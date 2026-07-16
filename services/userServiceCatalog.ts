@@ -187,6 +187,67 @@ export const formatOptionalGroupLabel = (group: PackageOptionalGroup): string =>
   return `${group.name}：${total} 项中任选 ${Math.min(pick, total)} 项`;
 };
 
+export interface PackageDisplayLine {
+  serviceId: string;
+  title: string;
+  quantity?: number;
+  note?: string;
+}
+
+export interface PackageDisplayGroup {
+  key: string;
+  label: string;
+  items: PackageDisplayLine[];
+}
+
+const packageCategoryMeta = (
+  service: ContentItem | undefined,
+): { key: string; label: string } => {
+  if (!service) return { key: 'other', label: '其他' };
+  const cls = classifyServiceItem(service);
+  if (cls.domain === 'clinical') {
+    const label =
+      CLINICAL_SUB_CATEGORIES.find((c) => c.id === cls.subId)?.label || '其他检查';
+    return { key: `clinical:${cls.subId}`, label };
+  }
+  if (cls.domain === 'health_service') {
+    const label =
+      HEALTH_SERVICE_SUB_CATEGORIES.find((c) => c.id === cls.subId)?.label || '健康服务';
+    return { key: `hs:${cls.subId}`, label };
+  }
+  return { key: 'other', label: '其他' };
+};
+
+const PACKAGE_CATEGORY_ORDER = [
+  ...CLINICAL_SUB_CATEGORIES.map((c) => `clinical:${c.id}`),
+  ...HEALTH_SERVICE_SUB_CATEGORIES.map((c) => `hs:${c.id}`),
+  'other',
+];
+
+/** 将套餐项目按临床/健康服务二级分类分组，便于用户端清晰展示 */
+export const groupPackageDisplayLines = (
+  lines: PackageDisplayLine[],
+  allServices: ContentItem[],
+): PackageDisplayGroup[] => {
+  if (!lines.length) return [];
+  const svcMap = new Map(allServices.map((s) => [s.id, s]));
+  const bucket = new Map<string, PackageDisplayGroup>();
+
+  for (const line of lines) {
+    const meta = packageCategoryMeta(svcMap.get(line.serviceId));
+    const existing = bucket.get(meta.key);
+    if (existing) {
+      existing.items.push(line);
+    } else {
+      bucket.set(meta.key, { key: meta.key, label: meta.label, items: [line] });
+    }
+  }
+
+  return PACKAGE_CATEGORY_ORDER.map((key) => bucket.get(key))
+    .filter((g): g is PackageDisplayGroup => !!g && g.items.length > 0)
+    .concat([...bucket.values()].filter((g) => !PACKAGE_CATEGORY_ORDER.includes(g.key)));
+};
+
 export const resolveOptionalGroupLines = (
   packageItem: ContentItem,
   allServices: ContentItem[],
@@ -194,13 +255,23 @@ export const resolveOptionalGroupLines = (
   group: PackageOptionalGroup;
   label: string;
   titles: string[];
+  items: PackageDisplayLine[];
+  categoryGroups: PackageDisplayGroup[];
 }[] => {
   const map = new Map(allServices.map((s) => [s.id, s.title]));
-  return getPackageOptionalGroups(packageItem).map((group) => ({
-    group,
-    label: formatOptionalGroupLabel(group),
-    titles: group.candidateServiceIds.map((id) => map.get(id) || id).filter(Boolean),
-  }));
+  return getPackageOptionalGroups(packageItem).map((group) => {
+    const items: PackageDisplayLine[] = group.candidateServiceIds.map((id) => ({
+      serviceId: id,
+      title: map.get(id) || id,
+    }));
+    return {
+      group,
+      label: formatOptionalGroupLabel(group),
+      titles: items.map((i) => i.title).filter(Boolean),
+      items,
+      categoryGroups: groupPackageDisplayLines(items, allServices),
+    };
+  });
 };
 
 /** 赠送项目：套餐附赠，不参与套餐原价/售价合计 */
@@ -291,9 +362,17 @@ export const calcPackagePriceBreakdown = (
 export const resolveIncludedServiceLines = (
   packageItem: ContentItem,
   allServices: ContentItem[],
-): { title: string; quantity: number; discountRate: number; unitPrice: number; lineAmount: number }[] => {
+): {
+  serviceId: string;
+  title: string;
+  quantity: number;
+  discountRate: number;
+  unitPrice: number;
+  lineAmount: number;
+}[] => {
   const { lines } = calcPackagePriceBreakdown(packageItem, allServices);
   return lines.map((l) => ({
+    serviceId: l.serviceId,
     title: l.title,
     quantity: l.quantity,
     discountRate: l.discountRate,
@@ -301,6 +380,25 @@ export const resolveIncludedServiceLines = (
     lineAmount: l.lineAmount,
   }));
 };
+
+export const resolveIncludedServiceGroups = (
+  packageItem: ContentItem,
+  allServices: ContentItem[],
+): PackageDisplayGroup[] =>
+  groupPackageDisplayLines(
+    resolveIncludedServiceLines(packageItem, allServices).map((l) => ({
+      serviceId: l.serviceId,
+      title: l.title,
+      quantity: l.quantity,
+    })),
+    allServices,
+  );
+
+export const resolveGiftItemGroups = (
+  packageItem: ContentItem,
+  allServices: ContentItem[],
+): PackageDisplayGroup[] =>
+  groupPackageDisplayLines(resolveGiftItemLines(packageItem, allServices), allServices);
 
 /** 是否在前端展示划线原价（默认展示；显式 false 时隐藏） */
 export const shouldShowPackageOriginalPrice = (packageItem: ContentItem): boolean =>

@@ -15,9 +15,11 @@ import {
     classifyServiceItem,
     resolveIncludedServiceLines,
     resolveOptionalGroupLines,
-    resolveGiftItemLines,
+    resolveIncludedServiceGroups,
+    resolveGiftItemGroups,
     resolvePackageDisplayPricing,
 } from '../../services/userServiceCatalog';
+import { PackageItemGroupedList } from '../checkup/PackageItemGroupedList';
 
 interface Props {
     userId?: string;
@@ -722,48 +724,33 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                                 </div>
                             )}
 
-                            {selectedItem.type === 'checkup_package' && resolveIncludedServiceLines(selectedItem, allServices).length > 0 && (
-                                <div className="bg-emerald-50 p-4 rounded-xl">
-                                    <div className="text-xs text-emerald-600 mb-2 font-bold">固定包含项目</div>
-                                    <ul className="text-sm text-emerald-900 space-y-1.5 list-disc pl-4">
-                                        {resolveIncludedServiceLines(selectedItem, allServices).map((line) => (
-                                            <li key={line.title}>
-                                                {line.title}
-                                                {line.quantity > 1 ? ` ×${line.quantity}` : ''}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
+                            {selectedItem.type === 'checkup_package' &&
+                                resolveIncludedServiceGroups(selectedItem, allServices).length > 0 && (
+                                <PackageItemGroupedList
+                                    title="固定包含项目"
+                                    groups={resolveIncludedServiceGroups(selectedItem, allServices)}
+                                    tone="emerald"
+                                />
                             )}
 
                             {selectedItem.type === 'checkup_package' &&
-                                resolveOptionalGroupLines(selectedItem, allServices).map(({ group, label, titles }) => (
-                                    <div key={group.id} className="bg-indigo-50 p-4 rounded-xl">
-                                        <div className="text-xs text-indigo-700 mb-1 font-bold">{label}</div>
-                                        {group.note ? (
-                                            <p className="text-[11px] text-indigo-600 mb-2">{group.note}</p>
-                                        ) : null}
-                                        <ul className="text-sm text-indigo-950 space-y-1.5 list-disc pl-4">
-                                            {titles.map((title) => (
-                                                <li key={title}>{title}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
+                                resolveOptionalGroupLines(selectedItem, allServices).map(({ group, label, categoryGroups }) => (
+                                    <PackageItemGroupedList
+                                        key={group.id}
+                                        title={label}
+                                        groups={categoryGroups}
+                                        tone="indigo"
+                                        note={group.note || undefined}
+                                    />
                                 ))}
 
-                            {selectedItem.type === 'checkup_package' && resolveGiftItemLines(selectedItem, allServices).length > 0 && (
-                                <div className="bg-rose-50 p-4 rounded-xl">
-                                    <div className="text-xs text-rose-700 mb-2 font-bold">赠送项目</div>
-                                    <ul className="text-sm text-rose-950 space-y-1.5 list-disc pl-4">
-                                        {resolveGiftItemLines(selectedItem, allServices).map((line) => (
-                                            <li key={line.serviceId}>
-                                                {line.title}
-                                                {line.quantity > 1 ? ` ×${line.quantity}` : ''}
-                                                {line.note ? <span className="text-xs text-rose-600">（{line.note}）</span> : null}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
+                            {selectedItem.type === 'checkup_package' &&
+                                resolveGiftItemGroups(selectedItem, allServices).length > 0 && (
+                                <PackageItemGroupedList
+                                    title="赠送项目"
+                                    groups={resolveGiftItemGroups(selectedItem, allServices)}
+                                    tone="rose"
+                                />
                             )}
 
                             {selectedItem.type === 'circle' && (
