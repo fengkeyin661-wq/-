@@ -8,7 +8,9 @@ import {
   resolveOptionalGroupLines,
   resolveGiftItemLines,
   resolvePackageDisplayPricing,
+  getPackageKind,
 } from '../../services/userServiceCatalog';
+import { CHECKUP_CONTACT_PHONES } from './checkupNoticeContent';
 
 interface Props {
   packageItem: ContentItem;
@@ -31,6 +33,8 @@ export const CheckupPackageDetail: React.FC<Props> = ({
     packageItem,
     allServices,
   );
+  const isGroup = getPackageKind(packageItem) === 'group';
+  const primaryTel = `tel:${CHECKUP_CONTACT_PHONES[0].replace(/-/g, '')}`;
 
   return (
     <ModalPortal>
@@ -81,14 +85,22 @@ export const CheckupPackageDetail: React.FC<Props> = ({
                   imgClassName="h-full w-full object-cover rounded-xl"
                 />
                 <div>
-                  <span className="inline-block bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-0.5 rounded mb-2">
-                    体检套餐
+                  <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded mb-2 ${
+                    isGroup ? 'bg-teal-100 text-teal-800' : 'bg-emerald-100 text-emerald-700'
+                  }`}>
+                    {isGroup ? '团体体检' : '个人体检'}
                   </span>
-                  <div className="text-2xl font-black text-emerald-700">
-                    {packagePrice ? `¥${packagePrice}` : '价格待定'}
-                  </div>
-                  {showOriginalPrice && (
-                    <div className="text-xs text-slate-400 line-through">原价 ¥{originalPrice}</div>
+                  {isGroup ? (
+                    <div className="text-xl font-black text-teal-700">面议 / 电话咨询</div>
+                  ) : (
+                    <>
+                      <div className="text-2xl font-black text-emerald-700">
+                        {packagePrice ? `¥${packagePrice}` : '价格待定'}
+                      </div>
+                      {showOriginalPrice && (
+                        <div className="text-xs text-slate-400 line-through">原价 ¥{originalPrice}</div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -181,13 +193,22 @@ export const CheckupPackageDetail: React.FC<Props> = ({
           </div>
 
           <div className="shrink-0 p-4 border-t border-slate-100 bg-white safe-area-pb">
-            <button
-              type="button"
-              onClick={onBook}
-              className="w-full py-3.5 rounded-2xl bg-emerald-600 text-white font-bold text-base shadow-lg active:scale-[0.98] transition-transform"
-            >
-              立即预约
-            </button>
+            {isGroup ? (
+              <a
+                href={primaryTel}
+                className="block w-full py-3.5 rounded-2xl bg-teal-600 text-white font-bold text-base text-center shadow-lg active:scale-[0.98] transition-transform"
+              >
+                电话咨询预约
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={onBook}
+                className="w-full py-3.5 rounded-2xl bg-emerald-600 text-white font-bold text-base shadow-lg active:scale-[0.98] transition-transform"
+              >
+                立即预约
+              </button>
+            )}
           </div>
         </div>
       </div>

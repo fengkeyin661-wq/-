@@ -16,8 +16,17 @@ export const CHECKUP_NOTICE_ITEMS: string[] = [
 
 export const CHECKUP_TIME_INFO = {
   title: '体检时间',
-  content: '周一至周五上午 8:00–10:30，团检时间另行协商。',
+  content:
+    '周一至周五 8:00–12:00，下午 14:30–17:30；采血截止时间 10:30。团体体检时间另行协商。',
 };
+
+/** 首页信息带用的分段文案 */
+export const CHECKUP_TIME_LINES = [
+  '周一至周五 8:00–12:00',
+  '下午 14:30–17:30',
+  '采血截止时间：10:30',
+  '团体体检时间另行协商',
+] as const;
 
 export const CHECKUP_ADDRESS_INFO = {
   title: '体检地址',

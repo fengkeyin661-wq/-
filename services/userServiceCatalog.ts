@@ -109,6 +109,15 @@ export interface PackageIncludedItem {
   discountRate: number;
 }
 
+/** 体检套餐大类：个人 / 团体（未配置时默认个人） */
+export type PackageKind = 'personal' | 'group';
+
+export const getPackageKind = (packageItem: ContentItem): PackageKind => {
+  const raw = String(packageItem.details?.packageKind || '').trim().toLowerCase();
+  if (raw === 'group' || raw === '团体' || raw === '团检') return 'group';
+  return 'personal';
+};
+
 /**
  * 自选项目分组：从候选池中选取规定数量（如 20 选 5）。
  * 候选池不参与「原价=Σ全部候选」累加，套餐价仍以固定项合计为主（或手动定价）。

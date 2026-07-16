@@ -1414,6 +1414,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     details: {
                         ...refreshed.details,
                         showOriginalPrice: refreshed.details?.showOriginalPrice !== false,
+                        packageKind: refreshed.details?.packageKind === 'group' ? 'group' : 'personal',
                     },
                 });
             } else {
@@ -1445,6 +1446,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             ? (serviceSubCategoryFilter !== 'all' ? serviceSubCategoryFilter : 'consultation')
                             : undefined,
                 };
+            }
+            if (activeTab === 'service' && serviceSubTab === 'package') {
+                details = { packageKind: 'personal', showOriginalPrice: true };
             }
             
             setEditItem({
@@ -1851,7 +1855,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'service' && `¥${item.details?.price} • ${serviceCatalogLabel(item)}`}
                                                     {item.type === 'checkup_package' && (
                                                         <>
-                                                            {`套餐 ¥${item.details?.price || '-'} • ${summarizePackageComposition(item)}`}
+                                                            {`${item.details?.packageKind === 'group' ? '团体' : '个人'} · 套餐 ¥${item.details?.price || '-'} • ${summarizePackageComposition(item)}`}
                                                             {item.details?.showOriginalPrice !== false &&
                                                             item.details?.originalPrice &&
                                                             Number(item.details.originalPrice) > Number(item.details?.price || 0) ? (
@@ -2161,6 +2165,40 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     <FormSection title="体检套餐">
                                         <TextAreaField label="套餐简介" placeholder="面向人群、检查意义等" value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
                                         <InputField label="排序值" type="number" value={editItem.details?.sortOrder} onChange={(v:any) => updateDetail('sortOrder', v)} />
+                                        <div className="col-span-2">
+                                            <div className="text-xs font-bold text-slate-500 mb-2">套餐类型</div>
+                                            <div className="flex gap-3">
+                                                <label className={`flex-1 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm cursor-pointer ${
+                                                    (editItem.details?.packageKind || 'personal') === 'personal'
+                                                        ? 'border-emerald-400 bg-emerald-50 text-emerald-900 font-bold'
+                                                        : 'border-slate-200 bg-white text-slate-600'
+                                                }`}>
+                                                    <input
+                                                        type="radio"
+                                                        name="packageKind"
+                                                        checked={(editItem.details?.packageKind || 'personal') === 'personal'}
+                                                        onChange={() => updateDetail('packageKind', 'personal')}
+                                                        className="text-emerald-600"
+                                                    />
+                                                    个人体检
+                                                </label>
+                                                <label className={`flex-1 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm cursor-pointer ${
+                                                    editItem.details?.packageKind === 'group'
+                                                        ? 'border-teal-400 bg-teal-50 text-teal-900 font-bold'
+                                                        : 'border-slate-200 bg-white text-slate-600'
+                                                }`}>
+                                                    <input
+                                                        type="radio"
+                                                        name="packageKind"
+                                                        checked={editItem.details?.packageKind === 'group'}
+                                                        onChange={() => updateDetail('packageKind', 'group')}
+                                                        className="text-teal-600"
+                                                    />
+                                                    团体体检
+                                                </label>
+                                            </div>
+                                            <p className="text-[11px] text-slate-400 mt-1.5">个人支持在线预约；团体在预约站展示为电话咨询。</p>
+                                        </div>
                                         <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-4">
                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                 <div>

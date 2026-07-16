@@ -1,27 +1,32 @@
 import React from 'react';
 import type { ContentItem } from '../../services/contentService';
 import { ResourceCover } from '../user/ResourceCover';
-import { resolvePackageDisplayPricing } from '../../services/userServiceCatalog';
+import { getPackageKind, resolvePackageDisplayPricing } from '../../services/userServiceCatalog';
+import { CHECKUP_CONTACT_PHONES } from './checkupNoticeContent';
 
 interface Props {
   packages: ContentItem[];
   allServices?: ContentItem[];
   onSelect: (item: ContentItem) => void;
   onBook: (item: ContentItem) => void;
+  emptyHint?: string;
 }
+
+const PRIMARY_TEL = `tel:${CHECKUP_CONTACT_PHONES[0].replace(/-/g, '')}`;
 
 export const CheckupPackageList: React.FC<Props> = ({
   packages,
   allServices = [],
   onSelect,
   onBook,
+  emptyHint = '暂无上架体检套餐',
 }) => {
   if (packages.length === 0) {
     return (
       <div className="text-center py-16 px-6">
         <div className="text-5xl mb-4 opacity-30">🩺</div>
-        <p className="text-slate-500 font-medium">暂无上架体检套餐</p>
-        <p className="text-xs text-slate-400 mt-2">请稍后再来或致电健康管理热线咨询</p>
+        <p className="text-slate-500 font-medium">{emptyHint}</p>
+        <p className="text-xs text-slate-400 mt-2">请稍后再来或致电体检预约咨询热线</p>
       </div>
     );
   }
@@ -29,6 +34,8 @@ export const CheckupPackageList: React.FC<Props> = ({
   return (
     <div className="px-4 py-4 space-y-3">
       {packages.map((pkg) => {
+        const kind = getPackageKind(pkg);
+        const isGroup = kind === 'group';
         const { packagePrice, originalPrice, showOriginalPrice } = resolvePackageDisplayPricing(
           pkg,
           allServices,
@@ -59,25 +66,41 @@ export const CheckupPackageList: React.FC<Props> = ({
               </h3>
               <div className="flex items-end justify-between gap-2 mt-2">
                 <div className="min-w-0">
-                  <span className="text-lg font-black text-emerald-600">
-                    {packagePrice ? `¥${packagePrice}` : '价格待定'}
-                  </span>
-                  {showOriginalPrice && originalPrice > 0 && (
-                    <span className="ml-1.5 text-xs text-slate-400 line-through">
-                      ¥{originalPrice}
-                    </span>
+                  {isGroup ? (
+                    <span className="text-sm font-bold text-teal-700">面议 / 电话咨询</span>
+                  ) : (
+                    <>
+                      <span className="text-lg font-black text-emerald-600">
+                        {packagePrice ? `¥${packagePrice}` : '价格待定'}
+                      </span>
+                      {showOriginalPrice && originalPrice > 0 && (
+                        <span className="ml-1.5 text-xs text-slate-400 line-through">
+                          ¥{originalPrice}
+                        </span>
+                      )}
+                    </>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBook(pkg);
-                  }}
-                  className="shrink-0 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 active:scale-95 transition-transform"
-                >
-                  预约
-                </button>
+                {isGroup ? (
+                  <a
+                    href={PRIMARY_TEL}
+                    onClick={(e) => e.stopPropagation()}
+                    className="shrink-0 px-4 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 active:scale-95 transition-transform"
+                  >
+                    咨询
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onBook(pkg);
+                    }}
+                    className="shrink-0 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 active:scale-95 transition-transform"
+                  >
+                    预约
+                  </button>
+                )}
               </div>
             </div>
           </div>
