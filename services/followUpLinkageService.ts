@@ -249,7 +249,7 @@ export const getCriticalStatusBadge = (
 };
 
 /** 本地日历日 YYYY-MM-DD */
-export const formatLocalYmd = (d: Date): string => {
+export const formatLocalYmd = (d: Date = new Date()): string => {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');

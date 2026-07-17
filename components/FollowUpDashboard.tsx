@@ -744,7 +744,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           statusBadge = { text: '再联系到期', color: 'bg-amber-600 animate-pulse' };
                           cardBorder = "border-l-4 border-l-amber-500 bg-amber-50/60 border-t border-r border-b border-amber-200";
                       } else if (contactDeferred) {
-                          statusBadge = { text: `延期至 ${track.contact_retry_due}`, color: 'bg-amber-500' };
+                          statusBadge = { text: `延期至 ${arch.critical_track?.contact_retry_due}`, color: 'bg-amber-500' };
                           cardBorder = "border-l-4 border-l-amber-400 bg-white border-t border-r border-b border-amber-100";
                       } else if (!isInitial) {
                           // Secondary Style
