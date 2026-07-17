@@ -1,6 +1,23 @@
 
-import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics } from "../types";
+import { HealthRecord, HealthAssessment, RiskLevel, ScheduledFollowUp, FollowUpRecord, DepartmentAnalytics, DiabetesScreeningRecord, HypertensionScreeningRecord, LipidScreeningRecord } from "../types";
 import { HabitRecord } from "./dataService";
+import { normalizeCheckupId as normalizeCheckupIdStrict } from './checkupIdUtils';
+import { isFundusSpecialNote } from './diabetesScreeningRules';
+import {
+  DIABETES_AI_FIELD_GUIDE,
+  normalizeDiabetesHealthRecordFields,
+  normalizeDiabetesScreeningRecord,
+} from './diabetesFieldMapping';
+import {
+  HYPERTENSION_AI_FIELD_GUIDE,
+  normalizeHypertensionHealthRecordFields,
+  normalizeHypertensionScreeningRecord,
+} from './hypertensionFieldMapping';
+import {
+  LIPID_AI_FIELD_GUIDE,
+  normalizeLipidHealthRecordFields,
+  normalizeLipidScreeningRecord,
+} from './lipidFieldMapping';
 
 // Helper to safely access environment variables
 const getEnvVar = (key: string): string => {
@@ -36,8 +53,9 @@ const isDev = (() => {
     }
 })();
 
-// DeepSeek API Configuration
+// DeepSeek API Configuration（固定 Flash，不使用 Pro 以节省费用）
 const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
+const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 // PROXY STRATEGY:
 const PROXY_URL = "/api/deepseek/chat/completions";
@@ -53,7 +71,7 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
     }
 
     const makeRequest = async (url: string) => {
-        console.log(`[AI] Calling DeepSeek via ${url}...`);
+        console.log(`[AI] Calling DeepSeek (${DEEPSEEK_MODEL}) via ${url}...`);
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -61,7 +79,7 @@ async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode:
                 'Authorization': `Bearer ${API_KEY}`
             },
             body: JSON.stringify({
-                model: "deepseek-chat",
+                model: DEEPSEEK_MODEL,
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userContent }
@@ -106,9 +124,10 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
     profile: { checkupId: '', name: '', gender: '', department: '', age: 0 },
     checkup: {
         basics: {},
+        bodyComposition: {},
         labBasic: { liver: {}, lipids: {}, renal: {}, bloodRoutine: {}, glucose: {}, urineRoutine: {}, thyroidFunction: {} },
         imagingBasic: { ultrasound: {} },
-        optional: { tumorMarkers4: {}, tumorMarkers2: {}, rheumatoid: {} },
+        optional: { tumorMarkers4: {}, tumorMarkers2: {}, rheumatoid: {}, arteriosclerosis: {} },
         abnormalities: []
     },
     questionnaire: {
@@ -129,6 +148,181 @@ const DEFAULT_HEALTH_RECORD: HealthRecord = {
     }
 };
 
+const SCORE_MAP: Record<string, number> = {
+    '完全不会': 0,
+    '好几天': 1,
+    '一半以上天数': 2,
+    '一半以上': 2,
+    '几乎每一天': 3,
+    '几乎每天': 3,
+    'A.完全不会': 0,
+    'B.好几天': 1,
+    'C.一半以上天数': 2,
+    'C.一半以上': 2,
+    'D.几乎每一天': 3,
+    'D.几乎每天': 3,
+    '0': 0,
+    '1': 1,
+    '2': 2,
+    '3': 3
+};
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stripOptionPrefix = (s: string) => (s || '').replace(/^[A-DＡ-Ｄ][\.\、]\s*/, '').trim();
+
+const splitRow = (line: string, delimiter: '\t' | ','): string[] => {
+    if (delimiter === '\t') return line.split('\t').map(v => v.trim());
+    return line
+        .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+        .map(v => v.trim());
+};
+
+const unquote = (s: string) => s.replace(/^['"\s]+|['"\s]+$/g, '');
+
+const extractTabularColumns = (raw: string): Record<string, string> => {
+    const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return {};
+
+    const headerIdx = lines.findIndex(l => l.includes('1.体检编号') && l.includes('2.性别'));
+    if (headerIdx < 0 || headerIdx + 1 >= lines.length) return {};
+
+    const headerLine = lines[headerIdx];
+    const valueLine = lines[headerIdx + 1];
+    const delimiter: '\t' | ',' = headerLine.includes('\t') ? '\t' : ',';
+    const headers = splitRow(headerLine, delimiter);
+    const values = splitRow(valueLine, delimiter);
+    const map: Record<string, string> = {};
+    const n = Math.min(headers.length, values.length);
+    for (let i = 0; i < n; i++) {
+        const h = unquote(headers[i]);
+        if (!h) continue;
+        map[h] = unquote(values[i]);
+    }
+    return map;
+};
+
+const extractMatrixScores = (raw: string, stems: string[]): Array<number | null> => {
+    return stems.map((stem) => {
+        const p1 = new RegExp(`${escapeRegex(stem)}[\\s\\S]{0,60}?(完全不会|好几天|一半以上天数|一半以上|几乎每一天|几乎每天|[0-3])`, 'i');
+        const m1 = raw.match(p1);
+        if (m1?.[1] !== undefined) {
+            const key = m1[1].trim();
+            if (SCORE_MAP[key] !== undefined) return SCORE_MAP[key];
+        }
+        return null;
+    });
+};
+
+const maybePatchMentalScalesFromRaw = (raw: string, record: HealthRecord) => {
+    const q = record.questionnaire.mentalScales || {};
+    const hasBothScores = q.phq9Score !== undefined && q.gad7Score !== undefined;
+    if (hasBothScores) return;
+
+    const phqStems = [
+        '做事时提不起劲或没有兴趣',
+        '感到心情低落、沮丧或绝望',
+        '入睡困难、睡不安稳或睡眠过多',
+        '感到疲倦或没有活力',
+        '食欲不振或吃太多',
+        '觉得自己很失败',
+        '对事物专注有困难',
+        '动作或说话速度缓慢到别人已经察觉',
+        '有不如死掉或用某种方式伤害自己的念头'
+    ];
+    const gadStems = [
+        '做事感觉神经质、焦虑或急切',
+        '不能停止或无法控制担忧',
+        '对各种各样的事情担忧过多',
+        '很难放松下来',
+        '由于坐立不安而很难坐得住',
+        '容易烦恼或急躁',
+        '感到害怕，好像有什么可怕的事情要发生'
+    ];
+
+    const cols = extractTabularColumns(raw);
+    let phqDetail: Array<number | null> = [];
+    let gadDetail: Array<number | null> = [];
+
+    if (Object.keys(cols).length > 0) {
+        phqDetail = phqStems.map((stem) => {
+            const key = Object.keys(cols).find(k => k.includes('47.情绪状态 (PHQ-9):') && k.includes(stem));
+            if (!key) return null;
+            const v = stripOptionPrefix(cols[key] || '');
+            return SCORE_MAP[v] ?? null;
+        });
+        gadDetail = gadStems.map((stem) => {
+            const key = Object.keys(cols).find(k => k.includes('48.焦虑状态 (GAD-7):') && k.includes(stem));
+            if (!key) return null;
+            const v = stripOptionPrefix(cols[key] || '');
+            return SCORE_MAP[v] ?? null;
+        });
+    } else {
+        phqDetail = extractMatrixScores(raw, phqStems).map(v => v ?? null);
+        gadDetail = extractMatrixScores(raw, gadStems).map(v => v ?? null);
+    }
+
+    const phqComplete = phqDetail.every(v => v !== null);
+    const gadComplete = gadDetail.every(v => v !== null);
+
+    if (phqComplete) {
+        const detail = phqDetail as number[];
+        record.questionnaire.mentalScales.phq9Detail = detail;
+        record.questionnaire.mentalScales.phq9Score = detail.reduce((a, b) => a + b, 0);
+        record.questionnaire.mentalScales.selfHarmIdea = detail[8] || 0;
+    }
+    if (gadComplete) {
+        const detail = gadDetail as number[];
+        record.questionnaire.mentalScales.gad7Detail = detail;
+        record.questionnaire.mentalScales.gad7Score = detail.reduce((a, b) => a + b, 0);
+    }
+};
+
+const maybePatchSmokingFromRaw = (raw: string, record: HealthRecord) => {
+    const smoking = record.questionnaire.substances.smoking;
+    const cols = extractTabularColumns(raw);
+    const statusCol = stripOptionPrefix(cols['36.吸烟情况'] || '');
+    if (!smoking.status && statusCol) smoking.status = statusCol;
+
+    const status = smoking.status || statusCol || '';
+    if (!(status.includes('吸烟') || /目前吸烟|已戒烟|从不吸烟/.test(raw))) return;
+
+    if (!smoking.status) {
+        if (/从不吸烟/.test(raw)) smoking.status = '从不吸烟';
+        else if (/已戒烟/.test(raw)) smoking.status = '已戒烟';
+        else if (/目前吸烟/.test(raw)) smoking.status = '目前吸烟';
+    }
+
+    if (!smoking.dailyAmount) {
+        const amountMap: Record<string, number> = {
+            '不到半包': 10,
+            '不到一包': 20,
+            '不到一包半': 30,
+            '不到两包': 40,
+            '两包以上': 50
+        };
+        for (const [k, v] of Object.entries(amountMap)) {
+            if (raw.includes(k) || stripOptionPrefix(cols['38.目前吸烟数量'] || '').includes(k)) {
+                smoking.dailyAmount = v;
+                break;
+            }
+        }
+    }
+
+    if (!smoking.years) {
+        const yearsFromCol = cols['39.已吸烟年数'];
+        if (yearsFromCol && /^\d{1,2}$/.test(yearsFromCol)) {
+            smoking.years = Number(yearsFromCol);
+        } else {
+            const yearsMatch = raw.match(/(?:已吸烟年数|吸烟年数)\D{0,6}([1-9]\d?)/);
+            if (yearsMatch?.[1]) smoking.years = Number(yearsMatch[1]);
+        }
+    }
+
+    if ((smoking.packYears === undefined || smoking.packYears === null) && smoking.dailyAmount && smoking.years) {
+        smoking.packYears = (smoking.dailyAmount / 20) * smoking.years;
+    }
+};
+
 export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord> => {
     if (!raw || raw.trim().length === 0) {
         throw new Error("输入文本为空，无法解析");
@@ -142,7 +336,10 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     2. **异常项提取**：请仔细阅读报告中的"小结"、"综述"或箭头标识(↑↓)，将所有异常发现提取到 checkup.abnormalities 数组中。
     3. **数值标准化**：体重(kg), 身高(cm), 血压(mmHg), 血糖(mmol/L)。
     4. **关键字段识别**：
-       - **体检编号 (checkupId)**：请务必精确抓取**6位纯数字**的编号（如：801234）。报告中通常包含10位或更长的“登记流水号”、“条码号”或“样本号”，请**绝对不要**将其作为体检编号。只提取那个6位数的。
+       - **体检编号 (checkupId)**：必须是**恰好 6 位纯数字**（如 240188、012345）。只从明确标注为「体检编号」的字段取值。
+       - **严禁**将以下当作体检编号：登记流水号、流水号、条码、条形码、报告单号、LIS 号、标本号、检号流水、长串字母数字 ID。
+       - 若原文同时出现「登记流水号」与「体检编号」，只取「体检编号」后的 6 位数字；若无合法 6 位数字则 checkupId 留空字符串 ""。
+       - **体检日期 (checkupDate)**：必须是本次**体检/检查日期**（封面或总检结论页），格式 YYYY-MM-DD。**不要**使用登记日期、打印日期、采样日期、出生日期。
        - **问卷选项提取**：请根据文本内容提取对应选项。
        - **Q17 家族史提取**：请识别以下特定家族史，并映射到 familyHistory 字段：
          - "父亲 - 冠心病/心肌梗死" -> fatherCvdEarly (若提及)
@@ -163,21 +360,104 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
          - **selfHarmIdea**: PHQ-9 第9题（自伤念头）的得分。
        - **吸烟数量**：若出现“不到半包”等描述，请映射为大致支数(半包=10, 一包=20等)填入 dailyAmount，同时保留原始描述在 status 或其他字段中。
        - **满意度调查**：提取问卷末尾关于前台、医护、采血、流程、环境的满意度评价（如：非常满意、满意、一般、不满意），以及意见建议。
+       - **糖尿病专项指标**（若报告中有，务必提取）：
+         - 餐后2小时血糖 → riskModelExtras.postprandialGlucose（mmol/L，number）
+         - 胰岛素空腹/餐后2h → checkup.labBasic.insulinFasting / insulinPostprandial2h 或 riskModelExtras 同名字段
+         - C肽空腹/餐后2h → checkup.labBasic.cPeptideFasting / cPeptidePostprandial2h 或 riskModelExtras
+         - 尿微量白蛋白/肌酐比值(UACR) → riskModelExtras.uacr 或 checkup.labBasic.uacr
+         - 同型半胱氨酸 → checkup.labBasic.homocysteine
+         - 脂联素 → checkup.optional.adiponectin
+         - 颈动脉彩超 → checkup.optional.carotidUltrasound
+         - 下肢血管彩超 → checkup.optional.lowerLimbUltrasound 或 riskModelExtras.lowerLimbVascularUltrasound
+         - 神经传导速度 → riskModelExtras.ncv（文本结论）
+         - 糖尿病神经病变筛查/糖尿病足筛查 → riskModelExtras.neuropathyScreening / footExam
+         - 糖化血红蛋白 → checkup.labBasic.hba1c 或 checkup.optional.hba1c
+       - **高血压专项指标**（若报告中有，务必提取）：
+         - 动态血压/ABPM → riskModelExtras.abpmSummary、abpmDaySbp、abpmNightSbp 等
+         - 颈动脉彩超/IMT/斑块 → checkup.optional.carotidUltrasound 或 riskModelExtras.carotidImt
+         - 心脏彩超/左室肥厚/EF → checkup.optional.heartUltrasound、riskModelExtras.echoResult、lvh
+         - 动态心电图/Holter → riskModelExtras.holterResult
+         - 尿微量白蛋白/肌酐比值(UACR) → riskModelExtras.uacr
+         - 颅脑CT → checkup.optional.ct 或 riskModelExtras.brainCtResult
+         - 同型半胱氨酸 → checkup.labBasic.homocysteine
+         - 电解质钾钠氯钙 → riskModelExtras.potassium/sodium/chloride/calcium
+         - 肾素/血管紧张素/醛固酮 → riskModelExtras.renin/angiotensin/aldosterone
     
     目标 JSON 结构应严格符合以下定义，不要包含任何注释：
     {
-      "profile": { "checkupId": "string", "name": "string", "gender": "string", "age": number, "department": "string", "phone": "string", "checkupDate": "string" },
+      "profile": { "checkupId": "6位数字字符串或空", "name": "string", "gender": "string", "age": number, "department": "string", "phone": "string", "checkupDate": "string" },
       "checkup": {
          "basics": { "height": number, "weight": number, "bmi": number, "sbp": number, "dbp": number, "waist": number },
+         "bodyComposition": {
+            "bodyFatRate": number, "bodyFatMass": number, "leanBodyMass": number, "skeletalMuscleMass": number,
+            "muscleMass": number, "visceralFatArea": number, "visceralFatLevel": number, "waistHipRatio": number,
+            "inbodyScore": number, "obesityDegree": number, "bmr": number, "targetWeight": number
+         },
          "labBasic": { 
             "glucose": { "fasting": "string" },
             "lipids": { "tc": "string", "tg": "string", "ldl": "string", "hdl": "string" },
             "liver": { "alt": "string", "ast": "string", "ggt": "string" },
-            "renal": { "creatinine": "string", "ua": "string" },
-            "tumorMarkers": { "cea": "string", "afp": "string" } 
+            "renal": { "creatinine": "string", "ua": "string", "urea": "string" },
+            "bloodRoutine": { "wbc": "string", "rbc": "string", "hgb": "string", "plt": "string", "neut": "string", "summary": "string" },
+            "urineRoutine": { "protein": "string", "glucose": "string", "blood": "string", "summary": "string" },
+            "thyroidFunction": { "t3": "string", "t4": "string", "tsh": "string" },
+            "hba1c": "string",
+            "homocysteine": "string",
+            "insulinFasting": "string",
+            "insulinPostprandial2h": "string",
+            "cPeptideFasting": "string",
+            "cPeptidePostprandial2h": "string",
+            "uacr": "string",
+            "ck": "string"
          },
-         "imagingBasic": { "ultrasound": { "thyroid": "string", "abdomen": "string", "breast": "string" } },
+         "imagingBasic": {
+            "ecg": "string",
+            "ultrasound": { "thyroid": "string", "abdomen": "string", "breast": "string", "uterusAdnexa": "string", "prostate": "string" }
+         },
+         "optional": {
+            "carotidUltrasound": "string", "heartUltrasound": "string", "ct": "string",
+            "tct": "string", "hpv": "string", "boneDensity": "string", "fundusPhoto": "string",
+            "mammography": "string", "tcd": "string", "c13": "string",
+            "adiponectin": "string", "lowerLimbUltrasound": "string",
+            "arteriosclerosis": {
+               "leftABI": number, "rightABI": number, "abi": number,
+               "leftBaPWV": number, "rightBaPWV": number, "cfPWV": number, "pwv": number,
+               "grade": "string", "conclusion": "string", "risk": "string", "specialNote": "string"
+            }
+         },
          "abnormalities": [ { "item": "string", "result": "string", "clinicalSig": "string" } ]
+      },
+      "riskModelExtras": {
+         "postprandialGlucose": number,
+         "insulinFasting": number,
+         "insulinPostprandial2h": number,
+         "cPeptideFasting": number,
+         "cPeptidePostprandial2h": number,
+         "adiponectin": number,
+         "uacr": number,
+         "ncv": "string",
+         "nerveConductionVelocity": "string",
+         "lowerLimbVascularUltrasound": "string",
+         "neuropathyScreening": "string",
+         "footExam": "string",
+         "abpmSummary": "string",
+         "abpmDaySbp": number,
+         "abpmDayDbp": number,
+         "abpmNightSbp": number,
+         "abpmNightDbp": number,
+         "holterResult": "string",
+         "echoResult": "string",
+         "lvh": "string",
+         "brainCtResult": "string",
+         "fundusResult": "string",
+         "carotidImt": "string",
+         "potassium": number,
+         "sodium": number,
+         "chloride": number,
+         "calcium": number,
+         "renin": "string",
+         "angiotensin": "string",
+         "aldosterone": "string"
       },
       "questionnaire": {
          "history": { "diseases": ["string"], "details": { "hypertensionYear": "string", "diabetesYear": "string" } },
@@ -225,19 +505,40 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
                 ...DEFAULT_HEALTH_RECORD.checkup,
                 ...result?.checkup,
                 basics: { ...DEFAULT_HEALTH_RECORD.checkup.basics, ...result?.checkup?.basics },
+                bodyComposition: {
+                    ...DEFAULT_HEALTH_RECORD.checkup.bodyComposition,
+                    ...result?.checkup?.bodyComposition,
+                },
                 labBasic: { 
                     ...DEFAULT_HEALTH_RECORD.checkup.labBasic, 
                     ...result?.checkup?.labBasic,
                     lipids: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.lipids, ...result?.checkup?.labBasic?.lipids },
-                    glucose: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.glucose, ...result?.checkup?.labBasic?.glucose }
+                    glucose: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.glucose, ...result?.checkup?.labBasic?.glucose },
+                    renal: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.renal, ...result?.checkup?.labBasic?.renal },
+                    liver: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.liver, ...result?.checkup?.labBasic?.liver },
+                    bloodRoutine: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.bloodRoutine, ...result?.checkup?.labBasic?.bloodRoutine },
+                    urineRoutine: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.urineRoutine, ...result?.checkup?.labBasic?.urineRoutine },
+                    thyroidFunction: { ...DEFAULT_HEALTH_RECORD.checkup.labBasic.thyroidFunction, ...result?.checkup?.labBasic?.thyroidFunction },
                 },
                 imagingBasic: {
                     ...DEFAULT_HEALTH_RECORD.checkup.imagingBasic,
                     ...result?.checkup?.imagingBasic,
                     ultrasound: { ...DEFAULT_HEALTH_RECORD.checkup.imagingBasic.ultrasound, ...result?.checkup?.imagingBasic?.ultrasound }
                 },
+                optional: {
+                    ...DEFAULT_HEALTH_RECORD.checkup.optional,
+                    ...result?.checkup?.optional,
+                    arteriosclerosis: {
+                        ...DEFAULT_HEALTH_RECORD.checkup.optional.arteriosclerosis,
+                        ...result?.checkup?.optional?.arteriosclerosis,
+                    },
+                    tumorMarkers4: { ...DEFAULT_HEALTH_RECORD.checkup.optional.tumorMarkers4, ...result?.checkup?.optional?.tumorMarkers4 },
+                    tumorMarkers2: { ...DEFAULT_HEALTH_RECORD.checkup.optional.tumorMarkers2, ...result?.checkup?.optional?.tumorMarkers2 },
+                    rheumatoid: { ...DEFAULT_HEALTH_RECORD.checkup.optional.rheumatoid, ...result?.checkup?.optional?.rheumatoid },
+                },
                 abnormalities: result?.checkup?.abnormalities || []
             },
+            riskModelExtras: { ...(result?.riskModelExtras || {}) },
             questionnaire: {
                 ...DEFAULT_HEALTH_RECORD.questionnaire,
                 ...result?.questionnaire,
@@ -276,17 +577,16 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
              if (nameMatch) merged.profile.name = nameMatch[1];
         }
 
-        // --- 2. Enforce 6-digit Checkup ID Rule ---
-        // If AI extracted a long ID (likely barcode/serial), try to find a 6-digit one in text
-        if (merged.profile.checkupId && merged.profile.checkupId.length > 6) {
-             // Try to find a 6-digit number in the first 800 chars of raw text
-             const shortIdMatch = raw.slice(0, 800).match(/\b(\d{6})\b/);
-             if (shortIdMatch) {
-                 merged.profile.checkupId = shortIdMatch[1];
-             }
-        }
+        // --- 2. 体检编号：仅保留 6 位数字，排除登记流水号 ---
+        merged.profile.checkupId = normalizeCheckupIdStrict(merged.profile.checkupId, raw);
 
-        return merged;
+        // --- 3. Rule fallback for questionnaire fields that often fail in Excel matrix exports ---
+        maybePatchMentalScalesFromRaw(raw, merged);
+        maybePatchSmokingFromRaw(raw, merged);
+
+        return normalizeLipidHealthRecordFields(
+          normalizeHypertensionHealthRecordFields(normalizeDiabetesHealthRecordFields(merged))
+        );
     } catch (e: any) {
         console.error("AI Parse Failed", e);
         const errorRecord = JSON.parse(JSON.stringify(DEFAULT_HEALTH_RECORD));
@@ -295,17 +595,66 @@ export const parseHealthDataFromText = async (raw: string): Promise<HealthRecord
     }
 };
 
-export const generateHealthAssessment = async (rec: HealthRecord): Promise<HealthAssessment> => {
+/** 将 AI 可能输出的 A1/A2、B1/B2 等统一为界面识别的 [A类] / [B类]，并校正 isCritical */
+export const normalizeCriticalAssessment = (ass: HealthAssessment): HealthAssessment => {
+    let w = (ass.criticalWarning || '').trim();
+    if (!w) {
+        return { ...ass, isCritical: !!ass.isCritical };
+    }
+    // 全角括号、数字统一
+    w = w
+        .replace(/【\s*A\s*[12１２]?\s*类\s*】/gi, '[A类]')
+        .replace(/【\s*B\s*[12１２]?\s*类\s*】/gi, '[B类]')
+        .replace(/\[[\s]*A\s*[12１２]?\s*类\s*\]/gi, '[A类]')
+        .replace(/\[[\s]*B\s*[12１２]?\s*类\s*\]/gi, '[B类]');
+    // 若正文仍含「A1类」等字样，再收一道（不破坏括号后的描述）
+    w = w.replace(/\bA\s*[12]\s*类\b/gi, 'A类').replace(/\bB\s*[12]\s*类\b/gi, 'B类');
+    const hasAbnormalTier = /\[A类\]|\[B类\]/.test(w);
+    const isCritical = ass.isCritical === true || hasAbnormalTier;
+    return { ...ass, criticalWarning: w, isCritical };
+};
+
+export const generateHealthAssessment = async (
+    rec: HealthRecord,
+    options?: { observationTrends?: string }
+): Promise<HealthAssessment> => {
+    const trendsBlock = options?.observationTrends?.trim()
+        ? `\n    【历次体检/随访指标趋势（按检查日期，箭头连接为时间先后）】\n    ${options.observationTrends}\n`
+        : '';
     const prompt = `
-    作为资深全科医生，请根据以下健康档案生成一份风险评估报告。
-    数据：${JSON.stringify(rec)}
+    你是资深全科医生。请根据以下体检/健康档案数据及历次指标变化趋势，生成风险评估报告。
+    当前档案快照：${JSON.stringify(rec)}
+    ${trendsBlock}
+
+    【重要异常结果 / 危急值分层 — 仅两档，禁止再细分】
+    本系统只使用 **A类** 与 **B类** 两档（不要输出 A1、A2、B1、B2 等子类；若你认为属于原 A1/A2 一律标为 A类，原 B1/B2 一律标为 B类）。
+
+    - **A类（危急值）**：需尽快（通常当天）临床处置或紧急联系受检者，可能危及生命或重要器官功能。参考（结合年龄与临床背景综合判断，有则标 A类）：
+      · 血压：收缩压 ≥180 和/或 舒张压 ≥120 mmHg（高血压危象倾向）
+      · 空腹血糖 ≤3.0 或 ≥16.7 mmol/L；随机血糖明显极高伴症状风险
+      · 血钾 ≥6.0 或 ≤2.8 mmol/L（若报告中有电解质）
+      · 血钠 ≤120 或 ≥160 mmol/L（若有）
+      · 心肌酶/肌钙蛋白明显升高提示急性心肌损伤（若有）
+      · 血红蛋白 ≤60 g/L 或 ≥200 g/L（若有）；血小板 ≤20×10^9/L（若有）
+      · 急性脑卒中征象、严重胸痛、意识障碍等文本描述（若有）
+    - **B类（重要异常）**：不属即刻生命威胁，但需在数日～2 周内安排复查或专科随访。参考：
+      · 血压持续 ≥160/100 但未达 A 类阈值
+      · 空腹血糖 7.0～16.6 或 HbA1c 明显升高（若有）
+      · 血脂多项明显升高、肝肾功能轻中度异常、尿蛋白阳性、肿瘤标志物明显升高等需复查确认者
+      · 影像/心电图「建议进一步检查」类中度异常
+
+    【输出规则】
+    1) 若无 A/B 类重要异常：isCritical 为 false，criticalWarning 为空字符串 ""。
+    2) 若有任一项 A 或 B 类：isCritical 为 true，criticalWarning **必须以** "[A类] " 或 "[B类] " 开头（英文方括号），后接 80 字内说明（指标名 + 数值 + 建议动作）。
+    3) 若同时存在 A 与 B 类问题：以更高优先级 **A类** 作为前缀，正文中可简述 B 类异常。
+    4) riskLevel 仍填 GREEN / YELLOW / RED（综合风险），可与 isCritical 独立。
     
     请严格返回 JSON 格式:
     {
       "riskLevel": "GREEN" | "YELLOW" | "RED",
       "summary": "综合评估摘要(150字以内)",
       "isCritical": boolean,
-      "criticalWarning": "如有危急值请说明，否则为空",
+      "criticalWarning": "无异常时为空字符串；有则必须以 [A类] 或 [B类] 开头",
       "risks": { "red": ["高危因素1"], "yellow": ["中危因素1"], "green": ["良好指标"] },
       "managementPlan": {
          "dietary": ["饮食建议1", "饮食建议2"],
@@ -322,7 +671,8 @@ export const generateHealthAssessment = async (rec: HealthRecord): Promise<Healt
 
     try {
         const jsonText = await callDeepSeek("你是一个辅助医生进行健康评估的AI。", prompt);
-        return JSON.parse(jsonText || '{}') as HealthAssessment;
+        const parsed = JSON.parse(jsonText || '{}') as HealthAssessment;
+        return normalizeCriticalAssessment(parsed);
     } catch (e) {
         console.error("Assessment Gen Failed", e);
         return {
@@ -348,8 +698,208 @@ export const generateFollowUpSchedule = (ass: HealthAssessment): ScheduledFollow
     }];
 };
 
-export const analyzeFollowUpRecord = async (form: any, ass: any, last: any) => { return {} as any };
-export const generateFollowUpSMS = async (n: string) => { return {smsContent:''} };
+export const analyzeFollowUpRecord = async (
+    form: any,
+    ass: any,
+    last: any,
+    options?: { chainSummary?: string; context?: { sourceLabel?: string; focusItems?: string[]; failedTasks?: { description: string }[] } }
+) => {
+    const fallback = {
+        riskLevel: (last?.assessment?.riskLevel || ass?.riskLevel || RiskLevel.GREEN) as RiskLevel,
+        riskJustification: '本次随访已记录。系统暂未完成自动分析，请医生结合临床情况复核。',
+        doctorMessage: '请按执行单持续管理，若出现不适请及时复诊。',
+        majorIssues: (last?.assessment?.majorIssues || ass?.summary || '').toString(),
+        nextCheckPlan: (last?.assessment?.nextCheckPlan || ass?.followUpPlan?.nextCheckItems?.join('、') || '常规复查').toString(),
+        lifestyleGoals: Array.isArray(last?.assessment?.lifestyleGoals)
+            ? last.assessment.lifestyleGoals
+            : [],
+        continuitySummary: '',
+        adjustedFocusItems: [] as string[],
+        taskReviewSummary: '',
+        criticalStatusNote: '',
+        analysisSource: 'fallback',
+        analysisError: '',
+    };
+
+    const chainBlock = options?.chainSummary?.trim()
+        ? `\n4) 近几次随访链摘要：\n${options.chainSummary}\n`
+        : '';
+    const ctx = options?.context;
+    const contextBlock = ctx
+        ? `\n5) 本次随访上下文：来源=${ctx.sourceLabel || '常规'}；本期核对=${(ctx.focusItems || []).join('、')}；上期未达标任务=${(ctx.failedTasks || []).map((t) => t.description).join('、') || '无'}\n`
+        : '';
+
+    const prompt = `
+你是慢病管理随访助手。请根据随访记录，输出"下一阶段执行单"关键字段。
+
+输入数据：
+1) 本次随访表单：${JSON.stringify(form || {})}
+2) 当前综合评估：${JSON.stringify(ass || {})}
+3) 上一次随访：${JSON.stringify(last || {})}
+${chainBlock}${contextBlock}
+
+请严格返回 JSON（不要附加解释文本）：
+{
+  "riskLevel": "GREEN" | "YELLOW" | "RED",
+  "riskJustification": "风险判定依据，80字内",
+  "doctorMessage": "给患者的简短医嘱，80字内",
+  "majorIssues": "本次主要问题，120字内",
+  "nextCheckPlan": "下次复查项目与重点，120字内",
+  "lifestyleGoals": ["可执行目标1", "可执行目标2", "可执行目标3"],
+  "continuitySummary": "相对上次随访的进展摘要（指标变化、任务达标），80字内",
+  "adjustedFocusItems": ["下次重点1", "下次重点2"],
+  "taskReviewSummary": "生活方式任务回顾，60字内",
+  "criticalStatusNote": "若有关联危急值则说明处置/恢复，否则空字符串"
+}
+
+要求：
+- 结合本次指标变化（血压、血糖、体重、血脂等）与 medicalCompliance、taskCompliance 判断风险级别；
+- 必须引用上次随访计划完成情况，目标要具体可执行；
+- lifestyleGoals 最多 5 条；adjustedFocusItems 最多 5 条；
+- nextCheckPlan 必须是可落地的检查/随访要点。
+`;
+
+    try {
+        const jsonText = await callDeepSeek("你是严谨的全科随访管理AI。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const riskLevelRaw = String(parsed?.riskLevel || '').toUpperCase();
+        const riskLevel: RiskLevel =
+            riskLevelRaw === 'RED'
+                ? RiskLevel.RED
+                : riskLevelRaw === 'YELLOW'
+                ? RiskLevel.YELLOW
+                : RiskLevel.GREEN;
+        const lifestyleGoals = Array.isArray(parsed?.lifestyleGoals)
+            ? parsed.lifestyleGoals.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 5)
+            : fallback.lifestyleGoals;
+        const adjustedFocusItems = Array.isArray(parsed?.adjustedFocusItems)
+            ? parsed.adjustedFocusItems.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 5)
+            : fallback.adjustedFocusItems;
+
+        return {
+            riskLevel,
+            riskJustification: String(parsed?.riskJustification || fallback.riskJustification),
+            doctorMessage: String(parsed?.doctorMessage || fallback.doctorMessage),
+            majorIssues: String(parsed?.majorIssues || fallback.majorIssues),
+            nextCheckPlan: String(parsed?.nextCheckPlan || fallback.nextCheckPlan),
+            lifestyleGoals,
+            continuitySummary: String(parsed?.continuitySummary || fallback.continuitySummary),
+            adjustedFocusItems,
+            taskReviewSummary: String(parsed?.taskReviewSummary || fallback.taskReviewSummary),
+            criticalStatusNote: String(parsed?.criticalStatusNote || fallback.criticalStatusNote),
+            analysisSource: 'ai',
+            analysisError: '',
+        };
+    } catch (e) {
+        console.error('Follow-up analyze failed, fallback applied:', e);
+        return {
+            ...fallback,
+            analysisError: e instanceof Error ? e.message : '未知错误',
+        };
+    }
+};
+
+export interface IncrementalAssessmentContext {
+    priorAssessment: HealthAssessment;
+    followUpChainSummary: string;
+    latestFollowUp: Omit<FollowUpRecord, 'id'> | FollowUpRecord;
+    observationTrends?: string;
+    criticalTrackStatus?: string;
+    criticalResolved?: boolean;
+}
+
+/** 随访后增量更新综合评估报告（承接上次随访录入结果） */
+export const generateIncrementalAssessment = async (
+    rec: HealthRecord,
+    ctx: IncrementalAssessmentContext
+): Promise<HealthAssessment> => {
+    const trendsBlock = ctx.observationTrends?.trim()
+        ? `\n【历次指标趋势】\n${ctx.observationTrends}\n`
+        : '';
+    const criticalBlock = ctx.criticalTrackStatus
+        ? `\n【危急值处置状态】${ctx.criticalTrackStatus}${ctx.criticalResolved ? '（已归档，若无新异常请清除 isCritical）' : ''}\n`
+        : '';
+
+    const prompt = `
+你是资深全科医生。请基于**最近一次随访录入**与当前档案，对既有综合评估做增量更新（非从零生成）。
+
+当前档案快照：${JSON.stringify(rec)}
+${trendsBlock}
+【既有综合评估基线】${JSON.stringify(ctx.priorAssessment)}
+【随访链摘要】
+${ctx.followUpChainSummary}
+
+【本次随访完整录入】${JSON.stringify(ctx.latestFollowUp)}
+${criticalBlock}
+
+【更新规则】
+1) 必须引用本次随访的指标变化、medicalCompliance、taskCompliance、majorIssues；
+2) 若上次执行单 lifestyleGoals 已达成，managementPlan 应升级调整，不可重复原建议；
+3) 若危急值已处置且指标回落，isCritical 设为 false，criticalWarning 为空字符串；
+4) 若无 A/B 类新异常：isCritical=false；若有则 criticalWarning 以 [A类] 或 [B类] 开头；
+5) riskLevel 综合判断；summary 150字内说明相对上次的进展。
+
+请严格返回 JSON（与 HealthAssessment 结构一致）:
+{
+  "riskLevel": "GREEN" | "YELLOW" | "RED",
+  "summary": "综合评估摘要",
+  "isCritical": boolean,
+  "criticalWarning": "无异常时为空字符串",
+  "risks": { "red": [], "yellow": [], "green": [] },
+  "managementPlan": {
+     "dietary": [], "exercise": [], "medication": [], "monitoring": []
+  },
+  "followUpPlan": {
+     "frequency": "建议随访频率",
+     "nextCheckItems": []
+  }
+}
+`;
+
+    try {
+        const jsonText = await callDeepSeek("你是辅助医生进行健康评估的AI。", prompt);
+        const parsed = JSON.parse(jsonText || '{}') as HealthAssessment;
+        const normalized = normalizeCriticalAssessment(parsed);
+        return {
+            ...ctx.priorAssessment,
+            ...normalized,
+            diabetesRiskLevel: ctx.priorAssessment.diabetesRiskLevel,
+            diabetesReport: ctx.priorAssessment.diabetesReport,
+            hypertensionRiskLevel: ctx.priorAssessment.hypertensionRiskLevel,
+            hypertensionReport: ctx.priorAssessment.hypertensionReport,
+            lipidRiskLevel: ctx.priorAssessment.lipidRiskLevel,
+            lipidReport: ctx.priorAssessment.lipidReport,
+            elderlyRiskLevel: ctx.priorAssessment.elderlyRiskLevel,
+            elderlyRiskSummary: ctx.priorAssessment.elderlyRiskSummary,
+            structuredTasks: ctx.priorAssessment.structuredTasks,
+        };
+    } catch (e) {
+        console.error('Incremental assessment failed', e);
+        return ctx.priorAssessment;
+    }
+};
+
+export const generateFollowUpSMS = async (n: string) => {
+    const prompt = `
+你是健康管理中心护士助手。请为“${n || '受检者'}”生成一条随访短信。
+
+要求：
+- 语气专业、温和；
+- 包含复查提醒与一句生活方式建议；
+- 80字以内；
+- 仅返回 JSON：
+{"smsContent":"..."}
+`;
+    try {
+        const jsonText = await callDeepSeek("你是医疗随访沟通助手。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const smsContent = String(parsed?.smsContent || '').trim();
+        if (smsContent) return { smsContent };
+    } catch (e) {
+        console.error('generateFollowUpSMS failed:', e);
+    }
+    return { smsContent: `【健康管理中心】${n || '您'}您好，请按计划复查并坚持清淡饮食、规律运动。如有不适请及时就医。` };
+};
 
 // --- ROBUST LOCAL FALLBACK FOR HEATMAP (Comprehensive 10+ Departments) ---
 const localHeatmapAnalysis = (issues: { [key: string]: number }): DepartmentAnalytics[] => {
@@ -489,7 +1039,29 @@ export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: 
     }
 };
 
-export const generateAnnualReportSummary = async (b: any, c: any) => { return {summary:''} };
+export const generateAnnualReportSummary = async (b: any, c: any) => {
+    const prompt = `
+请根据以下年度对比数据生成一段简要总结，突出“改善点、待改进点、下一步建议”。
+
+基线数据：${JSON.stringify(b || {})}
+本次数据：${JSON.stringify(c || {})}
+
+输出要求：
+- 120字以内；
+- 语气客观、可执行；
+- 仅返回 JSON：
+{"summary":"..."}
+`;
+    try {
+        const jsonText = await callDeepSeek("你是全科健康管理医生。", prompt);
+        const parsed = JSON.parse(jsonText || '{}');
+        const summary = String(parsed?.summary || '').trim();
+        if (summary) return { summary };
+    } catch (e) {
+        console.error('generateAnnualReportSummary failed:', e);
+    }
+    return { summary: '年度评估已完成：部分指标较前改善，仍需持续监测血压/血糖/血脂并按计划复查。' };
+};
 export const generateDietAssessment = async (i: string) => { return {reply: 'Diet AI Placeholder'} };
 export const generateExercisePlan = async (i: string) => { return {plan:[]} };
 
@@ -580,4 +1152,288 @@ export const generateDailyIntegratedPlan = async (userProfileStr: string, resour
             tips: '生成服务繁忙，请参考通用建议。'
         };
     }
+};
+
+/** AI 解析 Excel 汇总表中的单行筛查数据（列名不固定） */
+export type ParsedDiabetesScreeningRow = {
+  checkupId: string;
+  name?: string;
+  gender?: string;
+  age?: number;
+  screening: Partial<DiabetesScreeningRecord>;
+};
+
+export const parseDiabetesScreeningRowWithAI = async (
+  rowText: string
+): Promise<ParsedDiabetesScreeningRow> => {
+  const systemPrompt = `你是医疗数据结构化专家。用户上传的是「社区糖尿病并发症初筛/年度体检汇总」Excel 中的一行，列名可能略有差异，请智能匹配。
+
+${DIABETES_AI_FIELD_GUIDE}
+
+【基本信息】体检编号(6位数字)、体检次数、姓名、性别、年龄、身份证号、联系电话、检查状态、登记日期
+【心电图】心率(bpm)、PR间期(ms)、QRS宽度(ms)、QT/QTc(ms)、QRS电轴(°)、RV5/SV1(mV)、诊断提示
+【动脉硬化】左/右臂踝脉搏波传导速度(baPWV,cm/s)、颈股脉搏波传导速度(cfPWV,m/s)、左/右踝臂指数(ABI)、左/右上肢收缩压/舒张压/脉率、左/右踝收缩压/舒张压、动脉硬化风险、动脉硬化结论、动脉硬化特别提示
+【眼底】右眼评估、左眼评估、眼底特别提示（如小瞳孔/白内障致图像模糊等）
+【人体成分 InBody】身高、体重、BMI、体脂率、内脏脂肪面积、骨骼肌质量、腰臀比、InBody评分、肥胖度、基础代谢率、身体脂肪量、去脂体重、下限（骨骼肌质量正常范围）、上限（骨骼肌质量正常范围）、下限（身体脂肪量正常范围）、上限（身体脂肪量正常范围）等
+
+请提取为 JSON（数值字段用 number，文本保留原文，缺失则省略）：
+
+{
+  "checkupId": "恰好6位数字或空",
+  "name": "string",
+  "gender": "男/女",
+  "age": number,
+  "screening": {
+    "screeningDate": "登记日期 YYYY-MM-DD",
+    "registrationDate": "同登记日期",
+    "checkupCount": number,
+    "checkStatus": "string",
+    "idCard": "string",
+    "screeningPhone": "string",
+    "fastingGlucose": number,
+    "postprandialRandomGlucose": number,
+    "hba1c": number,
+    "glucoseMetabolismRisk": "string",
+    "insulinFasting": number,
+    "insulinPostprandial2h": number,
+    "cPeptideFasting": number,
+    "cPeptidePostprandial2h": number,
+    "adiponectin": "string",
+    "homocysteine": number,
+    "uacr": "string",
+    "urineRoutineSummary": "string",
+    "urineProtein": "string",
+    "creatinine": "string",
+    "urea": "string",
+    "uricAcid": "string",
+    "tc": "string",
+    "tg": "string",
+    "ldl": "string",
+    "hdl": "string",
+    "carotidUltrasound": "string",
+    "lowerLimbVascularUltrasound": "string",
+    "ncvResult": "string",
+    "neuropathyScreening": "string",
+    "footExamResult": "string",
+    "ecgHeartRate": number,
+    "ecgPrInterval": number,
+    "ecgQrsWidth": number,
+    "ecgQtQtc": "string",
+    "ecgQrsAxis": number,
+    "ecgRv5sv1": "string",
+    "ecgDiagnosisHint": "诊断提示原文",
+    "ecgAbnormal": boolean,
+    "leftBaPWV": number,
+    "rightBaPWV": number,
+    "cfPWV": number,
+    "leftABI": number,
+    "rightABI": number,
+    "leftArmSbp": number,
+    "leftArmDbp": number,
+    "leftArmPulse": number,
+    "rightArmSbp": number,
+    "rightArmDbp": number,
+    "rightArmPulse": number,
+    "leftAnkleSbp": number,
+    "leftAnkleDbp": number,
+    "rightAnkleSbp": number,
+    "rightAnkleDbp": number,
+    "arteriosclerosisRisk": "string",
+    "arteriosclerosisConclusion": "string",
+    "arteriosclerosisSpecialNote": "动脉硬化特别提示",
+    "rightEyeAssessment": "string",
+    "leftEyeAssessment": "string",
+    "fundusSpecialNote": "眼底照相特别提示",
+    "referralNeeded": boolean,
+    "height": number,
+    "weight": number,
+    "bmi": number,
+    "bodyFatRate": number,
+    "bodyFatMass": number,
+    "leanBodyMass": number,
+    "skeletalMuscleMass": number,
+    "skeletalMuscleRefLow": number,
+    "skeletalMuscleRefHigh": number,
+    "bodyFatMassRefLow": number,
+    "bodyFatMassRefHigh": number,
+    "visceralFatArea": number,
+    "waistHipRatio": number,
+    "inbodyScore": number,
+    "obesityDegree": number,
+    "bmr": number,
+    "targetWeight": number
+  }
+}
+
+规则：体检编号仅取6位数字；空腹血糖/餐后2小时血糖单位 mmol/L；HbA1c 单位 %；同型半胱氨酸 μmol/L；baPWV cm/s；cfPWV m/s；血压 mmHg。
+餐后2小时血糖列名可能是「餐后2h血糖」「2hPG」，均映射 postprandialRandomGlucose。
+InBody 个体化正常范围列名须精确匹配：下限（骨骼肌质量正常范围）→ skeletalMuscleRefLow 等，单位 kg。
+特别提示分流：与眼/瞳孔/白内障/视网膜/眼底/照相/图片模糊相关 → fundusSpecialNote；与动脉/血管/PWV/ABI/硬化相关 → arteriosclerosisSpecialNote。`;
+
+  const jsonText = await callDeepSeek(systemPrompt, rowText);
+  if (!jsonText) throw new Error('AI 返回为空');
+
+  const parsed = JSON.parse(jsonText) as ParsedDiabetesScreeningRow;
+  if (!parsed.screening) parsed.screening = {};
+  if (!parsed.checkupId) parsed.checkupId = '';
+
+  normalizeDiabetesScreeningRecord(parsed.screening);
+
+  const legacyNote = (parsed.screening as { specialNote?: string }).specialNote;
+  if (legacyNote && !parsed.screening.fundusSpecialNote && !parsed.screening.arteriosclerosisSpecialNote) {
+    if (isFundusSpecialNote(legacyNote)) parsed.screening.fundusSpecialNote = legacyNote;
+    else parsed.screening.arteriosclerosisSpecialNote = legacyNote;
+  }
+
+  return parsed;
+};
+
+/** AI 解析 Excel 汇总表中的单行高血压筛查数据（列名不固定） */
+export type ParsedHypertensionScreeningRow = {
+  checkupId: string;
+  name?: string;
+  gender?: string;
+  age?: number;
+  screening: Partial<HypertensionScreeningRecord>;
+};
+
+export const parseHypertensionScreeningRowWithAI = async (
+  rowText: string
+): Promise<ParsedHypertensionScreeningRow> => {
+  const systemPrompt = `你是医疗数据结构化专家。用户上传的是「社区高血压专项筛查/年度体检汇总」Excel 中的一行，列名可能略有差异，请智能匹配。
+
+${HYPERTENSION_AI_FIELD_GUIDE}
+
+【基本信息】体检编号(6位数字)、体检次数、姓名、性别、年龄、身份证号、联系电话、检查状态、登记日期
+
+请提取为 JSON（数值字段用 number，文本保留原文，缺失则省略）：
+
+{
+  "checkupId": "恰好6位数字或空",
+  "name": "string",
+  "gender": "男/女",
+  "age": number,
+  "screening": {
+    "screeningDate": "登记日期 YYYY-MM-DD",
+    "registrationDate": "同登记日期",
+    "checkupCount": number,
+    "checkStatus": "string",
+    "idCard": "string",
+    "screeningPhone": "string",
+    "sbp": number,
+    "dbp": number,
+    "heartRate": number,
+    "abpmSummary": "string",
+    "abpmDaySbp": number,
+    "abpmDayDbp": number,
+    "abpmNightSbp": number,
+    "abpmNightDbp": number,
+    "carotidUltrasound": "string",
+    "carotidImt": "string或number",
+    "carotidPlaque": "string",
+    "echoResult": "string",
+    "lvh": "string",
+    "ejectionFraction": "string或number",
+    "ecgResult": "string",
+    "holterResult": "string",
+    "creatinine": "string",
+    "urea": "string",
+    "uacr": "string",
+    "urineProtein": "string",
+    "fundusResult": "string",
+    "brainCtResult": "string",
+    "homocysteine": number,
+    "tc": "string",
+    "tg": "string",
+    "ldl": "string",
+    "hdl": "string",
+    "fastingGlucose": number,
+    "hba1c": number,
+    "potassium": "string",
+    "sodium": "string",
+    "chloride": "string",
+    "calcium": "string",
+    "renin": "string",
+    "angiotensin": "string",
+    "aldosterone": "string"
+  }
+}
+
+规则：体检编号仅取6位数字；血压 mmHg；HbA1c 单位 %；同型半胱氨酸 μmol/L。
+「血压 145/92」类文本请拆分为 sbp=145、dbp=92。`;
+
+  const jsonText = await callDeepSeek(systemPrompt, rowText);
+  if (!jsonText) throw new Error('AI 返回为空');
+
+  const parsed = JSON.parse(jsonText) as ParsedHypertensionScreeningRow;
+  if (!parsed.screening) parsed.screening = {};
+  if (!parsed.checkupId) parsed.checkupId = '';
+
+  normalizeHypertensionScreeningRecord(parsed.screening);
+
+  return parsed;
+};
+
+export type ParsedLipidScreeningRow = {
+  checkupId: string;
+  name?: string;
+  gender?: string;
+  age?: number;
+  screening: Partial<LipidScreeningRecord>;
+};
+
+export const parseLipidScreeningRowWithAI = async (rowText: string): Promise<ParsedLipidScreeningRow> => {
+  const systemPrompt = `你是医疗数据结构化专家。用户上传的是「社区血脂异常专项筛查/年度体检汇总」Excel 中的一行。
+
+${LIPID_AI_FIELD_GUIDE}
+
+【基本信息】体检编号(6位数字)、姓名、性别、年龄、身份证号、联系电话、登记日期
+
+请提取为 JSON：
+
+{
+  "checkupId": "6位数字或空",
+  "name": "string",
+  "gender": "男/女",
+  "age": number,
+  "screening": {
+    "screeningDate": "YYYY-MM-DD",
+    "registrationDate": "YYYY-MM-DD",
+    "idCard": "string",
+    "screeningPhone": "string",
+    "tc": "string或number",
+    "tg": "string或number",
+    "ldl": "string或number",
+    "hdl": "string或number",
+    "nonHdl": "string或number",
+    "apoB": "string",
+    "lpa": "string",
+    "hsCrp": "string",
+    "homocysteine": number,
+    "carotidUltrasound": "string",
+    "carotidImt": "string",
+    "ecgResult": "string",
+    "leftABI": number,
+    "rightABI": number,
+    "fastingGlucose": number,
+    "hba1c": "string或number",
+    "sbp": number,
+    "dbp": number,
+    "alt": "string",
+    "ast": "string",
+    "creatinine": "string",
+    "uacr": "string",
+    "tsh": "string"
+  }
+}
+
+规则：血脂单位 mmol/L；HbA1c 单位 %；同型半胱氨酸 μmol/L。`;
+
+  const jsonText = await callDeepSeek(systemPrompt, rowText);
+  if (!jsonText) throw new Error('AI 返回为空');
+  const parsed = JSON.parse(jsonText) as ParsedLipidScreeningRow;
+  if (!parsed.screening) parsed.screening = {};
+  if (!parsed.checkupId) parsed.checkupId = '';
+  normalizeLipidScreeningRecord(parsed.screening);
+  return parsed;
 };

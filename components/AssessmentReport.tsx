@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord } from '../types';
+import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord, FollowUpRecord } from '../types';
+import { getLatestFollowUp } from '../services/followUpLinkageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { SystemRiskPortrait } from './SystemRiskPortrait';
 
@@ -14,6 +15,8 @@ interface Props {
   onUpdateReport?: (file: File) => void; // Changed from onReevaluate to file upload handler
   onUpdateRiskAnalysis?: () => void; // Prop to refresh archives if models are updated
   onSupplementQuestionnaire?: () => void; // Add Supplement Questionnaire Callback
+  followUps?: FollowUpRecord[];
+  onViewFollowUps?: () => void;
 }
 
 const COLORS = {
@@ -31,11 +34,14 @@ export const AssessmentReport: React.FC<Props> = ({
     onSave, 
     onUpdateReport,
     onUpdateRiskAnalysis,
-    onSupplementQuestionnaire
+    onSupplementQuestionnaire,
+    followUps = [],
+    onViewFollowUps,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const latestFollowUp = getLatestFollowUp(followUps);
 
   // Sync state when props change (e.g. switching patients)
   useEffect(() => {
@@ -325,7 +331,7 @@ export const AssessmentReport: React.FC<Props> = ({
                     <p class="disclaimer">本方案仅供参考，具体治疗请遵医嘱。</p>
                     <div class="contact-info">
                         <span>制定机构：郑州大学医院</span>
-                        <span>服务热线：0371-67739261</span>
+                        <span>服务热线：0371-67739538</span>
                         <span>工作时间：周一至周五上午8:00-12:00，下午2:30-5:30</span>
                     </div>
                 </div>
@@ -501,6 +507,45 @@ export const AssessmentReport: React.FC<Props> = ({
           </div>
       )}
 
+      {latestFollowUp && (
+          <div className="bg-teal-50 border border-teal-200 rounded-lg p-5 mb-6">
+              <div className="flex justify-between items-start gap-4 mb-3">
+                  <h3 className="text-lg font-bold text-teal-800 flex items-center gap-2">
+                      <span>🔗</span> 随访进展摘要
+                  </h3>
+                  {onViewFollowUps && (
+                      <button
+                          type="button"
+                          onClick={onViewFollowUps}
+                          className="text-xs text-teal-700 font-bold hover:underline shrink-0"
+                      >
+                          查看完整随访记录 →
+                      </button>
+                  )}
+              </div>
+              <div className="text-sm text-slate-700 space-y-2">
+                  <p>
+                      <span className="font-bold">最近随访：</span>
+                      {latestFollowUp.date} · {latestFollowUp.method}
+                  </p>
+                  {latestFollowUp.assessment.continuitySummary && (
+                      <p><span className="font-bold">相对上次进展：</span>{latestFollowUp.assessment.continuitySummary}</p>
+                  )}
+                  {latestFollowUp.assessment.taskReviewSummary && (
+                      <p><span className="font-bold">任务回顾：</span>{latestFollowUp.assessment.taskReviewSummary}</p>
+                  )}
+                  {latestFollowUp.indicatorDelta && Object.keys(latestFollowUp.indicatorDelta).length > 0 && (
+                      <div>
+                          <span className="font-bold">指标变化：</span>
+                          <span className="text-slate-600 ml-1">
+                              {Object.entries(latestFollowUp.indicatorDelta).map(([k, d]) => `${k} ${d.prev}→${d.curr}${d.unit}`).join('；')}
+                          </span>
+                      </div>
+                  )}
+              </div>
+          </div>
+      )}
+
       {/* Summary Section */}
       <div className="bg-white rounded-xl shadow p-6 flex flex-col md:flex-row items-start gap-8 print:shadow-none print:border">
         <div className="w-32 h-32 flex-shrink-0 mx-auto md:mx-0">
@@ -544,6 +589,48 @@ export const AssessmentReport: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {(editData.elderlyRiskLevel || (profile?.age && profile.age >= 60)) && (
+          <div className="bg-violet-50 border border-violet-200 rounded-lg p-5 mb-6">
+              <h3 className="text-lg font-bold text-violet-900 flex items-center gap-2 mb-2">
+                  <span>👴</span> 老年专项评估（CGA）
+              </h3>
+              {editData.elderlyRiskLevel ? (
+                  <div className="text-sm text-slate-700 space-y-2">
+                      <p>
+                          <span className="font-bold">分级：</span>
+                          <span className={
+                            editData.elderlyRiskLevel === RiskLevel.RED ? 'text-red-700 font-bold' :
+                            editData.elderlyRiskLevel === RiskLevel.YELLOW ? 'text-amber-700 font-bold' :
+                            'text-emerald-700 font-bold'
+                          }>
+                            {editData.elderlyRiskLevel === RiskLevel.RED ? '高风险' :
+                             editData.elderlyRiskLevel === RiskLevel.YELLOW ? '中风险' : '低风险'}
+                          </span>
+                      </p>
+                      {editData.elderlyRiskSummary && (
+                          <p><span className="font-bold">摘要：</span>{editData.elderlyRiskSummary}</p>
+                      )}
+                      {(editData.elderlyRiskReasons || []).length > 0 && (
+                          <ul className="list-disc pl-5 space-y-0.5">
+                              {(editData.elderlyRiskReasons || []).slice(0, 5).map((r, i) => (
+                                  <li key={i}>{r}</li>
+                              ))}
+                          </ul>
+                      )}
+                      {editData.elderlyPersonalizedPlan?.followup?.length ? (
+                          <p className="text-xs text-violet-700">
+                              随访建议：{editData.elderlyPersonalizedPlan.followup[0]}
+                          </p>
+                      ) : null}
+                  </div>
+              ) : (
+                  <p className="text-sm text-violet-800">
+                      受检人年龄 ≥60 岁，建议在「老年专项评估」模块完成 CGA 量表筛查。
+                  </p>
+              )}
+          </div>
+      )}
 
       {/* Risk Factors Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

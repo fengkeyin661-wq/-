@@ -10,15 +10,17 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",
+    "bcryptjs": "^3.0.3",
+    "lucide-react": "^0.344.0",
     "mammoth": "^1.6.0",
     "pdfjs-dist": "3.11.174",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^2.12.3",
-    "xlsx": "^0.18.5",
-    "lucide-react": "^0.344.0"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",

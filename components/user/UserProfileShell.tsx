@@ -1,77 +1,118 @@
 import React, { useState } from 'react';
-import { findArchiveByCheckupId, findArchiveByPhone, type HealthArchive } from '../../services/dataService';
+import { type HealthArchive } from '../../services/dataService';
+import { loginUserDualPath } from '../../services/userLoginService';
+import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
 
 interface Props {
   onLoginSuccess: (archive: HealthArchive) => void;
 }
 
+const PROFILE_SHELL_TIP =
+  '尚未建档请先联系健康管家；首次登录密码为体检编号（6位数字），登录后须立即修改密码。预约挂号可在各栏目直接提交，若忘记密码请联系健康管家。';
+
 export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
-  const [input, setInput] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    const raw = input.trim();
-    if (!raw) {
-      setError('请输入体检编号或预留手机号');
+    const p = phone.trim();
+    if (!p) {
+      setError('请输入体检登记手机号');
+      return;
+    }
+    if (!password) {
+      setError('请输入密码');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      let archive = await findArchiveByCheckupId(raw);
-      if (!archive) {
-        archive = await findArchiveByPhone(raw);
-      }
-      if (archive) {
-        onLoginSuccess(archive);
+      const result = await loginUserDualPath(p, password);
+      if (result.success) {
+        onLoginSuccess(result.archive);
       } else {
-        setError('未找到档案，请核对体检编号或预留手机号');
+        if (result.reason === 'archive_not_found') {
+          setError('未找到与该手机号关联的档案，请先联系健康管家完成建档。');
+        } else if (result.reason === 'invalid_password') {
+          setError('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
+        } else if (result.reason === 'permission_denied') {
+          setError('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+        } else {
+          setError(`登录失败：${result.message || '查询异常，请稍后重试'}`);
+        }
       }
     } catch (err) {
       console.error(err);
-      setError('登录失败，请稍后重试');
+      setError('登录失败，请稍后重试。');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-full bg-slate-50 px-5 py-8 pb-28">
-      <div className="max-w-md mx-auto">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-teal-600 rounded-2xl flex items-center justify-center text-3xl text-white font-bold mx-auto mb-4 shadow-lg">
-            👤
+    <div className="min-h-full bg-slate-50 px-4 py-6 pb-24">
+      <div className="mx-auto max-w-md">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-3xl text-white shadow-sm">
+              👤
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-slate-800">个人服务登录</h1>
           </div>
-          <h1 className="text-xl font-black text-slate-800">登录后使用个人服务</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            登录后可查看健康档案、随访与计划，以及签约、预约等记录
-          </p>
+
+          <a
+            href={HEALTH_MANAGEMENT_HOTLINE_TEL}
+            className="mt-5 block rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-center transition-colors hover:bg-teal-100/80"
+          >
+            <p className="text-xs font-bold text-teal-700">健康管理服务电话</p>
+            <p className="mt-1 text-xl font-black tracking-wide text-teal-900">{HEALTH_MANAGEMENT_HOTLINE}</p>
+          </a>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4 rounded-3xl border border-slate-200/80 bg-white p-6 shadow-sm">
           <div>
-            <label className="mb-1 block text-sm font-bold text-slate-700">体检编号或手机号</label>
+            <label className="mb-1.5 block text-sm font-bold text-slate-700">体检登记手机号</label>
             <input
-              type="text"
+              type="tel"
+              inputMode="numeric"
               autoComplete="username"
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-teal-500"
-              placeholder="请输入体检编号或预留手机号"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="11位手机号"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
               disabled={loading}
             />
           </div>
-          {error ? <p className="text-sm text-center font-bold text-red-600">{error}</p> : null}
+          <div>
+            <label className="mb-1.5 block text-sm font-bold text-slate-700">密码</label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-base transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="初始密码为体检编号"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+            />
+          </div>
+          {error ? (
+            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-center text-sm font-bold text-red-600">
+              {error}
+            </p>
+          ) : null}
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl bg-teal-600 py-3.5 text-base font-bold text-white shadow-md transition-colors hover:bg-teal-700 disabled:opacity-50"
+            className="w-full rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white shadow-sm transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? '验证中...' : '登录'}
           </button>
         </form>
+
+        <p className="mt-5 px-1 text-center text-xs leading-relaxed text-slate-500">{PROFILE_SHELL_TIP}</p>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     ContentItem, InteractionItem, 
     fetchContent, saveContent, deleteContent, 
@@ -16,11 +16,127 @@ import {
     type ResourcePresets,
     type ResourcePresetKey,
 } from '../services/resourcePresetStore';
+import {
+    HEALTH_MANAGEMENT_HOTLINE,
+    CLINICAL_SUB_CATEGORIES,
+    HEALTH_SERVICE_SUB_CATEGORIES,
+    classifyServiceItem,
+    inferServiceDomain,
+    calcPackagePriceBreakdown,
+    getPackageIncludedItems,
+    getPackageOptionalGroups,
+    getPackageGiftItems,
+    createEmptyOptionalGroup,
+    formatOptionalGroupLabel,
+    applyLivePackagePricing,
+    packageIncludesService,
+    summarizePackageComposition,
+    type ClinicalSubCategory,
+    type HealthServiceSubCategory,
+    type PackageIncludedItem,
+    type PackageOptionalGroup,
+    type PackageGiftItem,
+} from '../services/userServiceCatalog';
+import { isSupabaseConfigured } from '../services/supabaseClient';
+import { prepareContentItemImages, uploadPackageImageFile } from '../services/resourceImageStorage';
+import { excludeCheckupPortalGuide, isCheckupPortalGuideItem } from '../services/checkupPortalContentService';
+import { CheckupPortalGuideEditor } from './CheckupPortalGuideEditor';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
 interface Props {
     onLogout: () => void;
+}
+
+const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const DAY_LABELS: Record<string, string> = {
+    Mon: '周一',
+    Tue: '周二',
+    Wed: '周三',
+    Thu: '周四',
+    Fri: '周五',
+    Sat: '周六',
+    Sun: '周日',
+};
+const SLOTS = [{ id: 'AM', label: '上午' }, { id: 'PM', label: '下午' }];
+
+function parseImportServiceDomain(row: Record<string, any>): 'clinical' | 'health_service' {
+    const domainRaw = (row['服务大类'] || '').toString().trim();
+    if (domainRaw === '健康服务' || domainRaw === 'health_service') return 'health_service';
+    if (domainRaw === '临床检查' || domainRaw === 'clinical') return 'clinical';
+    const categoryL1 = (row['一级分类'] || '').toString().trim();
+    if (categoryL1 === '健康服务') return 'health_service';
+
+    const stub = {
+        type: 'service' as const,
+        id: 'import',
+        title: row['项目名称'] || '',
+        description: row['项目简介（列表页摘要）'] || '',
+        tags: row['标签'] ? String(row['标签']).split(/[,，]/).map((t: string) => t.trim()) : [],
+        status: 'active' as const,
+        updatedAt: '',
+        details: { categoryL1, categoryL2: row['二级分类'] },
+    } as ContentItem;
+    return inferServiceDomain(stub) === 'health_service' ? 'health_service' : 'clinical';
+}
+
+function parseImportSubCategory(
+    row: Record<string, any>,
+    serviceDomain: 'clinical' | 'health_service',
+): string {
+    const raw = (row['二级子类'] || row['临床子类'] || row['健康服务子类'] || row['二级分类'] || '').toString().trim();
+    const clinicalMap: Record<string, ClinicalSubCategory> = {
+        实验室检查: 'lab',
+        物理检查: 'physical',
+        影像学检查: 'imaging',
+        其他检查: 'other',
+        lab: 'lab',
+        physical: 'physical',
+        imaging: 'imaging',
+        other: 'other',
+    };
+    const healthMap: Record<string, HealthServiceSubCategory> = {
+        中医理疗: 'tcm',
+        眼科理疗: 'ophthalmology',
+        报告解读: 'report',
+        咨询答疑: 'consultation',
+        健康签约服务: 'contract',
+        科普活动: 'education',
+        tcm: 'tcm',
+        ophthalmology: 'ophthalmology',
+        report: 'report',
+        consultation: 'consultation',
+        contract: 'contract',
+        education: 'education',
+    };
+    if (serviceDomain === 'clinical' && clinicalMap[raw]) return clinicalMap[raw];
+    if (serviceDomain === 'health_service' && healthMap[raw]) return healthMap[raw];
+
+    const stub = {
+        type: 'service' as const,
+        id: 'import',
+        title: row['项目名称'] || '',
+        description: row['项目简介（列表页摘要）'] || '',
+        tags: row['标签'] ? String(row['标签']).split(/[,，]/).map((t: string) => t.trim()) : [],
+        status: 'active' as const,
+        updatedAt: '',
+        details: {
+            serviceDomain,
+            categoryL1: row['一级分类'],
+            categoryL2: row['二级分类'],
+        },
+    } as ContentItem;
+    return classifyServiceItem(stub).subId;
+}
+
+function serviceCatalogLabel(item: ContentItem): string {
+    const cls = classifyServiceItem(item);
+    const domainLabel = cls.domain === 'health_service' ? '健康服务' : '临床检查';
+    const subLabel =
+        cls.domain === 'health_service'
+            ? HEALTH_SERVICE_SUB_CATEGORIES.find((x) => x.id === cls.subId)?.label
+            : CLINICAL_SUB_CATEGORIES.find((x) => x.id === cls.subId)?.label;
+    return `${domainLabel}${subLabel ? ` · ${subLabel}` : ''}`;
 }
 
 function isImageLike(s?: string) {
@@ -36,6 +152,8 @@ function defaultResourceEmoji(type?: ContentItem['type']): string {
             return '🏃';
         case 'event':
             return '🎉';
+        case 'checkup_package':
+            return '🩺';
         case 'service':
             return '🏥';
         case 'drug':
@@ -139,6 +257,16 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise' | 'audit'>('event');
     // Sub-tab for Event (Community) section
     const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
+    const [serviceSubTab, setServiceSubTab] = useState<'item' | 'package'>('item');
+    const [serviceCatalogFilter, setServiceCatalogFilter] = useState<'all' | 'clinical' | 'health_service'>('all');
+    const [serviceSubCategoryFilter, setServiceSubCategoryFilter] = useState<string>('all');
+    const [serviceSearchTerm, setServiceSearchTerm] = useState('');
+    const [packageImageUploading, setPackageImageUploading] = useState<'cover' | 'poster' | null>(null);
+    /** 套餐编辑：临床项目多选列表搜索（按区块） */
+    const [packageFixedItemSearch, setPackageFixedItemSearch] = useState('');
+    const [packageOptionalItemSearch, setPackageOptionalItemSearch] = useState('');
+    const [packageGiftItemSearch, setPackageGiftItemSearch] = useState('');
+    const [clinicalServiceCatalog, setClinicalServiceCatalog] = useState<ContentItem[]>([]);
     
     const [items, setItems] = useState<ContentItem[]>([]);
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
@@ -151,11 +279,21 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [presets, setPresets] = useState<ResourcePresets>(() => loadResourcePresets());
     const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
     const [presetDraft, setPresetDraft] = useState<ResourcePresets | null>(null);
+    const [isCheckupGuideEditorOpen, setIsCheckupGuideEditorOpen] = useState(false);
 
     // Content Edit State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editItem, setEditItem] = useState<Partial<ContentItem>>({});
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [serviceClosedDateInput, setServiceClosedDateInput] = useState('');
+
+    /** 批量预约时段 */
+    const [isBatchScheduleOpen, setIsBatchScheduleOpen] = useState(false);
+    const [batchScheduleDraft, setBatchScheduleDraft] = useState<{
+        serviceWeeklySchedule: Record<string, string[]>;
+        serviceSlotQuotas: Record<string, Record<string, number>>;
+        defaultQuota: number;
+    }>({ serviceWeeklySchedule: {}, serviceSlotQuotas: {}, defaultQuota: 10 });
 
     // Batch Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -164,10 +302,20 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // Generic ref for Excel Import
     const batchImportRef = useRef<HTMLInputElement>(null);
     const coverImageInputRef = useRef<HTMLInputElement>(null);
+    const packagePosterInputRef = useRef<HTMLInputElement>(null);
+    const packageCoverInputRef = useRef<HTMLInputElement>(null);
+    const wechatQrInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         loadData();
-    }, [activeTab, eventSubTab]);
+        setServiceCatalogFilter('all');
+        setServiceSubCategoryFilter('all');
+        setServiceSearchTerm('');
+    }, [activeTab, eventSubTab, serviceSubTab]);
+
+    useEffect(() => {
+        setServiceSubCategoryFilter('all');
+    }, [serviceCatalogFilter]);
 
     useEffect(() => {
         runDiagnostics();
@@ -190,7 +338,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 case 'recipe': contentType = 'meal'; break;
                 case 'exercise': contentType = 'exercise'; break;
                 case 'event': contentType = ['event', 'circle']; break;
-                case 'service': contentType = 'service'; break;
+                case 'service':
+                    contentType = serviceSubTab === 'package' ? 'checkup_package' : 'service';
+                    break;
                 case 'drug': contentType = 'drug'; break;
                 case 'doctor': contentType = 'doctor'; break;
                 case 'audit': contentType = ''; break; // No content needed, just interactions
@@ -206,6 +356,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     }
                 } else {
                     setItems(content);
+                }
+                if (activeTab === 'service') {
+                    const clinical = await fetchContent('service', 'active');
+                    setClinicalServiceCatalog(clinical.filter((s) => classifyServiceItem(s).domain === 'clinical'));
                 }
             }
 
@@ -251,9 +405,56 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    const displayItems = useMemo(() => {
+        if (activeTab === 'service' && serviceSubTab === 'package') {
+            return excludeCheckupPortalGuide(items);
+        }
+        if (activeTab !== 'service' || serviceSubTab !== 'item') return items;
+
+        let list = items.filter((i) => i.type === 'service');
+
+        if (serviceCatalogFilter !== 'all') {
+            list = list.filter((i) => {
+                const { domain } = classifyServiceItem(i);
+                return serviceCatalogFilter === 'health_service'
+                    ? domain === 'health_service'
+                    : domain === 'clinical';
+            });
+        }
+
+        if (serviceSubCategoryFilter !== 'all') {
+            list = list.filter((i) => classifyServiceItem(i).subId === serviceSubCategoryFilter);
+        }
+
+        const q = serviceSearchTerm.trim().toLowerCase();
+        if (q) {
+            list = list.filter((i) => {
+                const cls = classifyServiceItem(i);
+                const subLabel =
+                    cls.domain === 'health_service'
+                        ? HEALTH_SERVICE_SUB_CATEGORIES.find((x) => x.id === cls.subId)?.label || ''
+                        : CLINICAL_SUB_CATEGORIES.find((x) => x.id === cls.subId)?.label || '';
+                const haystack = [
+                    i.title,
+                    i.description || '',
+                    i.details?.dept || '',
+                    i.details?.categoryL1 || '',
+                    i.details?.categoryL2 || '',
+                    subLabel,
+                    ...(i.tags || []),
+                ]
+                    .join(' ')
+                    .toLowerCase();
+                return haystack.includes(q);
+            });
+        }
+
+        return list;
+    }, [items, activeTab, serviceSubTab, serviceCatalogFilter, serviceSubCategoryFilter, serviceSearchTerm]);
+
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
-            setSelectedIds(new Set(items.map(i => i.id)));
+            setSelectedIds(new Set(displayItems.map(i => i.id)));
         } else {
             setSelectedIds(new Set());
         }
@@ -321,6 +522,114 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         }
     };
 
+    const openBatchScheduleModal = () => {
+        if (selectedIds.size === 0) return;
+        setBatchScheduleDraft({ serviceWeeklySchedule: {}, serviceSlotQuotas: {}, defaultQuota: 10 });
+        setIsBatchScheduleOpen(true);
+    };
+
+    const toggleBatchSchedule = (dayKey: string, slotId: string) => {
+        setBatchScheduleDraft((prev) => {
+            const weekly = { ...prev.serviceWeeklySchedule };
+            const quotas = { ...prev.serviceSlotQuotas };
+            const current = weekly[dayKey] || [];
+            const updated = current.includes(slotId)
+                ? current.filter((s) => s !== slotId)
+                : [...current, slotId];
+            weekly[dayKey] = updated;
+            if (!current.includes(slotId)) {
+                quotas[dayKey] = {
+                    ...(quotas[dayKey] || {}),
+                    [slotId]: prev.defaultQuota,
+                };
+            }
+            return { ...prev, serviceWeeklySchedule: weekly, serviceSlotQuotas: quotas };
+        });
+    };
+
+    const handleBatchQuotaChange = (dayKey: string, slotId: string, value: number) => {
+        setBatchScheduleDraft((prev) => ({
+            ...prev,
+            serviceSlotQuotas: {
+                ...prev.serviceSlotQuotas,
+                [dayKey]: {
+                    ...(prev.serviceSlotQuotas[dayKey] || {}),
+                    [slotId]: Math.max(1, value || 1),
+                },
+            },
+        }));
+    };
+
+    const applyBatchSchedulePreset = (preset: 'weekday_all' | 'weekday_am' | 'daily_all') => {
+        setBatchScheduleDraft((prev) => {
+            const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+            const allDays = [...weekdays, 'Sat', 'Sun'];
+            const days = preset === 'daily_all' ? allDays : weekdays;
+            const slots = preset === 'weekday_am' ? ['AM'] : ['AM', 'PM'];
+            const weekly: Record<string, string[]> = {};
+            const quotas: Record<string, Record<string, number>> = {};
+            days.forEach((d) => {
+                weekly[d] = [...slots];
+                quotas[d] = {};
+                slots.forEach((s) => {
+                    quotas[d][s] = prev.defaultQuota;
+                });
+            });
+            return { ...prev, serviceWeeklySchedule: weekly, serviceSlotQuotas: quotas };
+        });
+    };
+
+    const handleBatchApplySchedule = async () => {
+        const { serviceWeeklySchedule, serviceSlotQuotas } = batchScheduleDraft;
+        const hasSlots = Object.values(serviceWeeklySchedule).some((slots) => slots?.length);
+        if (!hasSlots) {
+            alert('请至少开启一个可预约时段，或使用下方快捷模板');
+            return;
+        }
+        const selectedItems = items.filter((i) => selectedIds.has(i.id));
+        const schedulable = selectedItems.filter(
+            (i) => i.type === 'service' || i.type === 'checkup_package',
+        );
+        if (!schedulable.length) {
+            alert('所选项目中没有可设置预约时段的服务或套餐');
+            return;
+        }
+        if (
+            !confirm(
+                `将为 ${schedulable.length} 项资源统一写入预约排期（覆盖原有排期设置），是否继续？`,
+            )
+        ) {
+            return;
+        }
+        setLoading(true);
+        setLoadingText('正在批量设置预约时段...');
+        try {
+            await Promise.all(
+                schedulable.map((item) =>
+                    saveContent({
+                        ...item,
+                        details: {
+                            ...item.details,
+                            bookingType: item.details?.bookingType || '需预约',
+                            serviceWeeklySchedule: { ...serviceWeeklySchedule },
+                            serviceSlotQuotas: { ...serviceSlotQuotas },
+                        },
+                        updatedAt: new Date().toISOString(),
+                    }),
+                ),
+            );
+            setIsBatchScheduleOpen(false);
+            setSelectedIds(new Set());
+            await loadData();
+            alert(`已成功为 ${schedulable.length} 项资源设置预约时段`);
+        } catch (e) {
+            console.error(e);
+            alert('批量设置失败，请重试');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSaveContent = async () => {
         if (!editItem.title || !editItem.type) {
             alert("标题和类型为必填项");
@@ -329,15 +638,74 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
         setLoading(true);
         setLoadingText('正在保存...');
-        
-        const result = await saveContent(editItem as ContentItem);
-        
-        setLoading(false);
-        setIsModalOpen(false);
-        loadData();
 
-        if (result.mode === 'local' && result.error) {
-            alert(`⚠️ 保存成功，但云端同步失败。\n原因: ${result.error}\n\n数据已暂存至本地。`);
+        try {
+            let itemToSave = { ...editItem, updatedAt: editItem.updatedAt || new Date().toISOString() } as ContentItem;
+
+            const hasPendingImages =
+                (itemToSave.image || '').startsWith('data:image') ||
+                (itemToSave.details?.posterImage || '').startsWith('data:image') ||
+                (itemToSave.details?.wechat_qr || '').startsWith('data:image');
+
+            if (hasPendingImages) {
+                if (!isSupabaseConfigured()) {
+                    alert('当前未配置 Supabase，大图无法写入云端。请配置 VITE_SUPABASE_URL 与密钥，或使用 https 图片地址。');
+                    return;
+                }
+                setLoadingText('正在上传图片到云端...');
+                itemToSave = await prepareContentItemImages(itemToSave);
+            }
+
+            setLoadingText('正在保存...');
+            if (itemToSave.type === 'checkup_package') {
+                // merge latest clinical catalog for pricing (include any in-memory edits)
+                const catalogForPrice =
+                    clinicalServiceCatalog.length > 0
+                        ? clinicalServiceCatalog
+                        : (await fetchContent('service')).filter((s) => classifyServiceItem(s).domain === 'clinical');
+                itemToSave = applyLivePackagePricing(itemToSave, catalogForPrice);
+                if (itemToSave.details?.showOriginalPrice === undefined) {
+                    itemToSave = {
+                        ...itemToSave,
+                        details: { ...itemToSave.details, showOriginalPrice: true },
+                    };
+                }
+            }
+
+            const result = await saveContent(itemToSave);
+
+            // 临床项目单价变更后，联动刷新引用该项目的套餐原价/套餐价
+            if (itemToSave.type === 'service') {
+                setLoadingText('正在同步关联套餐价格...');
+                const packages = await fetchContent('checkup_package');
+                const services = await fetchContent('service');
+                // 当前刚保存的项目覆盖进价目表
+                const serviceMap = services.map((s) => (s.id === itemToSave.id ? itemToSave : s));
+                let synced = 0;
+                for (const pkg of packages) {
+                    if (isCheckupPortalGuideItem(pkg)) continue;
+                    if (!packageIncludesService(pkg, itemToSave.id)) continue;
+                    const updated = applyLivePackagePricing(pkg, serviceMap);
+                    await saveContent(updated);
+                    synced++;
+                }
+                if (synced > 0) {
+                    console.log(`[package pricing] synced ${synced} checkup packages after service price change`);
+                }
+            }
+
+            setIsModalOpen(false);
+            await loadData();
+
+            if (result.mode === 'local' && result.error) {
+                alert(`⚠️ 保存成功，但云端同步失败。\n原因: ${result.error}\n\n数据已暂存至本地。`);
+            }
+        } catch (e: unknown) {
+            console.error(e);
+            const msg = e instanceof Error ? e.message : '未知错误';
+            alert(`保存失败：${msg}`);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -346,6 +714,153 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             ...prev,
             details: { ...prev.details, [key]: val }
         }));
+    };
+
+    const syncPackageIncluded = (items: PackageIncludedItem[]) => {
+        const stub = {
+            ...editItem,
+            details: { ...editItem.details, includedItems: items, includedServiceIds: items.map((i) => i.serviceId) },
+        } as ContentItem;
+        const breakdown = calcPackagePriceBreakdown(stub, clinicalServiceCatalog);
+        setEditItem((prev) => ({
+            ...prev,
+            details: {
+                ...prev.details,
+                includedItems: items,
+                includedServiceIds: items.map((i) => i.serviceId),
+                originalPrice: breakdown.originalTotal,
+                price: prev.details?.priceManualOverride ? prev.details?.price : breakdown.packagePrice,
+                calculatedPrice: breakdown.packagePrice,
+            },
+        }));
+    };
+
+    const togglePackageService = (svc: ContentItem, selected: boolean) => {
+        const current = getPackageIncludedItems(editItem as ContentItem);
+        if (selected) {
+            syncPackageIncluded(current.filter((i) => i.serviceId !== svc.id));
+        } else {
+            syncPackageIncluded([...current, { serviceId: svc.id, quantity: 1, discountRate: 100 }]);
+        }
+    };
+
+    const updatePackageItemField = (
+        serviceId: string,
+        field: 'quantity' | 'discountRate',
+        value: number,
+    ) => {
+        const current = getPackageIncludedItems(editItem as ContentItem);
+        const next = current.map((i) => {
+            if (i.serviceId !== serviceId) return i;
+            if (field === 'quantity') return { ...i, quantity: Math.max(1, Math.round(value) || 1) };
+            return { ...i, discountRate: Math.min(100, Math.max(0, value)) };
+        });
+        syncPackageIncluded(next);
+    };
+
+    const setOptionalGroups = (groups: PackageOptionalGroup[]) => {
+        updateDetail('optionalGroups', groups);
+    };
+
+    const addOptionalGroup = () => {
+        const current = getPackageOptionalGroups(editItem as ContentItem);
+        setOptionalGroups([...current, createEmptyOptionalGroup()]);
+    };
+
+    const updateOptionalGroup = (groupId: string, patch: Partial<PackageOptionalGroup>) => {
+        const current = getPackageOptionalGroups(editItem as ContentItem);
+        setOptionalGroups(current.map((g) => (g.id === groupId ? { ...g, ...patch } : g)));
+    };
+
+    const removeOptionalGroup = (groupId: string) => {
+        const current = getPackageOptionalGroups(editItem as ContentItem);
+        setOptionalGroups(current.filter((g) => g.id !== groupId));
+    };
+
+    const toggleOptionalCandidate = (groupId: string, serviceId: string, selected: boolean) => {
+        const current = getPackageOptionalGroups(editItem as ContentItem);
+        setOptionalGroups(
+            current.map((g) => {
+                if (g.id !== groupId) return g;
+                const ids = selected
+                    ? g.candidateServiceIds.filter((id) => id !== serviceId)
+                    : [...g.candidateServiceIds, serviceId];
+                return { ...g, candidateServiceIds: ids };
+            }),
+        );
+    };
+
+    const syncPackageGifts = (items: PackageGiftItem[]) => {
+        updateDetail('giftItems', items);
+    };
+
+    const togglePackageGift = (svc: ContentItem, selected: boolean) => {
+        const current = getPackageGiftItems(editItem as ContentItem);
+        if (selected) {
+            syncPackageGifts(current.filter((i) => i.serviceId !== svc.id));
+        } else {
+            syncPackageGifts([...current, { serviceId: svc.id, quantity: 1 }]);
+        }
+    };
+
+    const updatePackageGiftField = (serviceId: string, field: 'quantity' | 'note', value: string | number) => {
+        const current = getPackageGiftItems(editItem as ContentItem);
+        syncPackageGifts(
+            current.map((i) => {
+                if (i.serviceId !== serviceId) return i;
+                if (field === 'quantity') return { ...i, quantity: Math.max(1, Math.round(Number(value)) || 1) };
+                return { ...i, note: String(value || '') || undefined };
+            }),
+        );
+    };
+
+    const toggleServiceSchedule = (dayKey: string, slotId: string) => {
+        const weekly = (editItem.details?.serviceWeeklySchedule || {}) as Record<string, string[]>;
+        const quotas = (editItem.details?.serviceSlotQuotas || {}) as Record<string, Record<string, number>>;
+        const current = weekly[dayKey] || [];
+        const updated = current.includes(slotId) ? current.filter((s) => s !== slotId) : [...current, slotId];
+        const nextQuotas = { ...quotas };
+        if (!current.includes(slotId) && !(nextQuotas[dayKey]?.[slotId])) {
+            nextQuotas[dayKey] = { ...(nextQuotas[dayKey] || {}), [slotId]: 10 };
+        }
+        setEditItem((prev) => ({
+            ...prev,
+            details: {
+                ...prev.details,
+                serviceWeeklySchedule: { ...(prev.details?.serviceWeeklySchedule || {}), [dayKey]: updated },
+                serviceSlotQuotas: nextQuotas,
+            }
+        }));
+    };
+
+    const handleServiceQuotaChange = (dayKey: string, slotId: string, value: number) => {
+        setEditItem((prev) => ({
+            ...prev,
+            details: {
+                ...prev.details,
+                serviceSlotQuotas: {
+                    ...(prev.details?.serviceSlotQuotas || {}),
+                    [dayKey]: {
+                        ...((prev.details?.serviceSlotQuotas || {})[dayKey] || {}),
+                        [slotId]: Math.max(1, value || 1)
+                    }
+                }
+            }
+        }));
+    };
+
+    const addServiceClosedDate = () => {
+        const v = serviceClosedDateInput.trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+        const current = ((editItem.details?.serviceClosedDates || []) as string[]).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x));
+        if (current.includes(v)) return;
+        updateDetail('serviceClosedDates', [...current, v].sort());
+        setServiceClosedDateInput('');
+    };
+
+    const removeServiceClosedDate = (date: string) => {
+        const current = ((editItem.details?.serviceClosedDates || []) as string[]).filter((x) => x !== date);
+        updateDetail('serviceClosedDates', current);
     };
 
     const toggleTag = (tag: string) => {
@@ -374,6 +889,101 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         const reader = new FileReader();
         reader.onload = () => {
             setEditItem((prev) => ({ ...prev, image: reader.result as string }));
+        };
+        reader.readAsDataURL(file);
+        e.target.value = '';
+    };
+
+    const handlePackageImageFile = async (
+        e: React.ChangeEvent<HTMLInputElement>,
+        target: 'cover' | 'poster',
+    ) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件');
+            e.target.value = '';
+            return;
+        }
+        const max = 8 * 1024 * 1024;
+        if (file.size > max) {
+            alert('图片请控制在 8MB 以内，系统会自动压缩后上传');
+            e.target.value = '';
+            return;
+        }
+
+        const itemId = editItem.id || Date.now().toString();
+        if (!editItem.id) {
+            setEditItem((prev) => ({ ...prev, id: itemId }));
+        }
+
+        setPackageImageUploading(target);
+        try {
+            if (isSupabaseConfigured()) {
+                const url = await uploadPackageImageFile(file, itemId, target);
+                setPackageImageUrl(target, url);
+            } else {
+                const { readFileAsDataUrl, compressImageDataUrl } = await import('../services/resourceImageStorage');
+                const dataUrl = await readFileAsDataUrl(file);
+                const blob = await compressImageDataUrl(dataUrl, target === 'cover' ? 800 : 1920);
+                const localUrl = await new Promise<string>((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result as string);
+                    reader.onerror = () => reject(new Error('读取压缩图片失败'));
+                    reader.readAsDataURL(blob);
+                });
+                setPackageImageUrl(target, localUrl);
+            }
+        } catch (err: unknown) {
+            console.error(err);
+            const msg = err instanceof Error ? err.message : '上传失败';
+            alert(`图片上传失败：${msg}`);
+        } finally {
+            setPackageImageUploading(null);
+            e.target.value = '';
+        }
+    };
+
+    const setPackageImageUrl = (target: 'cover' | 'poster', url: string) => {
+        if (target === 'cover') {
+            setEditItem((prev) => ({ ...prev, image: url }));
+        } else {
+            setEditItem((prev) => ({
+                ...prev,
+                details: { ...prev.details, posterImage: url },
+            }));
+        }
+    };
+
+    const clearPackageImage = (target: 'cover' | 'poster') => {
+        if (target === 'cover') {
+            setEditItem((prev) => ({ ...prev, image: defaultResourceEmoji('checkup_package') }));
+        } else {
+            setEditItem((prev) => {
+                const next = { ...(prev.details || {}) };
+                delete next.posterImage;
+                return { ...prev, details: next };
+            });
+        }
+    };
+
+    const handleWechatQrFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件');
+            e.target.value = '';
+            return;
+        }
+        const max = 2 * 1024 * 1024;
+        if (file.size > max) {
+            alert('二维码图片请控制在 2MB 以内');
+            e.target.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            updateDetail('wechat_qr', reader.result as string);
         };
         reader.readAsDataURL(file);
         e.target.value = '';
@@ -444,10 +1054,26 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         // ... (Keep existing template logic)
         switch(activeTab) {
             case 'event': return { name: '社区活动导入模板', data: [{ "活动ID（系统生成）": "", "活动名称": "秋季教职工颈椎健康讲座", "活动类型": "健康讲座", "主办科室/部门": "康复医学科", "主讲/负责人": "王主任", "活动时间": "2023-10-15 14:00", "活动地点": "校医院三楼报告厅", "封面图URL": "", "活动简介（列表页）": "特邀康复科主任讲解颈椎病预防...", "活动详情": "1.颈椎病成因\n2.预防手段\n3.现场体验", "适宜人群": "长期伏案工作者", "报名方式": "小程序在线报名", "报名开始时间": "2023-10-01 08:00", "报名截止时间": "2023-10-14 18:00", "活动人数上限": 50, "活动频率(单次/每周/每月)": "单次", "循环规则": "", "状态": "报名中", "排序值": 10, "关联服务项目": "" }] };
-            case 'doctor': return { name: '医生信息库导入模板', data: [{ "医生ID（系统生成）": "", "医生工号": "YS1001", "医生姓名": "张伟", "所属科室编码": "REHAB001", "职称": "主任医师", "专长/简介": "擅长颈椎病、腰椎间盘突出...", "详细履历": "医学博士，毕业于...", "头像URL": "", "出诊安排": "周一上午专家门诊", "是否可在线咨询": "是", "咨询费用（元）": 20, "状态": "在职", "排序值": 1 }] };
+            case 'doctor': return { name: '医生信息库导入模板', data: [{ "医生ID（系统生成）": "", "医生工号": "YS1001", "医生姓名": "张伟", "所属科室编码": "REHAB001", "职称": "主任医师", "专长/简介": "擅长颈椎病、腰椎间盘突出...", "详细履历": "医学博士，毕业于...", "头像URL": "", "出诊地点": "校医院门诊二楼内科诊区", "是否可在线咨询": "是", "咨询费用（元）": 20, "状态": "在职", "排序值": 1 }] };
             case 'drug': return { name: '药品信息库导入模板', data: [{ "药品ID（系统生成）": "", "药品通用名": "阿司匹林肠溶片", "商品名": "拜阿司匹灵", "规格": "100mg*30片", "剂型": "片剂", "生产厂家": "拜耳医药保健有限公司", "药品分类": "心血管系统用药", "医保类型": "甲类", "参考单价（元）": 15.80, "库存单位": "盒", "用法用量": "口服，一次1片，一日1次", "主要功效": "抗血小板聚集", "重要注意事项": "活动性溃疡禁用", "说明书URL": "", "是否处方药": "是", "状态": "在售" }] };
             case 'exercise': return { name: '运动方案库导入模板', data: [{ "方案ID（系统生成）": "", "运动方案名称": "办公室颈椎保健操", "运动类型": "综合保健操", "适用人群/场景": "久坐办公族", "禁忌人群": "急性损伤期", "单次时长": "10分钟", "建议频率": "每日1-2次", "核心动作与流程": "热身→米字操→肩部绕环→放松", "强度提示": "低强度", "所需器材": "无", "教学视频/图解URL": "", "注意事项": "动作宜慢不宜快", "关联疾病/标签": "颈椎病,亚健康", "状态": "启用" }] };
-            case 'service': return { name: '医院服务项目', data: [{ "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架" }] };
+            case 'service':
+                if (serviceSubTab === 'package') {
+                    return {
+                        name: '体检套餐导入模板',
+                        data: [{
+                            '套餐ID（系统生成）': '',
+                            '套餐名称': '教职工年度体检套餐',
+                            '套餐简介': '面向在职教职工的基础健康体检',
+                            '列表封面图URL': '',
+                            '详情海报URL': '',
+                            '套餐价格(元)': 580,
+                            '排序值': 1,
+                            '初始状态': '上架',
+                        }],
+                    };
+                }
+                return { name: '医院服务项目', data: [{ "项目ID（系统生成）": "", "项目名称": "示例：无痛胃镜", "服务大类": "临床检查", "二级子类": "物理检查", "归属科室编码": "DIGEST001", "一级分类": "检查", "二级分类": "内镜", "标签": "消化,无痛", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "门诊3楼", "预计耗时": "30分钟", "报告出具时间": "即时", "标准价格(元)": 800, "医保类型": "乙类", "自费金额估算(元)": 160, "医保报销说明": "...", "排序值": 10, "初始状态": "上架" }, { "项目ID（系统生成）": "", "项目名称": "示例：中医推拿理疗", "服务大类": "健康服务", "二级子类": "中医理疗", "归属科室编码": "TCM001", "一级分类": "健康服务", "二级分类": "理疗", "标签": "中医,康复", "项目简介（列表页摘要）": "简述...", "项目详情/流程": "1.预约...", "适宜人群": "...", "禁忌与注意事项": "...", "临床意义": "...", "预约类型": "需预约", "预约规则模板": "常规", "就诊地点详情": "康复科", "预计耗时": "45分钟", "报告出具时间": "-", "标准价格(元)": 120, "医保类型": "自费", "自费金额估算(元)": 120, "医保报销说明": "...", "排序值": 20, "初始状态": "上架" }] };
             case 'recipe': return { name: '膳食食谱库导入模板', data: [{ "食谱ID (系统生成)": "", "食谱名称": "控糖饱腹：西兰花炒鸡胸肉", "食谱描述/简介": "低脂高蛋白的快手菜，饱腹感强，适合控糖减脂期。", "制作难度": "初级", "预估准备时间(分)": 10, "预估烹饪时间(分)": 15, "用餐类型": "午餐", "适宜人数": 2, "核心健康标签": "高蛋白, 低GI", "关联疾病/场景": "2型糖尿病, 减重", "禁忌提醒": "对鸡肉过敏者禁用", "封面图URL/路径": "", "食材清单 (格式: 食材:用量; 食材:用量)": "鸡胸肉:200g;西兰花:300g;橄榄油:5ml;大蒜:2瓣", "制作步骤": "鸡胸肉切丁... → 热锅少油... → 出锅", "烹饪技巧/小贴士": "鸡胸肉腌制时加少许淀粉...", "单份预估热量(kcal)": "", "单份蛋白质含量(g)": "", "单份脂肪含量(g)": "", "单份碳水化合物含量(g)": "", "单份膳食纤维含量(g)": "", "营养素总结": "", "状态": "上架", "排序值": 10 }] };
             default: return null;
         }
@@ -540,7 +1166,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 deptCode: row['所属科室编码'],
                                 title: row['职称'],
                                 resume: row['详细履历'],
-                                schedule: row['出诊安排'],
+                                clinicLocation: row['出诊地点'] || '',
                                 onlineConsult: row['是否可在线咨询'] === '是',
                                 fee: row['咨询费用（元）'],
                                 docStatus: row['状态'],
@@ -606,12 +1232,37 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         }
                         break;
                     case 'service':
+                        if (serviceSubTab === 'package') {
+                            if (!row['套餐名称']) continue;
+                            item = {
+                                id,
+                                type: 'checkup_package',
+                                title: row['套餐名称'],
+                                description: row['套餐简介'] || '',
+                                image: row['列表封面图URL'] || '🩺',
+                                tags: row['标签'] ? String(row['标签']).split(/[,，]/).map((t: string) => t.trim()).filter(Boolean) : [],
+                                status: row['初始状态'] === '上架' ? 'active' : 'pending',
+                                isUserUpload: false,
+                                updatedAt: now,
+                                details: {
+                                    price: row['套餐价格(元)'],
+                                    sortOrder: row['排序值'] || 999,
+                                    posterImage: row['详情海报URL'] || undefined,
+                                },
+                            };
+                            break;
+                        }
                         if (!row['项目名称']) continue;
+                        const serviceDomain = parseImportServiceDomain(row);
+                        const subId = parseImportSubCategory(row, serviceDomain);
                         item = {
                             id, type: 'service', title: row['项目名称'], tags: row['标签']?.split(/[,，]/) || [],
                             description: row['项目简介（列表页摘要）'] || '', image: '🏥', status: row['初始状态'] === '上架' ? 'active' : 'pending',
                             isUserUpload: false, updatedAt: now,
                             details: {
+                                serviceDomain,
+                                clinicalSubCategory: serviceDomain === 'clinical' ? subId : undefined,
+                                healthServiceSubCategory: serviceDomain === 'health_service' ? subId : undefined,
                                 deptCode: row['归属科室编码'], categoryL1: row['一级分类'], categoryL2: row['二级分类'],
                                 workflow: row['项目详情/流程'], audience: row['适宜人群'], contraindications: row['禁忌与注意事项'],
                                 clinicalSignificance: row['临床意义'], bookingType: row['预约类型'], bookingTemplate: row['预约规则模板'],
@@ -748,14 +1399,64 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const openEdit = (item?: ContentItem) => {
         setIsAnalyzing(false);
         if (item) {
-            setEditItem({...item});
+            if (item.type === 'service') {
+                const classified = classifyServiceItem(item);
+                const domain = classified.domain === 'checkup' ? 'clinical' : classified.domain;
+                const details = { ...item.details };
+                if (!details.serviceDomain || details.serviceDomain === 'checkup') {
+                    details.serviceDomain = domain;
+                }
+                if (domain === 'clinical' && !details.clinicalSubCategory) {
+                    details.clinicalSubCategory = classified.subId as ClinicalSubCategory;
+                }
+                if (domain === 'health_service' && !details.healthServiceSubCategory) {
+                    details.healthServiceSubCategory = classified.subId as HealthServiceSubCategory;
+                }
+                setEditItem({ ...item, details });
+            } else if (item.type === 'checkup_package') {
+                // 打开编辑时按当前临床项目单价重算原价/套餐价
+                const refreshed = applyLivePackagePricing(item, clinicalServiceCatalog);
+                setEditItem({
+                    ...refreshed,
+                    details: {
+                        ...refreshed.details,
+                        showOriginalPrice: refreshed.details?.showOriginalPrice !== false,
+                        packageKind: refreshed.details?.packageKind === 'group' ? 'group' : 'personal',
+                    },
+                });
+            } else {
+                setEditItem({ ...item });
+            }
+            setServiceClosedDateInput('');
+            setPackageFixedItemSearch('');
+            setPackageOptionalItemSearch('');
+            setPackageGiftItemSearch('');
         } else {
             let type: any = 'meal';
             if (activeTab === 'exercise') type = 'exercise';
             if (activeTab === 'event') type = eventSubTab === 'circle' ? 'circle' : 'event';
-            if (activeTab === 'service') type = 'service';
+            if (activeTab === 'service') type = serviceSubTab === 'package' ? 'checkup_package' : 'service';
             if (activeTab === 'drug') type = 'drug';
             if (activeTab === 'doctor') type = 'doctor';
+
+            let details: Record<string, unknown> = {};
+            if (activeTab === 'service' && serviceSubTab === 'item') {
+                const domain = serviceCatalogFilter === 'health_service' ? 'health_service' : 'clinical';
+                details = {
+                    serviceDomain: domain,
+                    clinicalSubCategory:
+                        domain === 'clinical'
+                            ? (serviceSubCategoryFilter !== 'all' ? serviceSubCategoryFilter : 'lab')
+                            : undefined,
+                    healthServiceSubCategory:
+                        domain === 'health_service'
+                            ? (serviceSubCategoryFilter !== 'all' ? serviceSubCategoryFilter : 'consultation')
+                            : undefined,
+                };
+            }
+            if (activeTab === 'service' && serviceSubTab === 'package') {
+                details = { packageKind: 'personal', showOriginalPrice: true };
+            }
             
             setEditItem({
                 id: Date.now().toString(),
@@ -763,11 +1464,36 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 title: '',
                 status: 'active',
                 tags: [],
-                image: type === 'meal' ? '🍲' : type === 'exercise' ? '🏃' : type === 'event' ? '🎉' : type === 'service' ? '🏥' : type === 'drug' ? '💊' : type === 'circle' ? '⭕' : '👨‍⚕️',
-                details: {}
+                image: type === 'meal' ? '🍲' : type === 'exercise' ? '🏃' : type === 'event' ? '🎉' : type === 'service' ? '🏥' : type === 'checkup_package' ? '🩺' : type === 'drug' ? '💊' : type === 'circle' ? '⭕' : '👨‍⚕️',
+                details
             });
+            setServiceClosedDateInput('');
+            setPackageFixedItemSearch('');
+            setPackageOptionalItemSearch('');
+            setPackageGiftItemSearch('');
         }
         setIsModalOpen(true);
+    };
+
+    const filterPackageClinicalCatalog = (query: string, alwaysIncludeIds: string[]) => {
+        const q = query.trim().toLowerCase();
+        const pinned = new Set(alwaysIncludeIds);
+        if (!q) {
+            return clinicalServiceCatalog.filter((svc) => pinned.has(svc.id));
+        }
+        return clinicalServiceCatalog.filter((svc) => {
+            if (pinned.has(svc.id)) return true;
+            const hay = [
+                svc.title,
+                svc.description || '',
+                ...(svc.tags || []),
+                String(svc.details?.clinicalSubCategory || ''),
+                String(svc.details?.healthServiceSubCategory || ''),
+            ]
+                .join(' ')
+                .toLowerCase();
+            return hay.includes(q);
+        });
     };
 
     const renderInteractionTable = (data: InteractionItem[]) => {
@@ -823,7 +1549,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-100 flex flex-col">
+        <div className="h-screen bg-slate-100 flex flex-col overflow-hidden">
              <header className="bg-teal-700 text-white px-6 py-4 flex justify-between items-center shadow-md">
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center font-bold">R</div>
@@ -915,7 +1641,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     </nav>
                 </aside>
 
-                <main className="flex-1 p-8 overflow-y-auto">
+                <main className="flex-1 min-h-0 p-8 overflow-y-auto">
                     {activeTab === 'audit' ? (
                         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
@@ -924,14 +1650,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {renderInteractionTable(interactions)}
                         </section>
                     ) : (
-                        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                            <div className="flex flex-col gap-4 mb-4">
+                        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col min-h-0">
+                            <div className="flex flex-col gap-4 mb-4 shrink-0">
                                 <div className="flex justify-between items-center">
                                     <h3 className="text-lg font-bold text-slate-700">
                                         {activeTab === 'recipe' ? '膳食资源库' : 
                                          activeTab === 'exercise' ? '运动康复库' : 
                                          activeTab === 'event' ? '社区活动与圈子' :
-                                         activeTab === 'service' ? '医院服务项目' :
+                                         activeTab === 'service' ? (serviceSubTab === 'package' ? '体检套餐' : '临床/健康服务项目') :
                                          activeTab === 'drug' ? '医院药品目录' : '医生信息库'}
                                     </h3>
                                     <div className="flex gap-2">
@@ -957,6 +1683,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
                                         {selectedIds.size > 0 && (
                                             <>
+                                                {activeTab === 'service' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={openBatchScheduleModal}
+                                                        className="bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-100 flex items-center gap-1 animate-fadeIn"
+                                                    >
+                                                        📅 批量设置预约时段 ({selectedIds.size})
+                                                    </button>
+                                                )}
                                                 <button
                                                     onClick={() => handleBatchSetPublishStatus('active')}
                                                     className="bg-green-50 text-green-700 border border-green-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-green-100 flex items-center gap-1 animate-fadeIn"
@@ -981,6 +1716,124 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 </div>
 
                                 {/* Event Sub-Tabs */}
+                                {activeTab === 'service' && (
+                                    <div className="flex border-b border-slate-100">
+                                        <button type="button" onClick={() => setServiceSubTab('item')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'item' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🔬 临床/健康服务项目</button>
+                                        <button type="button" onClick={() => setServiceSubTab('package')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${serviceSubTab === 'package' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>🩺 健康体检套餐</button>
+                                    </div>
+                                )}
+
+                                {activeTab === 'service' && serviceSubTab === 'package' && (
+                                    <div className="border-b border-slate-100 pb-3 flex flex-wrap gap-2 items-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsCheckupGuideEditorOpen(true)}
+                                            className="px-4 py-2 rounded-lg text-sm font-bold border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                                        >
+                                            📋 维护到检信息与体检须知
+                                        </button>
+                                        <span className="text-xs text-slate-400">
+                                            配置预约站首页时间、地址、电话及须知全文（全局共用）
+                                        </span>
+                                    </div>
+                                )}
+
+                                {activeTab === 'service' && serviceSubTab === 'item' && (
+                                    <div className="border-b border-slate-100 pb-3 space-y-3">
+                                        <div className="flex flex-wrap gap-2 items-center">
+                                            {([
+                                                { id: 'all' as const, label: '全部项目' },
+                                                { id: 'clinical' as const, label: '临床检查' },
+                                                { id: 'health_service' as const, label: '健康服务' },
+                                            ]).map((f) => (
+                                                <button
+                                                    key={f.id}
+                                                    type="button"
+                                                    onClick={() => setServiceCatalogFilter(f.id)}
+                                                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                                                        serviceCatalogFilter === f.id
+                                                            ? 'bg-teal-600 text-white border-teal-600'
+                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'
+                                                    }`}
+                                                >
+                                                    {f.label}
+                                                </button>
+                                            ))}
+                                            <div className="relative ml-auto min-w-[200px] flex-1 max-w-sm">
+                                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">🔍</span>
+                                                <input
+                                                    type="search"
+                                                    placeholder="搜索名称、科室、标签、分类..."
+                                                    value={serviceSearchTerm}
+                                                    onChange={(e) => setServiceSearchTerm(e.target.value)}
+                                                    className="w-full border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:ring-teal-500 focus:border-teal-500"
+                                                />
+                                            </div>
+                                            <span className="text-xs text-slate-400 shrink-0">
+                                                共 {displayItems.length} 项
+                                            </span>
+                                        </div>
+                                        {serviceCatalogFilter === 'clinical' && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setServiceSubCategoryFilter('all')}
+                                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                        serviceSubCategoryFilter === 'all'
+                                                            ? 'bg-slate-700 text-white border-slate-700'
+                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                    }`}
+                                                >
+                                                    全部子类
+                                                </button>
+                                                {CLINICAL_SUB_CATEGORIES.map((sub) => (
+                                                    <button
+                                                        key={sub.id}
+                                                        type="button"
+                                                        onClick={() => setServiceSubCategoryFilter(sub.id)}
+                                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                            serviceSubCategoryFilter === sub.id
+                                                                ? 'bg-slate-700 text-white border-slate-700'
+                                                                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                        }`}
+                                                    >
+                                                        {sub.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {serviceCatalogFilter === 'health_service' && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setServiceSubCategoryFilter('all')}
+                                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                        serviceSubCategoryFilter === 'all'
+                                                            ? 'bg-slate-700 text-white border-slate-700'
+                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                    }`}
+                                                >
+                                                    全部子类
+                                                </button>
+                                                {HEALTH_SERVICE_SUB_CATEGORIES.map((sub) => (
+                                                    <button
+                                                        key={sub.id}
+                                                        type="button"
+                                                        onClick={() => setServiceSubCategoryFilter(sub.id)}
+                                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                            serviceSubCategoryFilter === sub.id
+                                                                ? 'bg-slate-700 text-white border-slate-700'
+                                                                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                        }`}
+                                                    >
+                                                        {sub.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 {activeTab === 'event' && (
                                     <div className="flex border-b border-slate-100">
                                         <button onClick={() => setEventSubTab('list')} className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${eventSubTab === 'list' ? 'border-teal-500 text-teal-700' : 'border-transparent text-slate-500'}`}>📅 社区活动列表</button>
@@ -996,10 +1849,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                     <p className="text-slate-500 font-bold">{loadingText}</p>
                                 </div>
                             ) : (
+                                <div className="overflow-auto flex-1 min-h-0 max-h-[calc(100vh-18rem)] rounded-lg border border-slate-100">
                                 <table className="w-full text-sm text-left">
-                                    <thead className="bg-slate-50 text-slate-500">
+                                    <thead className="bg-slate-50 text-slate-500 sticky top-0 z-10">
                                         <tr>
-                                            <th className="p-3 w-10"><input type="checkbox" onChange={handleSelectAll} checked={items.length > 0 && selectedIds.size === items.length} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></th>
+                                            <th className="p-3 w-10"><input type="checkbox" onChange={handleSelectAll} checked={displayItems.length > 0 && selectedIds.size === displayItems.length} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></th>
                                             <th className="p-3">名称</th>
                                             <th className="p-3">核心信息</th>
                                             <th className="p-3">状态/标签</th>
@@ -1007,7 +1861,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {items.map(item => (
+                                        {displayItems.map(item => (
                                             <tr key={item.id} className={`hover:bg-slate-50 ${selectedIds.has(item.id) ? 'bg-blue-50/30' : ''}`}>
                                                 <td className="p-3"><input type="checkbox" onChange={() => handleSelectRow(item.id)} checked={selectedIds.has(item.id)} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" /></td>
                                                 <td className="p-3 font-bold flex items-center gap-2">
@@ -1020,7 +1874,21 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'circle' && `👥 成员: ${item.details?.memberCount || 0}人 • 负责人:${item.details?.leader || '-'}`}
                                                     {item.type === 'doctor' && `${item.details?.dept || item.details?.deptCode || '-'} • ${item.details?.title}`}
                                                     {item.type === 'drug' && `${item.details?.stock} • ${item.details?.spec}`}
-                                                    {item.type === 'service' && `¥${item.details?.price} • ${item.details?.insuranceType || (item.details?.insurance ? '医保' : '自费')}`}
+                                                    {item.type === 'service' && `¥${item.details?.price} • ${serviceCatalogLabel(item)}`}
+                                                    {item.type === 'checkup_package' && (
+                                                        <>
+                                                            {`${item.details?.packageKind === 'group' ? '团体' : '个人'} · 套餐 ¥${item.details?.price || '-'} • ${summarizePackageComposition(item)}`}
+                                                            {item.details?.showOriginalPrice !== false &&
+                                                            item.details?.originalPrice &&
+                                                            Number(item.details.originalPrice) > Number(item.details?.price || 0) ? (
+                                                                <span className="text-slate-400">（原价 ¥{item.details.originalPrice}）</span>
+                                                            ) : null}
+                                                            {' • '}
+                                                            {Object.values((item.details?.serviceWeeklySchedule || {}) as Record<string, string[]>).some((slots) => slots?.length)
+                                                                ? '已配置排期'
+                                                                : '未配置排期'}
+                                                        </>
+                                                    )}
                                                     {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
                                                 </td>
                                                 <td className="p-3">
@@ -1043,9 +1911,10 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                 </td>
                                             </tr>
                                         ))}
-                                        {items.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无数据</td></tr>}
+                                        {displayItems.length === 0 && <tr><td colSpan={5} className="p-10 text-center text-slate-400">暂无数据</td></tr>}
                                     </tbody>
                                 </table>
+                                </div>
                             )}
                         </section>
                     )}
@@ -1073,6 +1942,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             {/* --- Common Fields --- */}
                             <FormSection title="基础信息">
                                 <InputField label="标题 / 名称" placeholder="请输入名称" value={editItem.title} onChange={(v:any) => setEditItem({...editItem, title: v})} />
+                                {editItem.type !== 'checkup_package' && (
                                 <div className="col-span-2 space-y-2">
                                     <label className="block text-xs font-bold text-slate-700 mb-1">封面 / 头像（Emoji、图片链接或本地上传）</label>
                                     <div className="flex flex-wrap items-start gap-3">
@@ -1116,6 +1986,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         </div>
                                     </div>
                                 </div>
+                                )}
                                 <SelectField label="状态" value={editItem.status} onChange={(v:any) => setEditItem({...editItem, status: v})} options={['active', 'pending']} />
                             </FormSection>
 
@@ -1166,8 +2037,16 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             )}
 
                             {/* 2. HOSPITAL SERVICE (Updated) */}
-                            {activeTab === 'service' && (
+                            {activeTab === 'service' && editItem.type === 'service' && (
                                 <>
+                                    <FormSection title="用户端分类（服务页展示）">
+                                        <LabeledSelectField label="服务大类" value={editItem.details?.serviceDomain || 'clinical'} onChange={(v:any) => updateDetail('serviceDomain', v)} options={[{ value: 'clinical', label: '临床检查 clinical' }, { value: 'health_service', label: '健康服务 health_service' }]} />
+                                        {(editItem.details?.serviceDomain || 'clinical') === 'clinical' ? (
+                                            <LabeledSelectField label="临床检查子类" value={editItem.details?.clinicalSubCategory || 'lab'} onChange={(v:any) => updateDetail('clinicalSubCategory', v)} options={CLINICAL_SUB_CATEGORIES.map((x) => ({ value: x.id, label: x.label }))} />
+                                        ) : (
+                                            <LabeledSelectField label="健康服务子类" value={editItem.details?.healthServiceSubCategory || 'consultation'} onChange={(v:any) => updateDetail('healthServiceSubCategory', v)} options={HEALTH_SERVICE_SUB_CATEGORIES.filter((x) => x.id !== 'education').map((x) => ({ value: x.id, label: x.label }))} />
+                                        )}
+                                    </FormSection>
                                     <FormSection title="基础分类与标识">
                                         <SelectField label="归属科室" value={editItem.details?.dept} onChange={(v:any) => updateDetail('dept', v)} options={presets.depts} />
                                         <InputField label="科室编码" placeholder="如：DEPT001" value={editItem.details?.deptCode} onChange={(v:any) => updateDetail('deptCode', v)} />
@@ -1189,11 +2068,631 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="预计耗时" value={editItem.details?.duration} onChange={(v:any) => updateDetail('duration', v)} />
                                         <InputField label="报告出具时间" value={editItem.details?.reportTime} onChange={(v:any) => updateDetail('reportTime', v)} />
                                     </FormSection>
+                                    <FormSection title="服务时间设置（用于用户预约选时）">
+                                        <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                                            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">时段</div>
+                                                {SLOTS.map((slot) => (
+                                                    <div key={slot.id} className="text-xs font-bold text-slate-600">{slot.label}</div>
+                                                ))}
+                                            </div>
+                                            <div className="space-y-2">
+                                                {DAY_KEYS.map((dayKey) => (
+                                                    <div key={dayKey} className="grid grid-cols-3 gap-2 items-center">
+                                                        <div className="text-xs font-bold text-slate-600">{DAY_LABELS[dayKey]}</div>
+                                                        {SLOTS.map((slot) => {
+                                                            const weekly = (editItem.details?.serviceWeeklySchedule || {}) as Record<string, string[]>;
+                                                            const isActive = (weekly[dayKey] || []).includes(slot.id);
+                                                            const quotas = (editItem.details?.serviceSlotQuotas || {}) as Record<string, Record<string, number>>;
+                                                            const quota = quotas?.[dayKey]?.[slot.id] || 10;
+                                                            return (
+                                                                <div key={`${dayKey}-${slot.id}`} className={`rounded-lg border p-2 ${isActive ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}>
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`w-full rounded-md py-1 text-[11px] font-bold ${isActive ? 'bg-teal-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}
+                                                                        onClick={() => toggleServiceSchedule(dayKey, slot.id)}
+                                                                    >
+                                                                        {isActive ? '可预约' : '关闭'}
+                                                                    </button>
+                                                                    {isActive && (
+                                                                        <div className="mt-1 flex items-center justify-center gap-1">
+                                                                            <span className="text-[10px] text-slate-400">限额</span>
+                                                                            <input
+                                                                                type="number"
+                                                                                min={1}
+                                                                                value={quota}
+                                                                                onChange={(e) => handleServiceQuotaChange(dayKey, slot.id, parseInt(e.target.value) || 1)}
+                                                                                className="w-14 rounded border border-slate-200 bg-white px-1 py-0.5 text-center text-[11px] font-bold text-teal-700"
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                                            <div className="text-xs font-bold text-slate-700 mb-2">服务例外关闭日期（全天不可约）</div>
+                                            <div className="flex flex-wrap items-end gap-2 mb-2">
+                                                <input
+                                                    type="date"
+                                                    value={serviceClosedDateInput}
+                                                    onChange={(e) => setServiceClosedDateInput(e.target.value)}
+                                                    className="rounded border border-slate-300 px-2 py-1.5 text-sm"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={addServiceClosedDate}
+                                                    className="rounded bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700"
+                                                >
+                                                    添加关闭日
+                                                </button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {((editItem.details?.serviceClosedDates || []) as string[]).length === 0 ? (
+                                                    <span className="text-xs text-slate-400">暂无例外关闭日期</span>
+                                                ) : (
+                                                    ((editItem.details?.serviceClosedDates || []) as string[]).map((d) => (
+                                                        <span key={d} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 pl-2 pr-1 py-0.5 text-xs font-bold text-slate-700">
+                                                            {d}
+                                                            <button type="button" className="h-5 w-5 rounded-full hover:bg-slate-200" onClick={() => removeServiceClosedDate(d)}>×</button>
+                                                        </span>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    </FormSection>
                                     <FormSection title="费用与医保">
                                         <InputField label="标准价格 (元)" type="number" value={editItem.details?.price} onChange={(v:any) => updateDetail('price', v)} />
                                         <SelectField label="医保类型" value={editItem.details?.insuranceType} onChange={(v:any) => updateDetail('insuranceType', v)} options={presets.serviceInsurance} />
                                         <InputField label="自费估算 (元)" type="number" value={editItem.details?.selfPayEst} onChange={(v:any) => updateDetail('selfPayEst', v)} />
                                         <InputField label="医保报销说明" full value={editItem.details?.reimbursementNote} onChange={(v:any) => updateDetail('reimbursementNote', v)} />
+                                    </FormSection>
+                                    <FormSection title="标签">
+                                        <InputField label="标签 (逗号分隔)" full value={editItem.tags?.join(',')} onChange={(v:any) => setEditItem({...editItem, tags: v.split(/[,，]/)})} />
+                                    </FormSection>
+                                </>
+                            )}
+
+                            {activeTab === 'service' && editItem.type === 'checkup_package' && (
+                                <>
+                                    <FormSection title="海报与封面">
+                                        <PackageImageUploadField
+                                            label="列表封面图"
+                                            hint="用于套餐列表卡片缩略图，建议正方形 1:1；上传后自动压缩并写入 Supabase Storage"
+                                            value={editItem.image}
+                                            previewClassName="h-24 w-24 rounded-xl"
+                                            inputRef={packageCoverInputRef}
+                                            uploading={packageImageUploading === 'cover'}
+                                            onUpload={(e) => handlePackageImageFile(e, 'cover')}
+                                            onUrlChange={(v) => setPackageImageUrl('cover', v)}
+                                            onClear={() => clearPackageImage('cover')}
+                                            fallbackEmoji="🩺"
+                                        />
+                                        <PackageImageUploadField
+                                            label="详情页海报"
+                                            hint="用于套餐详情页顶部大图展示；上传后自动压缩并写入 Supabase Storage"
+                                            value={editItem.details?.posterImage as string | undefined}
+                                            previewClassName="h-36 w-full max-w-xs rounded-xl"
+                                            inputRef={packagePosterInputRef}
+                                            uploading={packageImageUploading === 'poster'}
+                                            onUpload={(e) => handlePackageImageFile(e, 'poster')}
+                                            onUrlChange={(v) => setPackageImageUrl('poster', v)}
+                                            onClear={() => clearPackageImage('poster')}
+                                            widePreview
+                                        />
+                                    </FormSection>
+                                    <FormSection title="体检套餐">
+                                        <TextAreaField label="套餐简介" placeholder="面向人群、检查意义等" value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
+                                        <InputField label="排序值" type="number" value={editItem.details?.sortOrder} onChange={(v:any) => updateDetail('sortOrder', v)} />
+                                        <div className="col-span-2">
+                                            <div className="text-xs font-bold text-slate-500 mb-2">套餐类型</div>
+                                            <div className="flex gap-3">
+                                                <label className={`flex-1 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm cursor-pointer ${
+                                                    (editItem.details?.packageKind || 'personal') === 'personal'
+                                                        ? 'border-emerald-400 bg-emerald-50 text-emerald-900 font-bold'
+                                                        : 'border-slate-200 bg-white text-slate-600'
+                                                }`}>
+                                                    <input
+                                                        type="radio"
+                                                        name="packageKind"
+                                                        checked={(editItem.details?.packageKind || 'personal') === 'personal'}
+                                                        onChange={() => updateDetail('packageKind', 'personal')}
+                                                        className="text-emerald-600"
+                                                    />
+                                                    个人体检
+                                                </label>
+                                                <label className={`flex-1 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm cursor-pointer ${
+                                                    editItem.details?.packageKind === 'group'
+                                                        ? 'border-teal-400 bg-teal-50 text-teal-900 font-bold'
+                                                        : 'border-slate-200 bg-white text-slate-600'
+                                                }`}>
+                                                    <input
+                                                        type="radio"
+                                                        name="packageKind"
+                                                        checked={editItem.details?.packageKind === 'group'}
+                                                        onChange={() => updateDetail('packageKind', 'group')}
+                                                        className="text-teal-600"
+                                                    />
+                                                    团体体检
+                                                </label>
+                                            </div>
+                                            <p className="text-[11px] text-slate-400 mt-1.5">个人支持在线预约；团体在预约站展示为电话咨询。</p>
+                                        </div>
+                                        <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-4">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <div className="text-xs font-bold text-emerald-800">固定检查项目</div>
+                                                    <p className="text-[11px] text-emerald-700 mt-0.5">套餐必含项目；勾选后可设数量与折扣。套餐自动价 = Σ(单价×数量×折扣÷100)。自选项目另设下方分组，不整池计入原价。</p>
+                                                </div>
+                                                {(() => {
+                                                    const breakdown = calcPackagePriceBreakdown(editItem as ContentItem, clinicalServiceCatalog);
+                                                    const price = editItem.details?.priceManualOverride
+                                                        ? Number(editItem.details?.price) || 0
+                                                        : breakdown.packagePrice;
+                                                    return (
+                                                        <div className="text-right bg-white rounded-xl border border-emerald-200 px-4 py-2 min-w-[160px]">
+                                                            <div className="text-[10px] text-slate-400 font-bold">套餐价格</div>
+                                                            <div className="text-2xl font-black text-emerald-700">¥{price}</div>
+                                                            {breakdown.originalTotal > breakdown.packagePrice && (
+                                                                <div className="text-[11px] text-slate-400 line-through">原价 ¥{breakdown.originalTotal}</div>
+                                                            )}
+                                                            <div className="text-[10px] text-emerald-600 mt-0.5">
+                                                                已选 {breakdown.lines.length} 项 · 自动合计 ¥{breakdown.packagePrice}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                            <label className="flex items-center gap-2 text-xs text-slate-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editItem.details?.showOriginalPrice !== false}
+                                                    onChange={(e) => updateDetail('showOriginalPrice', e.target.checked)}
+                                                />
+                                                前端显示划线原价（关闭后用户端仅显示套餐价）
+                                            </label>
+                                            <label className="flex items-center gap-2 text-xs text-slate-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!editItem.details?.priceManualOverride}
+                                                    onChange={(e) => {
+                                                        const manual = e.target.checked;
+                                                        if (!manual) {
+                                                            const breakdown = calcPackagePriceBreakdown(editItem as ContentItem, clinicalServiceCatalog);
+                                                            setEditItem((prev) => ({
+                                                                ...prev,
+                                                                details: {
+                                                                    ...prev.details,
+                                                                    priceManualOverride: false,
+                                                                    price: breakdown.packagePrice,
+                                                                    calculatedPrice: breakdown.packagePrice,
+                                                                    originalPrice: breakdown.originalTotal,
+                                                                },
+                                                            }));
+                                                        } else {
+                                                            updateDetail('priceManualOverride', true);
+                                                        }
+                                                    }}
+                                                />
+                                                手动覆盖套餐价格（关闭后恢复自动合计）
+                                            </label>
+                                            {editItem.details?.priceManualOverride && (
+                                                <InputField
+                                                    label="手动套餐价格 (元)"
+                                                    type="number"
+                                                    value={editItem.details?.price}
+                                                    onChange={(v: any) => updateDetail('price', v)}
+                                                />
+                                            )}
+                                            {clinicalServiceCatalog.length === 0 ? (
+                                                <p className="text-xs text-emerald-700">请先在「临床/健康服务项目」中维护检查项目</p>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <input
+                                                        type="search"
+                                                        value={packageFixedItemSearch}
+                                                        onChange={(e) => setPackageFixedItemSearch(e.target.value)}
+                                                        placeholder="搜索项目名称后勾选…"
+                                                        className="w-full border border-emerald-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                                                    />
+                                                    {!packageFixedItemSearch.trim() && (
+                                                        <p className="text-[11px] text-emerald-700/80">
+                                                            输入关键词筛选项目再勾选；下方优先显示已选项目（共 {clinicalServiceCatalog.length} 项可选）。
+                                                        </p>
+                                                    )}
+                                                    <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                                                        {(() => {
+                                                            const items = getPackageIncludedItems(editItem as ContentItem);
+                                                            const visible = filterPackageClinicalCatalog(
+                                                                packageFixedItemSearch,
+                                                                items.map((i) => i.serviceId),
+                                                            );
+                                                            if (visible.length === 0) {
+                                                                return (
+                                                                    <p className="text-xs text-slate-400 py-4 text-center">
+                                                                        {packageFixedItemSearch.trim()
+                                                                            ? '无匹配项目，请调整关键词'
+                                                                            : '暂无已选项目，请先搜索后勾选'}
+                                                                    </p>
+                                                                );
+                                                            }
+                                                            return visible.map((svc) => {
+                                                                const included = items.find((i) => i.serviceId === svc.id);
+                                                                const selected = !!included;
+                                                                const unitPrice = Number(svc.details?.price) || 0;
+                                                                const lineAmount = selected
+                                                                    ? Math.round(unitPrice * (included!.quantity) * (included!.discountRate / 100) * 100) / 100
+                                                                    : 0;
+                                                                return (
+                                                                    <div
+                                                                        key={svc.id}
+                                                                        className={`rounded-lg border bg-white p-3 ${selected ? 'border-emerald-300' : 'border-slate-100'}`}
+                                                                    >
+                                                                        <div className="flex items-center gap-2">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={selected}
+                                                                                onChange={() => togglePackageService(svc, selected)}
+                                                                                className="rounded border-slate-300 text-teal-600"
+                                                                            />
+                                                                            <span className="font-medium text-sm text-slate-800 flex-1">{svc.title}</span>
+                                                                            <span className="text-xs text-slate-400">单价 ¥{unitPrice || '-'}</span>
+                                                                        </div>
+                                                                        {selected && (
+                                                                            <div className="mt-2 grid grid-cols-3 gap-2 items-end pl-6">
+                                                                                <label className="text-[11px] text-slate-600">
+                                                                                    数量
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={1}
+                                                                                        step={1}
+                                                                                        value={included!.quantity}
+                                                                                        onChange={(e) => updatePackageItemField(svc.id, 'quantity', Number(e.target.value))}
+                                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                    />
+                                                                                </label>
+                                                                                <label className="text-[11px] text-slate-600">
+                                                                                    折扣比例 (%)
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={0}
+                                                                                        max={100}
+                                                                                        step={1}
+                                                                                        value={included!.discountRate}
+                                                                                        onChange={(e) => updatePackageItemField(svc.id, 'discountRate', Number(e.target.value))}
+                                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                    />
+                                                                                </label>
+                                                                                <div className="text-right pb-1">
+                                                                                    <div className="text-[10px] text-slate-400">小计</div>
+                                                                                    <div className="text-sm font-bold text-emerald-700">¥{lineAmount}</div>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            });
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* 自选项目分组（如 20 选 5） */}
+                                        <div className="col-span-2 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 space-y-3">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <div>
+                                                    <div className="text-xs font-bold text-indigo-900">自选检查项目</div>
+                                                    <p className="text-[11px] text-indigo-700 mt-0.5">
+                                                        适用于「20 项中任选 5 项」等规则：配置候选池 + 须选数量；用户端展示任选说明。自选候选不叠加计入原价合计，套餐总价建议手动覆盖或仅含固定项自动价。
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={addOptionalGroup}
+                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
+                                                >
+                                                    + 添加自选分组
+                                                </button>
+                                            </div>
+                                            {getPackageOptionalGroups(editItem as ContentItem).length === 0 ? (
+                                                <p className="text-xs text-indigo-600">暂无自选分组。若套餐仅含固定项目，可跳过本区。</p>
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    {getPackageOptionalGroups(editItem as ContentItem).map((group) => (
+                                                        <div key={group.id} className="rounded-xl border border-indigo-200 bg-white p-4 space-y-3">
+                                                            <div className="flex flex-wrap gap-3 items-end">
+                                                                <label className="text-[11px] text-slate-600 flex-1 min-w-[140px]">
+                                                                    分组名称
+                                                                    <input
+                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                                                                        value={group.name}
+                                                                        onChange={(e) => updateOptionalGroup(group.id, { name: e.target.value })}
+                                                                        placeholder="如：自选检查项目"
+                                                                    />
+                                                                </label>
+                                                                <label className="text-[11px] text-slate-600 w-28">
+                                                                    须选几项
+                                                                    <input
+                                                                        type="number"
+                                                                        min={1}
+                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                                                                        value={group.pickCount}
+                                                                        onChange={(e) =>
+                                                                            updateOptionalGroup(group.id, {
+                                                                                pickCount: Math.max(1, Number(e.target.value) || 1),
+                                                                            })
+                                                                        }
+                                                                    />
+                                                                </label>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => removeOptionalGroup(group.id)}
+                                                                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-red-200 text-red-600 hover:bg-red-50"
+                                                                >
+                                                                    删除分组
+                                                                </button>
+                                                            </div>
+                                                            <label className="text-[11px] text-slate-600 block">
+                                                                用户端补充说明（可选）
+                                                                <input
+                                                                    className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm"
+                                                                    value={group.note || ''}
+                                                                    onChange={(e) => updateOptionalGroup(group.id, { note: e.target.value })}
+                                                                    placeholder="如：请在到检当日由导检确认所选项目"
+                                                                />
+                                                            </label>
+                                                            <div className="text-xs font-bold text-indigo-800">
+                                                                {formatOptionalGroupLabel(group)}
+                                                            </div>
+                                                            {clinicalServiceCatalog.length === 0 ? (
+                                                                <p className="text-xs text-slate-400">请先维护临床检查项目</p>
+                                                            ) : (
+                                                                <div className="space-y-2">
+                                                                    <input
+                                                                        type="search"
+                                                                        value={packageOptionalItemSearch}
+                                                                        onChange={(e) => setPackageOptionalItemSearch(e.target.value)}
+                                                                        placeholder="搜索项目名称后勾选候选…"
+                                                                        className="w-full border border-indigo-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                                                    />
+                                                                    {!packageOptionalItemSearch.trim() && (
+                                                                        <p className="text-[11px] text-indigo-700/80">
+                                                                            输入关键词筛选后勾选；已入选候选始终显示。
+                                                                        </p>
+                                                                    )}
+                                                                    <div className="max-h-56 overflow-y-auto space-y-1.5 border border-slate-100 rounded-lg p-2">
+                                                                        {(() => {
+                                                                            const visible = filterPackageClinicalCatalog(
+                                                                                packageOptionalItemSearch,
+                                                                                group.candidateServiceIds,
+                                                                            );
+                                                                            if (visible.length === 0) {
+                                                                                return (
+                                                                                    <p className="text-xs text-slate-400 py-3 text-center">
+                                                                                        {packageOptionalItemSearch.trim()
+                                                                                            ? '无匹配项目，请调整关键词'
+                                                                                            : '暂无候选，请先搜索后勾选'}
+                                                                                    </p>
+                                                                                );
+                                                                            }
+                                                                            return visible.map((svc) => {
+                                                                                const checked = group.candidateServiceIds.includes(svc.id);
+                                                                                const inFixed = getPackageIncludedItems(editItem as ContentItem).some(
+                                                                                    (i) => i.serviceId === svc.id,
+                                                                                );
+                                                                                return (
+                                                                                    <label
+                                                                                        key={svc.id}
+                                                                                        className={`flex items-center gap-2 text-sm px-2 py-1.5 rounded-lg cursor-pointer ${
+                                                                                            checked ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                                                                                        } ${inFixed ? 'opacity-50' : ''}`}
+                                                                                    >
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={checked}
+                                                                                            disabled={inFixed}
+                                                                                            onChange={() => toggleOptionalCandidate(group.id, svc.id, checked)}
+                                                                                            className="rounded border-slate-300 text-indigo-600"
+                                                                                        />
+                                                                                        <span className="flex-1 text-slate-800">{svc.title}</span>
+                                                                                        {inFixed && (
+                                                                                            <span className="text-[10px] text-slate-400">已作固定项</span>
+                                                                                        )}
+                                                                                    </label>
+                                                                                );
+                                                                            });
+                                                                        })()}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* 赠送项目 */}
+                                        <div className="col-span-2 rounded-xl border border-rose-200 bg-rose-50/60 p-4 space-y-3">
+                                            <div>
+                                                <div className="text-xs font-bold text-rose-900">赠送项目</div>
+                                                <p className="text-[11px] text-rose-700 mt-0.5">
+                                                    套餐附赠项目（检查或实物服务资源），不参与套餐价格合计，用户端单独展示为「赠送」。
+                                                </p>
+                                            </div>
+                                            {clinicalServiceCatalog.length === 0 ? (
+                                                <p className="text-xs text-rose-600">请先在「临床/健康服务项目」中维护项目</p>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <input
+                                                        type="search"
+                                                        value={packageGiftItemSearch}
+                                                        onChange={(e) => setPackageGiftItemSearch(e.target.value)}
+                                                        placeholder="搜索项目名称后勾选…"
+                                                        className="w-full border border-rose-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-rose-300"
+                                                    />
+                                                    {!packageGiftItemSearch.trim() && (
+                                                        <p className="text-[11px] text-rose-700/80">
+                                                            输入关键词筛选后勾选；已选赠送项始终显示。
+                                                        </p>
+                                                    )}
+                                                    <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                                                        {(() => {
+                                                            const gifts = getPackageGiftItems(editItem as ContentItem);
+                                                            const visible = filterPackageClinicalCatalog(
+                                                                packageGiftItemSearch,
+                                                                gifts.map((i) => i.serviceId),
+                                                            );
+                                                            if (visible.length === 0) {
+                                                                return (
+                                                                    <p className="text-xs text-slate-400 py-4 text-center">
+                                                                        {packageGiftItemSearch.trim()
+                                                                            ? '无匹配项目，请调整关键词'
+                                                                            : '暂无赠送项，请先搜索后勾选'}
+                                                                    </p>
+                                                                );
+                                                            }
+                                                            return visible.map((svc) => {
+                                                                const gift = gifts.find((i) => i.serviceId === svc.id);
+                                                                const selected = !!gift;
+                                                                const inFixed = getPackageIncludedItems(editItem as ContentItem).some((i) => i.serviceId === svc.id);
+                                                                const inOptional = getPackageOptionalGroups(editItem as ContentItem).some((g) =>
+                                                                    g.candidateServiceIds.includes(svc.id),
+                                                                );
+                                                                return (
+                                                                    <div
+                                                                        key={svc.id}
+                                                                        className={`rounded-lg border bg-white p-3 ${selected ? 'border-rose-300' : 'border-slate-100'}`}
+                                                                    >
+                                                                        <div className="flex items-center gap-2">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={selected}
+                                                                                onChange={() => togglePackageGift(svc, selected)}
+                                                                                className="rounded border-slate-300 text-rose-600"
+                                                                            />
+                                                                            <span className="font-medium text-sm text-slate-800 flex-1">{svc.title}</span>
+                                                                            {inFixed && <span className="text-[10px] text-slate-400">亦在固定项</span>}
+                                                                            {inOptional && <span className="text-[10px] text-slate-400">亦在自选池</span>}
+                                                                        </div>
+                                                                        {selected && (
+                                                                            <div className="mt-2 grid grid-cols-2 gap-2 pl-6">
+                                                                                <label className="text-[11px] text-slate-600">
+                                                                                    数量
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min={1}
+                                                                                        value={gift!.quantity}
+                                                                                        onChange={(e) => updatePackageGiftField(svc.id, 'quantity', e.target.value)}
+                                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                    />
+                                                                                </label>
+                                                                                <label className="text-[11px] text-slate-600">
+                                                                                    说明（可选）
+                                                                                    <input
+                                                                                        value={gift!.note || ''}
+                                                                                        onChange={(e) => updatePackageGiftField(svc.id, 'note', e.target.value)}
+                                                                                        placeholder="如：到检当日领取"
+                                                                                        className="mt-0.5 w-full border border-slate-300 rounded-lg px-2 py-1 text-sm"
+                                                                                    />
+                                                                                </label>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            });
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {getPackageGiftItems(editItem as ContentItem).length > 0 && (
+                                                <div className="text-[11px] text-rose-700 font-bold">
+                                                    已选赠送 {getPackageGiftItems(editItem as ContentItem).length} 项
+                                                </div>
+                                            )}
+                                        </div>
+                                    </FormSection>
+                                    <FormSection title="预约与执行">
+                                        <SelectField label="预约类型" value={editItem.details?.bookingType} onChange={(v:any) => updateDetail('bookingType', v)} options={presets.bookingTypes} />
+                                    </FormSection>
+                                    <FormSection title="服务时间设置（用于用户预约选时）">
+                                        <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                                            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">时段</div>
+                                                {SLOTS.map((slot) => (
+                                                    <div key={slot.id} className="text-xs font-bold text-slate-600">{slot.label}</div>
+                                                ))}
+                                            </div>
+                                            <div className="space-y-2">
+                                                {DAY_KEYS.map((dayKey) => (
+                                                    <div key={dayKey} className="grid grid-cols-3 gap-2 items-center">
+                                                        <div className="text-xs font-bold text-slate-600">{DAY_LABELS[dayKey]}</div>
+                                                        {SLOTS.map((slot) => {
+                                                            const weekly = (editItem.details?.serviceWeeklySchedule || {}) as Record<string, string[]>;
+                                                            const isActive = (weekly[dayKey] || []).includes(slot.id);
+                                                            const quotas = (editItem.details?.serviceSlotQuotas || {}) as Record<string, Record<string, number>>;
+                                                            const quota = quotas?.[dayKey]?.[slot.id] || 10;
+                                                            return (
+                                                                <div key={`${dayKey}-${slot.id}`} className={`rounded-lg border p-2 ${isActive ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}>
+                                                                    <button
+                                                                        type="button"
+                                                                        className={`w-full rounded-md py-1 text-[11px] font-bold ${isActive ? 'bg-teal-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}
+                                                                        onClick={() => toggleServiceSchedule(dayKey, slot.id)}
+                                                                    >
+                                                                        {isActive ? '可预约' : '关闭'}
+                                                                    </button>
+                                                                    {isActive && (
+                                                                        <div className="mt-1 flex items-center justify-center gap-1">
+                                                                            <span className="text-[10px] text-slate-400">限额</span>
+                                                                            <input
+                                                                                type="number"
+                                                                                min={1}
+                                                                                value={quota}
+                                                                                onChange={(e) => handleServiceQuotaChange(dayKey, slot.id, parseInt(e.target.value) || 1)}
+                                                                                className="w-14 rounded border border-slate-200 bg-white px-1 py-0.5 text-center text-[11px] font-bold text-teal-700"
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+                                            <div className="text-xs font-bold text-slate-700 mb-2">套餐例外关闭日期（全天不可约）</div>
+                                            <div className="flex flex-wrap items-end gap-2 mb-2">
+                                                <input
+                                                    type="date"
+                                                    value={serviceClosedDateInput}
+                                                    onChange={(e) => setServiceClosedDateInput(e.target.value)}
+                                                    className="rounded border border-slate-300 px-2 py-1.5 text-sm"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={addServiceClosedDate}
+                                                    className="rounded bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700"
+                                                >
+                                                    添加关闭日
+                                                </button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {((editItem.details?.serviceClosedDates || []) as string[]).length === 0 ? (
+                                                    <span className="text-xs text-slate-400">暂无例外关闭日期</span>
+                                                ) : (
+                                                    ((editItem.details?.serviceClosedDates || []) as string[]).map((d) => (
+                                                        <span key={d} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 pl-2 pr-1 py-0.5 text-xs font-bold text-slate-700">
+                                                            {d}
+                                                            <button type="button" className="h-5 w-5 rounded-full hover:bg-slate-200" onClick={() => removeServiceClosedDate(d)}>×</button>
+                                                        </span>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
                                     </FormSection>
                                     <FormSection title="标签">
                                         <InputField label="标签 (逗号分隔)" full value={editItem.tags?.join(',')} onChange={(v:any) => setEditItem({...editItem, tags: v.split(/[,，]/)})} />
@@ -1217,10 +2716,130 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="登录密码" placeholder="设置初始密码" type="text" value={editItem.details?.password} onChange={(v:any) => updateDetail('password', v)} />
                                     </FormSection>
 
+                                    <FormSection title="健康管家">
+                                        <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+                                            <input
+                                                type="checkbox"
+                                                className="mt-1"
+                                                checked={
+                                                    editItem.details?.role === 'health_manager' ||
+                                                    (editItem.tags || []).some((t: string) => String(t).includes('健康管家'))
+                                                }
+                                                onChange={(e) => {
+                                                    const on = e.target.checked;
+                                                    const tags = [...(editItem.tags || [])];
+                                                    const hasTag = tags.some((t) => String(t).includes('健康管家'));
+                                                    let nextTags = tags;
+                                                    if (on && !hasTag) nextTags = [...tags, '健康管家'];
+                                                    if (!on) nextTags = tags.filter((t) => !String(t).includes('健康管家'));
+                                                    setEditItem({
+                                                        ...editItem,
+                                                        tags: nextTags,
+                                                        details: {
+                                                            ...editItem.details,
+                                                            role: on ? 'health_manager' : undefined,
+                                                        },
+                                                    });
+                                                }}
+                                            />
+                                            <span>
+                                                标记为「健康管家」（医生工作站可指派给签约用户；用户端「我的」—「我的健康管家」中展示）
+                                            </span>
+                                        </label>
+                                        <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700 col-span-2">
+                                            <input
+                                                type="checkbox"
+                                                className="mt-1"
+                                                checked={!!editItem.details?.admin_access}
+                                                onChange={(e) =>
+                                                    setEditItem({
+                                                        ...editItem,
+                                                        details: {
+                                                            ...editItem.details,
+                                                            admin_access: e.target.checked,
+                                                            role: editItem.details?.role || (e.target.checked ? 'health_manager' : undefined),
+                                                        },
+                                                    })
+                                                }
+                                            />
+                                            <span>
+                                                允许登录管理后台（含管理控制台：人员列表、智能建档、导入等；工作量计入「我的工作」）
+                                            </span>
+                                        </label>
+                                        <InputField
+                                            label="工号（可选，用于工作量报表）"
+                                            placeholder="如 HM001"
+                                            value={editItem.details?.staff_no}
+                                            onChange={(v: any) => updateDetail('staff_no', v)}
+                                        />
+                                        <InputField
+                                            label="对外联系电话（用户端展示）"
+                                            placeholder="手机号或座机"
+                                            value={editItem.details?.phone}
+                                            onChange={(v: any) => updateDetail('phone', v)}
+                                        />
+                                        <InputField
+                                            label="微信二维码图片地址（用户登录页展示）"
+                                            placeholder="https://.../wechat-qr.png"
+                                            value={editItem.details?.wechat_qr}
+                                            onChange={(v: any) => updateDetail('wechat_qr', v)}
+                                        />
+                                        <div className="col-span-2 space-y-2">
+                                            <label className="block text-xs font-bold text-slate-700">二维码图片上传（支持 png/jpg/webp）</label>
+                                            <div className="flex flex-wrap items-start gap-3">
+                                                {editItem.details?.wechat_qr ? (
+                                                    <img
+                                                        src={editItem.details?.wechat_qr}
+                                                        alt="微信二维码"
+                                                        className="h-20 w-20 rounded border border-slate-200 object-cover bg-white"
+                                                    />
+                                                ) : (
+                                                    <div className="h-20 w-20 rounded border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-[11px] text-slate-400">
+                                                        无二维码
+                                                    </div>
+                                                )}
+                                                <div className="space-y-2">
+                                                    <input
+                                                        ref={wechatQrInputRef}
+                                                        type="file"
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                        onChange={handleWechatQrFile}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => wechatQrInputRef.current?.click()}
+                                                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white hover:bg-teal-700"
+                                                    >
+                                                        上传二维码图片
+                                                    </button>
+                                                    {editItem.details?.wechat_qr && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => updateDetail('wechat_qr', '')}
+                                                            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-600 hover:bg-slate-50"
+                                                        >
+                                                            清除二维码
+                                                        </button>
+                                                    )}
+                                                    <p className="text-[11px] text-slate-500">
+                                                        支持直接上传图片，或在上方填写 URL 地址。
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <InputField
+                                            label="微信号（可选）"
+                                            placeholder="例如：health_manager_01"
+                                            value={editItem.details?.wechat_id}
+                                            onChange={(v: any) => updateDetail('wechat_id', v)}
+                                        />
+                                    </FormSection>
+
                                     <FormSection title="专业能力">
                                         <TextAreaField label="擅长领域 (标签请逗号分隔)" value={editItem.tags?.join(',')} onChange={(v:string) => setEditItem({...editItem, tags: v.split(/[,，]/)})} placeholder="如：高血压, 糖尿病, 小儿推拿" />
                                         <TextAreaField label="个人简介" placeholder="毕业院校、从业年限、学术成就..." value={editItem.description} onChange={(v:any) => setEditItem({...editItem, description: v})} />
-                                        <InputField label="出诊时间表" full placeholder="如：周一上午、周三下午" value={editItem.details?.schedule} onChange={(v:any) => updateDetail('schedule', v)} />
+                                        <InputField label="出诊地点" full placeholder="如：校医院门诊二楼内科诊区" value={editItem.details?.clinicLocation} onChange={(v:any) => updateDetail('clinicLocation', v)} />
                                     </FormSection>
                                 </>
                             )}
@@ -1296,6 +2915,49 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 </div>
             )}
 
+            {isBatchScheduleOpen && (
+                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">批量设置预约时段</h3>
+                                <p className="text-xs text-slate-500 mt-1">已选 {selectedIds.size} 项，将统一写入排期（覆盖原有设置）</p>
+                            </div>
+                            <button type="button" onClick={() => setIsBatchScheduleOpen(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-slate-600">快捷模板：</span>
+                                <button type="button" onClick={() => applyBatchSchedulePreset('weekday_all')} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">工作日 上/下午</button>
+                                <button type="button" onClick={() => applyBatchSchedulePreset('weekday_am')} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">工作日 仅上午</button>
+                                <button type="button" onClick={() => applyBatchSchedulePreset('daily_all')} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200">每日 上/下午</button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-bold text-slate-600">默认每时段限额</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    className="w-20 rounded border border-slate-300 px-2 py-1 text-sm"
+                                    value={batchScheduleDraft.defaultQuota}
+                                    onChange={(e) => setBatchScheduleDraft((prev) => ({ ...prev, defaultQuota: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                />
+                                <span className="text-xs text-slate-400">新开时段时使用；已开时段可单独改限额</span>
+                            </div>
+                            <ServiceScheduleGrid
+                                weekly={batchScheduleDraft.serviceWeeklySchedule}
+                                quotas={batchScheduleDraft.serviceSlotQuotas}
+                                onToggle={toggleBatchSchedule}
+                                onQuotaChange={handleBatchQuotaChange}
+                            />
+                        </div>
+                        <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+                            <button type="button" onClick={() => setIsBatchScheduleOpen(false)} className="px-6 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200">取消</button>
+                            <button type="button" onClick={handleBatchApplySchedule} className="px-8 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700">应用到选中项</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isPresetModalOpen && presetDraft && (
                 <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -1356,11 +3018,135 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     </div>
                 </div>
             )}
+
+            <CheckupPortalGuideEditor
+                open={isCheckupGuideEditorOpen}
+                onClose={() => setIsCheckupGuideEditorOpen(false)}
+            />
         </div>
     );
 };
 
 // --- Helper Components ---
+const PackageImageUploadField: React.FC<{
+    label: string;
+    hint: string;
+    value?: string;
+    previewClassName: string;
+    inputRef: React.RefObject<HTMLInputElement | null>;
+    uploading?: boolean;
+    onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onUrlChange: (url: string) => void;
+    onClear: () => void;
+    fallbackEmoji?: string;
+    widePreview?: boolean;
+}> = ({ label, hint, value, previewClassName, inputRef, uploading, onUpload, onUrlChange, onClear, fallbackEmoji = '🩺', widePreview }) => {
+    const isImage = isImageLike(value);
+    const isCloudUrl = !!value && (value.startsWith('http://') || value.startsWith('https://'));
+    return (
+        <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
+            <div>
+                <div className="text-xs font-bold text-emerald-900">{label}</div>
+                <p className="text-[11px] text-emerald-700 mt-0.5">{hint}</p>
+            </div>
+            <div className={`flex ${widePreview ? 'flex-col sm:flex-row' : 'flex-row'} gap-3 items-start`}>
+                <div className={`shrink-0 overflow-hidden border border-emerald-200 bg-white flex items-center justify-center ${previewClassName}`}>
+                    {uploading ? (
+                        <span className="text-xs text-emerald-600 font-bold animate-pulse">上传中…</span>
+                    ) : isImage ? (
+                        <img src={value} alt={label} className="h-full w-full object-cover" />
+                    ) : value && !isImage ? (
+                        <span className="text-3xl">{value}</span>
+                    ) : (
+                        <span className="text-3xl text-emerald-300">{fallbackEmoji}</span>
+                    )}
+                </div>
+                <div className="flex-1 min-w-[200px] space-y-2">
+                    <input
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white"
+                        value={value?.startsWith('data:') ? '' : value || ''}
+                        onChange={(e) => onUrlChange(e.target.value)}
+                        placeholder="输入 https 图片地址，或点击下方上传"
+                        disabled={uploading}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                        <input ref={inputRef as React.RefObject<HTMLInputElement>} type="file" accept="image/*" className="hidden" onChange={onUpload} />
+                        <button
+                            type="button"
+                            disabled={uploading}
+                            onClick={() => inputRef.current?.click()}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                            {uploading ? '上传中…' : '上传图片'}
+                        </button>
+                        {isImage && !uploading && (
+                            <button type="button" onClick={onClear} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 text-slate-600 hover:bg-white">
+                                清除
+                            </button>
+                        )}
+                    </div>
+                    {isCloudUrl && (
+                        <p className="text-[11px] text-emerald-700">已上传至 Supabase Storage（数据库仅存 URL）</p>
+                    )}
+                    {value?.startsWith('data:') && (
+                        <p className="text-[11px] text-amber-700">本地预览模式，保存前将尝试上传到云端</p>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ServiceScheduleGrid: React.FC<{
+    weekly: Record<string, string[]>;
+    quotas: Record<string, Record<string, number>>;
+    onToggle: (dayKey: string, slotId: string) => void;
+    onQuotaChange: (dayKey: string, slotId: string, value: number) => void;
+}> = ({ weekly, quotas, onToggle, onQuotaChange }) => (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="grid grid-cols-3 gap-2 text-center mb-3">
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">时段</div>
+            {SLOTS.map((slot) => (
+                <div key={slot.id} className="text-xs font-bold text-slate-600">{slot.label}</div>
+            ))}
+        </div>
+        <div className="space-y-2">
+            {DAY_KEYS.map((dayKey) => (
+                <div key={dayKey} className="grid grid-cols-3 gap-2 items-center">
+                    <div className="text-xs font-bold text-slate-600">{DAY_LABELS[dayKey]}</div>
+                    {SLOTS.map((slot) => {
+                        const isActive = (weekly[dayKey] || []).includes(slot.id);
+                        const quota = quotas?.[dayKey]?.[slot.id] || 10;
+                        return (
+                            <div key={`${dayKey}-${slot.id}`} className={`rounded-lg border p-2 ${isActive ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}>
+                                <button
+                                    type="button"
+                                    className={`w-full rounded-md py-1 text-[11px] font-bold ${isActive ? 'bg-teal-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}
+                                    onClick={() => onToggle(dayKey, slot.id)}
+                                >
+                                    {isActive ? '可预约' : '关闭'}
+                                </button>
+                                {isActive && (
+                                    <div className="mt-1 flex items-center justify-center gap-1">
+                                        <span className="text-[10px] text-slate-400">限额</span>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            value={quota}
+                                            onChange={(e) => onQuotaChange(dayKey, slot.id, parseInt(e.target.value) || 1)}
+                                            className="w-14 rounded border border-slate-200 bg-white px-1 py-0.5 text-center text-[11px] font-bold text-teal-700"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
 const NavButton = ({ id, icon, label, active, onClick }: any) => (
     <button onClick={() => onClick(id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-bold ${active === id ? 'bg-teal-50 text-teal-700' : 'text-slate-600 hover:bg-slate-50'}`}>
         <span className="text-lg">{icon}</span>
@@ -1385,6 +3171,28 @@ const InputField = ({ label, value, onChange, placeholder, full = false, type = 
             onChange={e => onChange(e.target.value)}
             placeholder={placeholder}
         />
+    </div>
+);
+
+const LabeledSelectField = ({ label, value, onChange, options, full = false }: {
+    label: string;
+    value?: string;
+    onChange: (v: string) => void;
+    options: { value: string; label: string }[];
+    full?: boolean;
+}) => (
+    <div className={full ? 'col-span-2' : ''}>
+        <label className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
+        <select
+            className="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-teal-500 outline-none"
+            value={value || ''}
+            onChange={(e) => onChange(e.target.value)}
+        >
+            <option value="">请选择...</option>
+            {options.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+        </select>
     </div>
 );
 

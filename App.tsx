@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
@@ -9,21 +9,145 @@ import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { NativeSurveyForm } from './components/NativeSurveyForm';
 import { UserApp } from './components/user/UserApp';
+import { CheckupApp } from './components/checkup/CheckupApp';
 import { HomeAdmin } from './components/HomeAdmin';
 import { ResourceAdmin } from './components/ResourceAdmin'; 
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
 import { DoctorPatients } from './components/DoctorPatients';
+import { DoctorMessageCenter } from './components/DoctorMessageCenter';
 import { CriticalFollowUpManager } from './components/CriticalFollowUpManager'; // New Import
 import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
+import { DiabetesManagementModule } from './components/DiabetesManagementModule';
+import { HypertensionManagementModule } from './components/HypertensionManagementModule';
+import { LipidManagementModule } from './components/LipidManagementModule';
+import { StaffWorkloadPanel } from './components/StaffWorkloadPanel';
 
-import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData } from './types';
-import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText } from './services/geminiService';
-import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, findArchiveByPhone, updateHealthRecordOnly } from './services/dataService';
+import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant, LipidStandaloneParticipant } from './types';
+import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText, generateIncrementalAssessment } from './services/geminiService';
+import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly, ensureAndPersistCriticalTrack, updateCriticalTrack } from './services/dataService';
+import { fetchStandaloneParticipants, ensureStandaloneFromArchive } from './services/diabetesStandaloneService';
+import {
+  fetchHypertensionStandaloneParticipants,
+  ensureHypertensionStandaloneFromArchive,
+  autoEnrollHypertensionIfEligible,
+} from './services/hypertensionStandaloneService';
+import {
+  fetchLipidStandaloneParticipants,
+  ensureLipidStandaloneFromArchive,
+} from './services/lipidStandaloneService';
+import { loginUserDualPath } from './services/userLoginService';
 import { generateSystemPortraits, evaluateRiskModels } from './services/riskModelService';
-import { ContentItem, fetchInteractions } from './services/contentService';
+import { ContentItem, fetchInteractions, getDoctorSigningUnreadTotal } from './services/contentService';
 import { ElderlyAssessmentResult, mergeElderlyResultToAssessment } from './services/elderlyAssessmentService';
+import { supabase, isSupabaseConfigured } from './services/supabaseClient';
+import {
+  persistManagerSession,
+  restoreManagerSession,
+  restoreStaffFromStorage,
+  setCurrentStaff,
+  staffFromAdminLogin,
+  staffFromDoctor,
+  staffFromManager,
+} from './services/staffContext';
+import { logStaffWork } from './services/staffWorkLogService';
+import {
+  buildFollowUpChainSummary,
+  computeIndicatorDelta,
+  getLatestFollowUp,
+  resolveCriticalIfApplicable,
+} from './services/followUpLinkageService';
+import { buildObservationTrendsSummary } from './services/observationService';
 
-type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user';
+type PortalMode = 'all' | 'admin' | 'ops' | 'doctor' | 'user' | 'checkup';
+
+/** 随访提交后：把 AI 生成的复查计划与要点合并进档案 assessment，避免界面仍读旧评估 */
+const mergeAssessmentFromFollowUpRecord = (
+  base: HealthAssessment,
+  fu: FollowUpRecord['assessment']
+): HealthAssessment => {
+  const nextItems = fu.nextCheckPlan
+    ? fu.nextCheckPlan.split(/[，,、;；\n]/).map((s) => s.trim()).filter((s) => s.length > 0)
+    : [];
+  const goals = (fu.lifestyleGoals || []).filter((g) => g && String(g).trim());
+  const baseMon = base.managementPlan?.monitoring || [];
+  const stripped = baseMon.filter((m) => !String(m).startsWith('【随访】'));
+  const monitoring =
+    goals.length > 0
+      ? [...stripped, ...goals.map((g) => `【随访】${g}`)].slice(0, 25)
+      : base.managementPlan.monitoring;
+  return {
+    ...base,
+    riskLevel: fu.riskLevel,
+    summary: (fu.majorIssues && fu.majorIssues.trim()) || base.summary,
+    followUpPlan: {
+      ...base.followUpPlan,
+      nextCheckItems: nextItems.length ? nextItems : base.followUpPlan.nextCheckItems,
+    },
+    managementPlan: {
+      ...base.managementPlan,
+      monitoring,
+    },
+  };
+};
+
+/** 随访提交后：把本次核心指标沉淀到 health_record，供用户端基础指标同源读取 */
+const mergeHealthRecordFromFollowUp = (
+  base: HealthRecord,
+  follow: Omit<FollowUpRecord, 'id'>
+): HealthRecord => {
+  const indicators = follow.indicators || ({} as any);
+  const basics = base.checkup?.basics || ({} as any);
+  const labBasic = base.checkup?.labBasic || ({} as any);
+  const lipids = labBasic.lipids || {};
+  const glucose = labBasic.glucose || {};
+  const nextWeight = Number(indicators.weight || basics.weight || 0);
+  const height = Number(basics.height || 0);
+  const bmi =
+    height > 0 && nextWeight > 0 ? Number((nextWeight / Math.pow(height / 100, 2)).toFixed(1)) : basics.bmi;
+
+  return {
+    ...base,
+    checkup: {
+      ...base.checkup,
+      basics: {
+        ...basics,
+        sbp: Number(indicators.sbp || basics.sbp || 0),
+        dbp: Number(indicators.dbp || basics.dbp || 0),
+        weight: nextWeight,
+        bmi,
+      },
+      labBasic: {
+        ...labBasic,
+        glucose: {
+          ...glucose,
+          fasting:
+            indicators.glucose != null && Number.isFinite(Number(indicators.glucose))
+              ? String(indicators.glucose)
+              : glucose.fasting,
+        },
+        lipids: {
+          ...lipids,
+          tc:
+            indicators.tc != null && Number.isFinite(Number(indicators.tc))
+              ? String(indicators.tc)
+              : lipids.tc,
+          tg:
+            indicators.tg != null && Number.isFinite(Number(indicators.tg))
+              ? String(indicators.tg)
+              : lipids.tg,
+          ldl:
+            indicators.ldl != null && Number.isFinite(Number(indicators.ldl))
+              ? String(indicators.ldl)
+              : lipids.ldl,
+          hdl:
+            indicators.hdl != null && Number.isFinite(Number(indicators.hdl))
+              ? String(indicators.hdl)
+              : lipids.hdl,
+        },
+      },
+    },
+  };
+};
 
 const detectPortalModeFromHostname = (): PortalMode => {
   if (typeof window === 'undefined') return 'all';
@@ -32,16 +156,20 @@ const detectPortalModeFromHostname = (): PortalMode => {
   if (host.startsWith('ops.')) return 'ops';
   if (host.startsWith('doctor.')) return 'doctor';
   if (host.startsWith('user.')) return 'user';
+  if (host.startsWith('tj.')) return 'checkup';
   return 'all';
 };
 
 export const App: React.FC = () => {
   const portalMode = detectPortalModeFromHostname();
   const [activeTab, setActiveTab] = useState('dashboard');
+  /** 从随访监测跳转危急值随访管理时的定位 */
+  const [criticalNavToken, setCriticalNavToken] = useState(0);
+  const [criticalNavTarget, setCriticalNavTarget] = useState<{ checkupId: string | null; openModal: boolean } | null>(null);
   
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | 'resource_admin' | 'doctor' | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'home' | 'user' | 'resource_admin' | 'doctor' | 'health_manager' | null>(null);
   
   // Login Logic State
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -50,10 +178,16 @@ export const App: React.FC = () => {
   // User Entry State
   const [showUserEntry, setShowUserEntry] = useState(false);
   const [userCheckupId, setUserCheckupId] = useState('');
+  const [userLoginPhone, setUserLoginPhone] = useState('');
+  const [userLoginPassword, setUserLoginPassword] = useState('');
   
   // Doctor State
-  const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null); 
-
+  const [currentDoctor, setCurrentDoctor] = useState<ContentItem | null>(null);
+  const [currentManager, setCurrentManager] = useState<ContentItem | null>(null);
+  /** 医生侧栏「消息」角标：全部签约用户未读之和 */
+  const [doctorMessageUnread, setDoctorMessageUnread] = useState(0);
+  const baseTitleRef = useRef<string>(typeof document !== 'undefined' ? document.title : '健康管理系统');
+  const prevDoctorUnreadRef = useRef<number>(0);
   // Medical Data State
   const [archives, setArchives] = useState<HealthArchive[]>([]);
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
@@ -64,6 +198,32 @@ export const App: React.FC = () => {
   
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingElderly, setIsSavingElderly] = useState(false);
+  const [standaloneParticipants, setStandaloneParticipants] = useState<DiabetesStandaloneParticipant[]>([]);
+  const [currentStandalone, setCurrentStandalone] = useState<DiabetesStandaloneParticipant | null>(null);
+  const [hypertensionParticipants, setHypertensionParticipants] = useState<HypertensionStandaloneParticipant[]>([]);
+  const [currentHypertension, setCurrentHypertension] = useState<HypertensionStandaloneParticipant | null>(null);
+  const [lipidParticipants, setLipidParticipants] = useState<LipidStandaloneParticipant[]>([]);
+  const [currentLipid, setCurrentLipid] = useState<LipidStandaloneParticipant | null>(null);
+
+  const ensureSupabaseSessionForStaff = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
+    if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
+    try {
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr) return { ok: false, message: sessionErr.message };
+      if (sessionData.session) return { ok: true };
+
+      const { error: anonErr } = await supabase.auth.signInAnonymously();
+      if (anonErr) {
+        return {
+          ok: false,
+          message: `无法创建 Supabase 会话：${anonErr.message}。请在 Supabase Auth 开启 Anonymous sign-ins，或改用真实账号登录。`,
+        };
+      }
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, message: e?.message || '创建 Supabase 会话失败' };
+    }
+  }, []);
 
   const canShowAdminEntry = portalMode === 'all' || portalMode === 'admin';
   const canShowOpsEntry = portalMode === 'all' || portalMode === 'ops';
@@ -72,10 +232,108 @@ export const App: React.FC = () => {
   const canShowUserEntry = portalMode === 'all';
 
   useEffect(() => {
-    if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor')) {
+    if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor' || currentUserRole === 'health_manager')) {
         refreshArchives();
+        refreshStandaloneParticipants();
+        refreshHypertensionParticipants();
+        refreshLipidParticipants();
     }
-  }, [isAuthenticated, currentUserRole, currentDoctor]);
+  }, [isAuthenticated, currentUserRole, currentDoctor, currentManager]);
+
+  useEffect(() => {
+    const role = localStorage.getItem('HEALTH_USER_ROLE_V1');
+    const manager = restoreManagerSession();
+    const staff = restoreStaffFromStorage();
+    if (role === 'health_manager' && manager) {
+      setCurrentUserRole('health_manager');
+      setCurrentManager(manager);
+      setIsAuthenticated(true);
+      if (!staff) {
+        setCurrentStaff(staffFromManager(manager));
+      }
+    } else if (staff && role === 'admin') {
+      setCurrentUserRole('admin');
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentUserRole !== 'doctor' || !currentDoctor) {
+      setDoctorMessageUnread(0);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const n = await getDoctorSigningUnreadTotal(currentDoctor.id, currentDoctor.title);
+        if (!cancelled) setDoctorMessageUnread(n);
+      } catch {
+        if (!cancelled) setDoctorMessageUnread(0);
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 12000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [currentUserRole, currentDoctor?.id, currentDoctor?.title]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const baseTitle = baseTitleRef.current || '健康管理系统';
+    if (currentUserRole === 'doctor' && doctorMessageUnread > 0) {
+      document.title = `(${doctorMessageUnread}) 条未读消息 - ${baseTitle}`;
+    } else {
+      document.title = baseTitle;
+    }
+  }, [currentUserRole, doctorMessageUnread]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (currentUserRole !== 'doctor') {
+      prevDoctorUnreadRef.current = 0;
+      return;
+    }
+    if (!('Notification' in window)) return;
+
+    const maybeRequestPermission = async () => {
+      if (Notification.permission === 'default') {
+        try {
+          await Notification.requestPermission();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    maybeRequestPermission();
+  }, [currentUserRole]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (currentUserRole !== 'doctor') {
+      prevDoctorUnreadRef.current = 0;
+      return;
+    }
+    if (!('Notification' in window)) return;
+
+    const prev = prevDoctorUnreadRef.current;
+    prevDoctorUnreadRef.current = doctorMessageUnread;
+
+    const hasNewUnread = doctorMessageUnread > prev;
+    const shouldNotify = hasNewUnread && Notification.permission === 'granted' && document.hidden;
+    if (!shouldNotify) return;
+
+    const notification = new Notification('医生工作站新消息', {
+      body: `您有 ${doctorMessageUnread} 条未读消息，点击前往处理。`,
+      tag: 'doctor-unread',
+    });
+    notification.onclick = () => {
+      window.focus();
+      setActiveTab('doctor_messages');
+      notification.close();
+    };
+  }, [currentUserRole, doctorMessageUnread]);
 
   const refreshArchives = async () => {
     const allArchives = await fetchArchives();
@@ -101,8 +359,30 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleLoginSuccess = (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => {
-    if (portalMode === 'admin' && !['admin', 'home'].includes(role)) {
+  const refreshStandaloneParticipants = async () => {
+    const list = await fetchStandaloneParticipants();
+    setStandaloneParticipants(list);
+    setCurrentStandalone((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
+  };
+
+  const refreshHypertensionParticipants = async () => {
+    const list = await fetchHypertensionStandaloneParticipants();
+    setHypertensionParticipants(list);
+    setCurrentHypertension((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
+  };
+
+  const refreshLipidParticipants = async () => {
+    const list = await fetchLipidStandaloneParticipants();
+    setLipidParticipants(list);
+    setCurrentLipid((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
+  };
+
+  const handleLoginSuccess = async (
+    role: 'admin' | 'home' | 'resource_admin' | 'doctor' | 'health_manager',
+    doctorInfo?: ContentItem,
+    managerInfo?: ContentItem,
+  ) => {
+    if (portalMode === 'admin' && !['admin', 'home', 'health_manager'].includes(role)) {
         alert('当前子域仅允许管理控制台登录');
         return;
     }
@@ -122,32 +402,76 @@ export const App: React.FC = () => {
     setIsAuthenticated(true);
     setCurrentUserRole(role);
     setShowLoginModal(false);
-    
-    if (role === 'admin') {
+
+    try {
+      localStorage.setItem('HEALTH_USER_ROLE_V1', role);
+    } catch {
+      /* ignore */
+    }
+
+    // 后台/医生/健康管理师登录后，确保持有 Supabase authenticated 会话，避免 RLS 将请求判为 anon
+    if (['admin', 'home', 'resource_admin', 'doctor', 'health_manager'].includes(role)) {
+      const authRes = await ensureSupabaseSessionForStaff();
+      if (!authRes.ok) {
+        alert(
+          `当前已进入系统，但云端写入可能被 RLS 拒绝。\n原因：${authRes.message || '未建立 Supabase 会话'}`
+        );
+      }
+    }
+
+    if (role === 'admin' || role === 'home') {
+        setCurrentStaff(staffFromAdminLogin());
+        setCurrentManager(null);
+        persistManagerSession(null);
+        setActiveTab('admin');
+    } else if (role === 'health_manager') {
+        if (managerInfo) {
+          setCurrentManager(managerInfo);
+          persistManagerSession(managerInfo);
+          setCurrentStaff(staffFromManager(managerInfo));
+        }
+        setCurrentDoctor(null);
         setActiveTab('admin');
     } else if (role === 'doctor') {
-        if (doctorInfo) setCurrentDoctor(doctorInfo);
-        setActiveTab('my_patients'); 
+        if (doctorInfo) {
+          setCurrentDoctor(doctorInfo);
+          setCurrentStaff(staffFromDoctor(doctorInfo));
+        }
+        setCurrentManager(null);
+        persistManagerSession(null);
+        setActiveTab('my_patients');
     }
   };
 
-  const handleUserLogin = async (input: string) => {
-      let archive = await findArchiveByCheckupId(input);
-      if (!archive) {
-          archive = await findArchiveByPhone(input);
+  const handleUserLogin = async () => {
+      const phone = userLoginPhone.trim();
+      const password = userLoginPassword;
+      if (!phone || !password) {
+          alert('请输入体检登记手机号与密码');
+          return;
       }
-      if (archive) {
-          setUserCheckupId(archive.checkup_id);
+      const result = await loginUserDualPath(phone, password);
+      if (result.success) {
+          setUserCheckupId(result.archive.checkup_id);
           setCurrentUserRole('user');
-          setIsAuthenticated(true); 
+          setIsAuthenticated(true);
+          setUserLoginPassword('');
       } else {
-          alert('未找到档案，请核对体检编号或预留手机号');
+          if (result.reason === 'archive_not_found') {
+              alert(result.message);
+          } else if (result.reason === 'invalid_password') {
+              alert('密码错误。若您已修改密码，请输入新密码；若忘记密码请联系健康管家协助重置。');
+          } else if (result.reason === 'permission_denied') {
+              alert('系统权限配置异常（RLS 拦截），请联系管理员检查 Supabase 策略。');
+          } else {
+              alert(`登录失败：${result.message || '查询异常，请稍后重试。'}`);
+          }
       }
   };
 
   const openLoginFor = (type: 'admin' | 'resource' | 'doctor') => {
       if (type === 'admin') {
-          setLoginRoleContext({ title: '管理控制台登录', color: 'slate', allowedRoles: ['admin', 'home'] });
+          setLoginRoleContext({ title: '管理控制台登录', color: 'slate', allowedRoles: ['admin', 'home', 'health_manager'] });
       } else if (type === 'resource') {
           setLoginRoleContext({ title: '资源运营台登录', color: 'teal', allowedRoles: ['resource_admin'] });
       } else if (type === 'doctor') {
@@ -163,17 +487,81 @@ export const App: React.FC = () => {
       if (portalMode === 'doctor') openLoginFor('doctor');
   }, [portalMode, isAuthenticated, showLoginModal]);
 
-  const handleSelectPatient = (archive: HealthArchive, mode: 'view' | 'edit' | 'followup' | 'assessment' = 'view') => {
+  const handleSelectPatient = (
+    archive: HealthArchive,
+    mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' | 'hypertension' | 'lipid' = 'view'
+  ) => {
+      if (!archive?.health_record?.profile) {
+          alert('该人员档案数据不完整（缺少健康档案），无法打开。请先完成建档或重新导入。');
+          return;
+      }
       setHealthRecord(archive.health_record);
-      setAssessment(archive.assessment_data);
+      setAssessment(archive.assessment_data || null);
       setFollowUps(archive.follow_ups || []);
       setSchedule(archive.follow_up_schedule || []);
       setRiskAnalysis(archive.risk_analysis);
-      
+
       if (mode === 'followup') setActiveTab('followup');
       else if (mode === 'assessment') setActiveTab('assessment');
-      else if (mode === 'edit') setActiveTab('survey'); 
-      else setActiveTab('dashboard');
+      else if (mode === 'edit') setActiveTab('survey');
+      else if (mode === 'diabetes') {
+        setActiveTab('diabetes_management');
+        void (async () => {
+          try {
+            const { participant } = await ensureStandaloneFromArchive(archive);
+            await refreshStandaloneParticipants();
+            setCurrentStandalone(participant);
+          } catch (e) {
+            console.error(e);
+            alert(
+              e instanceof Error
+                ? `跳转糖尿病专项筛查失败：${e.message}`
+                : '跳转糖尿病专项筛查失败，请在专栏中手动检索该职工'
+            );
+          }
+        })();
+      } else if (mode === 'hypertension') {
+        setActiveTab('hypertension_management');
+        void (async () => {
+          try {
+            const { participant } = await ensureHypertensionStandaloneFromArchive(archive);
+            setCurrentHypertension(participant);
+            await refreshHypertensionParticipants();
+          } catch (e) {
+            console.error(e);
+            alert(
+              e instanceof Error
+                ? `跳转高血压专项筛查失败：${e.message}`
+                : '跳转高血压专项筛查失败，请在专栏中手动检索该职工'
+            );
+          }
+        })();
+      } else if (mode === 'lipid') {
+        setActiveTab('lipid_management');
+        void (async () => {
+          try {
+            const { participant } = await ensureLipidStandaloneFromArchive(archive);
+            setCurrentLipid(participant);
+            await refreshLipidParticipants();
+          } catch (e) {
+            console.error(e);
+            alert(
+              e instanceof Error
+                ? `跳转血脂异常专项管理失败：${e.message}`
+                : '跳转失败，请在专栏中手动检索该职工'
+            );
+          }
+        })();
+      } else setActiveTab('dashboard');
+  };
+
+  const handleNavigateCriticalManager = (archive?: HealthArchive, openModal = false) => {
+      setCriticalNavTarget({
+          checkupId: archive?.checkup_id ?? null,
+          openModal: Boolean(archive && openModal),
+      });
+      setCriticalNavToken((t) => t + 1);
+      setActiveTab('risk_portrait');
   };
 
   const handleHealthSurveySubmit = async (data: HealthRecord) => {
@@ -184,15 +572,41 @@ export const App: React.FC = () => {
           const portraits = generateSystemPortraits(data);
           const models = evaluateRiskModels(data);
           const analysis = { portraits, models };
-          const res = await saveArchive(data, newAssessment, newSchedule, followUps, analysis);
+          const res = await saveArchive(data, newAssessment, newSchedule, followUps, analysis, { completeProfileOnSave: true });
           
           if (res.success) {
               setHealthRecord(data);
               setAssessment(newAssessment);
               setSchedule(newSchedule);
               setRiskAnalysis(analysis);
+              void ensureAndPersistCriticalTrack(data.profile.checkupId, {
+                  checkup_id: data.profile.checkupId,
+                  name: data.profile.name,
+                  assessment_data: newAssessment,
+                  follow_up_schedule: newSchedule,
+                  health_record: data,
+                  follow_ups: followUps,
+                  risk_analysis: analysis,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+              } as HealthArchive);
               alert("档案保存成功！已生成最新风险评估。");
               refreshArchives();
+              void autoEnrollHypertensionIfEligible({
+                checkup_id: data.profile.checkupId,
+                name: data.profile.name,
+                gender: data.profile.gender,
+                age: data.profile.age,
+                phone: data.profile.phone,
+                department: data.profile.department,
+                health_record: data,
+                assessment_data: newAssessment,
+                follow_ups: followUps,
+                follow_up_schedule: newSchedule,
+                risk_analysis: analysis,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              } as HealthArchive).then(() => refreshHypertensionParticipants());
               setActiveTab('assessment');
           } else {
               alert("保存失败: " + res.message);
@@ -233,24 +647,125 @@ export const App: React.FC = () => {
       }
   };
 
-  const handleAddFollowUp = async (record: Omit<FollowUpRecord, 'id'>) => {
-      if (!healthRecord || !assessment) return;
-      const newRecord: FollowUpRecord = { ...record, id: Date.now().toString() };
+  const handleAddFollowUp = async (
+      record: Omit<FollowUpRecord, 'id'>
+  ): Promise<{ success: boolean; message?: string }> => {
+      if (!healthRecord) {
+          return { success: false, message: '未选择健康档案' };
+      }
+      if (!assessment) {
+          return { success: false, message: '缺少综合评估数据，无法保存随访。请先完成建档评估。' };
+      }
+
+      const priorRecord = getLatestFollowUp(followUps);
+      const followUpId = crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const indicatorDelta = priorRecord
+          ? computeIndicatorDelta(priorRecord.indicators, record.indicators)
+          : record.indicatorDelta;
+
+      const newRecord: FollowUpRecord = {
+          ...record,
+          id: followUpId,
+          priorFollowUpId: record.priorFollowUpId || priorRecord?.id,
+          indicatorDelta: indicatorDelta && Object.keys(indicatorDelta).length ? indicatorDelta : record.indicatorDelta,
+      };
+
+      const nextHealthRecord = mergeHealthRecordFromFollowUp(healthRecord, record);
+      const chainSummary = buildFollowUpChainSummary([...followUps, newRecord], 3);
+      let observationTrends = '';
+      try {
+          observationTrends = await buildObservationTrendsSummary(healthRecord.profile.checkupId);
+      } catch {
+          observationTrends = '';
+      }
+
+      const currentArchive = archives.find((a) => a.checkup_id === healthRecord.profile.checkupId);
+      const criticalTrack = currentArchive?.critical_track;
+      let mergedAssessment = await generateIncrementalAssessment(nextHealthRecord, {
+          priorAssessment: assessment,
+          followUpChainSummary: chainSummary,
+          latestFollowUp: newRecord,
+          observationTrends: observationTrends || undefined,
+          criticalTrackStatus: criticalTrack?.status,
+          criticalResolved: criticalTrack?.status === 'archived',
+      });
+      if (!mergedAssessment.summary || mergedAssessment === assessment) {
+          mergedAssessment = mergeAssessmentFromFollowUpRecord(assessment, newRecord.assessment);
+      }
+
+      const archiveSnapshot: HealthArchive = {
+          checkup_id: healthRecord.profile.checkupId,
+          name: healthRecord.profile.name,
+          assessment_data: mergedAssessment,
+          follow_ups: followUps,
+          follow_up_schedule: schedule,
+          critical_track: criticalTrack,
+          health_record: nextHealthRecord,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+      } as HealthArchive;
+
+      const { track: updatedTrack, assessmentPatch } = resolveCriticalIfApplicable(archiveSnapshot, newRecord);
+      if (assessmentPatch) mergedAssessment = assessmentPatch;
+      if (updatedTrack && updatedTrack !== criticalTrack) {
+          await updateCriticalTrack(healthRecord.profile.checkupId, updatedTrack);
+      }
+
       const newFollowUps = [...followUps, newRecord];
-      const pendingIdx = schedule.findIndex(s => s.status === 'pending');
+      const pendingIdx = schedule.findIndex((s) => s.status === 'pending');
       let newSchedule = [...schedule];
       if (pendingIdx !== -1) {
-          newSchedule[pendingIdx].status = 'completed';
+          newSchedule[pendingIdx] = { ...newSchedule[pendingIdx], status: 'completed' };
       }
-      const nextItem = generateNextScheduleItem(newRecord.date, newRecord.assessment.nextCheckPlan, newRecord.assessment.riskLevel);
+
+      const focusForSchedule =
+          newRecord.assessment.adjustedFocusItems?.length
+              ? newRecord.assessment.adjustedFocusItems.join('、')
+              : newRecord.assessment.nextCheckPlan;
+      const nextItem = generateNextScheduleItem(
+          newRecord.date,
+          focusForSchedule,
+          mergedAssessment.riskLevel,
+          {
+              source: newRecord.followUpType === 'critical_secondary' ? 'critical' : 'follow_up',
+              linkedCriticalTrackId: newRecord.linkedCriticalTrackId || updatedTrack?.id,
+          }
+      );
+      if (newRecord.assessment.adjustedFocusItems?.length) {
+          nextItem.focusItems = newRecord.assessment.adjustedFocusItems;
+      }
       newSchedule.push(nextItem);
 
-      const res = await updateArchiveData(healthRecord.profile.checkupId, newFollowUps, newSchedule);
+      const res = await updateArchiveData(healthRecord.profile.checkupId, newFollowUps, newSchedule, {
+          assessment: mergedAssessment,
+          nextHealthRecord,
+          syncSource: 'doctor_followup',
+      });
       if (res.success) {
+          setHealthRecord(nextHealthRecord);
           setFollowUps(newFollowUps);
           setSchedule(newSchedule);
-          refreshArchives();
+          setAssessment(mergedAssessment);
+          void logStaffWork({
+            actionType: 'followup_record',
+            checkupId: healthRecord.profile.checkupId,
+            targetName: healthRecord.profile.name,
+            summary: `随访 ${record.date} · ${record.method}`,
+          });
+          void import('./services/healthDataPipeline').then((m) =>
+              m.pipelineAfterFollowUp(
+                  healthRecord.profile.checkupId,
+                  nextHealthRecord,
+                  record,
+                  newRecord.id,
+                  mergedAssessment
+              )
+          );
+          if (!res.message) {
+              refreshArchives();
+          }
       }
+      return res;
   };
 
   const handleManualDataUpdate = async (record: FollowUpRecord | null, newSchedule: ScheduledFollowUp[]) => {
@@ -306,7 +821,7 @@ export const App: React.FC = () => {
           const models = evaluateRiskModels(recordToSave);
           const newAnalysis = { portraits, models };
           const newSchedule = generateFollowUpSchedule(newAssessment);
-          const res = await saveArchive(recordToSave, newAssessment, newSchedule, previousFollowUps, newAnalysis);
+          const res = await saveArchive(recordToSave, newAssessment, newSchedule, previousFollowUps, newAnalysis, { completeProfileOnSave: true });
           if (res.success) {
               setHealthRecord(recordToSave);
               setAssessment(newAssessment);
@@ -357,6 +872,10 @@ export const App: React.FC = () => {
           setIsSavingElderly(false);
       }
   };
+
+  if (portalMode === 'checkup') {
+      return <CheckupApp />;
+  }
 
   if (portalMode === 'user') {
       return <UserApp />;
@@ -417,7 +936,12 @@ export const App: React.FC = () => {
                             <h3 className="text-lg font-bold text-green-900">职工健康登录</h3>
                             <button onClick={() => setShowUserEntry(false)} className="text-slate-400 hover:text-slate-600 text-sm">取消</button>
                         </div>
-                        <input autoFocus type="text" placeholder="输入体检编号或手机号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-3 bg-green-50/50" onKeyDown={(e) => { if(e.key === 'Enter') handleUserLogin(e.currentTarget.value); }} />
+                        <label className="block text-xs font-bold text-green-900 mb-1">体检登记手机号</label>
+                        <input autoFocus type="tel" autoComplete="username" inputMode="numeric" placeholder="11位手机号" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPhone} onChange={(e) => setUserLoginPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
+                        <label className="block text-xs font-bold text-green-900 mb-1">密码</label>
+                        <input type="password" autoComplete="current-password" placeholder="体检档案默认或已修改的密码" className="w-full border border-green-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-green-500 outline-none mb-2 bg-green-50/50" value={userLoginPassword} onChange={(e) => setUserLoginPassword(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleUserLogin(); }} />
+                        <p className="text-[11px] text-green-800/80 mb-2">无自助注册。浏览资源、预约挂号可在应用内直接操作；使用档案与随访请先完成体检建档并由中心开通账号。</p>
+                        <button type="button" onClick={() => handleUserLogin()} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg text-sm hover:bg-green-700 mb-2">登录</button>
                         <button className="text-xs text-green-700 font-bold self-start hover:underline" onClick={() => setActiveTab('external_survey')}>📝 还没有档案？填写健康问卷</button>
                     </div>
                 ) : (
@@ -436,7 +960,7 @@ export const App: React.FC = () => {
                 <span>|</span>
                 <span>© 2024 郑州大学医院</span>
                 <span>|</span>
-                <span>联系支持: 0371-67739261</span>
+                        <span>联系支持: 0371-67739538</span>
             </div>
             <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={handleLoginSuccess} roleContext={loginRoleContext} />
         </div>
@@ -450,8 +974,32 @@ export const App: React.FC = () => {
             onTabChange={setActiveTab} 
             isAuthenticated={isAuthenticated}
             currentUserRole={currentUserRole}
+            staffDisplayName={
+              currentUserRole === 'health_manager'
+                ? currentManager?.title
+                : currentUserRole === 'doctor'
+                  ? currentDoctor?.title
+                  : undefined
+            }
             onLoginClick={() => setShowLoginModal(true)} 
-            onLogoutClick={() => { setIsAuthenticated(false); setCurrentUserRole(null); setCurrentDoctor(null); setActiveTab('dashboard'); setShowUserEntry(false); setArchives([]); }}
+            onLogoutClick={() => {
+              setIsAuthenticated(false);
+              setCurrentUserRole(null);
+              setCurrentDoctor(null);
+              setCurrentManager(null);
+              setCurrentStaff(null);
+              persistManagerSession(null);
+              try {
+                localStorage.removeItem('HEALTH_USER_ROLE_V1');
+              } catch {
+                /* ignore */
+              }
+              setDoctorMessageUnread(0);
+              setActiveTab('dashboard');
+              setShowUserEntry(false);
+              setArchives([]);
+            }}
+            navBadges={currentUserRole === 'doctor' ? { doctor_messages: doctorMessageUnread } : undefined}
         >
             {activeTab === 'dashboard' && (
                 <div className="h-full flex flex-col items-center justify-center text-center space-y-6 opacity-60">
@@ -462,7 +1010,48 @@ export const App: React.FC = () => {
             )}
             {activeTab === 'survey' && <HealthSurvey onSubmit={handleHealthSurveySubmit} initialData={healthRecord} isLoading={isLoading} />}
             {activeTab === 'external_survey' && <NativeSurveyForm onSubmit={handleSurveySubmit} isLoading={isLoading} initialCheckupId={healthRecord?.profile.checkupId} />}
-            {activeTab === 'assessment' && assessment && healthRecord && <AssessmentReport assessment={assessment} patientName={healthRecord.profile.name} profile={healthRecord.profile} healthRecord={healthRecord} riskAnalysis={riskAnalysis} onSave={handleSaveAssessment} onUpdateReport={handleUpdateCheckupReport} onUpdateRiskAnalysis={refreshArchives} onSupplementQuestionnaire={() => setActiveTab('external_survey')} />}
+            {activeTab === 'assessment' && assessment && healthRecord && (
+              <AssessmentReport
+                assessment={assessment}
+                patientName={healthRecord.profile.name}
+                profile={healthRecord.profile}
+                healthRecord={healthRecord}
+                riskAnalysis={riskAnalysis}
+                followUps={followUps}
+                onViewFollowUps={() => setActiveTab('followup')}
+                onSave={handleSaveAssessment}
+                onUpdateReport={handleUpdateCheckupReport}
+                onUpdateRiskAnalysis={refreshArchives}
+                onSupplementQuestionnaire={() => setActiveTab('external_survey')}
+              />
+            )}
+            {activeTab === 'assessment' && (!assessment || !healthRecord) && (
+              <div className="h-full flex flex-col items-center justify-center text-center space-y-4 px-6">
+                <div className="text-6xl opacity-40">📂</div>
+                <h2 className="text-xl font-bold text-slate-700">无法打开该人员档案</h2>
+                <p className="text-sm text-slate-500 max-w-md leading-relaxed">
+                  {!healthRecord
+                    ? '该人员缺少健康档案数据，请先完成建档或问卷导入。'
+                    : '该人员尚无评估报告。可先在「健康问卷」完善信息并生成评估，或从档案列表重新导入体检数据。'}
+                </p>
+                <div className="flex flex-wrap gap-3 justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('external_survey')}
+                    className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-bold hover:bg-teal-700"
+                  >
+                    去填写问卷
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('admin')}
+                    className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50"
+                  >
+                    返回档案列表
+                  </button>
+                </div>
+              </div>
+            )}
             {activeTab === 'elderly_assessment' && (
                 <ElderlyAssessmentModule
                     archives={archives}
@@ -472,18 +1061,96 @@ export const App: React.FC = () => {
                     isSaving={isSavingElderly}
                 />
             )}
+            {activeTab === 'diabetes_management' && (
+                <DiabetesManagementModule
+                    participants={standaloneParticipants}
+                    currentParticipant={currentStandalone}
+                    onSelectParticipant={setCurrentStandalone}
+                    onRefresh={refreshStandaloneParticipants}
+                    archives={archives}
+                />
+            )}
+            {activeTab === 'hypertension_management' && (
+                <HypertensionManagementModule
+                    participants={hypertensionParticipants}
+                    currentParticipant={currentHypertension}
+                    onSelectParticipant={setCurrentHypertension}
+                    onRefresh={refreshHypertensionParticipants}
+                    archives={archives}
+                />
+            )}
+            {activeTab === 'lipid_management' && (
+                <LipidManagementModule
+                    participants={lipidParticipants}
+                    currentParticipant={currentLipid}
+                    onSelectParticipant={setCurrentLipid}
+                    onRefresh={refreshLipidParticipants}
+                    archives={archives}
+                />
+            )}
             
             {/* TAB REPLACEMENT LOGIC: 危急值随访管理 */}
             {activeTab === 'risk_portrait' && (
                 <CriticalFollowUpManager 
                     archives={archives} 
-                    onRefresh={refreshArchives} 
+                    onRefresh={refreshArchives}
+                    onNavigateFollowUp={(arch) => handleSelectPatient(arch, 'followup')}
+                    initialFocusCheckupId={criticalNavTarget?.checkupId ?? null}
+                    initialFocusOpenModal={criticalNavTarget?.openModal ?? false}
+                    focusNavToken={criticalNavToken}
                 />
             )}
             
-            {activeTab === 'followup' && <FollowUpDashboard records={followUps} assessment={assessment} schedule={schedule} onAddRecord={handleAddFollowUp} onUpdateData={handleManualDataUpdate} allArchives={archives} onPatientChange={(arch) => handleSelectPatient(arch, 'followup')} currentPatientId={healthRecord?.profile.checkupId} isAuthenticated={isAuthenticated} healthRecord={healthRecord} onRefresh={refreshArchives} />}
+            {activeTab === 'followup' && (
+              <FollowUpDashboard
+                records={followUps}
+                assessment={assessment}
+                schedule={schedule}
+                onAddRecord={handleAddFollowUp}
+                onUpdateData={handleManualDataUpdate}
+                allArchives={archives}
+                onPatientChange={(arch) => handleSelectPatient(arch, 'followup')}
+                onNavigateDiabetes={(arch) => handleSelectPatient(arch, 'diabetes')}
+                onNavigateHypertension={(arch) => handleSelectPatient(arch, 'hypertension')}
+                onNavigateLipid={(arch) => handleSelectPatient(arch, 'lipid')}
+                onNavigateCriticalManager={(arch) => handleNavigateCriticalManager(arch, Boolean(arch))}
+                currentPatientId={healthRecord?.profile.checkupId}
+                isAuthenticated={isAuthenticated}
+                healthRecord={healthRecord}
+                onRefresh={refreshArchives}
+                userRole={
+                  currentUserRole === 'doctor'
+                    ? 'doctor'
+                    : currentUserRole === 'health_manager'
+                      ? 'health_manager'
+                      : 'admin'
+                }
+              />
+            )}
+            {activeTab === 'my_workload' && currentUserRole === 'health_manager' && currentManager && (
+              <StaffWorkloadPanel
+                staffId={currentManager.id}
+                staffName={currentManager.title}
+                title="我的工作"
+              />
+            )}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
-            {activeTab === 'admin' && currentUserRole === 'admin' && <AdminConsole onSelectPatient={handleSelectPatient} onDataUpdate={refreshArchives} isAuthenticated={isAuthenticated} onTabChange={setActiveTab} />}
+            {activeTab === 'admin' && (currentUserRole === 'admin' || currentUserRole === 'health_manager') && (
+              <AdminConsole
+                onSelectPatient={handleSelectPatient}
+                onDataUpdate={refreshArchives}
+                isAuthenticated={isAuthenticated}
+                onTabChange={setActiveTab}
+                userRole={currentUserRole === 'health_manager' ? 'health_manager' : 'admin'}
+              />
+            )}
+            {activeTab === 'doctor_messages' && currentUserRole === 'doctor' && currentDoctor && (
+                <DoctorMessageCenter
+                    doctorId={currentDoctor.id}
+                    doctorName={currentDoctor.title}
+                    onUnreadTotalChange={setDoctorMessageUnread}
+                />
+            )}
             {activeTab === 'my_patients' && currentUserRole === 'doctor' && currentDoctor && <DoctorPatients doctorId={currentDoctor.id} doctorName={currentDoctor.title} onSelectPatient={handleSelectPatient} />}
         </Layout>
         <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={handleLoginSuccess} roleContext={loginRoleContext} />

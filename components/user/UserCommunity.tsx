@@ -1,12 +1,30 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchContent, ContentItem, fetchInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
-import { ResourceCover } from './ResourceCover';
+import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLocalInteractions, saveInteraction, InteractionItem } from '../../services/contentService';
+import { ResourceCover, isResourceImageUrl } from './ResourceCover';
 import { HealthAssessment } from '../../types';
+import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
+import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { BookingContactModal } from './BookingContactModal';
+import { ModalPortal } from './ModalPortal';
+import {
+    CLINICAL_SUB_CATEGORIES,
+    HEALTH_SERVICE_SUB_CATEGORIES,
+    SERVICE_MAIN_CATEGORIES,
+    ServiceMainCategory,
+    classifyServiceItem,
+    resolveIncludedServiceLines,
+    resolveOptionalGroupLines,
+    resolveIncludedServiceGroups,
+    resolveGiftItemGroups,
+    resolvePackageDisplayPricing,
+} from '../../services/userServiceCatalog';
+import { PackageItemGroupedList } from '../checkup/PackageItemGroupedList';
 
 interface Props {
     userId?: string;
     userName?: string;
+    defaultContactPhone?: string;
     assessment?: HealthAssessment;
 }
 
@@ -16,7 +34,9 @@ interface EventWithStatus extends ContentItem {
     signupStatus: 'open' | 'full' | 'joined' | 'pending' | 'ended';
 }
 
-type TabType = 'events' | 'meals' | 'services';
+type MainCategory = ServiceMainCategory;
+const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
+const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
 
 const getCommunityIcon = (title: string, type: string): string => {
     const t = title.toLowerCase();
@@ -70,56 +90,122 @@ const formatEventSchedule = (details?: Record<string, any>) => {
     return details?.date?.split?.('T')?.[0] || '待定';
 };
 
-export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment }) => {
+export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContactPhone = '', assessment }) => {
     const [allEvents, setAllEvents] = useState<EventWithStatus[]>([]);
     const [allCircles, setAllCircles] = useState<ContentItem[]>([]);
-    const [allMeals, setAllMeals] = useState<ContentItem[]>([]);
     const [allServices, setAllServices] = useState<ContentItem[]>([]);
+    const [allPackages, setAllPackages] = useState<ContentItem[]>([]);
     const [allInteractions, setAllInteractions] = useState<InteractionItem[]>([]);
     
-    const [activeTab, setActiveTab] = useState<TabType>('events');
+    const [mainCategory, setMainCategory] = useState<MainCategory>('clinical');
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     
     const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
+    const [bookingService, setBookingService] = useState<ContentItem | null>(null);
+    const [serviceContactOpen, setServiceContactOpen] = useState(false);
+    const [pendingServiceBook, setPendingServiceBook] = useState<{
+        service: ContentItem;
+        timeSlot: string;
+    } | null>(null);
+    const [eventContactOpen, setEventContactOpen] = useState(false);
+    const [pendingEvent, setPendingEvent] = useState<ContentItem | null>(null);
 
     useEffect(() => {
         loadData();
     }, [userId]);
 
-    const loadData = async () => {
-        setLoading(true);
+    useEffect(() => {
+        if (loading) return;
         try {
-            const [eventsData, circlesData, mealsData, servicesData, interactions] = await Promise.all([
+            const raw = sessionStorage.getItem(MANAGER_DEEP_LINK_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw || '{}');
+            const resourceId = String(parsed.resourceId || '');
+            const resourceType = String(parsed.resourceType || '');
+            const at = Number(parsed.at || 0);
+            const ttl = Number(parsed.ttlMs || MANAGER_DEEP_LINK_TTL_MS);
+            if (!at || Date.now() - at > ttl) {
+                sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                return;
+            }
+            if (!resourceId) return;
+
+            if (resourceType === 'service' || resourceType === 'checkup_package') {
+                const item =
+                    allServices.find((x) => x.id === resourceId) ||
+                    allPackages.find((x) => x.id === resourceId);
+                if (item) {
+                    const cls = classifyServiceItem(item);
+                    setMainCategory(cls.domain);
+                    setSelectedItem(item);
+                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                    return;
+                }
+            }
+            if (resourceType === 'event' || resourceType === 'circle') {
+                const pool = resourceType === 'circle' ? allCircles : allEvents;
+                const item = pool.find((x) => x.id === resourceId);
+                if (item) {
+                    setMainCategory('health_service');
+                    setSelectedItem(item);
+                    sessionStorage.removeItem(MANAGER_DEEP_LINK_KEY);
+                    return;
+                }
+            }
+        } catch {
+            // ignore
+        }
+    }, [loading, allServices, allPackages, allEvents, allCircles]);
+
+    const applyContentToState = (
+        eventsData: ContentItem[],
+        circlesData: ContentItem[],
+        servicesData: ContentItem[],
+        packagesData: ContentItem[],
+        interactions: InteractionItem[]
+    ) => {
+        const processedEvents: EventWithStatus[] = eventsData.map((evt) => {
+            const evtSignups = interactions.filter(
+                (i) => i.type === 'event_signup' && i.targetId === evt.id && i.status !== 'cancelled'
+            );
+            const count = evtSignups.length;
+            const limit = Number(evt.details?.limit) || 100;
+            const myInteraction = userId ? evtSignups.find((i) => i.userId === userId) : null;
+            const isSigned = !!myInteraction;
+
+            let status: 'open' | 'full' | 'joined' | 'pending' | 'ended' = 'open';
+            if (myInteraction?.status === 'confirmed') status = 'joined';
+            else if (myInteraction?.status === 'pending') status = 'pending';
+            else if (count >= limit) status = 'full';
+            else if (evt.details?.businessStatus === '已结束') status = 'ended';
+
+            return { ...evt, currentSignups: count, isSignedUp: isSigned, signupStatus: status };
+        });
+        setAllEvents(processedEvents);
+        setAllCircles(circlesData);
+        setAllServices(servicesData);
+        setAllPackages(packagesData);
+        setAllInteractions(interactions);
+    };
+
+    const loadData = async () => {
+        const le = readLocalContent('event', 'active');
+        const lc = readLocalContent('circle', 'active');
+        const ls = readLocalContent('service', 'active');
+        const lp = readLocalContent('checkup_package', 'active');
+        const li = readLocalInteractions();
+        applyContentToState(le, lc, ls, lp, li);
+        setLoading(!(le.length || lc.length || ls.length || lp.length));
+        try {
+            const [eventsData, circlesData, servicesData, packagesData, interactions] = await Promise.all([
                 fetchContent('event', 'active'),
                 fetchContent('circle', 'active'),
-                fetchContent('meal', 'active'),
                 fetchContent('service', 'active'),
-                fetchInteractions()
+                fetchContent('checkup_package', 'active'),
+                fetchInteractions(),
             ]);
-
-            // Process Events with Status
-            const processedEvents = eventsData.map(evt => {
-                const evtSignups = interactions.filter(i => i.type === 'event_signup' && i.targetId === evt.id && i.status !== 'cancelled');
-                const count = evtSignups.length;
-                const limit = Number(evt.details?.limit) || 100;
-                const myInteraction = userId ? evtSignups.find(i => i.userId === userId) : null;
-                const isSigned = !!myInteraction;
-                
-                let status: 'open' | 'full' | 'joined' | 'pending' | 'ended' = 'open';
-                if (myInteraction?.status === 'confirmed') status = 'joined';
-                else if (myInteraction?.status === 'pending') status = 'pending';
-                else if (count >= limit) status = 'full';
-                else if (evt.details?.businessStatus === '已结束') status = 'ended';
-
-                return { ...evt, currentSignups: count, isSignedUp: isSigned, signupStatus: status };
-            });
-
-            setAllEvents(processedEvents);
-            setAllCircles(circlesData);
-            setAllMeals(mealsData);
-            setAllServices(servicesData);
-            setAllInteractions(interactions);
+            applyContentToState(eventsData, circlesData, servicesData, packagesData, interactions);
         } catch (e) {
             console.error(e);
         } finally {
@@ -127,24 +213,35 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         }
     };
 
-    const handleSignup = async (evt: ContentItem) => {
-        if (!userId || !userName) return alert("请先登录");
-        
-        if (confirm(`确定报名参加【${evt.title}】吗？`)) {
-            await saveInteraction({
-                id: `signup_${Date.now()}`,
-                type: 'event_signup',
-                userId, userName,
-                targetId: evt.id,
-                targetName: evt.title,
-                status: 'pending',
-                date: new Date().toISOString().split('T')[0],
-                details: `活动报名`
-            });
-            alert("申请已提交！");
-            setSelectedItem(null);
-            loadData();
-        }
+    const contactDefaultName = userName?.trim() || '';
+    const contactDefaultPhone = defaultContactPhone.replace(/\D/g, '').slice(0, 11) || '';
+
+    const completeEventSignup = async (name: string, phone: string) => {
+        if (!pendingEvent) return;
+        const evt = pendingEvent;
+        const uid = resolveBookingUserId(userId, phone);
+        await saveInteraction({
+            id: `event_signup_${Date.now()}`,
+            type: 'event_signup',
+            userId: uid,
+            userName: name.trim(),
+            targetId: evt.id,
+            targetName: evt.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, '活动报名'),
+        });
+        alert('报名已提交，请保持手机畅通。');
+        setPendingEvent(null);
+        setEventContactOpen(false);
+        setSelectedItem(null);
+        loadData();
+    };
+
+    const handleSignup = (evt: ContentItem) => {
+        setPendingEvent(evt);
+        setSelectedItem(null);
+        setEventContactOpen(true);
     };
 
     const handleJoinCircle = async (circle: ContentItem) => {
@@ -164,23 +261,52 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
         setSelectedItem(null);
     };
 
-    const handleBookService = async (service: ContentItem) => {
-        if (!userId || !userName) return alert("请先登录");
-        
-        if (confirm(`确定预约【${service.title}】吗？`)) {
-            await saveInteraction({
-                id: `service_${Date.now()}`,
-                type: 'service_booking',
-                userId, userName,
-                targetId: service.id,
-                targetName: service.title,
-                status: 'pending',
-                date: new Date().toISOString().split('T')[0],
-                details: `服务预约，价格: ${service.details?.price || '免费'}`
-            });
-            alert("预约申请已提交！");
+    const completeServiceBook = async (name: string, phone: string) => {
+        if (!pendingServiceBook) return;
+        const { service, timeSlot } = pendingServiceBook;
+        const detailsLine = `服务预约：${timeSlot}，价格: ${service.details?.price || '免费'}`;
+        const uid = resolveBookingUserId(userId, phone);
+        await saveInteraction({
+            id: `service_booking_${Date.now()}`,
+            type: 'service_booking',
+            userId: uid,
+            userName: name.trim(),
+            targetId: service.id,
+            targetName: service.title,
+            status: 'pending',
+            date: new Date().toISOString().split('T')[0],
+            details: buildBookingDetails(name, phone, detailsLine),
+        });
+        alert('预约申请已提交，请保持手机畅通。');
+        setPendingServiceBook(null);
+        setServiceContactOpen(false);
+        setSelectedItem(null);
+        setBookingService(null);
+        loadData();
+    };
+
+    const handleBookService = async (service: ContentItem, timeSlot?: string) => {
+        if (!timeSlot) {
+            setBookingService(service);
             setSelectedItem(null);
+            return;
         }
+        setPendingServiceBook({ service, timeSlot });
+        setBookingService(null);
+        setSelectedItem(null);
+        setServiceContactOpen(true);
+    };
+
+    const getServiceSlotUsage = (serviceId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
+        const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+        const count = allInteractions.filter(i =>
+            i.type === 'service_booking' &&
+            i.targetId === serviceId &&
+            i.status !== 'cancelled' &&
+            i.details?.includes(fragment)
+        ).length;
+        const quota = getServiceSlotQuota(bookingService?.details, slot.dayKey, slot.slotId);
+        return { count, quota, full: count >= quota };
     };
 
     // Filter and Sort
@@ -189,67 +315,193 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
     const filteredEvents = useMemo(() => {
         let list = allEvents;
         if (searchTerm) list = list.filter(e => e.title.includes(searchTerm));
-        return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks)).slice(0, 10);
+        return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks));
     }, [allEvents, searchTerm, risks]);
 
-    const filteredMeals = useMemo(() => {
-        let list = allMeals;
-        if (searchTerm) list = list.filter(m => m.title.includes(searchTerm));
-        return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks)).slice(0, 12);
-    }, [allMeals, searchTerm, risks]);
+    const clinicalServices = useMemo(() => {
+        return allServices.filter((s) => classifyServiceItem(s).domain === 'clinical');
+    }, [allServices]);
 
-    const filteredServices = useMemo(() => {
-        let list = allServices;
-        if (searchTerm) list = list.filter(s => s.title.includes(searchTerm));
-        return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks)).slice(0, 12);
-    }, [allServices, searchTerm, risks]);
+    const healthServices = useMemo(() => {
+        return allServices.filter((s) => classifyServiceItem(s).domain === 'health_service');
+    }, [allServices]);
+
+    const sortItems = (items: ContentItem[]) =>
+        [...items].sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks));
+
+    const filterBySearch = <T extends ContentItem>(items: T[]) => {
+        if (!searchTerm) return items;
+        return items.filter((item) => item.title.includes(searchTerm));
+    };
+
+    const clinicalSections = useMemo(() => {
+        return CLINICAL_SUB_CATEGORIES.map((sub) => ({
+            ...sub,
+            items: sortItems(
+                filterBySearch(clinicalServices.filter((s) => classifyServiceItem(s).subId === sub.id)),
+            ),
+        })).filter((section) => section.items.length > 0 || !searchTerm);
+    }, [clinicalServices, searchTerm, risks]);
+
+    const healthServiceSections = useMemo(() => {
+        return HEALTH_SERVICE_SUB_CATEGORIES.map((sub) => {
+            if (sub.id === 'education') {
+                return {
+                    ...sub,
+                    isEvents: true as const,
+                    items: filterBySearch(filteredEvents),
+                };
+            }
+            return {
+                ...sub,
+                isEvents: false as const,
+                items: sortItems(
+                    filterBySearch(healthServices.filter((s) => classifyServiceItem(s).subId === sub.id)),
+                ),
+            };
+        }).filter((section) => section.items.length > 0 || !searchTerm);
+    }, [healthServices, filteredEvents, searchTerm, risks]);
+
+    const filteredPackages = useMemo(() => {
+        let list = allPackages;
+        if (searchTerm) list = list.filter((p) => p.title.includes(searchTerm));
+        return list.sort((a, b) => scoreItem(b, risks) - scoreItem(a, risks));
+    }, [allPackages, searchTerm, risks]);
 
     const filteredCircles = useMemo(() => {
         let list = allCircles;
-        if (searchTerm) list = list.filter(c => c.title.includes(searchTerm));
+        if (searchTerm) list = list.filter((c) => c.title.includes(searchTerm));
         return list;
     }, [allCircles, searchTerm]);
 
+    const getServiceEarliestSlotLabel = (service: ContentItem): string => {
+        const slots = getNextMonthSlotsForService(service);
+        for (const slot of slots) {
+            const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
+            const count = allInteractions.filter(i =>
+                i.type === 'service_booking' &&
+                i.targetId === service.id &&
+                i.status !== 'cancelled' &&
+                i.details?.includes(fragment)
+            ).length;
+            const quota = getServiceSlotQuota(service.details, slot.dayKey, slot.slotId);
+            if (count < quota) {
+                const mmdd = slot.displayDate.split(' ')[0];
+                return `最早可约：${mmdd} ${SLOT_MAP[slot.slotId]}`;
+            }
+        }
+        return '当前无可预约时段';
+    };
+
+    const renderServiceCard = (svc: ContentItem) => {
+        const isPackage = svc.type === 'checkup_package';
+        const pricing = isPackage ? resolvePackageDisplayPricing(svc, allServices) : null;
+        return (
+        <div
+            key={svc.id}
+            onClick={() => setSelectedItem(svc)}
+            className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
+        >
+            <ResourceCover
+                item={svc}
+                fallback={<span className="text-2xl">{getCommunityIcon(svc.title, svc.type)}</span>}
+                className="h-14 w-14 shrink-0 rounded-xl bg-blue-50 text-2xl"
+                imgClassName="h-full w-full object-cover rounded-xl"
+            />
+            <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-slate-800 line-clamp-1 mb-1">{svc.title}</h3>
+                <p className="text-xs text-slate-500 line-clamp-2 mb-2">{svc.description || '暂无简介'}</p>
+                <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-blue-600">
+                        {isPackage
+                            ? (pricing?.packagePrice ? `¥${pricing.packagePrice}` : '价格待定')
+                            : (svc.details?.price ? `¥${svc.details.price}` : '免费')}
+                        {isPackage && pricing?.showOriginalPrice && (
+                            <span className="ml-2 text-xs font-normal text-slate-400 line-through">
+                                ¥{pricing.originalPrice}
+                            </span>
+                        )}
+                    </span>
+                    <span className="text-xs text-slate-400">{svc.details?.categoryL2 || svc.details?.categoryL1 || '服务项目'}</span>
+                </div>
+                {(svc.type === 'service' || svc.type === 'checkup_package') && (
+                    <div className="mt-1 text-[11px] font-semibold text-blue-600 line-clamp-1">{getServiceEarliestSlotLabel(svc)}</div>
+                )}
+            </div>
+        </div>
+        );
+    };
+
+    const renderEventCard = (evt: EventWithStatus) => (
+        <div
+            key={evt.id}
+            onClick={() => setSelectedItem(evt)}
+            className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer active:scale-[0.98] transition-transform"
+        >
+            <div className="flex gap-3">
+                <ResourceCover
+                    item={evt}
+                    fallback={<span className="text-2xl">{getCommunityIcon(evt.title, 'event')}</span>}
+                    className="h-12 w-12 shrink-0 rounded-xl bg-slate-50 text-2xl"
+                    imgClassName="h-full w-full object-cover rounded-xl"
+                />
+                <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-start mb-1">
+                        <h3 className="font-bold text-slate-800 line-clamp-1">{evt.title}</h3>
+                        <span className={`text-xs px-2 py-0.5 rounded font-bold shrink-0 ml-2 ${
+                            evt.signupStatus === 'joined' ? 'bg-green-100 text-green-700' :
+                            evt.signupStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                            evt.signupStatus === 'full' ? 'bg-slate-100 text-slate-500' :
+                            'bg-blue-50 text-blue-600'
+                        }`}>
+                            {evt.signupStatus === 'joined' ? '已报名' :
+                             evt.signupStatus === 'pending' ? '审核中' :
+                             evt.signupStatus === 'full' ? '已满' : '报名中'}
+                        </span>
+                    </div>
+                    <div className="text-xs text-slate-500 flex gap-3 mb-2">
+                        <span>📅 {formatEventSchedule(evt.details)}</span>
+                        <span>📍 {evt.details?.loc || '线上'}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
     return (
         <div className="min-h-full bg-slate-50 pb-28">
-            {/* Header */}
             <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 backdrop-blur-md">
                 <div className="px-5 py-4">
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">发现</h1>
-                    <p className="text-sm text-slate-500">健康活动 · 膳食食谱 · 医疗服务</p>
+                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">服务</h1>
+                    <p className="text-sm text-slate-500">临床检查 · 健康体检 · 健康服务</p>
                 </div>
-                
-                {/* Search */}
+
                 <div className="px-5 pb-3">
                     <div className="relative">
-                        <input 
+                        <input
                             className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 transition-all outline-none"
-                            placeholder="搜索活动、食谱、服务..."
+                            placeholder="搜索检查、套餐、服务、活动..."
                             value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                         />
                         <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
                     </div>
                 </div>
 
-                {/* Tabs */}
-                <div className="px-5 pb-3 flex gap-2">
-                    {[
-                        { id: 'events', label: '健康活动', icon: '🎉' },
-                        { id: 'meals', label: '饮食食谱', icon: '🥗' },
-                        { id: 'services', label: '医疗服务', icon: '🏥' },
-                    ].map(tab => (
+                <div className="px-5 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
+                    {SERVICE_MAIN_CATEGORIES.map((cat) => (
                         <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id as TabType)}
-                            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-1 ${
-                                activeTab === tab.id
+                            key={cat.id}
+                            type="button"
+                            onClick={() => setMainCategory(cat.id)}
+                            className={`shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 ${
+                                mainCategory === cat.id
                                     ? 'bg-slate-800 text-white shadow-lg'
                                     : 'bg-white text-slate-600 border border-slate-200'
                             }`}
                         >
-                            <span>{tab.icon}</span>
-                            <span>{tab.label}</span>
+                            <span>{cat.icon}</span>
+                            <span>{cat.label}</span>
                         </button>
                     ))}
                 </div>
@@ -260,14 +512,84 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                     <div className="text-center py-16 text-slate-400">加载中...</div>
                 ) : (
                     <>
-                        {/* Circles (Always Show) */}
+                        {mainCategory === 'clinical' && (
+                            <>
+                                {clinicalSections.length === 0 ? (
+                                    <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无检查项目</div>
+                                ) : (
+                                    clinicalSections.map((section) => (
+                                        <section key={section.id}>
+                                            <h2 className="font-bold text-slate-800 mb-3 px-1">{section.label}</h2>
+                                            <div className="space-y-3">
+                                                {section.items.length === 0 ? (
+                                                    <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-2xl">暂无项目</div>
+                                                ) : (
+                                                    section.items.map(renderServiceCard)
+                                                )}
+                                            </div>
+                                        </section>
+                                    ))
+                                )}
+                            </>
+                        )}
+
+                        {mainCategory === 'checkup' && (
+                            <section>
+                                <h2 className="font-bold text-slate-800 mb-1 px-1">健康体检套餐</h2>
+                                <p className="text-xs text-slate-400 mb-3 px-1">由临床检查项目组合而成，含套餐价格</p>
+                                <div className="space-y-3">
+                                    {filteredPackages.length === 0 ? (
+                                        <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无体检套餐，请稍后在资源管理台维护</div>
+                                    ) : (
+                                        filteredPackages.map((pkg) => (
+                                            <div key={pkg.id}>
+                                                {renderServiceCard(pkg)}
+                                                {resolveIncludedServiceLines(pkg, allServices).length > 0 && (
+                                                    <div className="mt-1 px-4 text-[11px] text-slate-500 line-clamp-2">
+                                                        含：{resolveIncludedServiceLines(pkg, allServices).map((l) =>
+                                                            l.quantity > 1 ? `${l.title}×${l.quantity}` : l.title
+                                                        ).join('、')}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </section>
+                        )}
+
+                        {mainCategory === 'health_service' && (
+                            <>
+                                {healthServiceSections.length === 0 ? (
+                                    <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无健康服务</div>
+                                ) : (
+                                    healthServiceSections.map((section) => (
+                                        <section key={section.id}>
+                                            <h2 className="font-bold text-slate-800 mb-3 px-1">{section.label}</h2>
+                                            <div className="space-y-3">
+                                                {section.items.length === 0 ? (
+                                                    <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-2xl">
+                                                        {section.id === 'education' ? '暂无科普活动' : '暂无项目'}
+                                                    </div>
+                                                ) : section.isEvents ? (
+                                                    (section.items as EventWithStatus[]).map(renderEventCard)
+                                                ) : (
+                                                    (section.items as ContentItem[]).map(renderServiceCard)
+                                                )}
+                                            </div>
+                                        </section>
+                                    ))
+                                )}
+                            </>
+                        )}
+
                         {filteredCircles.length > 0 && (
                             <section>
                                 <h2 className="font-bold text-slate-800 mb-3 px-1">加入圈子</h2>
                                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
-                                    {filteredCircles.map(g => (
-                                        <div 
-                                            key={g.id} 
+                                    {filteredCircles.map((g) => (
+                                        <div
+                                            key={g.id}
                                             onClick={() => setSelectedItem(g)}
                                             className="flex-shrink-0 flex flex-col items-center justify-center w-24 h-28 bg-white border border-slate-100 shadow-sm rounded-2xl cursor-pointer active:scale-95 transition-transform"
                                         >
@@ -285,137 +607,15 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                 </div>
                             </section>
                         )}
-
-                        {/* Events Tab */}
-                        {activeTab === 'events' && (
-                            <section className="space-y-4">
-                                <h2 className="font-bold text-slate-800 px-1">健康活动</h2>
-                                {filteredEvents.length === 0 ? (
-                                    <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无活动</div>
-                                ) : (
-                                    filteredEvents.map(evt => (
-                                        <div 
-                                            key={evt.id} 
-                                            onClick={() => setSelectedItem(evt)}
-                                            className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer active:scale-[0.98] transition-transform"
-                                        >
-                                            <div className="flex gap-3">
-                                                <ResourceCover
-                                                    item={evt}
-                                                    fallback={<span className="text-2xl">{getCommunityIcon(evt.title, 'event')}</span>}
-                                                    className="h-12 w-12 shrink-0 rounded-xl bg-slate-50 text-2xl"
-                                                    imgClassName="h-full w-full object-cover rounded-xl"
-                                                />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex justify-between items-start mb-1">
-                                                        <h3 className="font-bold text-slate-800 line-clamp-1">{evt.title}</h3>
-                                                        <span className={`text-xs px-2 py-0.5 rounded font-bold shrink-0 ml-2 ${
-                                                            evt.signupStatus === 'joined' ? 'bg-green-100 text-green-700' :
-                                                            evt.signupStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                                                            evt.signupStatus === 'full' ? 'bg-slate-100 text-slate-500' :
-                                                            'bg-blue-50 text-blue-600'
-                                                        }`}>
-                                                            {evt.signupStatus === 'joined' ? '已报名' : 
-                                                             evt.signupStatus === 'pending' ? '审核中' :
-                                                             evt.signupStatus === 'full' ? '已满' : '报名中'}
-                                                        </span>
-                                                    </div>
-                                                    <div className="text-xs text-slate-500 flex gap-3 mb-2">
-                                                        <span>📅 {formatEventSchedule(evt.details)}</span>
-                                                        <span>📍 {evt.details?.loc || '线上'}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                            <div className="h-full bg-teal-500 rounded-full" style={{ width: `${Math.min((evt.currentSignups / (evt.details?.limit || 100)) * 100, 100)}%` }}></div>
-                                                        </div>
-                                                        <span className="text-xs text-slate-400">{evt.currentSignups}/{evt.details?.limit || 100}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </section>
-                        )}
-
-                        {/* Meals Tab */}
-                        {activeTab === 'meals' && (
-                            <section>
-                                <h2 className="font-bold text-slate-800 mb-3 px-1">健康饮食食谱</h2>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {filteredMeals.length === 0 ? (
-                                        <div className="col-span-2 text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无食谱</div>
-                                    ) : (
-                                        filteredMeals.map(meal => (
-                                            <div 
-                                                key={meal.id}
-                                                onClick={() => setSelectedItem(meal)}
-                                                className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer active:scale-95 transition-transform"
-                                            >
-                                                <ResourceCover
-                                                    item={meal}
-                                                    fallback={<span className="text-3xl">{getCommunityIcon(meal.title, 'meal')}</span>}
-                                                    className="mb-2 h-20 w-full rounded-xl bg-slate-50 text-3xl"
-                                                    imgClassName="h-full w-full object-cover rounded-xl"
-                                                />
-                                                <h3 className="font-bold text-slate-800 text-sm text-center line-clamp-1 mb-1">{meal.title}</h3>
-                                                <div className="text-xs text-orange-600 font-bold text-center">{meal.details?.cal || 0} kcal</div>
-                                                <div className="flex flex-wrap justify-center gap-1 mt-2">
-                                                    {meal.tags.slice(0, 2).map(t => (
-                                                        <span key={t} className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{t}</span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </section>
-                        )}
-
-                        {/* Services Tab */}
-                        {activeTab === 'services' && (
-                            <section>
-                                <h2 className="font-bold text-slate-800 mb-3 px-1">医疗服务</h2>
-                                <div className="space-y-3">
-                                    {filteredServices.length === 0 ? (
-                                        <div className="text-center py-10 text-slate-400 text-sm bg-white rounded-2xl">暂无服务</div>
-                                    ) : (
-                                        filteredServices.map(svc => (
-                                            <div 
-                                                key={svc.id}
-                                                onClick={() => setSelectedItem(svc)}
-                                                className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex gap-4 cursor-pointer active:scale-[0.98] transition-transform"
-                                            >
-                                                <ResourceCover
-                                                    item={svc}
-                                                    fallback={<span className="text-2xl">{getCommunityIcon(svc.title, 'service')}</span>}
-                                                    className="h-14 w-14 shrink-0 rounded-xl bg-blue-50 text-2xl"
-                                                    imgClassName="h-full w-full object-cover rounded-xl"
-                                                />
-                                                <div className="flex-1 min-w-0">
-                                                    <h3 className="font-bold text-slate-800 line-clamp-1 mb-1">{svc.title}</h3>
-                                                    <p className="text-xs text-slate-500 line-clamp-2 mb-2">{svc.description || '暂无简介'}</p>
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-sm font-bold text-blue-600">
-                                                            {svc.details?.price ? `¥${svc.details.price}` : '免费'}
-                                                        </span>
-                                                        <span className="text-xs text-slate-400">{svc.details?.categoryL1 || '便民服务'}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </section>
-                        )}
                     </>
                 )}
             </div>
 
             {/* Detail Modal */}
             {selectedItem && (
-                <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedItem(null)}>
-                    <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-slate-900/60 z-[60] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setSelectedItem(null)}>
+                        <div className="bg-white w-full max-w-md rounded-t-3xl p-0 animate-slideUp overflow-hidden max-h-[85dvh] flex flex-col pb-[env(safe-area-inset-bottom)]" onClick={e => e.stopPropagation()}>
                         <div className="bg-slate-50 p-6 pb-8 text-center relative border-b border-slate-100">
                             <button onClick={() => setSelectedItem(null)} className="absolute top-4 right-4 flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-400 font-bold shadow-sm">×</button>
                             <div className="mx-auto mb-4 h-20 w-20">
@@ -434,11 +634,13 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                                 selectedItem.type === 'event' ? 'bg-purple-100 text-purple-700' :
                                 selectedItem.type === 'meal' ? 'bg-orange-100 text-orange-700' :
+                                selectedItem.type === 'checkup_package' ? 'bg-emerald-100 text-emerald-700' :
                                 selectedItem.type === 'service' ? 'bg-blue-100 text-blue-700' :
                                 'bg-teal-100 text-teal-700'
                             }`}>
-                                {selectedItem.type === 'event' ? '健康活动' :
+                                {selectedItem.type === 'event' ? '科普活动' :
                                  selectedItem.type === 'meal' ? '饮食食谱' :
+                                 selectedItem.type === 'checkup_package' ? '体检套餐' :
                                  selectedItem.type === 'service' ? '医疗服务' : '兴趣圈子'}
                             </span>
                         </div>
@@ -447,6 +649,18 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                             <div className="flex flex-wrap gap-2 justify-center">
                                 {selectedItem.tags.map(t => <span key={t} className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs">{t}</span>)}
                             </div>
+
+                            {selectedItem.type === 'checkup_package' &&
+                                selectedItem.details?.posterImage &&
+                                isResourceImageUrl(String(selectedItem.details.posterImage)) && (
+                                <div className="rounded-xl overflow-hidden border border-emerald-100">
+                                    <img
+                                        src={String(selectedItem.details.posterImage)}
+                                        alt={`${selectedItem.title} 海报`}
+                                        className="w-full max-h-64 object-cover"
+                                    />
+                                </div>
+                            )}
 
                             {/* Event Info */}
                             {selectedItem.type === 'event' && (
@@ -485,13 +699,58 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                             )}
 
                             {/* Service Price */}
-                            {selectedItem.type === 'service' && (
+                            {(selectedItem.type === 'service' || selectedItem.type === 'checkup_package') && (
                                 <div className="bg-blue-50 p-4 rounded-xl text-center">
-                                    <div className="text-xs text-blue-400 mb-1">服务价格</div>
-                                    <div className="text-2xl font-bold text-blue-700">
-                                        {selectedItem.details?.price ? `¥${selectedItem.details.price}` : '免费'}
-                                    </div>
+                                    <div className="text-xs text-blue-400 mb-1">{selectedItem.type === 'checkup_package' ? '套餐价格' : '服务价格'}</div>
+                                    {selectedItem.type === 'checkup_package' ? (() => {
+                                        const pricing = resolvePackageDisplayPricing(selectedItem, allServices);
+                                        return (
+                                            <>
+                                                <div className="text-2xl font-bold text-blue-700">
+                                                    {pricing.packagePrice ? `¥${pricing.packagePrice}` : '价格待定'}
+                                                </div>
+                                                {pricing.showOriginalPrice && (
+                                                    <div className="text-xs text-slate-400 line-through mt-1">
+                                                        原价 ¥{pricing.originalPrice}
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })() : (
+                                        <div className="text-2xl font-bold text-blue-700">
+                                            {selectedItem.details?.price ? `¥${selectedItem.details.price}` : '免费'}
+                                        </div>
+                                    )}
                                 </div>
+                            )}
+
+                            {selectedItem.type === 'checkup_package' &&
+                                resolveIncludedServiceGroups(selectedItem, allServices).length > 0 && (
+                                <PackageItemGroupedList
+                                    title="固定包含项目"
+                                    groups={resolveIncludedServiceGroups(selectedItem, allServices)}
+                                    tone="emerald"
+                                />
+                            )}
+
+                            {selectedItem.type === 'checkup_package' &&
+                                resolveOptionalGroupLines(selectedItem, allServices).map(({ group, label, categoryGroups }) => (
+                                    <PackageItemGroupedList
+                                        key={group.id}
+                                        title={label}
+                                        groups={categoryGroups}
+                                        tone="indigo"
+                                        note={group.note || undefined}
+                                    />
+                                ))}
+
+                            {selectedItem.type === 'checkup_package' &&
+                                resolveGiftItemGroups(selectedItem, allServices).length > 0 && (
+                                <PackageItemGroupedList
+                                    title="赠送项目"
+                                    groups={resolveGiftItemGroups(selectedItem, allServices)}
+                                    tone="rose"
+                                />
                             )}
 
                             {selectedItem.type === 'circle' && (
@@ -530,9 +789,9 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                                     🥗 收藏食谱
                                 </button>
                             )}
-                            {selectedItem.type === 'service' && (
+                            {(selectedItem.type === 'service' || selectedItem.type === 'checkup_package') && (
                                 <button onClick={() => handleBookService(selectedItem)} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all">
-                                    📅 预约服务
+                                    📅 预约{selectedItem.type === 'checkup_package' ? '套餐' : '服务'}
                                 </button>
                             )}
                             {selectedItem.type === 'circle' && (
@@ -542,7 +801,77 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, assessment })
                             )}
                         </div>
                     </div>
-                </div>
+                    </div>
+                </ModalPortal>
+            )}
+            <BookingContactModal
+                open={serviceContactOpen}
+                title="填写服务预约信息"
+                subtitle={pendingServiceBook ? `预约：${pendingServiceBook.service.title}` : undefined}
+                defaultName={contactDefaultName}
+                defaultPhone={contactDefaultPhone}
+                onCancel={() => {
+                    setServiceContactOpen(false);
+                    setPendingServiceBook(null);
+                }}
+                onConfirm={({ name, phone }) => completeServiceBook(name, phone)}
+            />
+            <BookingContactModal
+                open={eventContactOpen}
+                title="填写活动报名信息"
+                subtitle={pendingEvent ? `活动：${pendingEvent.title}` : undefined}
+                defaultName={contactDefaultName}
+                defaultPhone={contactDefaultPhone}
+                onCancel={() => {
+                    setEventContactOpen(false);
+                    setPendingEvent(null);
+                }}
+                onConfirm={({ name, phone }) => completeEventSignup(name, phone)}
+            />
+            {bookingService && (
+                <ModalPortal>
+                    <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-end justify-center backdrop-blur-sm animate-fadeIn" onClick={() => setBookingService(null)}>
+                        <div className="bg-white w-full max-w-md rounded-t-[2.5rem] p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] animate-slideUp max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-1">选择服务时间</h3>
+                        <p className="text-xs text-slate-400 text-center mb-6">预约服务：{bookingService.title}</p>
+                        <div className="flex-1 overflow-y-auto space-y-3 pb-6">
+                            {(() => {
+                                const monthSlots = getNextMonthSlotsForService(bookingService);
+                                if (!monthSlots.length) {
+                                    return (
+                                        <div className="text-center py-10">
+                                            <div className="text-4xl mb-3 opacity-20">📅</div>
+                                            <p className="text-sm text-slate-400">该服务暂未配置可预约时间<br/>请联系医院后续开通</p>
+                                        </div>
+                                    );
+                                }
+                                return monthSlots.map((slot) => {
+                                    const { count, quota, full } = getServiceSlotUsage(bookingService.id, slot);
+                                    return (
+                                        <button
+                                            key={`${slot.dateKey}-${slot.slotId}`}
+                                            disabled={full}
+                                            onClick={() => handleBookService(bookingService, `${slot.displayDate}${SLOT_MAP[slot.slotId]}`)}
+                                            className={`w-full border p-4 rounded-2xl flex items-center justify-between transition-all text-left ${
+                                                full
+                                                    ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50 grayscale'
+                                                    : 'border-slate-100 bg-slate-50 hover:bg-blue-50 hover:border-blue-200'
+                                            }`}
+                                        >
+                                            <span className="font-bold text-slate-700">{slot.displayDate} · {SLOT_MAP[slot.slotId]}</span>
+                                            <span className={`text-xs font-bold ${full ? 'text-red-500' : 'text-slate-400'}`}>
+                                                {full ? '约满' : `余 ${quota - count} 位`}
+                                            </span>
+                                        </button>
+                                    );
+                                });
+                            })()}
+                        </div>
+                        <button onClick={() => setBookingService(null)} className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold text-sm">取消</button>
+                        </div>
+                    </div>
+                </ModalPortal>
             )}
         </div>
     );

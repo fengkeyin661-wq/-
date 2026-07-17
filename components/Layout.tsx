@@ -7,8 +7,11 @@ interface LayoutProps {
   onTabChange: (tab: string) => void;
   isAuthenticated?: boolean;
   currentUserRole?: string | null;
+  staffDisplayName?: string;
   onLoginClick?: () => void;
   onLogoutClick?: () => void;
+  /** 与 nav id 对应的未读数，用于侧栏角标（如医生「消息」） */
+  navBadges?: Record<string, number>;
 }
 
 export const Layout: React.FC<LayoutProps> = ({ 
@@ -17,26 +20,33 @@ export const Layout: React.FC<LayoutProps> = ({
   onTabChange,
   isAuthenticated = false,
   currentUserRole,
+  staffDisplayName,
   onLoginClick,
-  onLogoutClick
+  onLogoutClick,
+  navBadges,
 }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const navItems = [
-    { id: 'dashboard', label: '健康总览', icon: '📊', roles: ['admin', 'doctor'] },
-    { id: 'survey', label: '健康调查建档', icon: '📝', roles: ['admin', 'doctor'] },
-    { id: 'assessment', label: '风险评估与方案', icon: '📋', roles: ['admin', 'doctor'] },
-    { id: 'elderly_assessment', label: '老年专项评估', icon: '👵', roles: ['admin', 'doctor'] },
-    { id: 'risk_portrait', label: '危急值随访管理', icon: '🛡️', roles: ['admin', 'doctor'] }, // Renamed & New Icon
-    { id: 'followup', label: '随访监测', icon: '📅', roles: ['admin', 'doctor'] },
-    { id: 'my_patients', label: '我的签约用户', icon: '🤝', roles: ['doctor'] }, 
-    { id: 'heatmap', label: '医疗服务热力图', icon: '🏥', roles: ['admin', 'doctor'] },
-    { id: 'admin', label: '管理控制台', icon: '⚡', roles: ['admin'] },
+    { id: 'dashboard', label: '健康总览', icon: '📊', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'survey', label: '健康调查建档', icon: '📝', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'assessment', label: '风险评估与方案', icon: '📋', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'elderly_assessment', label: '老年专项评估', icon: '👵', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'diabetes_management', label: '糖尿病专项筛查', icon: '🩸', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'hypertension_management', label: '高血压专项筛查', icon: '🫀', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'lipid_management', label: '血脂异常专项管理', icon: '🧪', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'risk_portrait', label: '危急值随访管理', icon: '🛡️', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'followup', label: '随访监测', icon: '📅', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'my_workload', label: '我的工作', icon: '📈', roles: ['health_manager'] },
+    { id: 'doctor_messages', label: '消息', icon: '💬', roles: ['doctor'] },
+    { id: 'my_patients', label: '我的签约用户', icon: '🤝', roles: ['doctor'] },
+    { id: 'heatmap', label: '医疗服务热力图', icon: '🏥', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'admin', label: '管理控制台', icon: '⚡', roles: ['admin', 'home', 'health_manager'] },
   ];
 
   const visibleItems = isAuthenticated 
     ? navItems.filter(item => item.roles.includes(currentUserRole || 'admin'))
-    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'risk_portrait', 'followup', 'heatmap'].includes(item.id));
+    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'diabetes_management', 'hypertension_management', 'lipid_management', 'risk_portrait', 'followup', 'heatmap'].includes(item.id));
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden print:block print:h-auto print:overflow-visible">
@@ -54,7 +64,9 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
         </div>
         <nav className="flex-1 py-6 px-3 space-y-2 min-w-[256px] overflow-y-auto">
-          {visibleItems.map((item) => (
+          {visibleItems.map((item) => {
+            const badge = navBadges?.[item.id];
+            return (
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
@@ -65,9 +77,19 @@ export const Layout: React.FC<LayoutProps> = ({
               }`}
             >
               <span className="text-xl shrink-0">{item.icon}</span>
-              <span className="font-medium text-sm">{item.label}</span>
+              <span className="font-medium text-sm truncate flex-1 min-w-0 text-left">{item.label}</span>
+              {typeof badge === 'number' && badge > 0 ? (
+                <span
+                  className={`shrink-0 min-w-[22px] h-[22px] px-1 rounded-full text-[11px] font-black flex items-center justify-center ${
+                    activeTab === item.id ? 'bg-white text-teal-700' : 'bg-red-500 text-white'
+                  }`}
+                >
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              ) : null}
             </button>
-          ))}
+            );
+          })}
         </nav>
         <div className="p-4 border-t border-slate-700 min-w-[256px]">
           <div className="flex items-center gap-3">
@@ -75,8 +97,23 @@ export const Layout: React.FC<LayoutProps> = ({
               Dr.
             </div>
             <div>
-              <p className="text-sm font-medium">{currentUserRole === 'doctor' ? '签约医生' : '邱医生'}</p>
-              <p className="text-xs text-slate-400">{currentUserRole === 'admin' ? '负责人' : currentUserRole === 'doctor' ? '家庭医生' : '访客'}</p>
+              <p className="text-sm font-medium">
+                {staffDisplayName ||
+                  (currentUserRole === 'doctor'
+                    ? '签约医生'
+                    : currentUserRole === 'health_manager'
+                      ? '健康管理师'
+                      : '邱医生')}
+              </p>
+              <p className="text-xs text-slate-400">
+                {currentUserRole === 'admin'
+                  ? '超级管理员'
+                  : currentUserRole === 'health_manager'
+                    ? '健康管理师'
+                    : currentUserRole === 'doctor'
+                      ? '家庭医生'
+                      : '访客'}
+              </p>
             </div>
           </div>
         </div>
@@ -103,9 +140,25 @@ export const Layout: React.FC<LayoutProps> = ({
             <div className="flex gap-4 items-center">
                 {isAuthenticated ? (
                     <div className="flex items-center gap-3">
-                        <span className={`text-xs px-2 py-1 rounded-full font-bold border flex items-center gap-1 ${currentUserRole === 'doctor' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
-                            <span className={`w-2 h-2 rounded-full ${currentUserRole === 'doctor' ? 'bg-blue-500' : 'bg-green-500'}`}></span>
-                            {currentUserRole === 'doctor' ? '医生已登录' : '负责人已登录'}
+                        <span className={`text-xs px-2 py-1 rounded-full font-bold border flex items-center gap-1 ${
+                          currentUserRole === 'doctor'
+                            ? 'bg-blue-50 text-blue-600 border-blue-200'
+                            : currentUserRole === 'health_manager'
+                              ? 'bg-teal-50 text-teal-700 border-teal-200'
+                              : 'bg-green-50 text-green-600 border-green-200'
+                        }`}>
+                            <span className={`w-2 h-2 rounded-full ${
+                              currentUserRole === 'doctor'
+                                ? 'bg-blue-500'
+                                : currentUserRole === 'health_manager'
+                                  ? 'bg-teal-500'
+                                  : 'bg-green-500'
+                            }`}></span>
+                            {currentUserRole === 'doctor'
+                              ? '医生已登录'
+                              : currentUserRole === 'health_manager'
+                                ? '健康管理师已登录'
+                                : '负责人已登录'}
                         </span>
                         <button 
                             onClick={onLogoutClick}
