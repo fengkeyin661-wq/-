@@ -491,8 +491,12 @@ export const App: React.FC = () => {
     archive: HealthArchive,
     mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' | 'hypertension' | 'lipid' = 'view'
   ) => {
+      if (!archive?.health_record?.profile) {
+          alert('该人员档案数据不完整（缺少健康档案），无法打开。请先完成建档或重新导入。');
+          return;
+      }
       setHealthRecord(archive.health_record);
-      setAssessment(archive.assessment_data);
+      setAssessment(archive.assessment_data || null);
       setFollowUps(archive.follow_ups || []);
       setSchedule(archive.follow_up_schedule || []);
       setRiskAnalysis(archive.risk_analysis);
@@ -1020,6 +1024,33 @@ export const App: React.FC = () => {
                 onUpdateRiskAnalysis={refreshArchives}
                 onSupplementQuestionnaire={() => setActiveTab('external_survey')}
               />
+            )}
+            {activeTab === 'assessment' && (!assessment || !healthRecord) && (
+              <div className="h-full flex flex-col items-center justify-center text-center space-y-4 px-6">
+                <div className="text-6xl opacity-40">📂</div>
+                <h2 className="text-xl font-bold text-slate-700">无法打开该人员档案</h2>
+                <p className="text-sm text-slate-500 max-w-md leading-relaxed">
+                  {!healthRecord
+                    ? '该人员缺少健康档案数据，请先完成建档或问卷导入。'
+                    : '该人员尚无评估报告。可先在「健康问卷」完善信息并生成评估，或从档案列表重新导入体检数据。'}
+                </p>
+                <div className="flex flex-wrap gap-3 justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('external_survey')}
+                    className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-bold hover:bg-teal-700"
+                  >
+                    去填写问卷
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('admin')}
+                    className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50"
+                  >
+                    返回档案列表
+                  </button>
+                </div>
+              </div>
             )}
             {activeTab === 'elderly_assessment' && (
                 <ElderlyAssessmentModule

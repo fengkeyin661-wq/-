@@ -155,23 +155,26 @@ export const FollowUpDashboard: React.FC<Props> = ({
   }, [latestRecord, assessment]);
 
   // Derived Active Data
-  const activeRiskLevel = isAssessmentNewer && assessment ? assessment.riskLevel : (latestRecord?.assessment.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
+  const activeRiskLevel = isAssessmentNewer && assessment ? assessment.riskLevel : (latestRecord?.assessment?.riskLevel || assessment?.riskLevel || RiskLevel.GREEN);
   
   const activePlanText = (isAssessmentNewer && assessment 
-      ? assessment.followUpPlan.nextCheckItems.join('、')
-      : (latestRecord?.assessment.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '')) || '';
+      ? (assessment.followUpPlan?.nextCheckItems || []).join('、')
+      : (latestRecord?.assessment?.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '')) || '';
 
   const activeIssues = (isAssessmentNewer && assessment 
       ? (assessment.isCritical ? assessment.criticalWarning : assessment.summary)
-      : (latestRecord?.assessment.majorIssues || assessment?.summary || '')) || '';
+      : (latestRecord?.assessment?.majorIssues || assessment?.summary || '')) || '';
 
   const activeGoals = isAssessmentNewer && assessment
-      ? assessment.managementPlan.dietary.concat(assessment.managementPlan.exercise).slice(0, 5)
-      : (latestRecord?.assessment.lifestyleGoals || []);
+      ? [
+          ...(assessment.managementPlan?.dietary || []),
+          ...(assessment.managementPlan?.exercise || []),
+        ].slice(0, 5)
+      : (latestRecord?.assessment?.lifestyleGoals || []);
 
   const activeMessage = isAssessmentNewer && assessment
       ? "新的一年评估已完成，请遵照新的管理方案执行。" 
-      : (latestRecord?.assessment.doctorMessage || latestRecord?.assessment.riskJustification || '');
+      : (latestRecord?.assessment?.doctorMessage || latestRecord?.assessment?.riskJustification || '');
 
   const nextScheduled = schedule.find(s => s.status === 'pending');
 
@@ -370,7 +373,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     baseState.linkedCriticalTrackId = followUpContext?.criticalTrack?.id;
 
     if (isAssessmentNewer && assessment) {
-        baseState.assessment.riskJustification = `基于最新评估：${assessment.summary.slice(0, 50)}...`;
+        baseState.assessment.riskJustification = `基于最新评估：${(assessment.summary || '').slice(0, 50)}...`;
         baseState.assessment.majorIssues = activeIssues || '';
         baseState.assessment.lifestyleGoals = Array.isArray(activeGoals) ? activeGoals : [];
         baseState.assessment.nextCheckPlan = activePlanText || '';
@@ -641,9 +644,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
   };
 
   const summaryChartData = assessment ? [
-    { name: 'High', value: Math.max(assessment.risks.red.length, 0.5), color: '#ef4444' },
-    { name: 'Medium', value: Math.max(assessment.risks.yellow.length, 0.5), color: '#eab308' },
-    { name: 'Low', value: Math.max(5 - assessment.risks.red.length - assessment.risks.yellow.length, 1), color: '#22c55e' },
+    { name: 'High', value: Math.max(assessment.risks?.red?.length || 0, 0.5), color: '#ef4444' },
+    { name: 'Medium', value: Math.max(assessment.risks?.yellow?.length || 0, 0.5), color: '#eab308' },
+    { name: 'Low', value: Math.max(5 - (assessment.risks?.red?.length || 0) - (assessment.risks?.yellow?.length || 0), 1), color: '#22c55e' },
   ] : [];
 
   return (
@@ -921,9 +924,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               <div className="flex flex-col">
                                   <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">空腹血糖 / HbA1c</span>
                                   <span className="text-slate-700">
-                                    {healthRecord.checkup.labBasic.glucose?.fasting || '-'}
+                                    {healthRecord.checkup?.labBasic?.glucose?.fasting || '-'}
                                     {' / '}
-                                    {healthRecord.checkup.labBasic.hba1c ?? healthRecord.checkup.optional.hba1c ?? '-'}
+                                    {healthRecord.checkup?.labBasic?.hba1c ?? healthRecord.checkup?.optional?.hba1c ?? '-'}
                                   </span>
                               </div>
                               <div className="flex flex-col col-span-2">
@@ -972,10 +975,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <div className="text-center py-10 text-slate-400">请选择人员</div>
                 ) : (
                     <div className="space-y-6 pl-4 border-l-2 border-slate-100 ml-2">
-                         {healthRecord?.checkup?.basics.sbp && (
+                         {healthRecord?.checkup?.basics?.sbp && (
                              <div className="relative">
                                 <div className="absolute -left-[23px] top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-slate-400 bg-slate-400"></div>
-                                <div className="text-xs text-slate-400 mb-1">{healthRecord.profile.checkupDate || '建档日'}</div>
+                                <div className="text-xs text-slate-400 mb-1">{healthRecord.profile?.checkupDate || '建档日'}</div>
                                 <div className="text-sm font-bold text-slate-600">健康建档(基线)</div>
                              </div>
                          )}
@@ -1595,20 +1598,20 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <section className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                         <h4 className="font-bold text-slate-700 mb-2 text-sm border-l-4 border-purple-500 pl-2 flex justify-between">
                             <span>评估结论</span>
-                            <span className={`px-2 py-0.5 rounded text-xs text-white ${viewingRecord.assessment.riskLevel==='RED'?'bg-red-500':viewingRecord.assessment.riskLevel==='YELLOW'?'bg-yellow-500':'bg-green-500'}`}>
-                                {viewingRecord.assessment.riskLevel === 'RED' ? '高风险' : viewingRecord.assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
+                            <span className={`px-2 py-0.5 rounded text-xs text-white ${viewingRecord.assessment?.riskLevel==='RED'?'bg-red-500':viewingRecord.assessment?.riskLevel==='YELLOW'?'bg-yellow-500':'bg-green-500'}`}>
+                                {viewingRecord.assessment?.riskLevel === 'RED' ? '高风险' : viewingRecord.assessment?.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
                             </span>
                         </h4>
-                        {viewingRecord.assessment.continuitySummary && (
+                        {viewingRecord.assessment?.continuitySummary && (
                             <div className="text-sm text-teal-700 mb-2 bg-teal-50 p-2 rounded">
                                 <span className="font-bold">进展摘要:</span> {viewingRecord.assessment.continuitySummary}
                             </div>
                         )}
                         <div className="text-sm text-slate-600 mb-2">
-                            <span className="font-bold">主要问题:</span> {viewingRecord.assessment.majorIssues}
+                            <span className="font-bold">主要问题:</span> {viewingRecord.assessment?.majorIssues || '—'}
                         </div>
                         <div className="text-sm text-slate-600 italic bg-white p-2 rounded border border-slate-100">
-                            " {viewingRecord.assessment.doctorMessage} "
+                            " {viewingRecord.assessment?.doctorMessage || '暂无寄语'} "
                         </div>
                     </section>
                 </div>
