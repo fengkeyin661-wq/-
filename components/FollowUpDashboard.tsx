@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthRecord, CriticalTrackRecord } from '../types';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
@@ -11,6 +11,10 @@ import {
   getIndicatorValuesFromRecord,
   mergeFocusItems,
   isCriticalFollowUpPending,
+  isCriticalContactDeferred,
+  isCriticalContactRetryDue,
+  listCriticalContactRetryDue,
+  formatLocalYmd,
 } from '../services/followUpLinkageService';
 import {
   isSmsConfigured,
@@ -134,6 +138,31 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   // State for Critical Value Modal
   const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
+  const [showContactRetryRemind, setShowContactRetryRemind] = useState(false);
+  const contactRetryRemindKeyRef = useRef('');
+
+  const contactRetryDueList = useMemo(
+    () => listCriticalContactRetryDue(allArchives || []),
+    [allArchives],
+  );
+
+  useEffect(() => {
+    if (contactRetryDueList.length === 0) {
+      setShowContactRetryRemind(false);
+      return;
+    }
+    const key = `${formatLocalYmd()}:${contactRetryDueList.map((a) => a.checkup_id).sort().join(',')}`;
+    contactRetryRemindKeyRef.current = key;
+    if (sessionStorage.getItem('crit_contact_retry_popup_fu') === key) return;
+    setShowContactRetryRemind(true);
+  }, [contactRetryDueList]);
+
+  const dismissContactRetryRemind = () => {
+    if (contactRetryRemindKeyRef.current) {
+      sessionStorage.setItem('crit_contact_retry_popup_fu', contactRetryRemindKeyRef.current);
+    }
+    setShowContactRetryRemind(false);
+  };
 
   // Sort records by date
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -241,6 +270,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
   // Pending Critical Tasks Logic
   const pendingCriticalTasks = allArchives.filter(arch => {
       if (!isCriticalFollowUpPending(arch)) return false;
+      if (isCriticalContactRetryDue(arch) || isCriticalContactDeferred(arch)) return true;
       const track = arch.critical_track;
       if (!track) return true;
       if (track.status === 'pending_initial') return true;
@@ -256,6 +286,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
       const getScore = (arch: HealthArchive) => {
            const t = arch.critical_track;
            let score = 0;
+           if (isCriticalContactRetryDue(arch)) score += 2000;
            if (!t && arch.assessment_data?.isCritical) score += 1000;
            if (t?.status === 'pending_initial') score += 1000;
            else if (t) {
@@ -597,9 +628,24 @@ export const FollowUpDashboard: React.FC<Props> = ({
       }
   };
 
-  const handleCriticalSave = async (record: CriticalTrackRecord, options?: { sendSms?: boolean; convertToFollowUp?: boolean }) => {
+  const handleCriticalSave = async (
+      record: CriticalTrackRecord,
+      options?: { sendSms?: boolean; convertToFollowUp?: boolean; delayContactWeek?: boolean },
+  ) => {
       if (!criticalModalArchive) return;
       let recordToSave = { ...record };
+
+      if (options?.delayContactWeek) {
+          const res = await updateCriticalTrack(criticalModalArchive.checkup_id, recordToSave);
+          if (res.success) {
+              alert(`已登记电话联系不上，延期至 ${record.contact_retry_due} 再提醒`);
+              setCriticalModalArchive(null);
+              if (onRefresh) onRefresh();
+          } else {
+              alert('保存失败: ' + res.message);
+          }
+          return;
+      }
 
       if (options?.sendSms) {
           const phone = resolveArchivePhone(criticalModalArchive);
@@ -687,12 +733,20 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       };
                       const isA = track.critical_level?.includes('A');
                       const isInitial = !arch.critical_track || arch.critical_track.status === 'pending_initial';
+                      const contactRetryDue = isCriticalContactRetryDue(arch);
+                      const contactDeferred = isCriticalContactDeferred(arch);
                       
                       // Status Logic & Styling
                       let statusBadge = { text: '待初次通知', color: 'bg-red-600' };
                       let cardBorder = "border-l-4 border-l-red-600 bg-red-50/50 border-t border-r border-b border-red-200"; // Default Initial Style
 
-                      if (!isInitial) {
+                      if (contactRetryDue) {
+                          statusBadge = { text: '再联系到期', color: 'bg-amber-600 animate-pulse' };
+                          cardBorder = "border-l-4 border-l-amber-500 bg-amber-50/60 border-t border-r border-b border-amber-200";
+                      } else if (contactDeferred) {
+                          statusBadge = { text: `延期至 ${track.contact_retry_due}`, color: 'bg-amber-500' };
+                          cardBorder = "border-l-4 border-l-amber-400 bg-white border-t border-r border-b border-amber-100";
+                      } else if (!isInitial) {
                           // Secondary Style
                           cardBorder = "border-l-4 border-l-orange-500 bg-white border-t border-r border-b border-slate-200";
                           
@@ -1631,6 +1685,63 @@ export const FollowUpDashboard: React.FC<Props> = ({
               onSave={handleCriticalSave}
               onConvertToFollowUp={onPatientChange ? () => onPatientChange(criticalModalArchive) : undefined}
           />
+      )}
+
+      {showContactRetryRemind && contactRetryDueList.length > 0 && (
+          <div className="fixed inset-0 bg-slate-900/60 z-[80] flex items-center justify-center backdrop-blur-sm">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 border-t-8 border-amber-500 animate-scaleIn">
+                  <h3 className="text-xl font-bold text-amber-800 mb-1">危急值再联系提醒</h3>
+                  <p className="text-sm text-slate-600 mb-4">
+                      以下 {contactRetryDueList.length} 人此前因电话联系不上已延期一周，今日起需再次联系。
+                  </p>
+                  <ul className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg mb-5">
+                      {contactRetryDueList.map((arch) => (
+                          <li key={arch.checkup_id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                              <div className="min-w-0">
+                                  <div className="font-bold text-slate-800">{arch.name}</div>
+                                  <div className="text-xs text-slate-500 truncate">
+                                      {arch.checkup_id} · {arch.critical_track?.critical_item || '危急值'}
+                                      {arch.critical_track?.contact_retry_due
+                                          ? ` · 计划 ${arch.critical_track.contact_retry_due}`
+                                          : ''}
+                                  </div>
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => {
+                                      dismissContactRetryRemind();
+                                      setCriticalModalArchive(arch);
+                                  }}
+                                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700"
+                              >
+                                  立即处理
+                              </button>
+                          </li>
+                      ))}
+                  </ul>
+                  <div className="flex justify-end gap-2">
+                      {onNavigateCriticalManager && (
+                          <button
+                              type="button"
+                              onClick={() => {
+                                  dismissContactRetryRemind();
+                                  onNavigateCriticalManager();
+                              }}
+                              className="px-4 py-2 rounded-lg text-sm font-bold text-amber-800 hover:bg-amber-50"
+                          >
+                              前往危急值管理
+                          </button>
+                      )}
+                      <button
+                          type="button"
+                          onClick={dismissContactRetryRemind}
+                          className="px-5 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100"
+                      >
+                          稍后处理
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

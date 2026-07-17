@@ -221,6 +221,19 @@ export const getCriticalStatusBadge = (
       className: 'bg-green-50 text-green-600 border border-green-100',
     };
   }
+  if (isCriticalContactRetryDue(arch)) {
+    return {
+      label: '📞 再联系到期',
+      className: 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse',
+    };
+  }
+  if (isCriticalContactDeferred(arch)) {
+    const due = arch.critical_track?.contact_retry_due || '';
+    return {
+      label: due ? `延期至 ${due}` : '已延期再联系',
+      className: 'bg-amber-50 text-amber-700 border border-amber-200',
+    };
+  }
   const status =
     raw === 'pending_secondary' ? 'pending_secondary' : 'pending_initial';
   if (status === 'pending_secondary') {
@@ -233,6 +246,52 @@ export const getCriticalStatusBadge = (
     label: '🔥 待初次通知',
     className: 'bg-red-100 text-red-600 border border-red-200 animate-pulse',
   };
+};
+
+/** 本地日历日 YYYY-MM-DD */
+export const formatLocalYmd = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+/** 自今天起加 N 天（本地日历） */
+export const addLocalDaysYmd = (days: number, from = new Date()): string => {
+  const d = new Date(from);
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return formatLocalYmd(d);
+};
+
+/** 是否已设置「电话联系不上」延期，且尚未到再联系日 */
+export const isCriticalContactDeferred = (arch: HealthArchive, today = formatLocalYmd(new Date())): boolean => {
+  const due = arch.critical_track?.contact_retry_due?.trim();
+  if (!due) return false;
+  const status = resolveCriticalTrackStatus(arch);
+  if (status !== 'pending_initial' && status !== 'pending_secondary') return false;
+  return due > today;
+};
+
+/** 延期再联系日是否已到期（含当天） */
+export const isCriticalContactRetryDue = (arch: HealthArchive, today = formatLocalYmd(new Date())): boolean => {
+  const due = arch.critical_track?.contact_retry_due?.trim();
+  if (!due) return false;
+  const status = resolveCriticalTrackStatus(arch);
+  if (status !== 'pending_initial' && status !== 'pending_secondary') return false;
+  return due <= today;
+};
+
+/** 到期需弹窗再提醒的危急值人员 */
+export const listCriticalContactRetryDue = (archives: HealthArchive[]): HealthArchive[] =>
+  archives.filter((a) => isCriticalFollowUpPending(a) && isCriticalContactRetryDue(a));
+
+/** 清除联系不上延期标记（成功通知/归档后调用；保留累计次数便于追溯） */
+export const clearCriticalContactRetry = (track: CriticalTrackRecord): CriticalTrackRecord => {
+  const next = { ...track };
+  delete next.contact_retry_due;
+  delete next.contact_unreachable_at;
+  return next;
 };
 
 /** 当 isCritical 且无 track 时自动创建危急值工单 */

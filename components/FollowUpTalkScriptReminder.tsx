@@ -11,16 +11,16 @@ interface Props {
   /** 强制指定场景（危急值弹窗可用） */
   scenario?: FollowUpTalkScenario;
   className?: string;
-  /** 整块话术面板默认是否展开 */
+  /** 整块话术面板默认是否展开（默认收起） */
   defaultExpanded?: boolean;
 }
 
-/** 随访沟通话术提醒：各步骤内容直接展示 */
+/** 随访沟通话术提醒：默认收起，点击展开查看步骤内容 */
 export const FollowUpTalkScriptReminder: React.FC<Props> = ({
   sourceLabel,
   scenario: scenarioProp,
   className = '',
-  defaultExpanded = true,
+  defaultExpanded = false,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
 

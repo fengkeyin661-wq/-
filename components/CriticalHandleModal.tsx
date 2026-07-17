@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { HealthArchive } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
-import { formatArchiveCheckupDate } from '../services/followUpLinkageService';
+import { formatArchiveCheckupDate, addLocalDaysYmd } from '../services/followUpLinkageService';
 import { FollowUpTalkScriptReminder } from './FollowUpTalkScriptReminder';
 
 export const formatCriticalRecorder = (name?: string, role?: string) => {
@@ -16,7 +16,10 @@ export const formatCriticalRecorder = (name?: string, role?: string) => {
 interface Props {
     archive: HealthArchive;
     onClose: () => void;
-    onSave: (record: CriticalTrackRecord, options?: { sendSms?: boolean; convertToFollowUp?: boolean }) => void;
+    onSave: (
+        record: CriticalTrackRecord,
+        options?: { sendSms?: boolean; convertToFollowUp?: boolean; delayContactWeek?: boolean },
+    ) => void;
     showSmsOption?: boolean;
     onConvertToFollowUp?: (archive: HealthArchive) => void;
 }
@@ -53,6 +56,9 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
         secondary_feedback: existingTrack?.secondary_feedback || '',
         secondary_recorder_name: existingTrack?.secondary_recorder_name,
         secondary_recorder_role: existingTrack?.secondary_recorder_role,
+        contact_retry_due: existingTrack?.contact_retry_due,
+        contact_unreachable_at: existingTrack?.contact_unreachable_at,
+        contact_unreachable_count: existingTrack?.contact_unreachable_count,
     });
     const [sendSmsOnSave, setSendSmsOnSave] = useState(false);
     const [convertToFollowUp, setConvertToFollowUp] = useState(false);
@@ -92,8 +98,11 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                 alert("请填写二次反馈结果");
                 return;
             }
+            const cleared = { ...form };
+            delete cleared.contact_retry_due;
+            delete cleared.contact_unreachable_at;
             onSave(
-                { ...form, status: 'archived', secondary_notify_time: now },
+                { ...cleared, status: 'archived', secondary_notify_time: now },
                 { sendSms: sendSmsOnSave, convertToFollowUp }
             );
         } else {
@@ -101,9 +110,57 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                 alert("请填写反馈结果");
                 return;
             }
+            const cleared = { ...form };
+            delete cleared.contact_retry_due;
+            delete cleared.contact_unreachable_at;
             onSave(
-                { ...form, status: 'pending_secondary', initial_notify_time: now },
+                { ...cleared, status: 'pending_secondary', initial_notify_time: now },
                 { sendSms: sendSmsOnSave }
+            );
+        }
+    };
+
+    /** 电话联系不上：保持当前阶段，自今天起延期 7 天后再提醒 */
+    const handleDelayContactOneWeek = () => {
+        if (isArchived) return;
+        const retryDue = addLocalDaysYmd(7);
+        const note = `电话无人接听/联系不上，已延期至 ${retryDue} 再联系。`;
+        if (
+            !confirm(
+                `确认因电话联系不上，将再联系时间延期一周？\n\n下次提醒日：${retryDue}\n（不会进入下一阶段，到期后会弹窗提醒）`,
+            )
+        ) {
+            return;
+        }
+        const now = new Date().toLocaleString();
+        const count = (form.contact_unreachable_count || 0) + 1;
+        if (isSecondary) {
+            onSave(
+                {
+                    ...form,
+                    status: 'pending_secondary',
+                    contact_retry_due: retryDue,
+                    contact_unreachable_at: now,
+                    contact_unreachable_count: count,
+                    secondary_feedback: form.secondary_feedback?.trim()
+                        ? `${form.secondary_feedback.trim()}\n${note}`
+                        : note,
+                },
+                { delayContactWeek: true },
+            );
+        } else {
+            onSave(
+                {
+                    ...form,
+                    status: 'pending_initial',
+                    contact_retry_due: retryDue,
+                    contact_unreachable_at: now,
+                    contact_unreachable_count: count,
+                    initial_feedback: form.initial_feedback?.trim()
+                        ? `${form.initial_feedback.trim()}\n${note}`
+                        : note,
+                },
+                { delayContactWeek: true },
             );
         }
     };
@@ -115,6 +172,7 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
             : "阶段一：初次通知与处置";
     const headerColor = isArchived ? "border-teal-600" : isSecondary ? "border-orange-500" : "border-red-600";
     const titleColor = isArchived ? "text-teal-700" : isSecondary ? "text-orange-700" : "text-red-700";
+    const hasDeferredRetry = !!form.contact_retry_due;
 
     return (
         <div className="fixed inset-0 bg-slate-900/60 z-[70] flex items-center justify-center backdrop-blur-sm animate-fadeIn">
@@ -127,6 +185,14 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                         <p className="text-slate-500 text-sm mt-1">
                             {isArchived ? '查看完整处置与二次回访记录' : isSecondary ? '请确认复查结果并完成闭环管理' : '请立即通知受检者并记录反馈'}
                         </p>
+                        {hasDeferredRetry && (
+                            <p className="text-xs font-bold text-amber-700 mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 inline-block">
+                                已登记联系不上 · 计划再联系：{form.contact_retry_due}
+                                {(form.contact_unreachable_count || 0) > 1
+                                    ? `（第 ${form.contact_unreachable_count} 次延期）`
+                                    : ''}
+                            </p>
+                        )}
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
                 </div>
@@ -134,7 +200,6 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                 <FollowUpTalkScriptReminder
                     scenario={isSecondary || isArchived ? 'critical_secondary' : 'critical_initial'}
                     className="mb-6"
-                    defaultExpanded={!isArchived}
                 />
 
                 <div className="border border-slate-300 rounded-lg overflow-hidden mb-6">
@@ -296,20 +361,33 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                     </label>
                 )}
 
-                <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
-                    <button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold">
-                        {isArchived ? '关闭' : '取消'}
-                    </button>
-                    {!isArchived && (
-                        <button 
-                            onClick={handleSubmit}
-                            className={`px-6 py-2 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 transition-transform active:scale-95 ${
-                                isSecondary ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-600 hover:bg-red-700'
-                            }`}
-                        >
-                            {isSecondary ? '✅ 完成归档 (Archive)' : '💾 确认通知并列入回访'}
+                <div className="flex flex-wrap justify-between gap-3 mt-8 pt-4 border-t border-slate-100">
+                    <div>
+                        {!isArchived && (
+                            <button
+                                type="button"
+                                onClick={handleDelayContactOneWeek}
+                                className="px-4 py-2 rounded-lg text-sm font-bold border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                            >
+                                电话联系不上，延期一周
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex gap-3">
+                        <button onClick={onClose} className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold">
+                            {isArchived ? '关闭' : '取消'}
                         </button>
-                    )}
+                        {!isArchived && (
+                            <button 
+                                onClick={handleSubmit}
+                                className={`px-6 py-2 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 transition-transform active:scale-95 ${
+                                    isSecondary ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-600 hover:bg-red-700'
+                                }`}
+                            >
+                                {isSecondary ? '✅ 完成归档 (Archive)' : '💾 确认通知并列入回访'}
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

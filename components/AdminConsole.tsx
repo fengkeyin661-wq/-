@@ -568,9 +568,25 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             if (onDataUpdate) onDataUpdate();
         } else alert(result.message);
     };
-    const handleCriticalSave = async (record: CriticalTrackRecord, options?: { sendSms?: boolean }) => {
+    const handleCriticalSave = async (
+        record: CriticalTrackRecord,
+        options?: { sendSms?: boolean; delayContactWeek?: boolean },
+    ) => {
         if (!criticalModalArchive) return;
         let recordToSave = { ...record };
+
+        if (options?.delayContactWeek) {
+            const res = await updateCriticalTrack(criticalModalArchive.checkup_id, recordToSave);
+            if (res.success) {
+                setCriticalModalArchive(null);
+                loadData({ force: true });
+                if (onDataUpdate) onDataUpdate();
+                alert(`已登记电话联系不上，延期至 ${record.contact_retry_due} 再提醒`);
+            } else {
+                alert('保存失败: ' + res.message);
+            }
+            return;
+        }
 
         if (options?.sendSms) {
             const phone = resolveArchivePhone(criticalModalArchive);

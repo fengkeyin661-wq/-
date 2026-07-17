@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
 import {
@@ -10,6 +10,10 @@ import {
   isCriticalFollowUpArchived,
   matchesCriticalArchiveSearch,
   formatArchiveCheckupDate,
+  formatLocalYmd,
+  listCriticalContactRetryDue,
+  isCriticalContactDeferred,
+  isCriticalContactRetryDue,
 } from '../services/followUpLinkageService';
 import { CriticalHandleModal, formatCriticalRecorder } from './CriticalHandleModal';
 import {
@@ -128,6 +132,28 @@ export const CriticalFollowUpManager: React.FC<Props> = ({
     const [selectedPatient, setSelectedPatient] = useState<HealthArchive | null>(null);
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>(PENDING_DEFAULT_SORT);
     const [searchQuery, setSearchQuery] = useState('');
+    const [showContactRetryRemind, setShowContactRetryRemind] = useState(false);
+    const contactRetryRemindKeyRef = useRef('');
+
+    const contactRetryDueList = useMemo(() => listCriticalContactRetryDue(archives), [archives]);
+
+    useEffect(() => {
+        if (contactRetryDueList.length === 0) {
+            setShowContactRetryRemind(false);
+            return;
+        }
+        const key = `${formatLocalYmd()}:${contactRetryDueList.map((a) => a.checkup_id).sort().join(',')}`;
+        contactRetryRemindKeyRef.current = key;
+        if (sessionStorage.getItem('crit_contact_retry_popup') === key) return;
+        setShowContactRetryRemind(true);
+    }, [contactRetryDueList]);
+
+    const dismissContactRetryRemind = () => {
+        if (contactRetryRemindKeyRef.current) {
+            sessionStorage.setItem('crit_contact_retry_popup', contactRetryRemindKeyRef.current);
+        }
+        setShowContactRetryRemind(false);
+    };
 
     useEffect(() => {
         if (focusNavToken === 0) return;
@@ -336,6 +362,9 @@ export const CriticalFollowUpManager: React.FC<Props> = ({
                                     else { countdownText = `剩 ${diff} 天回访`; countdownStyle = 'text-blue-600'; }
                                 }
 
+                                const contactRetryDue = isCriticalContactRetryDue(arch);
+                                const contactDeferred = isCriticalContactDeferred(arch);
+
                                 return (
                                     <tr key={arch.id} className="hover:bg-slate-50 transition-colors group">
                                         <td className="p-4">
@@ -350,7 +379,19 @@ export const CriticalFollowUpManager: React.FC<Props> = ({
                                         </td>
                                         <td className="p-4 text-xs text-slate-600 font-mono">{createdLabel}</td>
                                         <td className="p-4">
-                                            {isPendingSecondary && track?.secondary_due_date ? (
+                                            {contactRetryDue || contactDeferred ? (
+                                                <>
+                                                    <div className={`text-sm font-mono font-bold ${contactRetryDue ? 'text-amber-800' : 'text-amber-700'}`}>
+                                                        再联系 {track?.contact_retry_due}
+                                                    </div>
+                                                    <div className={`text-[10px] mt-1 ${contactRetryDue ? 'text-amber-700 font-bold animate-pulse' : 'text-amber-600'}`}>
+                                                        {contactRetryDue ? '电话联系不上 · 今日起需再联系' : '电话联系不上 · 延期中'}
+                                                    </div>
+                                                    {isPendingSecondary && track?.secondary_due_date && (
+                                                        <div className="text-[10px] text-slate-400 mt-1">二次回访计划 {track.secondary_due_date}</div>
+                                                    )}
+                                                </>
+                                            ) : isPendingSecondary && track?.secondary_due_date ? (
                                                 <>
                                                     <div className="text-sm font-mono font-bold text-slate-700">{track.secondary_due_date}</div>
                                                     <div className={`text-[10px] mt-1 ${countdownStyle}`}>{countdownText}</div>
@@ -406,6 +447,13 @@ export const CriticalFollowUpManager: React.FC<Props> = ({
                     onClose={() => setSelectedPatient(null)} 
                     onSave={async (record, options) => {
                         let recordToSave = { ...record };
+                        if (options?.delayContactWeek) {
+                            await updateCriticalTrack(selectedPatient.checkup_id, recordToSave);
+                            alert(`已登记电话联系不上，延期至 ${record.contact_retry_due} 再提醒`);
+                            setSelectedPatient(null);
+                            onRefresh();
+                            return;
+                        }
                         if (options?.sendSms) {
                             const phone = resolveArchivePhone(selectedPatient);
                             if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
@@ -442,6 +490,52 @@ export const CriticalFollowUpManager: React.FC<Props> = ({
                     }}
                     onConvertToFollowUp={onNavigateFollowUp ? () => onNavigateFollowUp(selectedPatient) : undefined}
                 />
+            )}
+
+            {showContactRetryRemind && contactRetryDueList.length > 0 && (
+                <div className="fixed inset-0 bg-slate-900/60 z-[80] flex items-center justify-center backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 border-t-8 border-amber-500 animate-scaleIn">
+                        <h3 className="text-xl font-bold text-amber-800 mb-1">危急值再联系提醒</h3>
+                        <p className="text-sm text-slate-600 mb-4">
+                            以下 {contactRetryDueList.length} 人此前因电话联系不上已延期一周，今日起需再次联系。
+                        </p>
+                        <ul className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg mb-5">
+                            {contactRetryDueList.map((arch) => (
+                                <li key={arch.checkup_id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                                    <div className="min-w-0">
+                                        <div className="font-bold text-slate-800">{arch.name}</div>
+                                        <div className="text-xs text-slate-500 truncate">
+                                            {arch.checkup_id} · {arch.critical_track?.critical_item || '危急值'}
+                                            {arch.critical_track?.contact_retry_due
+                                                ? ` · 计划 ${arch.critical_track.contact_retry_due}`
+                                                : ''}
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            dismissContactRetryRemind();
+                                            setSubTab('pending');
+                                            setSelectedPatient(arch);
+                                        }}
+                                        className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700"
+                                    >
+                                        立即处理
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                        <div className="flex justify-end">
+                            <button
+                                type="button"
+                                onClick={dismissContactRetryRemind}
+                                className="px-5 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100"
+                            >
+                                稍后处理
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

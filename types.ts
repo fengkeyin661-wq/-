@@ -1188,11 +1188,11 @@ export interface FollowUpRecord {
 export interface CriticalTrackRecord {
     id: string;
     status: 'pending_initial' | 'pending_secondary' | 'archived'; 
-    critical_item: string; 
-    critical_desc: string; 
+    critical_item: string;
+    critical_desc: string;
     critical_level: string; // A类/B类 or A类,B类
-    initial_notify_time: string; 
-    initial_feedback: string; 
+    initial_notify_time: string;
+    initial_feedback: string;
     /** 初次通知记录人姓名 */
     initial_recorder_name?: string;
     /** 初次通知记录人角色 */
@@ -1208,6 +1208,12 @@ export interface CriticalTrackRecord {
     resolvedAt?: string;
     resolutionNote?: string;
     autoCreated?: boolean;
+    /** 电话联系不上时：下次再提醒日期 YYYY-MM-DD */
+    contact_retry_due?: string;
+    /** 最近一次因无人接听而延期的时间 */
+    contact_unreachable_at?: string;
+    /** 累计因无人接听延期次数 */
+    contact_unreachable_count?: number;
 }
 
 /** 随访录入上下文（供 UI 与 AI 使用） */
