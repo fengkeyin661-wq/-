@@ -534,19 +534,24 @@ export const FollowUpDashboard: React.FC<Props> = ({
     }
   };
 
-  /** 无人接听等场景：将下次随访计划延期 1 个月（暂不依赖短信） */
+  /** 本地日历日 YYYY-MM-DD（避免 toISOString 时区偏移） */
+  const formatLocalDate = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+  };
+
+  /** 无人接听等场景：自今天起将下次随访计划延期 1 个月（暂不依赖短信） */
   const handleDelayOneMonth = () => {
       if (!onUpdateData || !nextScheduled) return;
-      const currentDate = new Date(nextScheduled.date);
-      if (Number.isNaN(currentDate.getTime())) {
-          alert('当前随访计划日期无效，无法延期');
-          return;
-      }
-      currentDate.setMonth(currentDate.getMonth() + 1);
-      const newDateStr = currentDate.toISOString().split('T')[0];
+      const base = new Date();
+      base.setHours(12, 0, 0, 0);
+      base.setMonth(base.getMonth() + 1);
+      const newDateStr = formatLocalDate(base);
       if (
           !confirm(
-              `电话无人接听或需改期时，可将下次随访延期 1 个月。\n\n原定：${nextScheduled.date}\n延期至：${newDateStr}\n\n确认延期？`,
+              `电话无人接听或需改期时，可将下次随访自今天起延期 1 个月。\n\n原定：${nextScheduled.date}\n延期至：${newDateStr}\n\n确认延期？`,
           )
       ) {
           return;
@@ -584,12 +589,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
               return;
           }
 
-          const currentDate = new Date(nextScheduled.date);
-          currentDate.setMonth(currentDate.getMonth() + 1);
-          const newDateStr = currentDate.toISOString().split('T')[0];
+          const base = new Date();
+          base.setHours(12, 0, 0, 0);
+          base.setMonth(base.getMonth() + 1);
+          const newDateStr = formatLocalDate(base);
           const updatedSchedule = schedule.map(s => s.id === nextScheduled.id ? { ...s, date: newDateStr } : s);
           onUpdateData(latestRecord ?? null, updatedSchedule);
-          alert('短信已发送，随访已延期 1 个月');
+          alert('短信已发送，随访已自今天起延期 1 个月');
           setShowSmsModal(false);
       } finally {
           setIsSendingSms(false);
