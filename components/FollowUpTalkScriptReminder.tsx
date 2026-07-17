@@ -11,11 +11,11 @@ interface Props {
   /** 强制指定场景（危急值弹窗可用） */
   scenario?: FollowUpTalkScenario;
   className?: string;
-  /** 默认是否展开 */
+  /** 整块话术面板默认是否展开 */
   defaultExpanded?: boolean;
 }
 
-/** 随访沟通话术提醒（可折叠） */
+/** 随访沟通话术提醒：各步骤内容直接展示 */
 export const FollowUpTalkScriptReminder: React.FC<Props> = ({
   sourceLabel,
   scenario: scenarioProp,
@@ -23,7 +23,6 @@ export const FollowUpTalkScriptReminder: React.FC<Props> = ({
   defaultExpanded = true,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [activeSection, setActiveSection] = useState<string | null>(null);
 
   const script = useMemo(() => {
     const scenario = scenarioProp || resolveFollowUpTalkScenario(sourceLabel);
@@ -57,44 +56,32 @@ export const FollowUpTalkScriptReminder: React.FC<Props> = ({
       </button>
 
       {expanded && (
-        <div className="px-5 pb-4 space-y-2 border-t border-amber-100/80 pt-3">
-          <p className="text-[11px] text-amber-800/70 mb-1">
-            点击步骤可展开完整话术；请结合「本次随访要点」灵活调整，勿照本宣科。
+        <div className="px-5 pb-4 space-y-3 border-t border-amber-100/80 pt-3">
+          <p className="text-[11px] text-amber-800/70">
+            请结合「本次随访要点」灵活调整，勿照本宣科。
           </p>
-          {script.sections.map((section, idx) => {
-            const open = activeSection === section.id;
-            return (
-              <div
-                key={section.id}
-                className="rounded-lg border border-amber-100 bg-white overflow-hidden"
-              >
-                <button
-                  type="button"
-                  onClick={() => setActiveSection(open ? null : section.id)}
-                  className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 text-left hover:bg-amber-50/80"
-                >
-                  <span className="text-sm font-bold text-slate-800">
-                    <span className="text-amber-600 mr-1.5">{idx + 1}.</span>
-                    {section.title}
-                  </span>
-                  <span className="text-xs text-slate-400">{open ? '−' : '+'}</span>
-                </button>
-                {open && (
-                  <ul className="px-3.5 pb-3 space-y-2 border-t border-slate-50">
-                    {section.tips.map((tip, i) => (
-                      <li
-                        key={i}
-                        className="text-[13px] leading-relaxed text-slate-700 flex gap-2 pt-2"
-                      >
-                        <span className="shrink-0 text-amber-500 font-bold">·</span>
-                        <span>{tip}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+          {script.sections.map((section, idx) => (
+            <div
+              key={section.id}
+              className="rounded-lg border border-amber-100 bg-white px-3.5 py-3"
+            >
+              <div className="text-sm font-bold text-slate-800 mb-2">
+                <span className="text-amber-600 mr-1.5">{idx + 1}.</span>
+                {section.title}
               </div>
-            );
-          })}
+              <ul className="space-y-1.5">
+                {section.tips.map((tip, i) => (
+                  <li
+                    key={i}
+                    className="text-[13px] leading-relaxed text-slate-700 flex gap-2"
+                  >
+                    <span className="shrink-0 text-amber-500 font-bold">·</span>
+                    <span>{tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
     </div>
