@@ -8,7 +8,6 @@ import {
   buildMergedTimeline,
   buildTaskComplianceFromPrior,
   computeIndicatorDelta,
-  extractCheckItemsFromText,
   getIndicatorValuesFromRecord,
   mergeFocusItems,
   isCriticalFollowUpPending,
@@ -319,15 +318,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       return computeIndicatorDelta(latestRecord.indicators, formData.indicators);
   }, [latestRecord, formData.indicators, followUpContext?.indicatorDeltas]);
 
-  const extractCheckItems = (text: string): string[] => {
-      if (!text) return [];
-      return text.split(/[，,、;；\n]/)
-                 .map(s => s.trim())
-                 .map(s => s.replace(/建议|定期|复查|监测|检查|评估|关注|前往|专科|就诊|完善/g, ''))
-                 .map(s => s.trim())
-                 .filter(s => s.length > 1);
-  };
-
   const autoFillForm = () => {
     const baseState = { ...initialFormState };
     const indicatorDefaults = getIndicatorValuesFromRecord(healthRecord, latestRecord);
@@ -354,10 +344,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
         }
     }
 
+    // 单一合并入口：followUpContext 已含排期/上次计划，再并入当前方案文案；
+    // mergeFocusItems 会规范化并去重，避免「血压」与「血压复查」并存。
     const itemsToCheck = mergeFocusItems(
-      extractCheckItemsFromText(activePlanText || ''),
+      followUpContext?.focusItems,
       nextScheduled?.focusItems,
-      followUpContext?.focusItems
+      activePlanText || '',
     );
     if (itemsToCheck.length > 0) {
         baseState.medicalCompliance = itemsToCheck.map(item => ({

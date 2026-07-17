@@ -62,23 +62,59 @@ export const computeIndicatorDelta = (
 export const extractCheckItemsFromText = (text: string): string[] => {
   if (!text) return [];
   return text
-    .split(/[，,、;；\n]/)
+    .split(/[，,、;；\n\/|]/)
     .map((s) => s.trim())
     .map((s) => s.replace(/建议|定期|复查|监测|检查|评估|关注|前往|专科|就诊|完善/g, ''))
     .map((s) => s.trim())
     .filter((s) => s.length > 1);
 };
 
-export const mergeFocusItems = (...sources: (string[] | string | undefined)[]): string[] => {
-  const set = new Set<string>();
+/** 规范化后用于去重（忽略「复查/监测」等填充词与空白差异） */
+export const normalizeFocusItemKey = (s: string): string =>
+  String(s || '')
+    .trim()
+    .replace(/建议|定期|复查|监测|检查|评估|关注|前往|专科|就诊|完善|项目/g, '')
+    .replace(/[（(].*?[）)]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+
+/** 将数组或整段文案展开为条目（数组元素内若含顿号也会拆开） */
+export const expandFocusItems = (src: string[] | string | undefined | null): string[] => {
+  if (!src) return [];
+  const parts = Array.isArray(src) ? src : [src];
+  const out: string[] = [];
+  for (const part of parts) {
+    const raw = String(part || '').trim();
+    if (!raw) continue;
+    const split = raw
+      .split(/[，,、;；\n\/|]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (split.length > 1) out.push(...split);
+    else out.push(raw);
+  }
+  return out;
+};
+
+export const mergeFocusItems = (...sources: (string[] | string | undefined | null)[]): string[] => {
+  const byKey = new Map<string, string>();
   for (const src of sources) {
     if (!src) continue;
-    const items = Array.isArray(src) ? src : extractCheckItemsFromText(src);
-    for (const item of items) {
-      if (item.trim()) set.add(item.trim());
+    for (const item of expandFocusItems(src)) {
+      const key = normalizeFocusItemKey(item);
+      if (key.length < 2) continue;
+      // 保留更短、更干净的展示文案（去掉填充词后的版本优先）
+      const cleaned = item
+        .replace(/建议|定期/g, '')
+        .trim();
+      const display = cleaned.length > 1 ? cleaned : item.trim();
+      const existing = byKey.get(key);
+      if (!existing || display.length < existing.length) {
+        byKey.set(key, display);
+      }
     }
   }
-  return Array.from(set);
+  return Array.from(byKey.values());
 };
 
 /** 危急值名单检索：姓名、体检编号、危急项目/描述/等级/警示 */
