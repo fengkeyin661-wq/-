@@ -25,6 +25,7 @@ import { HealthTrendCharts } from './HealthTrendCharts';
 import { HighGlucoseTag } from './HighGlucoseTag';
 import { HighBloodPressureTag } from './HighBloodPressureTag';
 import { HighLipidTag } from './HighLipidTag';
+import { FollowUpTalkScriptReminder } from './FollowUpTalkScriptReminder';
 
 interface Props {
   records: FollowUpRecord[];
@@ -533,6 +534,30 @@ export const FollowUpDashboard: React.FC<Props> = ({
     }
   };
 
+  /** 无人接听等场景：将下次随访计划延期 1 个月（暂不依赖短信） */
+  const handleDelayOneMonth = () => {
+      if (!onUpdateData || !nextScheduled) return;
+      const currentDate = new Date(nextScheduled.date);
+      if (Number.isNaN(currentDate.getTime())) {
+          alert('当前随访计划日期无效，无法延期');
+          return;
+      }
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      const newDateStr = currentDate.toISOString().split('T')[0];
+      if (
+          !confirm(
+              `电话无人接听或需改期时，可将下次随访延期 1 个月。\n\n原定：${nextScheduled.date}\n延期至：${newDateStr}\n\n确认延期？`,
+          )
+      ) {
+          return;
+      }
+      const updatedSchedule = schedule.map((s) =>
+          s.id === nextScheduled.id ? { ...s, date: newDateStr } : s,
+      );
+      onUpdateData(latestRecord ?? null, updatedSchedule);
+      alert(`已延期至 ${newDateStr}`);
+  };
+
   const handleSendAndDelay = async () => {
       if (!onUpdateData || !nextScheduled) return;
       if (!currentPatientPhone || !/^1[3-9]\d{9}$/.test(currentPatientPhone)) {
@@ -563,9 +588,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
           currentDate.setMonth(currentDate.getMonth() + 1);
           const newDateStr = currentDate.toISOString().split('T')[0];
           const updatedSchedule = schedule.map(s => s.id === nextScheduled.id ? { ...s, date: newDateStr } : s);
-          if (latestRecord) {
-              onUpdateData(latestRecord, updatedSchedule);
-          }
+          onUpdateData(latestRecord ?? null, updatedSchedule);
           alert('短信已发送，随访已延期 1 个月');
           setShowSmsModal(false);
       } finally {
@@ -935,8 +958,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <span>📅</span> 随访路径
                 </div>
                 {assessment && nextScheduled && (
-                    <button onClick={handleGenerateSms} className="text-xs bg-red-50 text-red-600 px-2 py-1 rounded hover:bg-red-100 font-bold">
-                        延期/催办
+                    <button
+                        type="button"
+                        onClick={handleDelayOneMonth}
+                        title="电话无人接听时可延期一个月"
+                        className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-lg hover:bg-amber-100 font-bold"
+                    >
+                        延期1个月
                     </button>
                 )}
             </h2>
@@ -1084,6 +1112,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </div>
               </div>
           )}
+          <FollowUpTalkScriptReminder
+              sourceLabel={followUpContext?.sourceLabel}
+              className="mb-6"
+          />
           <div className="bg-white rounded-xl shadow-lg border-2 border-teal-500 mb-8 overflow-hidden animate-slideUp">
               {/* ... Entry Form Content ... */}
               <div className="bg-teal-50 px-6 py-4 border-b border-teal-100 flex justify-between items-center">

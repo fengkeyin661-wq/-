@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { HealthArchive } from '../services/dataService';
 import { CriticalTrackRecord } from '../types';
 import { formatArchiveCheckupDate } from '../services/followUpLinkageService';
+import { FollowUpTalkScriptReminder } from './FollowUpTalkScriptReminder';
 
 export const formatCriticalRecorder = (name?: string, role?: string) => {
     if (!name) return '';
@@ -129,6 +130,12 @@ export const CriticalHandleModal: React.FC<Props> = ({ archive, onClose, onSave,
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
                 </div>
+
+                <FollowUpTalkScriptReminder
+                    scenario={isSecondary || isArchived ? 'critical_secondary' : 'critical_initial'}
+                    className="mb-6"
+                    defaultExpanded={!isArchived}
+                />
 
                 <div className="border border-slate-300 rounded-lg overflow-hidden mb-6">
                     {/* Header Info */}
