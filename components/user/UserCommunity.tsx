@@ -7,6 +7,7 @@ import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../.
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
 import { BookingContactModal } from './BookingContactModal';
 import { ModalPortal } from './ModalPortal';
+import { CheckupBookingSuccessModal } from '../checkup/CheckupBookingSuccessModal';
 import {
     CLINICAL_SUB_CATEGORIES,
     HEALTH_SERVICE_SUB_CATEGORIES,
@@ -111,6 +112,7 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
     } | null>(null);
     const [eventContactOpen, setEventContactOpen] = useState(false);
     const [pendingEvent, setPendingEvent] = useState<ContentItem | null>(null);
+    const [checkupSuccess, setCheckupSuccess] = useState<{ title: string; timeSlot: string } | null>(null);
 
     useEffect(() => {
         loadData();
@@ -265,7 +267,10 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
     const completeServiceBook = async (name: string, phone: string) => {
         if (!pendingServiceBook) return;
         const { service, timeSlot } = pendingServiceBook;
-        const detailsLine = `服务预约：${timeSlot}，价格: ${service.details?.price || '免费'}`;
+        const isCheckup = service.type === 'checkup_package';
+        const detailsLine = isCheckup
+            ? `体检套餐预约：${timeSlot}，价格: ${service.details?.price || '免费'}`
+            : `服务预约：${timeSlot}，价格: ${service.details?.price || '免费'}`;
         const uid = resolveBookingUserId(userId, phone);
         await saveInteraction({
             id: `service_booking_${Date.now()}`,
@@ -278,11 +283,15 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
             date: new Date().toISOString().split('T')[0],
             details: buildBookingDetails(name, phone, detailsLine),
         });
-        alert('预约申请已提交，请保持手机畅通。');
         setPendingServiceBook(null);
         setServiceContactOpen(false);
         setSelectedItem(null);
         setBookingService(null);
+        if (isCheckup) {
+            setCheckupSuccess({ title: service.title, timeSlot });
+        } else {
+            alert('预约申请已提交，请保持手机畅通。');
+        }
         loadData();
     };
 
@@ -891,6 +900,12 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                     </div>
                 </ModalPortal>
             )}
+            <CheckupBookingSuccessModal
+                open={!!checkupSuccess}
+                packageTitle={checkupSuccess?.title}
+                timeSlot={checkupSuccess?.timeSlot}
+                onClose={() => setCheckupSuccess(null)}
+            />
         </div>
     );
 };

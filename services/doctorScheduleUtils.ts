@@ -40,6 +40,35 @@ function formatLocalDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** 含起止日的公历日期列表，格式 YYYY-MM-DD */
+export function enumerateDateKeys(start: string, end: string): string[] {
+  const a = new Date(`${start}T00:00:00`);
+  const b = new Date(`${end}T00:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return [];
+  const from = a <= b ? a : b;
+  const to = a <= b ? b : a;
+  const out: string[] = [];
+  for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+    out.push(formatLocalDateKey(d));
+  }
+  return out;
+}
+
+export function mergeClosedDateKeys(existing: unknown, extra: string[]): string[] {
+  const set = new Set<string>();
+  if (Array.isArray(existing)) {
+    for (const x of existing) {
+      if (typeof x !== 'string') continue;
+      const s = x.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) set.add(s);
+    }
+  }
+  for (const s of extra) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) set.add(s);
+  }
+  return [...set].sort();
+}
+
 /** 医生详情中的「不出诊」日历日，格式 YYYY-MM-DD */
 export function parseScheduleClosedDates(details?: { [key: string]: unknown }): Set<string> {
   const raw = details?.scheduleClosedDates;

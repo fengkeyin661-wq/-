@@ -12,6 +12,7 @@ import { isSupabaseConfigured } from '../services/supabaseClient';
 import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, RiskLevel, RiskAnalysisData, QuestionnaireData } from '../types';
 import { fetchContent, fetchInteractions, saveInteraction } from '../services/contentService'; // Interconnection
 import { CheckupBookingAdminPanel } from './CheckupBookingAdminPanel';
+import { isCheckupBooking } from '../services/bookingContact';
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { StaffWorkloadPanel } from './StaffWorkloadPanel';
 import { HighGlucoseTag } from './HighGlucoseTag';
@@ -56,7 +57,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         totalResources: 0,
         activeDoctors: 0,
         pendingSignings: 0,
-        eventSignups: 0
+        eventSignups: 0,
+        pendingCheckupBookings: 0,
     });
     
     const [loading, setLoading] = useState(() => initialCache.archives.length === 0);
@@ -205,7 +207,8 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 totalResources: contents.length,
                 activeDoctors: contents.filter(c => c.type === 'doctor' && c.status === 'active').length,
                 pendingSignings: interactions.filter(i => i.type === 'doctor_signing' && i.status === 'pending').length,
-                eventSignups: interactions.filter(i => i.type === 'event_signup').length
+                eventSignups: interactions.filter(i => i.type === 'event_signup').length,
+                pendingCheckupBookings: interactions.filter(i => isCheckupBooking(i) && i.status === 'pending').length,
             });
         } catch (e) {
             console.error("Ops Stats Load Failed", e);
@@ -780,7 +783,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             ) : (
             <>
             {/* Operations Dashboard */}
-            <div className="bg-slate-800 text-white p-4 grid grid-cols-4 gap-4 shrink-0">
+            <div className="bg-slate-800 text-white p-4 grid grid-cols-5 gap-4 shrink-0">
                 <div className="flex flex-col items-center border-r border-slate-700">
                     <span className="text-2xl font-bold">{archives.length}</span>
                     <span className="text-xs text-slate-400">总健康档案</span>
@@ -793,10 +796,18 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <span className="text-2xl font-bold text-yellow-400">{opsStats.pendingSignings}</span>
                     <span className="text-xs text-slate-400">待审核签约</span>
                 </div>
-                <div className="flex flex-col items-center">
+                <div className="flex flex-col items-center border-r border-slate-700">
                     <span className="text-2xl font-bold">{opsStats.eventSignups}</span>
                     <span className="text-xs text-slate-400">活动报名人次</span>
                 </div>
+                <button
+                    type="button"
+                    onClick={() => setAdminMainTab('checkup_bookings')}
+                    className="flex flex-col items-center"
+                >
+                    <span className="text-2xl font-bold text-emerald-300">{opsStats.pendingCheckupBookings}</span>
+                    <span className="text-xs text-slate-400">待确认体检预约</span>
+                </button>
             </div>
 
             {/* Toolbar */}

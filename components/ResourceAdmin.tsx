@@ -42,6 +42,7 @@ import { isSupabaseConfigured } from '../services/supabaseClient';
 import { prepareContentItemImages, uploadPackageImageFile } from '../services/resourceImageStorage';
 import { excludeCheckupPortalGuide, isCheckupPortalGuideItem } from '../services/checkupPortalContentService';
 import { CheckupPortalGuideEditor } from './CheckupPortalGuideEditor';
+import { enumerateDateKeys, mergeClosedDateKeys } from '../services/doctorScheduleUtils';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 
@@ -295,6 +296,12 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         serviceSlotQuotas: Record<string, Record<string, number>>;
         defaultQuota: number;
     }>({ serviceWeeklySchedule: {}, serviceSlotQuotas: {}, defaultQuota: 10 });
+    const [isBatchClosedDatesOpen, setIsBatchClosedDatesOpen] = useState(false);
+    const [batchClosedDates, setBatchClosedDates] = useState<string[]>([]);
+    const [batchClosedDateInput, setBatchClosedDateInput] = useState('');
+    const [batchClosedRangeStart, setBatchClosedRangeStart] = useState('');
+    const [batchClosedRangeEnd, setBatchClosedRangeEnd] = useState('');
+    const [batchClosedMode, setBatchClosedMode] = useState<'merge' | 'replace'>('merge');
 
     // Batch Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -623,6 +630,91 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             setSelectedIds(new Set());
             await loadData();
             alert(`已成功为 ${schedulable.length} 项资源设置预约时段`);
+        } catch (e) {
+            console.error(e);
+            alert('批量设置失败，请重试');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openBatchClosedDatesModal = () => {
+        if (selectedIds.size === 0) return;
+        setBatchClosedDates([]);
+        setBatchClosedDateInput('');
+        setBatchClosedRangeStart('');
+        setBatchClosedRangeEnd('');
+        setBatchClosedMode('merge');
+        setIsBatchClosedDatesOpen(true);
+    };
+
+    const addBatchClosedDate = (value: string) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+        setBatchClosedDates((prev) => (prev.includes(value) ? prev : [...prev, value].sort()));
+    };
+
+    const addBatchClosedRange = () => {
+        if (!batchClosedRangeStart || !batchClosedRangeEnd) {
+            alert('请先选择区间的开始日期和结束日期');
+            return;
+        }
+        const extra = enumerateDateKeys(batchClosedRangeStart, batchClosedRangeEnd);
+        if (!extra.length) {
+            alert('日期区间无效');
+            return;
+        }
+        if (extra.length > 62) {
+            if (!confirm(`该区间共 ${extra.length} 天，将全部设为全天不可约，是否继续？`)) return;
+        }
+        setBatchClosedDates((prev) => mergeClosedDateKeys(prev, extra));
+        setBatchClosedRangeStart('');
+        setBatchClosedRangeEnd('');
+    };
+
+    const handleBatchApplyClosedDates = async () => {
+        if (!batchClosedDates.length) {
+            alert('请至少添加一个例外关闭日期，或使用日期区间生成');
+            return;
+        }
+        const selectedItems = items.filter((i) => selectedIds.has(i.id));
+        const schedulable = selectedItems.filter(
+            (i) => i.type === 'service' || i.type === 'checkup_package',
+        );
+        if (!schedulable.length) {
+            alert('所选项目中没有可设置关闭日期的服务或套餐');
+            return;
+        }
+        const modeLabel = batchClosedMode === 'replace' ? '覆盖为完全相同的关闭日' : '追加到各套餐已有关闭日';
+        if (
+            !confirm(
+                `将为 ${schedulable.length} 项套餐/服务统一写入 ${batchClosedDates.length} 个例外关闭日（${modeLabel}）。这些日期全天不可约。是否继续？`,
+            )
+        ) {
+            return;
+        }
+        setLoading(true);
+        setLoadingText('正在批量设置例外关闭日期...');
+        try {
+            await Promise.all(
+                schedulable.map((item) => {
+                    const nextDates =
+                        batchClosedMode === 'replace'
+                            ? [...batchClosedDates].sort()
+                            : mergeClosedDateKeys(item.details?.serviceClosedDates, batchClosedDates);
+                    return saveContent({
+                        ...item,
+                        details: {
+                            ...item.details,
+                            serviceClosedDates: nextDates,
+                        },
+                        updatedAt: new Date().toISOString(),
+                    });
+                }),
+            );
+            setIsBatchClosedDatesOpen(false);
+            setSelectedIds(new Set());
+            await loadData();
+            alert(`已成功为 ${schedulable.length} 项资源设置例外关闭日期`);
         } catch (e) {
             console.error(e);
             alert('批量设置失败，请重试');
@@ -1650,7 +1742,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     {activeTab === 'audit' ? (
                         <div className="space-y-6">
                             <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                                <CheckupBookingAdminPanel title="体检预约名单" compact />
+                                <CheckupBookingAdminPanel title="体检预约情况汇总" compact />
                             </section>
                             <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
@@ -1697,6 +1789,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         {selectedIds.size > 0 && (
                                             <>
                                                 {activeTab === 'service' && (
+                                                    <>
                                                     <button
                                                         type="button"
                                                         onClick={openBatchScheduleModal}
@@ -1704,6 +1797,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     >
                                                         📅 批量设置预约时段 ({selectedIds.size})
                                                     </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={openBatchClosedDatesModal}
+                                                        className="bg-amber-50 text-amber-800 border border-amber-200 px-3 py-1.5 rounded text-xs font-bold hover:bg-amber-100 flex items-center gap-1 animate-fadeIn"
+                                                    >
+                                                        🚫 批量例外关闭日期 ({selectedIds.size})
+                                                    </button>
+                                                    </>
                                                 )}
                                                 <button
                                                     onClick={() => handleBatchSetPublishStatus('active')}
@@ -1900,6 +2001,9 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                             {Object.values((item.details?.serviceWeeklySchedule || {}) as Record<string, string[]>).some((slots) => slots?.length)
                                                                 ? '已配置排期'
                                                                 : '未配置排期'}
+                                                            {Array.isArray(item.details?.serviceClosedDates) && item.details.serviceClosedDates.length > 0
+                                                                ? ` • 关闭日 ${item.details.serviceClosedDates.length} 个`
+                                                                : ''}
                                                         </>
                                                     )}
                                                     {item.type === 'exercise' && `强度:${item.details?.intensity} • ${item.details?.duration}`}
@@ -2923,6 +3027,129 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
                             <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200 transition-colors">取消</button>
                             <button onClick={handleSaveContent} className="px-8 py-2 rounded-lg font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-lg transition-transform active:scale-95">保存信息</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isBatchClosedDatesOpen && (
+                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">批量设置例外关闭日期</h3>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    已选 {selectedIds.size} 项套餐/服务，关闭日全天不可约（上午、下午均不放出号源）
+                                </p>
+                            </div>
+                            <button type="button" onClick={() => setIsBatchClosedDatesOpen(false)} className="text-slate-400 hover:text-slate-600 text-2xl font-bold">×</button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                                <div className="text-xs font-bold text-slate-700">添加单日</div>
+                                <div className="flex flex-wrap items-end gap-2">
+                                    <input
+                                        type="date"
+                                        value={batchClosedDateInput}
+                                        onChange={(e) => setBatchClosedDateInput(e.target.value)}
+                                        className="rounded border border-slate-300 px-2 py-1.5 text-sm bg-white"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            addBatchClosedDate(batchClosedDateInput.trim());
+                                            setBatchClosedDateInput('');
+                                        }}
+                                        className="rounded bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700"
+                                    >
+                                        添加该日
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+                                <div className="text-xs font-bold text-amber-900">按区间统一关闭（含起止当天）</div>
+                                <p className="text-[11px] text-amber-800">适用于国庆、春节、调休等连续多日全院/全套餐停约。</p>
+                                <div className="flex flex-wrap items-end gap-2">
+                                    <label className="text-xs text-slate-600">
+                                        开始
+                                        <input
+                                            type="date"
+                                            value={batchClosedRangeStart}
+                                            onChange={(e) => setBatchClosedRangeStart(e.target.value)}
+                                            className="mt-1 block rounded border border-slate-300 px-2 py-1.5 text-sm bg-white"
+                                        />
+                                    </label>
+                                    <label className="text-xs text-slate-600">
+                                        结束
+                                        <input
+                                            type="date"
+                                            value={batchClosedRangeEnd}
+                                            onChange={(e) => setBatchClosedRangeEnd(e.target.value)}
+                                            className="mt-1 block rounded border border-slate-300 px-2 py-1.5 text-sm bg-white"
+                                        />
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={addBatchClosedRange}
+                                        className="rounded bg-amber-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-800"
+                                    >
+                                        生成并加入区间
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="mb-2 flex items-center justify-between">
+                                    <div className="text-xs font-bold text-slate-700">本次将统一写入的关闭日（{batchClosedDates.length}）</div>
+                                    {batchClosedDates.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setBatchClosedDates([])}
+                                            className="text-xs font-bold text-slate-400 hover:text-red-600"
+                                        >
+                                            清空
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="flex flex-wrap gap-2 min-h-[40px] rounded-xl border border-dashed border-slate-200 p-3">
+                                    {batchClosedDates.length === 0 ? (
+                                        <span className="text-xs text-slate-400">尚未添加日期</span>
+                                    ) : (
+                                        batchClosedDates.map((d) => (
+                                            <span key={d} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 pl-2 pr-1 py-0.5 text-xs font-bold text-slate-700">
+                                                {d}
+                                                <button type="button" className="h-5 w-5 rounded-full hover:bg-slate-200" onClick={() => setBatchClosedDates((prev) => prev.filter((x) => x !== d))}>×</button>
+                                            </span>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 p-4 space-y-2">
+                                <div className="text-xs font-bold text-slate-700">写入方式</div>
+                                <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        className="mt-1"
+                                        name="batchClosedMode"
+                                        checked={batchClosedMode === 'merge'}
+                                        onChange={() => setBatchClosedMode('merge')}
+                                    />
+                                    <span>追加：把上述日期加到各套餐已有关闭日中（保留原例外日）</span>
+                                </label>
+                                <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        className="mt-1"
+                                        name="batchClosedMode"
+                                        checked={batchClosedMode === 'replace'}
+                                        onChange={() => setBatchClosedMode('replace')}
+                                    />
+                                    <span>覆盖：选中套餐的关闭日全部改成上述同一清单（统一时间）</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div className="p-6 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+                            <button type="button" onClick={() => setIsBatchClosedDatesOpen(false)} className="px-6 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200">取消</button>
+                            <button type="button" onClick={handleBatchApplyClosedDates} className="px-8 py-2 rounded-lg font-bold text-white bg-amber-700 hover:bg-amber-800">应用到选中项</button>
                         </div>
                     </div>
                 </div>

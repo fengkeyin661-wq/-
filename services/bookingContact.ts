@@ -19,7 +19,7 @@ export function buildBookingDetails(
 export function isCheckupBooking(item: { type?: string; details?: string }): boolean {
   if (item.type !== 'service_booking') return false;
   const d = String(item.details || '');
-  return d.includes('体检套餐预约') || d.includes('体检预约');
+  return d.includes('体检套餐预约') || d.includes('体检预约') || (d.includes('套餐预约') && d.includes('体检'));
 }
 
 export function parseBookingDetails(details?: string): {

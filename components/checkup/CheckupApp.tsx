@@ -22,6 +22,7 @@ import { CheckupSlotPicker } from './CheckupSlotPicker';
 import { submitCheckupBooking } from './checkupBooking';
 import { CheckupNoticePanel } from './CheckupNoticePanel';
 import { CheckupVenueInfo } from './CheckupVenueInfo';
+import { CheckupBookingSuccessModal } from './CheckupBookingSuccessModal';
 
 const PACKAGE_TABS: { id: PackageKind; label: string }[] = [
   { id: 'personal', label: '个人体检' },
@@ -43,6 +44,7 @@ export const CheckupApp: React.FC = () => {
   } | null>(null);
   const [contactOpen, setContactOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [successInfo, setSuccessInfo] = useState<{ title: string; timeSlot: string } | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -131,10 +133,11 @@ export const CheckupApp: React.FC = () => {
         contactName: name,
         contactPhone: phone,
       });
-      alert('预约申请已提交，请保持手机畅通。');
+      const booked = pendingBook;
       setPendingBook(null);
       setContactOpen(false);
       setSelectedPackage(null);
+      setSuccessInfo({ title: booked.packageItem.title, timeSlot: booked.timeSlot });
       await loadData();
     } catch {
       alert('预约提交失败，请稍后重试或致电体检预约咨询热线。');
@@ -247,6 +250,12 @@ export const CheckupApp: React.FC = () => {
           setPendingBook(null);
         }}
         onConfirm={handleConfirmBooking}
+      />
+      <CheckupBookingSuccessModal
+        open={!!successInfo}
+        packageTitle={successInfo?.title}
+        timeSlot={successInfo?.timeSlot}
+        onClose={() => setSuccessInfo(null)}
       />
     </div>
   );
