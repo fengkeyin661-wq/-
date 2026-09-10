@@ -41,6 +41,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'doctor_messages', label: '消息', icon: '💬', roles: ['doctor'] },
     { id: 'my_patients', label: '我的签约用户', icon: '🤝', roles: ['doctor'] },
     { id: 'heatmap', label: '医疗服务热力图', icon: '🏥', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'need_survey', label: '需求调查问卷', icon: '📋', roles: ['admin', 'health_manager'] },
     { id: 'admin', label: '管理控制台', icon: '⚡', roles: ['admin', 'home', 'health_manager'] },
   ];
 

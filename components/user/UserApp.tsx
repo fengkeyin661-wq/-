@@ -8,6 +8,7 @@ import { UserProfileShell } from './UserProfileShell';
 import { ForcePasswordChangeModal } from './ForcePasswordChangeModal';
 import { UserCommunity } from './UserCommunity';
 import { UserDoctors } from './UserDoctors';
+import { openNeedSurvey } from '../../services/staffNeedSurveyCatalog';
 import {
   HealthArchive,
   findArchiveByCheckupId,
@@ -404,6 +405,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           userName={userArchive ? resolvedUserName : undefined}
           defaultContactPhone={userArchive?.phone || userArchive?.health_record?.profile?.phone || ''}
           assessment={userArchive?.assessment_data}
+          onOpenNeedSurvey={openNeedSurvey}
         />
       )}
       {activeTab === 'doctor' && (
@@ -426,6 +428,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           onMessageRead={refreshUnreadCount}
           onOpenDoctors={() => setActiveTab('doctor')}
           onOpenCommunity={() => setActiveTab('community')}
+          onOpenNeedSurvey={openNeedSurvey}
         />
       )}
       {activeTab === 'profile' &&
@@ -439,12 +442,13 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
             onUpdateRecord={handleUpdateRecord}
             onLogout={handleProfileLogout}
             onNavigate={setActiveTab}
+            onOpenNeedSurvey={openNeedSurvey}
             onArchiveRefresh={() =>
               userArchive && loadArchiveById(userArchive.checkup_id, true)
             }
           />
         ) : (
-            <UserProfileShell onLoginSuccess={handleShellLoginSuccess} />
+            <UserProfileShell onLoginSuccess={handleShellLoginSuccess} onOpenNeedSurvey={openNeedSurvey} />
         ))}
     </UserLayout>
     {userArchive && isDefaultPortalPassword(userArchive) ? (

@@ -26,6 +26,7 @@ interface Props {
     userName?: string;
     defaultContactPhone?: string;
     assessment?: HealthAssessment;
+    onOpenNeedSurvey?: () => void;
 }
 
 interface EventWithStatus extends ContentItem {
@@ -90,7 +91,7 @@ const formatEventSchedule = (details?: Record<string, any>) => {
     return details?.date?.split?.('T')?.[0] || '待定';
 };
 
-export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContactPhone = '', assessment }) => {
+export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContactPhone = '', assessment, onOpenNeedSurvey }) => {
     const [allEvents, setAllEvents] = useState<EventWithStatus[]>([]);
     const [allCircles, setAllCircles] = useState<ContentItem[]>([]);
     const [allServices, setAllServices] = useState<ContentItem[]>([]);
@@ -508,6 +509,23 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
             </div>
 
             <div className="p-4 space-y-6">
+                {onOpenNeedSurvey ? (
+                    <button
+                        type="button"
+                        onClick={onOpenNeedSurvey}
+                        className="w-full rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-600 to-cyan-600 p-4 text-left text-white shadow-sm active:scale-[0.99]"
+                    >
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-xs font-bold text-teal-100">手机填写 · 约 12—15 分钟</p>
+                                <h2 className="mt-1 text-lg font-black">教职工健康需求调查</h2>
+                                <p className="mt-1 text-xs text-teal-50">了解就医、康复、照护和上门服务需求，结果仅作汇总分析。</p>
+                            </div>
+                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/20 text-xl">📋</span>
+                        </div>
+                        <p className="mt-3 text-sm font-bold">立即填写 →</p>
+                    </button>
+                ) : null}
                 {loading ? (
                     <div className="text-center py-16 text-slate-400">加载中...</div>
                 ) : (

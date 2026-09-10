@@ -36,6 +36,7 @@ interface Props {
   }) => Promise<void>;
   onLogout: () => void;
   onNavigate: (tab: string) => void;
+  onOpenNeedSurvey?: () => void;
   onArchiveRefresh?: () => void;
 }
 
@@ -48,6 +49,7 @@ export const UserProfile: React.FC<Props> = ({
     onUpdateRecord,
     onLogout,
     onNavigate,
+    onOpenNeedSurvey,
     onArchiveRefresh,
 }) => {
     const [subView, setSubView] = useState<
@@ -776,6 +778,7 @@ export const UserProfile: React.FC<Props> = ({
                             )}
                             {recomputeHint && <p className="mt-2 text-xs text-blue-600">{recomputeHint}</p>}
                         </div>
+                        <MenuButton icon="📋" label="需求调查问卷" desc="手机填写健康、就医与上门服务需求" onClick={() => onOpenNeedSurvey?.()} />
                         <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
                         <MenuButton
                             icon="📅"

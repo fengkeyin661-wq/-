@@ -15,6 +15,7 @@ interface Props {
     onMessageRead?: () => void;
     onOpenDoctors?: () => void;
     onOpenCommunity?: () => void;
+    onOpenNeedSurvey?: () => void;
 }
 
 interface DoctorWithUnread {
@@ -59,7 +60,7 @@ const DoctorAvatar: React.FC<{ doctor: ContentItem; className?: string; fallback
     return <div className={`${className} ${fallbackClassName} shrink-0`}>{getMedicalIcon(doctor)}</div>;
 };
 
-export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, onMessageRead, onOpenDoctors, onOpenCommunity }) => {
+export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, onMessageRead, onOpenDoctors, onOpenCommunity, onOpenNeedSurvey }) => {
     const [viewMode, setViewMode] = useState<ViewMode>('chat_list');
     
     // Doctor List State
@@ -456,6 +457,17 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
                 ) : (
                     // ======== CHAT LIST + CARE WORKFLOW ========
                     <div className="space-y-4">
+                        {onOpenNeedSurvey ? (
+                            <button
+                                type="button"
+                                onClick={onOpenNeedSurvey}
+                                className="w-full rounded-2xl border border-teal-100 bg-teal-50 p-4 text-left active:scale-[0.99]"
+                            >
+                                <p className="text-xs font-bold text-teal-700">需求调查</p>
+                                <h2 className="mt-1 font-black text-slate-800">填写健康与上门服务需求问卷</h2>
+                                <p className="mt-1 text-xs text-slate-500">手机填写，约 12—15 分钟，结果仅作汇总分析</p>
+                            </button>
+                        ) : null}
                         <div className="rounded-2xl border border-slate-100 bg-white p-4">
                             <h2 className="font-bold text-slate-800">社区支持</h2>
                             <div className="mt-3 grid grid-cols-2 gap-2">

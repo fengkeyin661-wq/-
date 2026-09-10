@@ -5,12 +5,13 @@ import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../
 
 interface Props {
   onLoginSuccess: (archive: HealthArchive) => void;
+  onOpenNeedSurvey?: () => void;
 }
 
 const PROFILE_SHELL_TIP =
   '尚未建档请先联系健康管家；首次登录密码为体检编号（6位数字），登录后须立即修改密码。预约挂号可在各栏目直接提交，若忘记密码请联系健康管家。';
 
-export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
+export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess, onOpenNeedSurvey }) => {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -113,6 +114,15 @@ export const UserProfileShell: React.FC<Props> = ({ onLoginSuccess }) => {
         </form>
 
         <p className="mt-5 px-1 text-center text-xs leading-relaxed text-slate-500">{PROFILE_SHELL_TIP}</p>
+        {onOpenNeedSurvey ? (
+          <button
+            type="button"
+            onClick={onOpenNeedSurvey}
+            className="mt-4 w-full rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-bold text-teal-800"
+          >
+            未登录也可填写 · 教职工健康需求调查
+          </button>
+        ) : null}
       </div>
     </div>
   );

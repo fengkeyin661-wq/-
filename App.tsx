@@ -9,6 +9,8 @@ import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { NativeSurveyForm } from './components/NativeSurveyForm';
 import { UserApp } from './components/user/UserApp';
+import { StaffNeedSurveyPage } from './components/user/StaffNeedSurveyPage';
+import { StaffNeedSurveyAdmin } from './components/StaffNeedSurveyAdmin';
 import { CheckupApp } from './components/checkup/CheckupApp';
 import { HomeAdmin } from './components/HomeAdmin';
 import { ResourceAdmin } from './components/ResourceAdmin'; 
@@ -21,6 +23,7 @@ import { DiabetesManagementModule } from './components/DiabetesManagementModule'
 import { HypertensionManagementModule } from './components/HypertensionManagementModule';
 import { LipidManagementModule } from './components/LipidManagementModule';
 import { StaffWorkloadPanel } from './components/StaffWorkloadPanel';
+import { closeNeedSurvey, isNeedSurveyHash } from './services/staffNeedSurveyCatalog';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant, LipidStandaloneParticipant } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText, generateIncrementalAssessment } from './services/geminiService';
@@ -162,6 +165,7 @@ const detectPortalModeFromHostname = (): PortalMode => {
 
 export const App: React.FC = () => {
   const portalMode = detectPortalModeFromHostname();
+  const [routeHash, setRouteHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
   const [activeTab, setActiveTab] = useState('dashboard');
   /** 从随访监测跳转危急值随访管理时的定位 */
   const [criticalNavToken, setCriticalNavToken] = useState(0);
@@ -230,6 +234,12 @@ export const App: React.FC = () => {
   const canShowDoctorEntry = portalMode === 'all' || portalMode === 'doctor';
   /** 职工健康入口仅在主域名聚合页展示；`user.` 子域直达 UserApp，不在此展示 */
   const canShowUserEntry = portalMode === 'all';
+
+  useEffect(() => {
+    const syncHash = () => setRouteHash(window.location.hash);
+    window.addEventListener('hashchange', syncHash);
+    return () => window.removeEventListener('hashchange', syncHash);
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor' || currentUserRole === 'health_manager')) {
@@ -877,6 +887,10 @@ export const App: React.FC = () => {
       return <CheckupApp />;
   }
 
+  if (isNeedSurveyHash(routeHash)) {
+      return <StaffNeedSurveyPage onClose={closeNeedSurvey} />;
+  }
+
   if (portalMode === 'user') {
       return <UserApp />;
   }
@@ -943,6 +957,7 @@ export const App: React.FC = () => {
                         <p className="text-[11px] text-green-800/80 mb-2">无自助注册。浏览资源、预约挂号可在应用内直接操作；使用档案与随访请先完成体检建档并由中心开通账号。</p>
                         <button type="button" onClick={() => handleUserLogin()} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg text-sm hover:bg-green-700 mb-2">登录</button>
                         <button className="text-xs text-green-700 font-bold self-start hover:underline" onClick={() => setActiveTab('external_survey')}>📝 还没有档案？填写健康问卷</button>
+                        <button className="text-xs text-teal-700 font-bold self-start hover:underline mt-1" onClick={() => { window.location.hash = '/need-survey'; }}>📋 教职工健康需求调查（手机填写）</button>
                     </div>
                 ) : (
                     <button onClick={() => setShowUserEntry(true)} className="bg-white p-6 rounded-2xl shadow-lg border border-green-100 hover:shadow-xl hover:border-green-300 transition-all text-left group relative overflow-hidden">
@@ -957,6 +972,8 @@ export const App: React.FC = () => {
             </div>
             <div className="mt-12 text-xs text-slate-400 flex gap-4">
                 <span className="cursor-pointer hover:text-teal-600" onClick={() => setActiveTab('external_survey')}>健康问卷填报</span>
+                <span>|</span>
+                <span className="cursor-pointer hover:text-teal-600" onClick={() => { window.location.hash = '/need-survey'; }}>需求调查</span>
                 <span>|</span>
                 <span>© 2024 郑州大学医院</span>
                 <span>|</span>
@@ -1135,6 +1152,9 @@ export const App: React.FC = () => {
               />
             )}
             {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
+            {activeTab === 'need_survey' && (currentUserRole === 'admin' || currentUserRole === 'health_manager') && (
+              <StaffNeedSurveyAdmin />
+            )}
             {activeTab === 'admin' && (currentUserRole === 'admin' || currentUserRole === 'health_manager') && (
               <AdminConsole
                 onSelectPatient={handleSelectPatient}
