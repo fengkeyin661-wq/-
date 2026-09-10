@@ -11,6 +11,7 @@ import { generateSystemPortraits, evaluateRiskModels } from '../services/riskMod
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, RiskLevel, RiskAnalysisData, QuestionnaireData } from '../types';
 import { fetchContent, fetchInteractions, saveInteraction } from '../services/contentService'; // Interconnection
+import { CheckupBookingAdminPanel } from './CheckupBookingAdminPanel';
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { StaffWorkloadPanel } from './StaffWorkloadPanel';
 import { HighGlucoseTag } from './HighGlucoseTag';
@@ -119,7 +120,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [smsTargetScope, setSmsTargetScope] = useState<'filtered' | 'selected'>('filtered');
     const [isSendingSms, setIsSendingSms] = useState(false);
     const [smsSendSummary, setSmsSendSummary] = useState<string | null>(null);
-    const [adminMainTab, setAdminMainTab] = useState<'personnel' | 'workload'>('personnel');
+    const [adminMainTab, setAdminMainTab] = useState<'personnel' | 'workload' | 'checkup_bookings'>('personnel');
 
     useEffect(() => {
         if (!isSuperAdmin && adminMainTab === 'workload') {
@@ -742,6 +743,17 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 >
                     人员管理
                 </button>
+                <button
+                    type="button"
+                    onClick={() => setAdminMainTab('checkup_bookings')}
+                    className={`px-5 py-3 text-sm font-bold border-b-2 transition-colors ${
+                        adminMainTab === 'checkup_bookings'
+                            ? 'border-teal-600 text-teal-700 bg-white'
+                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
+                >
+                    体检预约
+                </button>
                 {isSuperAdmin && (
                 <button
                     type="button"
@@ -757,7 +769,11 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 )}
             </div>
 
-            {adminMainTab === 'workload' && isSuperAdmin ? (
+            {adminMainTab === 'checkup_bookings' ? (
+                <div className="flex-1 overflow-auto bg-slate-50">
+                    <CheckupBookingAdminPanel />
+                </div>
+            ) : adminMainTab === 'workload' && isSuperAdmin ? (
                 <div className="flex-1 overflow-auto">
                     <StaffWorkloadPanel title="团队工作量" showTeamExport />
                 </div>

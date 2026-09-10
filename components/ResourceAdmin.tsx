@@ -6,6 +6,7 @@ import {
     fetchInteractions, updateInteractionStatus,
     checkDbConnection 
 } from '../services/contentService';
+import { CheckupBookingAdminPanel } from './CheckupBookingAdminPanel';
 import { calculateNutritionFromIngredients } from '../services/geminiService';
 import { getSupabaseEnvDiagnostics } from '../services/supabaseClient';
 import {
@@ -254,7 +255,7 @@ const PresetListEditor: React.FC<{
 
 export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     // Added 'audit' tab
-    const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise' | 'audit'>('event');
+    const [activeTab, setActiveTab] = useState<'event' | 'service' | 'doctor' | 'drug' | 'recipe' | 'exercise' | 'audit'>('audit');
     // Sub-tab for Event (Community) section
     const [eventSubTab, setEventSubTab] = useState<'list' | 'circle'>('list');
     const [serviceSubTab, setServiceSubTab] = useState<'item' | 'package'>('item');
@@ -1516,13 +1517,17 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             <td className="p-3">
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                                     item.type === 'event_signup' ? 'bg-indigo-100 text-indigo-700' :
+                                    String(item.details || '').includes('体检') ? 'bg-emerald-100 text-emerald-800' :
                                     item.type === 'service_booking' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'
                                 }`}>
-                                    {item.type === 'event_signup' ? '活动报名' : item.type === 'service_booking' ? '服务预约' : '圈子申请'}
+                                    {item.type === 'event_signup' ? '活动报名' : String(item.details || '').includes('体检') ? '体检预约' : item.type === 'service_booking' ? '服务预约' : '圈子申请'}
                                 </span>
                             </td>
                             <td className="p-3 font-bold">{item.userName}</td>
-                            <td className="p-3">{item.targetName}</td>
+                            <td className="p-3">
+                                <div>{item.targetName}</div>
+                                {item.details ? <div className="mt-0.5 text-xs text-slate-500">{item.details}</div> : null}
+                            </td>
                             <td className="p-3">
                                 <span className={`px-2 py-1 rounded text-xs ${
                                     item.status === 'confirmed' ? 'bg-green-100 text-green-700' :
@@ -1629,7 +1634,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             <div className="flex flex-1 overflow-hidden">
                 <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
                     <nav className="p-4 space-y-2">
-                        <NavButton id="audit" icon="🛡️" label="审核中心" active={activeTab} onClick={setActiveTab} />
+                        <NavButton id="audit" icon="🛡️" label="审核中心（含体检预约）" active={activeTab} onClick={setActiveTab} />
                         <div className="h-px bg-slate-200 my-2"></div>
                         <NavButton id="event" icon="✨" label="社区活动" active={activeTab} onClick={setActiveTab} />
                         <NavButton id="service" icon="🏥" label="医院服务" active={activeTab} onClick={setActiveTab} />
@@ -1643,12 +1648,20 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
                 <main className="flex-1 min-h-0 p-8 overflow-y-auto">
                     {activeTab === 'audit' ? (
-                        <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                        <div className="space-y-6">
+                            <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                                <CheckupBookingAdminPanel title="体检预约名单" compact />
+                            </section>
+                            <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
-                                待审核申请 (活动/圈子/服务)
+                                其他待审核申请（活动 / 圈子 / 普通服务）
                             </h3>
-                            {renderInteractionTable(interactions)}
-                        </section>
+                            {renderInteractionTable(interactions.filter((i) => {
+                                const d = String(i.details || '');
+                                return !(i.type === 'service_booking' && (d.includes('体检套餐预约') || d.includes('体检预约')));
+                            }))}
+                            </section>
+                        </div>
                     ) : (
                         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col min-h-0">
                             <div className="flex flex-col gap-4 mb-4 shrink-0">
