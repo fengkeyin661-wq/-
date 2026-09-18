@@ -10,11 +10,11 @@ import {
 import { getPackageKind, type PackageKind } from '../../services/userServiceCatalog';
 import {
   DEFAULT_CHECKUP_PORTAL_GUIDE,
-  excludeCheckupPortalGuide,
   fetchCheckupPortalGuide,
   loadCheckupPortalGuideLocal,
   type CheckupPortalGuide,
 } from '../../services/checkupPortalContentService';
+import { excludeCheckupConfigRecords } from '../../services/checkupGlobalClosedDatesService';
 import { BookingContactModal } from '../user/BookingContactModal';
 import { CheckupPackageList } from './CheckupPackageList';
 import { CheckupPackageDetail } from './CheckupPackageDetail';
@@ -49,7 +49,7 @@ export const CheckupApp: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const localPkgs = excludeCheckupPortalGuide(readLocalContent('checkup_package', 'active'));
+      const localPkgs = excludeCheckupConfigRecords(readLocalContent('checkup_package', 'active'));
       const localSvcs = readLocalContent('service', 'active');
       const localInts = readLocalInteractions();
       setPackages(localPkgs);
@@ -63,7 +63,7 @@ export const CheckupApp: React.FC = () => {
         fetchInteractions(),
         fetchCheckupPortalGuide(),
       ]);
-      setPackages(excludeCheckupPortalGuide(remotePkgs));
+      setPackages(excludeCheckupConfigRecords(remotePkgs));
       setAllServices(remoteSvcs);
       setInteractions(remoteInts);
       setPortalGuide(guide || DEFAULT_CHECKUP_PORTAL_GUIDE);

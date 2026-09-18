@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { ContentItem, InteractionItem } from '../../services/contentService';
 import {
   SLOT_MAP,
   getNextMonthSlotsForService,
   getServiceSlotQuota,
 } from '../../services/doctorScheduleUtils';
+import { fetchCheckupGlobalClosedDates } from '../../services/checkupGlobalClosedDatesService';
 import { HEALTH_MANAGEMENT_HOTLINE } from '../../services/userServiceCatalog';
 import { ModalPortal } from '../user/ModalPortal';
 
@@ -39,7 +40,25 @@ export const CheckupSlotPicker: React.FC<Props> = ({
   onSelectSlot,
   onClose,
 }) => {
-  const monthSlots = getNextMonthSlotsForService(packageItem);
+  const [globalClosedDates, setGlobalClosedDates] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchCheckupGlobalClosedDates().then((cfg) => {
+      if (!cancelled) setGlobalClosedDates(cfg.closedDates);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const monthSlots = useMemo(
+    () =>
+      getNextMonthSlotsForService(packageItem, {
+        globalClosedDates,
+      }),
+    [packageItem, globalClosedDates],
+  );
 
   return (
     <ModalPortal>

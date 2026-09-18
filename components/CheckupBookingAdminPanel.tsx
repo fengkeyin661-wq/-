@@ -31,6 +31,8 @@ export const CheckupBookingAdminPanel: React.FC<{
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [selected, setSelected] = useState<InteractionItem | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchProcessing, setBatchProcessing] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -77,13 +79,75 @@ export const CheckupBookingAdminPanel: React.FC<{
     return [...list].sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }, [rows, filter]);
 
+  const pendingVisibleIds = useMemo(
+    () => visible.filter((r) => r.status === 'pending').map((r) => r.id),
+    [visible],
+  );
+
   const handleStatus = async (id: string, status: InteractionItem['status']) => {
     await updateInteractionStatus(id, status);
     setSelected(null);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     await load();
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllPending = () => {
+    if (pendingVisibleIds.length === 0) return;
+    const allSelected = pendingVisibleIds.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        pendingVisibleIds.forEach((id) => next.delete(id));
+      } else {
+        pendingVisibleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const handleBatchStatus = async (status: 'confirmed' | 'cancelled') => {
+    const ids = Array.from(selectedIds).filter((id) => {
+      const row = rows.find((r) => r.id === id);
+      return row?.status === 'pending';
+    });
+    if (!ids.length) {
+      alert('请先勾选待确认的预约');
+      return;
+    }
+    const actionLabel = status === 'confirmed' ? '确认' : '拒绝';
+    if (!confirm(`确定批量${actionLabel} ${ids.length} 条体检预约吗？`)) return;
+
+    setBatchProcessing(true);
+    try {
+      await Promise.all(ids.map((id) => updateInteractionStatus(id, status)));
+      setSelectedIds(new Set());
+      setSelected(null);
+      await load();
+      alert(`已批量${actionLabel} ${ids.length} 条预约`);
+    } catch {
+      alert('批量操作失败，请重试');
+    } finally {
+      setBatchProcessing(false);
+    }
+  };
+
   const selectedParsed = selected ? parseBookingDetails(selected.details) : null;
+  const selectedPendingCount = Array.from(selectedIds).filter((id) =>
+    rows.some((r) => r.id === id && r.status === 'pending'),
+  ).length;
 
   return (
     <div className={compact ? '' : 'h-full overflow-y-auto p-6'}>
@@ -126,7 +190,7 @@ export const CheckupBookingAdminPanel: React.FC<{
         </div>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         {([
           ['all', `全部 ${stats.total}`],
           ['pending', `待确认 ${stats.pending}`],
@@ -146,10 +210,58 @@ export const CheckupBookingAdminPanel: React.FC<{
         ))}
       </div>
 
+      {stats.pending > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/50 px-3 py-2">
+          <button
+            type="button"
+            onClick={toggleSelectAllPending}
+            className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-50"
+          >
+            {pendingVisibleIds.length > 0 && pendingVisibleIds.every((id) => selectedIds.has(id))
+              ? '取消全选待确认'
+              : `全选当前页待确认 (${pendingVisibleIds.length})`}
+          </button>
+          {selectedPendingCount > 0 && (
+            <>
+              <button
+                type="button"
+                disabled={batchProcessing}
+                onClick={() => void handleBatchStatus('confirmed')}
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                批量确认 ({selectedPendingCount})
+              </button>
+              <button
+                type="button"
+                disabled={batchProcessing}
+                onClick={() => void handleBatchStatus('cancelled')}
+                className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                批量拒绝 ({selectedPendingCount})
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-slate-100 bg-white">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b bg-slate-50 text-slate-500">
+              <th className="w-10 px-3 py-2.5">
+                {pendingVisibleIds.length > 0 ? (
+                  <input
+                    type="checkbox"
+                    checked={
+                      pendingVisibleIds.length > 0 &&
+                      pendingVisibleIds.every((id) => selectedIds.has(id))
+                    }
+                    onChange={toggleSelectAllPending}
+                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    title="全选待确认"
+                  />
+                ) : null}
+              </th>
               <th className="px-3 py-2.5">预约人</th>
               <th className="px-3 py-2.5">联系电话</th>
               <th className="px-3 py-2.5">套餐</th>
@@ -162,7 +274,7 @@ export const CheckupBookingAdminPanel: React.FC<{
           <tbody>
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-3 py-10 text-center text-slate-400">
+                <td colSpan={8} className="px-3 py-10 text-center text-slate-400">
                   {loading ? '加载中…' : '暂无体检预约记录'}
                 </td>
               </tr>
@@ -170,8 +282,19 @@ export const CheckupBookingAdminPanel: React.FC<{
               visible.map((item) => {
                 const parsed = parseBookingDetails(item.details);
                 const phone = parsed.contactPhone;
+                const isPending = item.status === 'pending';
                 return (
-                  <tr key={item.id} className="border-b last:border-0">
+                  <tr key={item.id} className={`border-b last:border-0 ${selectedIds.has(item.id) ? 'bg-emerald-50/40' : ''}`}>
+                    <td className="px-3 py-3">
+                      {isPending ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleSelect(item.id)}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                      ) : null}
+                    </td>
                     <td className="px-3 py-3">
                       <button
                         type="button"
@@ -210,18 +333,18 @@ export const CheckupBookingAdminPanel: React.FC<{
                       </span>
                     </td>
                     <td className="px-3 py-3 text-right">
-                      {item.status === 'pending' ? (
+                      {isPending ? (
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => handleStatus(item.id, 'confirmed')}
+                            onClick={() => void handleStatus(item.id, 'confirmed')}
                             className="font-bold text-green-600 hover:underline"
                           >
                             确认
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleStatus(item.id, 'cancelled')}
+                            onClick={() => void handleStatus(item.id, 'cancelled')}
                             className="font-bold text-red-600 hover:underline"
                           >
                             拒绝
@@ -275,14 +398,14 @@ export const CheckupBookingAdminPanel: React.FC<{
                 <>
                   <button
                     type="button"
-                    onClick={() => handleStatus(selected.id, 'confirmed')}
+                    onClick={() => void handleStatus(selected.id, 'confirmed')}
                     className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white"
                   >
                     确认预约
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleStatus(selected.id, 'cancelled')}
+                    onClick={() => void handleStatus(selected.id, 'cancelled')}
                     className="flex-1 rounded-xl border border-red-200 py-2.5 text-sm font-bold text-red-600"
                   >
                     拒绝

@@ -130,10 +130,16 @@ export function getNextMonthSlotsForDoctor(
 
 export function getNextMonthSlotsForService(
   service: Pick<ContentItem, 'details'>,
-  options?: { horizonDays?: number; from?: Date }
+  options?: { horizonDays?: number; from?: Date; globalClosedDates?: Iterable<string> }
 ): ServiceMonthSlot[] {
   const weekly = (service.details?.serviceWeeklySchedule || {}) as WeeklyScheduleLike;
   const closed = parseServiceClosedDates(service.details);
+  if (options?.globalClosedDates) {
+    for (const d of options.globalClosedDates) {
+      const s = String(d).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) closed.add(s);
+    }
+  }
   const horizon = options?.horizonDays ?? 30;
   const today = options?.from ? new Date(options.from) : new Date();
   today.setHours(0, 0, 0, 0);

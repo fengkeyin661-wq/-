@@ -40,8 +40,10 @@ import {
 } from '../services/userServiceCatalog';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { prepareContentItemImages, uploadPackageImageFile } from '../services/resourceImageStorage';
-import { excludeCheckupPortalGuide, isCheckupPortalGuideItem } from '../services/checkupPortalContentService';
+import { isCheckupPortalGuideItem } from '../services/checkupPortalContentService';
+import { excludeCheckupConfigRecords } from '../services/checkupGlobalClosedDatesService';
 import { CheckupPortalGuideEditor } from './CheckupPortalGuideEditor';
+import { CheckupGlobalClosedDatesEditor } from './CheckupGlobalClosedDatesEditor';
 import { enumerateDateKeys, mergeClosedDateKeys } from '../services/doctorScheduleUtils';
 // @ts-ignore
 import * as XLSX from 'xlsx';
@@ -282,6 +284,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
     const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
     const [presetDraft, setPresetDraft] = useState<ResourcePresets | null>(null);
     const [isCheckupGuideEditorOpen, setIsCheckupGuideEditorOpen] = useState(false);
+    const [isCheckupGlobalClosedDatesOpen, setIsCheckupGlobalClosedDatesOpen] = useState(false);
 
     // Content Edit State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -415,7 +418,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
 
     const displayItems = useMemo(() => {
         if (activeTab === 'service' && serviceSubTab === 'package') {
-            return excludeCheckupPortalGuide(items);
+            return excludeCheckupConfigRecords(items);
         }
         if (activeTab !== 'service' || serviceSubTab !== 'item') return items;
 
@@ -1846,8 +1849,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         >
                                             📋 维护到检信息与体检须知
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsCheckupGlobalClosedDatesOpen(true)}
+                                            className="px-4 py-2 rounded-lg text-sm font-bold border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                                        >
+                                            🚫 全局例外关闭日期
+                                        </button>
                                         <span className="text-xs text-slate-400">
-                                            配置预约站首页时间、地址、电话及须知全文（全局共用）
+                                            到检须知全局共用；关闭日可一次设置全部体检套餐停约（如国庆、春节）
                                         </span>
                                     </div>
                                 )}
@@ -3262,6 +3272,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             <CheckupPortalGuideEditor
                 open={isCheckupGuideEditorOpen}
                 onClose={() => setIsCheckupGuideEditorOpen(false)}
+            />
+            <CheckupGlobalClosedDatesEditor
+                open={isCheckupGlobalClosedDatesOpen}
+                onClose={() => setIsCheckupGlobalClosedDatesOpen(false)}
+                onSaved={() => void loadData()}
             />
         </div>
     );
