@@ -11,7 +11,7 @@ interface Props {
     onRefresh?: () => void;
 }
 
-export const UserHabits: React.FC<Props> = ({ userName }) => {
+export const UserHabits: React.FC<Props> = ({ userName, record, assessment }) => {
     return (
         <div className="bg-slate-50 min-h-full pb-32 animate-fadeIn">
             {/* Header */}
@@ -21,7 +21,7 @@ export const UserHabits: React.FC<Props> = ({ userName }) => {
             </div>
 
             {/* Virtual Health Assistant (Baichuan) - Full Page */}
-            <VirtualHealthAssistant userName={userName} fullPage />
+            <VirtualHealthAssistant userName={userName} fullPage record={record} assessment={assessment} />
         </div>
     );
 };
