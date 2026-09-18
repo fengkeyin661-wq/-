@@ -5,6 +5,7 @@ import {
   type InteractionItem,
 } from '../services/contentService';
 import { isCheckupBooking, parseBookingDetails } from '../services/bookingContact';
+import { openCheckupBookingDashboard } from '../services/checkupBookingDashboardRoute';
 
 type StatusFilter = 'all' | 'pending' | 'confirmed' | 'cancelled';
 
@@ -156,9 +157,18 @@ export const CheckupBookingAdminPanel: React.FC<{
           <h3 className="text-lg font-bold text-slate-800">{title}</h3>
           <p className="mt-0.5 text-xs text-slate-500">点击预约人姓名可查看联系电话。来自体检预约站与用户端体检套餐。</p>
         </div>
-        <button type="button" onClick={() => void load()} className="text-xs font-bold text-teal-700">
-          {loading ? '刷新中…' : '刷新'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={openCheckupBookingDashboard}
+            className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
+          >
+            📱 手机看板
+          </button>
+          <button type="button" onClick={() => void load()} className="text-xs font-bold text-teal-700">
+            {loading ? '刷新中…' : '刷新'}
+          </button>
+        </div>
       </div>
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">

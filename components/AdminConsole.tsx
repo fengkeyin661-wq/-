@@ -12,6 +12,7 @@ import { isSupabaseConfigured } from '../services/supabaseClient';
 import { HealthProfile, CriticalTrackRecord, HealthRecord, HealthAssessment, RiskLevel, RiskAnalysisData, QuestionnaireData } from '../types';
 import { fetchContent, fetchInteractions, saveInteraction } from '../services/contentService'; // Interconnection
 import { CheckupBookingAdminPanel } from './CheckupBookingAdminPanel';
+import { openCheckupBookingDashboard } from '../services/checkupBookingDashboardRoute';
 import { isCheckupBooking } from '../services/bookingContact';
 import { CriticalHandleModal } from './CriticalHandleModal';
 import { StaffWorkloadPanel } from './StaffWorkloadPanel';
@@ -774,6 +775,19 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
             {adminMainTab === 'checkup_bookings' ? (
                 <div className="flex-1 overflow-auto bg-slate-50">
+                    <div className="mx-4 mt-4 mb-0 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                        <div>
+                            <p className="text-sm font-bold text-emerald-900">📱 手机预约看板</p>
+                            <p className="text-xs text-emerald-700/80 mt-0.5">独立链接，适合每日在手机查看今日到检与待确认</p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={openCheckupBookingDashboard}
+                            className="shrink-0 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800"
+                        >
+                            打开手机看板
+                        </button>
+                    </div>
                     <CheckupBookingAdminPanel />
                 </div>
             ) : adminMainTab === 'workload' && isSuperAdmin ? (

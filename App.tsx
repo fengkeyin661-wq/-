@@ -24,6 +24,13 @@ import { HypertensionManagementModule } from './components/HypertensionManagemen
 import { LipidManagementModule } from './components/LipidManagementModule';
 import { StaffWorkloadPanel } from './components/StaffWorkloadPanel';
 import { closeNeedSurvey, isNeedSurveyHash } from './services/staffNeedSurveyCatalog';
+import { CheckupBookingMobileDashboard } from './components/CheckupBookingMobileDashboard';
+import {
+  canAccessCheckupBookingDashboard,
+  CHECKUP_BOOKING_DASHBOARD_ROLES,
+  isCheckupBookingDashboardHash,
+  openCheckupBookingDashboard,
+} from './services/checkupBookingDashboardRoute';
 
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant, LipidStandaloneParticipant } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText, generateIncrementalAssessment } from './services/geminiService';
@@ -264,6 +271,9 @@ export const App: React.FC = () => {
     } else if (staff && role === 'admin') {
       setCurrentUserRole('admin');
       setIsAuthenticated(true);
+    } else if (role === 'resource_admin') {
+      setCurrentUserRole('resource_admin');
+      setIsAuthenticated(true);
     }
   }, []);
 
@@ -492,10 +502,30 @@ export const App: React.FC = () => {
 
   useEffect(() => {
       if (isAuthenticated || showLoginModal) return;
+      if (isCheckupBookingDashboardHash(routeHash)) {
+          setLoginRoleContext({
+              title: '体检预约手机看板登录',
+              color: 'teal',
+              allowedRoles: [...CHECKUP_BOOKING_DASHBOARD_ROLES],
+          });
+          setShowLoginModal(true);
+          return;
+      }
       if (portalMode === 'admin') openLoginFor('admin');
       if (portalMode === 'ops') openLoginFor('resource');
       if (portalMode === 'doctor') openLoginFor('doctor');
-  }, [portalMode, isAuthenticated, showLoginModal]);
+  }, [portalMode, isAuthenticated, showLoginModal, routeHash]);
+
+  const handleCheckupDashboardLogout = () => {
+      setIsAuthenticated(false);
+      setCurrentUserRole(null);
+      try {
+          localStorage.removeItem('HEALTH_USER_ROLE_V1');
+      } catch {
+          /* ignore */
+      }
+      window.location.hash = '';
+  };
 
   const handleSelectPatient = (
     archive: HealthArchive,
@@ -891,6 +921,44 @@ export const App: React.FC = () => {
       return <StaffNeedSurveyPage onClose={closeNeedSurvey} />;
   }
 
+  if (isCheckupBookingDashboardHash(routeHash)) {
+      if (!isAuthenticated || !canAccessCheckupBookingDashboard(currentUserRole)) {
+          return (
+              <div className="min-h-[100dvh] bg-gradient-to-b from-emerald-800 to-emerald-950 flex flex-col items-center justify-center p-6 text-white">
+                  <div className="w-16 h-16 rounded-2xl bg-white/15 flex items-center justify-center text-3xl mb-4">📋</div>
+                  <h1 className="text-2xl font-black text-center">体检预约手机看板</h1>
+                  <p className="mt-2 text-sm text-emerald-100/90 text-center max-w-xs leading-relaxed">
+                      每日查看到检安排、待确认预约，支持一键拨号与快速审核
+                  </p>
+                  <button
+                      type="button"
+                      onClick={() => {
+                          setLoginRoleContext({
+                              title: '体检预约手机看板登录',
+                              color: 'teal',
+                              allowedRoles: [...CHECKUP_BOOKING_DASHBOARD_ROLES],
+                          });
+                          setShowLoginModal(true);
+                      }}
+                      className="mt-8 w-full max-w-xs rounded-2xl bg-white py-3.5 text-sm font-black text-emerald-800 shadow-lg"
+                  >
+                      登录查看
+                  </button>
+                  <p className="mt-6 text-[11px] text-emerald-200/70 text-center">
+                      支持资源运营台 / 管理控制台账号
+                  </p>
+                  <LoginModal
+                      isOpen={showLoginModal}
+                      onClose={() => setShowLoginModal(false)}
+                      onLoginSuccess={handleLoginSuccess}
+                      roleContext={loginRoleContext}
+                  />
+              </div>
+          );
+      }
+      return <CheckupBookingMobileDashboard onLogout={handleCheckupDashboardLogout} />;
+  }
+
   if (portalMode === 'user') {
       return <UserApp />;
   }
@@ -974,6 +1042,8 @@ export const App: React.FC = () => {
                 <span className="cursor-pointer hover:text-teal-600" onClick={() => setActiveTab('external_survey')}>健康问卷填报</span>
                 <span>|</span>
                 <span className="cursor-pointer hover:text-teal-600" onClick={() => { window.location.hash = '/need-survey'; }}>需求调查</span>
+                <span>|</span>
+                <span className="cursor-pointer hover:text-teal-600" onClick={openCheckupBookingDashboard}>体检预约看板</span>
                 <span>|</span>
                 <span>© 2024 郑州大学医院</span>
                 <span>|</span>

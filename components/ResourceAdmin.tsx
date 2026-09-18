@@ -7,6 +7,7 @@ import {
     checkDbConnection 
 } from '../services/contentService';
 import { CheckupBookingAdminPanel } from './CheckupBookingAdminPanel';
+import { openCheckupBookingDashboard } from '../services/checkupBookingDashboardRoute';
 import { calculateNutritionFromIngredients } from '../services/geminiService';
 import { getSupabaseEnvDiagnostics } from '../services/supabaseClient';
 import {
@@ -1685,6 +1686,14 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                         className="bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded text-xs font-bold border border-white/30 transition-colors"
                     >
                         选项模板
+                    </button>
+                    <button
+                        type="button"
+                        onClick={openCheckupBookingDashboard}
+                        className="bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded text-xs font-bold border border-white/30 transition-colors"
+                        title="打开手机专用预约看板，可收藏到桌面"
+                    >
+                        📱 预约看板
                     </button>
                     <button onClick={onLogout} className="bg-teal-800 hover:bg-teal-900 px-4 py-1.5 rounded text-xs font-bold transition-colors">退出</button>
                 </div>
