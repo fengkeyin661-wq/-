@@ -38,6 +38,7 @@ export interface InteractionItem {
         | 'event_signup'
         | 'circle_join'
         | 'service_booking'
+        | 'checkup_feedback'
         | 'check_result_upload';
     userId: string;
     userName: string;

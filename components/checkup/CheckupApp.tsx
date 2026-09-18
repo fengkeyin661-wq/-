@@ -23,6 +23,8 @@ import { submitCheckupBooking } from './checkupBooking';
 import { CheckupNoticePanel } from './CheckupNoticePanel';
 import { CheckupVenueInfo } from './CheckupVenueInfo';
 import { CheckupBookingSuccessModal } from './CheckupBookingSuccessModal';
+import { CheckupFeedbackPanel } from './CheckupFeedbackPanel';
+import { CheckupChatBot } from './CheckupChatBot';
 
 const PACKAGE_TABS: { id: PackageKind; label: string }[] = [
   { id: 'personal', label: '个人体检' },
@@ -213,7 +215,9 @@ export const CheckupApp: React.FC = () => {
           />
         )}
 
-        <footer className="px-4 py-6 text-center text-xs text-slate-400">
+        <CheckupFeedbackPanel />
+
+        <footer className="px-4 pb-8 pt-2 text-center text-xs text-slate-400">
           {activeKind === 'group'
             ? '团体体检请致电咨询 · 时间另行协商'
             : '访客预约 · 填写姓名与手机号即可提交，无需登录'}
@@ -257,6 +261,8 @@ export const CheckupApp: React.FC = () => {
         timeSlot={successInfo?.timeSlot}
         onClose={() => setSuccessInfo(null)}
       />
+
+      <CheckupChatBot packages={sortedPackages} portalGuide={portalGuide} />
     </div>
   );
 };

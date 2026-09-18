@@ -7,6 +7,7 @@ import {
     checkDbConnection 
 } from '../services/contentService';
 import { CheckupBookingAdminPanel } from './CheckupBookingAdminPanel';
+import { CheckupFeedbackAdminPanel } from './CheckupFeedbackAdminPanel';
 import { openCheckupBookingDashboard } from '../services/checkupBookingDashboardRoute';
 import { calculateNutritionFromIngredients } from '../services/geminiService';
 import { getSupabaseEnvDiagnostics } from '../services/supabaseClient';
@@ -1613,10 +1614,11 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                             <td className="p-3">
                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                                     item.type === 'event_signup' ? 'bg-indigo-100 text-indigo-700' :
+                                    item.type === 'checkup_feedback' ? 'bg-sky-100 text-sky-800' :
                                     String(item.details || '').includes('体检') ? 'bg-emerald-100 text-emerald-800' :
                                     item.type === 'service_booking' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'
                                 }`}>
-                                    {item.type === 'event_signup' ? '活动报名' : String(item.details || '').includes('体检') ? '体检预约' : item.type === 'service_booking' ? '服务预约' : '圈子申请'}
+                                    {item.type === 'event_signup' ? '活动报名' : item.type === 'checkup_feedback' ? '体检反馈' : String(item.details || '').includes('体检') ? '体检预约' : item.type === 'service_booking' ? '服务预约' : '圈子申请'}
                                 </span>
                             </td>
                             <td className="p-3 font-bold">{item.userName}</td>
@@ -1757,11 +1759,15 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                 <CheckupBookingAdminPanel title="体检预约情况汇总" compact />
                             </section>
                             <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                                <CheckupFeedbackAdminPanel compact />
+                            </section>
+                            <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                             <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
                                 其他待审核申请（活动 / 圈子 / 普通服务）
                             </h3>
                             {renderInteractionTable(interactions.filter((i) => {
                                 const d = String(i.details || '');
+                                if (i.type === 'checkup_feedback') return false;
                                 return !(i.type === 'service_booking' && (d.includes('体检套餐预约') || d.includes('体检预约')));
                             }))}
                             </section>
