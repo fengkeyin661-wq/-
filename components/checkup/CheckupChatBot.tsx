@@ -71,17 +71,14 @@ export const CheckupChatBot: React.FC<Props> = ({ packages, portalGuide }) => {
 
   return (
     <>
-      {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="fixed right-4 z-[85] flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-2xl text-white shadow-lg shadow-emerald-900/25 ring-4 ring-white/80 transition-transform hover:bg-emerald-700 active:scale-95 bottom-[calc(env(safe-area-inset-bottom)+5rem)]"
-          aria-label="打开体检问答助手"
-          title="体检问答助手"
-        >
-          🤖
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 active:scale-[0.99]"
+      >
+        <span aria-hidden>🤖</span>
+        体检问答助手
+      </button>
 
       {open && (
         <ModalPortal>
@@ -116,12 +113,15 @@ export const CheckupChatBot: React.FC<Props> = ({ packages, portalGuide }) => {
                 </div>
                 {!configured && (
                   <p className="mt-2 rounded-lg bg-amber-500/90 px-3 py-2 text-[11px] font-medium">
-                    问答服务未配置密钥，仍可查看常见问题；如需启用请联系管理员配置 VITE_DEEPSEEK_API_KEY
+                    问答服务未配置密钥；如需启用请联系管理员配置 VITE_DEEPSEEK_API_KEY
                   </p>
                 )}
               </div>
 
-              <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3 bg-slate-50">
+              <div
+                ref={scrollRef}
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3 bg-slate-50"
+              >
                 {messages.map((m, idx) => (
                   <div
                     key={idx}
@@ -155,7 +155,7 @@ export const CheckupChatBot: React.FC<Props> = ({ packages, portalGuide }) => {
                 )}
               </div>
 
-              <div className="shrink-0 border-t border-slate-100 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+              <div className="shrink-0 border-t border-slate-100 bg-white p-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
                 {!hasUserMessage && (
                   <div className="mb-3">
                     <p className="mb-2 text-[11px] font-bold text-slate-400">快捷提问</p>
