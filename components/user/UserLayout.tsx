@@ -18,7 +18,7 @@ export const UserLayout: React.FC<Props> = ({
   profileIncompleteBanner,
 }) => {
   const navItems = [
-    { id: 'habits', label: '问诊', icon: '🤖' }, // 智能问诊（虚拟健康助手）
+    { id: 'habits', label: '智能问答', icon: '🤖' }, // 首页：DeepSeek 健康问答助手
     { id: 'community', label: '服务', icon: '🏥' },
     { id: 'doctor', label: '医生', icon: '🩺' }, // 医生/医疗资源
     { id: 'message', label: '消息', icon: '💬' }, // 健康管家主导互动

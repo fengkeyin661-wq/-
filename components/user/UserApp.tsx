@@ -80,7 +80,7 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('message');
+  const [activeTab, setActiveTab] = useState('habits');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -366,7 +366,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     syncArchiveToLocal(archive);
     writePortalSession(archive.checkup_id);
     setLoading(false);
-    setActiveTab('message');
+    setActiveTab('habits');
   };
 
   const handleTabChange = (tab: string) => {
