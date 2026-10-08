@@ -21,6 +21,11 @@ import { HighBloodPressureTag } from './HighBloodPressureTag';
 import { HighLipidTag } from './HighLipidTag';
 import { extractTextFromFile } from '../services/fileParseService';
 import { importCheckupReportsBatch, sortArchivesByExamDate } from '../services/checkupImportService';
+import {
+    buildDepartmentOptions,
+    loadAdminDepartments,
+} from '../services/adminDepartmentCatalogService';
+import { AdminDepartmentManagerModal } from './AdminDepartmentManagerModal';
 import { isDiabetesCohort } from '../services/diabetesAssessmentService';
 import { detectHighGlucoseTag } from '../services/glucoseTagService';
 import { detectHighBloodPressureTag, isHypertensionCohort } from '../services/bloodPressureTagService';
@@ -74,6 +79,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'updated_at', direction: 'desc' });
     const [filterRisk, setFilterRisk] = useState<string>('ALL');
+    const [filterDepartment, setFilterDepartment] = useState<string>('ALL');
+    const [departmentCatalog, setDepartmentCatalog] = useState<string[]>(() => loadAdminDepartments());
+    const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [pageSize, setPageSize] = useState<number>(20);
     const [currentPage, setCurrentPage] = useState<number>(1);
@@ -231,6 +239,26 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             loadData({ force: true }); if (onDataUpdate) onDataUpdate();
             setLoading(false);
         }
+    };
+
+    const handleBatchAssignDepartment = async (department: string) => {
+        const dept = department.trim();
+        if (!dept || selectedIds.size === 0) return;
+        setLoading(true);
+        let ok = 0;
+        let fail = 0;
+        for (const id of Array.from(selectedIds)) {
+            const arch = archives.find((a) => a.id === id);
+            if (!arch) continue;
+            const profileToSave = { ...arch.health_record.profile, department: dept };
+            const result = await updateArchiveProfile(arch.id, profileToSave);
+            if (result.success) ok += 1;
+            else fail += 1;
+        }
+        setLoading(false);
+        loadData({ force: true });
+        if (onDataUpdate) onDataUpdate();
+        alert(`部门已更新：成功 ${ok} 人${fail ? `，失败 ${fail} 人` : ''}`);
     };
 
     const resolveSelectedArchive = (): HealthArchive | undefined => {
@@ -478,10 +506,18 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         }
     };
 
+    const departmentOptions = useMemo(
+        () => buildDepartmentOptions(departmentCatalog, archives),
+        [departmentCatalog, archives],
+    );
+
     const filteredArchives = useMemo(() => {
         let result = archives.filter(archive => {
             const term = searchTerm.toLowerCase();
             const matchSearch = ((archive.name || '').toLowerCase().includes(term) || (archive.checkup_id || '').toLowerCase().includes(term) || (archive.phone || '').toLowerCase().includes(term));
+            const matchDept =
+                filterDepartment === 'ALL' ||
+                (archive.department || '').trim() === filterDepartment;
             let matchRisk = false;
             if (filterRisk === 'ALL') matchRisk = true;
             else if (filterRisk === 'CRITICAL') matchRisk = !!((archive.assessment_data?.isCritical === true || (archive.assessment_data?.criticalWarning && archive.assessment_data.criticalWarning.includes('类'))) && archive.critical_track?.status !== 'archived');
@@ -492,7 +528,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             else if (filterRisk === 'LIPID') matchRisk = detectDyslipidemiaTag(archive.health_record).show || isLipidCohort(archive.health_record);
             else if (filterRisk === 'LIPID_REPORT') matchRisk = !!archive.assessment_data?.lipidReport;
             else matchRisk = archive.risk_level === filterRisk;
-            return matchSearch && matchRisk;
+            return matchSearch && matchRisk && matchDept;
         });
         if (sortConfig) {
             result.sort((a, b) => {
@@ -518,7 +554,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             });
         }
         return result;
-    }, [archives, searchTerm, filterRisk, sortConfig]);
+    }, [archives, searchTerm, filterRisk, filterDepartment, sortConfig]);
 
     const totalPages = Math.max(1, Math.ceil(filteredArchives.length / pageSize));
     const safePage = Math.min(currentPage, totalPages);
@@ -537,7 +573,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchTerm, filterRisk, sortConfig, pageSize]);
+    }, [searchTerm, filterRisk, filterDepartment, sortConfig, pageSize]);
 
     useEffect(() => {
         if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -845,6 +881,19 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         <option value="LIPID_REPORT">📋 已有血脂评估</option>
                     </select>
                     <select
+                        className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none bg-white max-w-[180px]"
+                        value={filterDepartment}
+                        onChange={(e) => setFilterDepartment(e.target.value)}
+                        title="按单位/部门筛选"
+                    >
+                        <option value="ALL">全部部门</option>
+                        {departmentOptions.map((d) => (
+                            <option key={d} value={d}>
+                                {d}
+                            </option>
+                        ))}
+                    </select>
+                    <select
                         className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none bg-white"
                         value={pageSize}
                         onChange={(e) => setPageSize(Number(e.target.value))}
@@ -857,6 +906,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     <span className="text-xs text-slate-500 whitespace-nowrap">
                         共 {filteredArchives.length} 人
                         {filterRisk !== 'ALL' ? `（${FILTER_LABELS[filterRisk]}）` : ''}
+                        {filterDepartment !== 'ALL' ? ` · ${filterDepartment}` : ''}
                     </span>
                     {cacheHint && (
                         <span className="text-xs text-slate-400 whitespace-nowrap" title="30 分钟内再次打开将直接使用本地缓存">
@@ -880,6 +930,15 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                         onChange={handleManagerUploadFiles}
                     />
                     
+                    <button
+                        type="button"
+                        onClick={() => setIsDepartmentModalOpen(true)}
+                        className="bg-white border border-teal-200 text-teal-800 px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-50 flex items-center gap-1 shadow-sm"
+                        title="批量维护部门库；勾选人员后可批量设置部门"
+                    >
+                        🏢 部门管理
+                    </button>
+
                     <button onClick={handleExportList} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1 shadow-sm" title="导出当前筛选结果（含序号）">
                         <span>📥</span> 导出当前列表
                     </button>
@@ -1047,7 +1106,21 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                 <div><label className="block text-xs font-bold text-slate-500 mb-1">性别</label><select className="w-full border p-2 rounded bg-white" value={editForm.gender} onChange={e => setEditForm({...editForm!, gender: e.target.value})}><option value="男">男</option><option value="女">女</option></select></div>
                                 <div><label className="block text-xs font-bold text-slate-500 mb-1">年龄</label><input type="number" className="w-full border p-2 rounded" value={editForm.age} onChange={e => setEditForm({...editForm!, age: Number(e.target.value)})} /></div>
                             </div>
-                            <div><label className="block text-xs font-bold text-slate-500 mb-1">部门</label><input className="w-full border p-2 rounded" value={editForm.department} onChange={e => setEditForm({...editForm!, department: e.target.value})} /></div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">部门</label>
+                                <input
+                                    list="admin-dept-edit-list"
+                                    className="w-full border p-2 rounded"
+                                    value={editForm.department}
+                                    onChange={(e) => setEditForm({ ...editForm!, department: e.target.value })}
+                                    placeholder="选择或输入单位/部门"
+                                />
+                                <datalist id="admin-dept-edit-list">
+                                    {departmentOptions.map((d) => (
+                                        <option key={d} value={d} />
+                                    ))}
+                                </datalist>
+                            </div>
                             <div><label className="block text-xs font-bold text-slate-500 mb-1">电话</label><input className="w-full border p-2 rounded" value={editForm.phone || ''} onChange={e => setEditForm({...editForm!, phone: e.target.value})} /></div>
                             <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
                                 <input type="checkbox" className="mt-1" checked={editProfileComplete} onChange={(e) => setEditProfileComplete(e.target.checked)} />
@@ -1064,6 +1137,15 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             
             {/* Critical Modal */}
             {criticalModalArchive && <CriticalHandleModal archive={criticalModalArchive} onClose={() => setCriticalModalArchive(null)} onSave={handleCriticalSave} />}
+
+            <AdminDepartmentManagerModal
+                open={isDepartmentModalOpen}
+                onClose={() => setIsDepartmentModalOpen(false)}
+                archives={archives}
+                selectedCount={selectedIds.size}
+                onBatchAssignDepartment={handleBatchAssignDepartment}
+                onCatalogSaved={setDepartmentCatalog}
+            />
 
             {/* SMS Batch Modal */}
             {showSmsModal && (
