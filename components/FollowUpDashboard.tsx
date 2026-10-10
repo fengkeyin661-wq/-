@@ -932,7 +932,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                            <h4 className="font-bold text-amber-900 mb-2">1. 异常指标跟踪</h4>
                            <p className="text-[11px] text-amber-800/90 mb-3">记录复测或进一步检查进展，无需逐项盘问所有化验。</p>
                            {formData.abnormalityFollowUps && formData.abnormalityFollowUps.length > 0 ? (
-                               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                               <div className="flex flex-col gap-3">
                                    {formData.abnormalityFollowUps.map((row, idx) => (
                                        <div key={row.key} className="bg-white p-3 rounded border border-amber-100 text-xs space-y-2">
                                            <div className="font-bold text-slate-800">{row.item}</div>

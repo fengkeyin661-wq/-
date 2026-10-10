@@ -56,6 +56,36 @@ export const PLAN_ADHERENCE_LABELS: Record<PlanAdherenceGrade, string> = {
 const abnormalityKey = (item: string, result?: string) =>
   normalizeFocusItemKey(`${item}|${result || ''}`);
 
+const STATUS_SORT_WEIGHT: Record<AbnormalityFollowUpStatus, number> = {
+  pending: 0,
+  referred: 40,
+  retest_done: 50,
+  further_exam_done: 55,
+  declined: 100,
+};
+
+/** 随访录入：异常项按优先级自上而下（待跟进、高危相关优先） */
+export const sortAbnormalityTracksByPriority = (
+  tracks: AbnormalityFollowUp[],
+  archive: HealthArchive
+): AbnormalityFollowUp[] => {
+  const criticalItem = archive.critical_track?.critical_item?.toLowerCase() || '';
+  const redLines = (archive.assessment_data?.risks?.red || []).map((s) => String(s).toLowerCase());
+  const yellowLines = (archive.assessment_data?.risks?.yellow || []).map((s) => String(s).toLowerCase());
+
+  const score = (row: AbnormalityFollowUp): number => {
+    let s = STATUS_SORT_WEIGHT[row.status] ?? 30;
+    const blob = `${row.item} ${row.lastResult || ''}`.toLowerCase();
+    if (criticalItem && blob.includes(criticalItem)) s -= 50;
+    if (redLines.some((r) => r.length > 1 && (blob.includes(r) || r.includes(blob.slice(0, 8))))) s -= 30;
+    else if (yellowLines.some((r) => r.length > 1 && blob.includes(r))) s -= 15;
+    if (/危急|严重|显著|明显异常|↑↑|高危/.test(blob)) s -= 12;
+    return s;
+  };
+
+  return [...tracks].sort((a, b) => score(a) - score(b) || a.item.localeCompare(b.item, 'zh-CN'));
+};
+
 const textBlob = (archive: HealthArchive): string => {
   const a = archive.assessment_data;
   const parts = [
@@ -151,7 +181,7 @@ const mergeAbnormalityTracks = (archive: HealthArchive): AbnormalityFollowUp[] =
     }
   }
 
-  return Array.from(byKey.values()).slice(0, 8);
+  return sortAbnormalityTracksByPriority(Array.from(byKey.values()), archive).slice(0, 12);
 };
 
 export const buildSupervisionBrief = (archive: HealthArchive | null | undefined): SupervisionBrief => {

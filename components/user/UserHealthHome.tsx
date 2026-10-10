@@ -272,13 +272,13 @@ export const UserHealthHome: React.FC<Props> = ({
         {model.hasAssessment ? (
           <button
             type="button"
-            onClick={() => handleAction('plan')}
+            onClick={() => handleAction('record')}
             className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-sm transition-colors hover:bg-slate-50 active:scale-[0.99]"
           >
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xl">📄</span>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-bold text-slate-800">查看完整健康管理方案</div>
-              <div className="mt-0.5 text-xs text-slate-500">饮食、运动与随访执行单</div>
+              <div className="text-sm font-bold text-slate-800">查看完整健康档案</div>
+              <div className="mt-0.5 text-xs text-slate-500">我的健康档案与体检记录</div>
             </div>
             <span className="shrink-0 text-slate-300">›</span>
           </button>
