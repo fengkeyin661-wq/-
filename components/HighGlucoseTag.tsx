@@ -23,19 +23,30 @@ export const HighGlucoseTag: React.FC<Props> = ({ record, onClick, className = '
     .filter(Boolean)
     .join('\n');
 
+  const classNames = `inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold ${highGlucoseTagClassName(tag.severity)} ${className}`;
+
+  if (!onClick) {
+    return (
+      <span title={title} className={classNames}>
+        <span>🩸</span>
+        <span>{tag.label}</span>
+      </span>
+    );
+  }
+
   return (
     <button
       type="button"
       title={title}
       onClick={(e) => {
         e.stopPropagation();
-        onClick?.();
+        onClick();
       }}
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold transition-colors ${highGlucoseTagClassName(tag.severity)} ${className}`}
+      className={`${classNames} transition-colors`}
     >
       <span>🩸</span>
       <span>{tag.label}</span>
-      {onClick && <span className="opacity-70">→</span>}
+      <span className="opacity-70">→</span>
     </button>
   );
 };

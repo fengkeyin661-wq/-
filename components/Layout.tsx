@@ -173,8 +173,6 @@ export const Layout: React.FC<LayoutProps> = ({
                         <span>🔒</span> 后台登录
                     </button>
                 )}
-                <div className="h-4 w-[1px] bg-slate-200 mx-1"></div>
-                <button className="text-sm text-slate-600 hover:text-teal-600">帮助中心</button>
             </div>
          </header>
          <div className="flex-1 overflow-auto p-8 print:p-0 print:overflow-visible print:h-auto">

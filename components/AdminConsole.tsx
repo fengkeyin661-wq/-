@@ -26,6 +26,8 @@ import {
     loadAdminDepartments,
 } from '../services/adminDepartmentCatalogService';
 import { AdminDepartmentManagerModal } from './AdminDepartmentManagerModal';
+import { AdminPersonnelToolbar } from './admin/AdminPersonnelToolbar';
+import { ArchiveRowActions } from './admin/ArchiveRowActions';
 import { isDiabetesCohort } from '../services/diabetesAssessmentService';
 import { detectHighGlucoseTag } from '../services/glucoseTagService';
 import { detectHighBloodPressureTag, isHypertensionCohort } from '../services/bloodPressureTagService';
@@ -133,6 +135,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [isSendingSms, setIsSendingSms] = useState(false);
     const [smsSendSummary, setSmsSendSummary] = useState<string | null>(null);
     const [adminMainTab, setAdminMainTab] = useState<'personnel' | 'workload' | 'checkup_bookings'>('personnel');
+    const [opsOverviewExpanded, setOpsOverviewExpanded] = useState(false);
 
     useEffect(() => {
         if (!isSuperAdmin && adminMainTab === 'workload') {
@@ -512,6 +515,18 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         [departmentCatalog, archives],
     );
 
+    const criticalPendingCount = useMemo(
+        () =>
+            archives.filter((archive) => {
+                const isCritical =
+                    archive.assessment_data?.isCritical === true ||
+                    (archive.assessment_data?.criticalWarning &&
+                        archive.assessment_data.criticalWarning.includes('类'));
+                return isCritical && archive.critical_track?.status !== 'archived';
+            }).length,
+        [archives],
+    );
+
     const filteredArchives = useMemo(() => {
         let result = archives.filter(archive => {
             const term = searchTerm.toLowerCase();
@@ -862,145 +877,88 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                 </div>
             ) : (
             <>
-            {/* Operations Dashboard */}
-            <div className="bg-slate-800 text-white p-4 grid grid-cols-5 gap-4 shrink-0">
-                <div className="flex flex-col items-center border-r border-slate-700">
-                    <span className="text-2xl font-bold">{archives.length}</span>
-                    <span className="text-xs text-slate-400">总健康档案</span>
-                </div>
-                <div className="flex flex-col items-center border-r border-slate-700">
-                    <span className="text-2xl font-bold">{opsStats.activeDoctors}</span>
-                    <span className="text-xs text-slate-400">在线医生</span>
-                </div>
-                <div className="flex flex-col items-center border-r border-slate-700">
-                    <span className="text-2xl font-bold text-yellow-400">{opsStats.pendingSignings}</span>
-                    <span className="text-xs text-slate-400">待审核签约</span>
-                </div>
-                <div className="flex flex-col items-center border-r border-slate-700">
-                    <span className="text-2xl font-bold">{opsStats.eventSignups}</span>
-                    <span className="text-xs text-slate-400">活动报名人次</span>
-                </div>
-                <button
-                    type="button"
-                    onClick={() => setAdminMainTab('checkup_bookings')}
-                    className="flex flex-col items-center"
-                >
-                    <span className="text-2xl font-bold text-emerald-300">{opsStats.pendingCheckupBookings}</span>
-                    <span className="text-xs text-slate-400">待确认体检预约</span>
-                </button>
-            </div>
-
-            {/* Toolbar */}
-            <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 gap-4 shrink-0 flex-wrap">
-                <div className="flex items-center gap-4 flex-1">
-                    <div className="relative flex-1 max-w-md">
-                        <input type="text" placeholder="搜索姓名、编号、电话..." className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-teal-500 outline-none text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                        <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3">
+                <div className="flex flex-wrap items-stretch gap-4">
+                    <div className="flex min-w-[100px] flex-col justify-center rounded-lg border border-slate-100 bg-slate-50 px-4 py-2">
+                        <span className="text-xl font-black text-slate-800">{archives.length}</span>
+                        <span className="text-[11px] font-medium text-slate-500">总健康档案</span>
                     </div>
-                    <select className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none bg-white" value={filterRisk} onChange={e => setFilterRisk(e.target.value)}>
-                        <option value="ALL">全部风险等级</option>
-                        <option value="RED">🔴 高风险</option>
-                        <option value="YELLOW">🟡 中风险</option>
-                        <option value="GREEN">🟢 低风险</option>
-                        <option value="CRITICAL">🚨 待处理危急值</option>
-                        <option value="DIABETES">🩸 高血糖 / 糖代谢异常</option>
-                        <option value="HYPERTENSION">🫀 血压偏高 / 高血压</option>
-                        <option value="DIABETES_REPORT">📋 已有糖尿病评估</option>
-                        <option value="HYPERTENSION_REPORT">📋 已有高血压评估</option>
-                        <option value="LIPID">🧪 血脂异常</option>
-                        <option value="LIPID_REPORT">📋 已有血脂评估</option>
-                    </select>
-                    <select
-                        className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none bg-white max-w-[180px]"
-                        value={filterDepartment}
-                        onChange={(e) => setFilterDepartment(e.target.value)}
-                        title="按单位/部门筛选"
-                    >
-                        <option value="ALL">全部部门</option>
-                        {departmentOptions.map((d) => (
-                            <option key={d} value={d}>
-                                {d}
-                            </option>
-                        ))}
-                    </select>
-                    <select
-                        className="border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none bg-white"
-                        value={pageSize}
-                        onChange={(e) => setPageSize(Number(e.target.value))}
-                        title="每页显示人数"
-                    >
-                        <option value={10}>每页 10 人</option>
-                        <option value={20}>每页 20 人</option>
-                        <option value={50}>每页 50 人</option>
-                    </select>
-                    <span className="text-xs text-slate-500 whitespace-nowrap">
-                        共 {filteredArchives.length} 人
-                        {filterRisk !== 'ALL' ? `（${FILTER_LABELS[filterRisk]}）` : ''}
-                        {filterDepartment !== 'ALL' ? ` · ${filterDepartment}` : ''}
-                    </span>
-                    {cacheHint && (
-                        <span className="text-xs text-slate-400 whitespace-nowrap" title="30 分钟内再次打开将直接使用本地缓存">
-                            {isRefreshing ? '同步中…' : cacheHint}
-                        </span>
-                    )}
-                </div>
-                <div className="flex gap-2 items-center">
-                    <label className="flex items-center gap-2 cursor-pointer mr-2 select-none" title="若档案中问卷已有内容，则跳过不更新">
-                        <input type="checkbox" checked={skipFilled} onChange={(e) => setSkipFilled(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" />
-                        <span className="text-xs font-bold text-slate-600">跳过已完善问卷</span>
-                    </label>
-
-                    <input type="file" ref={questionnaireImportRef} className="hidden" accept=".xlsx, .xls" onChange={handleBatchQuestionnaireImport} />
-                    <input
-                        type="file"
-                        ref={checkUploadRef}
-                        className="hidden"
-                        multiple
-                        accept=".pdf,.docx,.doc,.txt,.xlsx,.xls,.csv,.png,.jpg,.jpeg"
-                        onChange={handleManagerUploadFiles}
-                    />
-                    
                     <button
                         type="button"
-                        onClick={() => setIsDepartmentModalOpen(true)}
-                        className="bg-white border border-teal-200 text-teal-800 px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-50 flex items-center gap-1 shadow-sm"
-                        title="批量维护部门库；勾选人员后可批量设置部门"
+                        onClick={() => setFilterRisk('CRITICAL')}
+                        className="flex min-w-[100px] flex-col justify-center rounded-lg border border-red-100 bg-red-50/50 px-4 py-2 text-left hover:bg-red-50"
                     >
-                        🏢 部门管理
-                    </button>
-
-                    <button onClick={handleExportList} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 flex items-center gap-1 shadow-sm" title="导出当前筛选结果（含序号）">
-                        <span>📥</span> 导出当前列表
-                    </button>
-
-                    <button onClick={() => questionnaireImportRef.current?.click()} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm flex items-center gap-1" title="批量AI识别问卷并更新">
-                        📝 导入问卷更新
-                    </button>
-                    <button onClick={handleManagerUploadClick} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 shadow-sm flex items-center gap-1" title="支持一次选择多人历年 PDF/Word，AI 识别体检编号后自动匹配档案">
-                        🧾 批量上传历年体检报告
-                    </button>
-
-                    {selectedIds.size > 0 && <button onClick={handleBatchDelete} className="bg-red-100 text-red-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-200">🗑️ 删除选中</button>}
-                    <button onClick={handleBatchFixBMI} className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-200">⚖️ BMI修复</button>
-                    <button onClick={() => setIsSmartBatchModalOpen(true)} className="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 shadow-sm">📂 智能建档</button>
-                    <button
-                        onClick={handleOpenSmsModal}
-                        disabled={!isSmsConfigured()}
-                        title={isSmsConfigured() ? '向筛选或选中人员发送短信' : '需配置 Supabase 与 VITE_SMS_INVOKE_SECRET'}
-                        className="bg-amber-50 text-amber-800 border border-amber-200 px-4 py-2 rounded-lg text-xs font-bold hover:bg-amber-100 disabled:opacity-50"
-                    >
-                        📩 发送短信
+                        <span className="text-xl font-black text-red-600">{criticalPendingCount}</span>
+                        <span className="text-[11px] font-medium text-red-700/80">待处理危急值</span>
                     </button>
                     <button
-                        onClick={() => loadData({ force: true })}
-                        disabled={isRefreshing}
-                        className="bg-white border border-slate-300 px-3 py-2 rounded-lg hover:bg-slate-50 text-slate-600 disabled:opacity-50"
-                        title="强制从云端重新加载"
+                        type="button"
+                        onClick={() => setAdminMainTab('checkup_bookings')}
+                        className="flex min-w-[100px] flex-col justify-center rounded-lg border border-emerald-100 bg-emerald-50/50 px-4 py-2 text-left hover:bg-emerald-50"
                     >
-                        {isRefreshing ? '⏳' : '🔄'}
+                        <span className="text-xl font-black text-emerald-700">{opsStats.pendingCheckupBookings}</span>
+                        <span className="text-[11px] font-medium text-emerald-800/80">待确认体检预约</span>
                     </button>
+                    {isSuperAdmin ? (
+                        <button
+                            type="button"
+                            onClick={() => setOpsOverviewExpanded((v) => !v)}
+                            className="ml-auto self-center text-xs font-bold text-slate-500 hover:text-teal-700"
+                        >
+                            {opsOverviewExpanded ? '收起运营概览' : '运营概览 ▾'}
+                        </button>
+                    ) : null}
                 </div>
+                {isSuperAdmin && opsOverviewExpanded ? (
+                    <div className="mt-3 grid grid-cols-3 gap-3 border-t border-slate-100 pt-3">
+                        <div className="rounded-lg border border-slate-100 px-3 py-2 text-center">
+                            <span className="text-lg font-bold text-slate-700">{opsStats.activeDoctors}</span>
+                            <span className="block text-[10px] text-slate-500">在线医生</span>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 px-3 py-2 text-center">
+                            <span className="text-lg font-bold text-amber-600">{opsStats.pendingSignings}</span>
+                            <span className="block text-[10px] text-slate-500">待审核签约</span>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 px-3 py-2 text-center">
+                            <span className="text-lg font-bold text-slate-700">{opsStats.eventSignups}</span>
+                            <span className="block text-[10px] text-slate-500">活动报名人次</span>
+                        </div>
+                    </div>
+                ) : null}
             </div>
+
+            <AdminPersonnelToolbar
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                filterRisk={filterRisk}
+                onFilterRiskChange={setFilterRisk}
+                filterDepartment={filterDepartment}
+                onFilterDepartmentChange={setFilterDepartment}
+                departmentOptions={departmentOptions}
+                pageSize={pageSize}
+                onPageSizeChange={setPageSize}
+                filteredCount={filteredArchives.length}
+                filterSummary={`${filterRisk !== 'ALL' ? `（${FILTER_LABELS[filterRisk]}）` : ''}${filterDepartment !== 'ALL' ? ` · ${filterDepartment}` : ''}`}
+                cacheHint={cacheHint}
+                isRefreshing={isRefreshing}
+                skipFilled={skipFilled}
+                onSkipFilledChange={setSkipFilled}
+                selectedCount={selectedIds.size}
+                onDepartmentManage={() => setIsDepartmentModalOpen(true)}
+                onExportList={handleExportList}
+                onRefresh={() => loadData({ force: true })}
+                onBatchDelete={handleBatchDelete}
+                onImportQuestionnaire={() => questionnaireImportRef.current?.click()}
+                onBatchUploadReports={handleManagerUploadClick}
+                onSmartBatch={() => setIsSmartBatchModalOpen(true)}
+                onBatchFixBmi={handleBatchFixBMI}
+                onOpenSms={handleOpenSmsModal}
+                smsConfigured={isSmsConfigured()}
+                questionnaireImportRef={questionnaireImportRef}
+                checkUploadRef={checkUploadRef}
+                onQuestionnaireFileChange={handleBatchQuestionnaireImport}
+                onCheckUploadFileChange={handleManagerUploadFiles}
+            />
 
             {/* Error Message */}
             {fetchError && <div className="bg-red-50 text-red-600 p-3 text-center text-sm font-bold border-b border-red-100">数据加载失败: {fetchError}</div>}
@@ -1013,12 +971,12 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                             <th className="p-4 w-10"><input type="checkbox" onChange={handleSelectAll} checked={paginatedArchives.length > 0 && paginatedArchives.every(a => selectedIds.has(a.id))} /></th>
                             <th className="p-4 w-14 text-center">序号</th>
                             <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('checkup_id')}>编号{sortIndicator('checkup_id')}</th>
-                            <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('name')}>姓名{sortIndicator('name')}</th>
+                            <th className="p-4 min-w-[140px] cursor-pointer hover:text-teal-600" onClick={() => handleSort('name')}>姓名{sortIndicator('name')}</th>
                             <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('age')}>性别 / 年龄{sortIndicator('age')}</th>
                             <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('department')}>部门{sortIndicator('department')}</th>
                             <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('risk_level')}>风险{sortIndicator('risk_level')}</th>
                             <th className="p-4 cursor-pointer hover:text-teal-600" onClick={() => handleSort('updated_at')}>更新时间{sortIndicator('updated_at')}</th>
-                            <th className="p-4 text-center">操作</th>
+                            <th className="p-4 w-[148px] text-center whitespace-nowrap">操作</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
@@ -1040,18 +998,9 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                     <td className="p-4">
                                         <div className="font-bold text-slate-800">{archive.name}</div>
                                         <div className="mt-1 flex flex-wrap items-center gap-1">
-                                          <HighGlucoseTag
-                                            record={archive.health_record}
-                                            onClick={() => onSelectPatient(archive, 'diabetes')}
-                                          />
-                                          <HighBloodPressureTag
-                                            record={archive.health_record}
-                                            onClick={() => onSelectPatient(archive, 'hypertension')}
-                                          />
-                                          <HighLipidTag
-                                            record={archive.health_record}
-                                            onClick={() => onSelectPatient(archive, 'lipid')}
-                                          />
+                                          <HighGlucoseTag record={archive.health_record} />
+                                          <HighBloodPressureTag record={archive.health_record} />
+                                          <HighLipidTag record={archive.health_record} />
                                           {isCritical && (
                                             <div
                                               className={`text-[10px] px-1.5 py-0.5 rounded inline-block cursor-pointer ${archive.critical_track?.status === 'archived' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600 animate-pulse'}`}
@@ -1069,11 +1018,28 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                     <td className="p-4 text-slate-600">{archive.department}</td>
                                     <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold border ${archive.risk_level === 'RED' ? 'bg-red-50 text-red-600 border-red-200' : archive.risk_level === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' : 'bg-green-50 text-green-600 border-green-200'}`}>{archive.risk_level === 'RED' ? '高风险' : archive.risk_level === 'YELLOW' ? '中风险' : '低风险'}</span></td>
                                     <td className="p-4 text-xs text-slate-400 font-mono">{new Date(archive.updated_at || archive.created_at).toLocaleDateString()}</td>
-                                    <td className="p-4 flex justify-center gap-2 opacity-80 group-hover:opacity-100">
-                                        <button onClick={(e) => { e.stopPropagation(); onSelectPatient(archive, 'assessment'); }} className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded hover:bg-indigo-100 font-bold">查看</button>
-                                        <button onClick={(e) => { e.stopPropagation(); onSelectPatient(archive, 'diabetes'); }} className="text-xs bg-teal-50 text-teal-700 px-3 py-1.5 rounded hover:bg-teal-100 font-bold">专项筛查</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleEditClick(archive); }} className="text-xs bg-slate-50 text-slate-600 px-3 py-1.5 rounded hover:bg-slate-100">编辑</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(archive.id, archive.name); }} className="text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded hover:bg-red-100">删除</button>
+                                    <td className="p-4 w-[148px] whitespace-nowrap">
+                                        <div className="flex items-center justify-center gap-1.5 opacity-90 group-hover:opacity-100">
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onSelectPatient(archive, 'assessment');
+                                                }}
+                                                className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700"
+                                            >
+                                                打开档案
+                                            </button>
+                                            <ArchiveRowActions
+                                                onOpenAssessment={() => onSelectPatient(archive, 'assessment')}
+                                                onFollowUp={() => onSelectPatient(archive, 'followup')}
+                                                onChronicDiabetes={() => onSelectPatient(archive, 'diabetes')}
+                                                onChronicHypertension={() => onSelectPatient(archive, 'hypertension')}
+                                                onChronicLipid={() => onSelectPatient(archive, 'lipid')}
+                                                onEdit={() => handleEditClick(archive)}
+                                                onDelete={() => handleDelete(archive.id, archive.name)}
+                                            />
+                                        </div>
                                     </td>
                                 </tr>
                             );
