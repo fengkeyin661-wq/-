@@ -5,7 +5,11 @@ import {
   filterPriorityFocusItems,
   normalizeFocusItemKey,
 } from './followUpLinkageService';
-import { buildFollowUpGuidance, type FollowUpUserStep } from './followUpGuidance';
+import {
+  buildFollowUpGuidance,
+  userSelfGuideForFocusItem,
+  type FollowUpUserStep,
+} from './followUpGuidance';
 
 export type UserHomeActionKind =
   | 'metrics'
@@ -136,7 +140,7 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
     pushAction(
       {
         title: `危急值跟进：${criticalTrack.critical_item || '重点指标'}`,
-        description: criticalTrack.critical_desc?.slice(0, 60) || '请按管家要求完成核对',
+        description: criticalTrack.critical_desc?.slice(0, 60) || '这项指标需要我尽快按方案跟进',
         action: 'followup',
         tier: 'urgent',
       },
@@ -147,8 +151,8 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
   if (hasOverdueFollowUp && nextFollowUp) {
     pushAction(
       {
-        title: '随访已逾期，请尽快联系管家',
-        description: `原定日期 ${nextFollowUp.date}，优先完成本期核对项`,
+        title: '我的随访日期已过',
+        description: `原计划 ${nextFollowUp.date}，我先完成下面几项再联系健康管理团队`,
         action: 'followup',
         tier: 'urgent',
       },
@@ -159,8 +163,8 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
   for (const task of followCtx?.failedTasks || []) {
     pushAction(
       {
-        title: `补做未达标：${task.description}`,
-        description: '上期随访未达成，本期需重点跟进',
+        title: `我这周补做：${task.description}`,
+        description: '上次没完全做到，我从这项开始',
         action: 'plan',
         tier: 'primary',
       },
@@ -172,7 +176,7 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
     pushAction(
       {
         title: item,
-        description: '本期随访核对重点',
+        description: userSelfGuideForFocusItem(item),
         action: 'followup',
         tier: 'primary',
       },
@@ -199,8 +203,8 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
   if (nextFollowUp && !hasOverdueFollowUp && followUpFocusItems.length === 0) {
     pushAction(
       {
-        title: '查看下阶段健康管理执行单',
-        description: `下次随访 ${nextFollowUp.date}`,
+        title: '查看我的下阶段执行单',
+        description: `我的随访安排在 ${nextFollowUp.date}`,
         action: 'followup',
         tier: 'primary',
       },

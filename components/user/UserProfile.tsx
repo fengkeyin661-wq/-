@@ -219,7 +219,7 @@ export const UserProfile: React.FC<Props> = ({
             <div className="p-4 space-y-6 animate-slideInRight pb-20">
                 {(guidance.priorityFocusItems.length > 0 || guidance.userSteps.length > 0) && (
                     <div className="rounded-xl border-2 border-amber-300 bg-gradient-to-b from-amber-50 to-white p-4 shadow-sm">
-                        <h3 className="text-sm font-black text-amber-950">本期只需优先配合</h3>
+                        <h3 className="text-sm font-black text-amber-950">我这期要重点做好</h3>
                         <p className="mt-1 text-xs text-amber-900/90">{guidance.userPrepSummary}</p>
                         {guidance.priorityFocusItems.length > 0 ? (
                             <ol className="mt-3 space-y-2">
@@ -234,7 +234,7 @@ export const UserProfile: React.FC<Props> = ({
                             </ol>
                         ) : null}
                         <div className="mt-4 border-t border-amber-200/80 pt-3">
-                            <div className="text-xs font-bold text-slate-700">具体怎么做</div>
+                            <div className="text-xs font-bold text-slate-700">我具体怎么做</div>
                             <ul className="mt-2 space-y-2">
                                 {guidance.userSteps.map((step, i) => (
                                     <li key={step.id} className="rounded-lg bg-white border border-amber-100 px-3 py-2">

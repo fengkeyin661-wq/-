@@ -294,7 +294,7 @@ export const UserHealthHome: React.FC<Props> = ({
               }`}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-bold text-slate-500">下次随访</div>
+                <div className="text-xs font-bold text-slate-500">我的随访安排</div>
                 {model.followUpSourceLabel ? (
                   <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold text-blue-700">
                     {model.followUpSourceLabel}
@@ -303,11 +303,11 @@ export const UserHealthHome: React.FC<Props> = ({
               </div>
               <div className="text-lg font-black text-slate-800">{model.nextFollowUp.date}</div>
               {model.nextFollowUp.status === 'overdue' ? (
-                <span className="text-xs font-bold text-red-600">已逾期，请尽快联系管家</span>
+                <span className="text-xs font-bold text-red-600">已过计划日期，我需要尽快联系健康管理团队</span>
               ) : null}
               {model.followUpFocusItems.length > 0 ? (
                 <ul className="mt-3 space-y-1.5 border-t border-blue-200/60 pt-2">
-                  <li className="text-[11px] font-bold text-blue-800">本期只需优先核对：</li>
+                  <li className="text-[11px] font-bold text-blue-800">我这期要重点做好：</li>
                   {model.followUpFocusItems.map((item, i) => (
                     <li key={`ff-${i}`} className="flex gap-2 text-sm text-slate-800">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white">
@@ -318,14 +318,11 @@ export const UserHealthHome: React.FC<Props> = ({
                   ))}
                 </ul>
               ) : (
-                <p className="mt-2 text-xs text-slate-600">打开执行单查看管家为您定制的核对项</p>
+                <p className="mt-2 text-xs text-slate-600">打开执行单看我该做哪些事</p>
               )}
-              {model.followUpPrepSummary ? (
-                <p className="mt-2 text-xs font-medium text-blue-900/90">{model.followUpPrepSummary}</p>
-              ) : null}
               {model.followUpUserSteps.length > 0 ? (
                 <div className="mt-3 border-t border-blue-200/60 pt-2">
-                  <div className="text-[11px] font-bold text-blue-800">本周请您配合</div>
+                  <div className="text-[11px] font-bold text-blue-800">本周我要做</div>
                   <ul className="mt-2 space-y-2">
                     {model.followUpUserSteps.slice(0, 4).map((step, i) => (
                       <li key={step.id} className="flex gap-2 text-xs text-slate-700">

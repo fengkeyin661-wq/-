@@ -71,6 +71,30 @@ const cueForFocusItem = (item: string): Omit<FollowUpStaffCue, 'focusItem'> => {
   };
 };
 
+/** 用户端第一人称：针对单项重点，我该做什么 */
+export const userSelfGuideForFocusItem = (item: string): string => {
+  const t = item.toLowerCase();
+  if (/血压|bp|收缩|舒张/.test(t)) {
+    return '我这周在家多测几次血压，记下典型数值；如有头晕、头痛一并记下，测完可在首页更新。';
+  }
+  if (/血糖|glucose|hba1c|糖化/.test(t)) {
+    return '我按计划测空腹或餐后血糖，并留意饮食、运动是否跟上方案。';
+  }
+  if (/血脂|胆固醇|ldl|hdl|tg|tc/.test(t)) {
+    return '我按建议安排血脂复查，结果出来后保存好；日常饮食继续控油。';
+  }
+  if (/体重|bmi|肥胖|腰围/.test(t)) {
+    return '我定期称体重（或量腰围），并坚持每周运动，小步调整即可。';
+  }
+  if (/药|服药|用药/.test(t)) {
+    return '我按医嘱按时服药，不自行停药；如有不适或漏服，记下来方便说明。';
+  }
+  if (/复查|检查|超声|ct|化验/.test(t)) {
+    return `关于「${item}」，我尽快预约或完成检查，并把结果收好。`;
+  }
+  return `「${item}」是我这期的重点，我按方案执行；有困难我会主动联系健康管理团队。`;
+};
+
 export const buildFollowUpGuidance = (archive: HealthArchive | null | undefined): FollowUpGuidanceBundle => {
   if (!archive) {
     return {
@@ -112,24 +136,25 @@ export const buildFollowUpGuidance = (archive: HealthArchive | null | undefined)
   if (pending?.date) {
     pushUser({
       kind: 'prepare',
-      title: overdue ? '随访已逾期，请尽快联系管家' : `请在 ${pending.date} 前完成本期配合事项`,
-      detail: ctx.sourceLabel ? `随访类型：${ctx.sourceLabel}` : '按下方清单逐项准备，随访电话会更高效。',
+      title: overdue ? '我的随访日期已过' : `在 ${pending.date} 前完成下面几件事`,
+      detail: ctx.sourceLabel
+        ? `这是${ctx.sourceLabel}前的自我准备，做完我心里更有数。`
+        : '我先逐项做好，需要沟通时会更顺畅。',
     });
   }
 
   for (const item of priorityFocusItems.slice(0, 4)) {
-    const cue = cueForFocusItem(item);
     pushUser({
       kind: 'action',
       title: item,
-      detail: `请提前想好：${cue.askScript.replace(/？.*$/, '的情况')}（可在首页更新相关指标）`,
+      detail: userSelfGuideForFocusItem(item),
     });
   }
 
   if (ctx.failedTasks.length) {
     pushUser({
       kind: 'action',
-      title: '优先落实上期未达标项',
+      title: '我先补做上次没完全做到的事',
       detail: ctx.failedTasks
         .slice(0, 2)
         .map((t) => t.description)
@@ -148,21 +173,21 @@ export const buildFollowUpGuidance = (archive: HealthArchive | null | undefined)
   if (userSteps.length < 4 && nextPlan) {
     pushUser({
       kind: 'prepare',
-      title: '复查/化验准备',
+      title: '我安排好复查或化验',
       detail: String(nextPlan).slice(0, 120),
     });
   }
 
   pushUser({
     kind: 'metric',
-    title: '在首页「更新数据」记录近期指标',
-    detail: '血压、血糖、体重等测完后录入，便于管家对比趋势。',
+    title: '我把最近测到的数据记到首页',
+    detail: '血压、血糖、体重等录入后，我可以自己看变化趋势。',
   });
 
   pushUser({
     kind: 'contact',
-    title: '有疑问随时联系健康管理服务电话',
-    detail: '随访前准备好体检报告、化验单与正在服用的药物清单。',
+    title: '有不清楚的地方，我联系健康管理服务电话',
+    detail: '我把体检报告、化验单和常用药清单放在手边，需要时好说明。',
   });
 
   const name = archive.name || archive.health_record?.profile?.name || '老师';
@@ -170,8 +195,8 @@ export const buildFollowUpGuidance = (archive: HealthArchive | null | undefined)
 
   const userPrepSummary =
     priorityFocusItems.length > 0
-      ? `本期请您重点配合：${priorityFocusItems.slice(0, 3).join('、')}${priorityFocusItems.length > 3 ? ' 等' : ''}`
-      : '请按执行单完成生活方式调整，并在首页更新近期指标。';
+      ? `我这期先把精力放在：${priorityFocusItems.slice(0, 3).join('、')}${priorityFocusItems.length > 3 ? ' 等' : ''}`
+      : '我按执行单调整生活，并把最近指标更新到首页。';
 
   return {
     sourceLabel: ctx.sourceLabel,
