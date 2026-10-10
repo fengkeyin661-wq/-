@@ -18,6 +18,8 @@ import { HighGlucoseTag } from '../HighGlucoseTag';
 import { HighBloodPressureTag } from '../HighBloodPressureTag';
 import { HighLipidTag } from '../HighLipidTag';
 import { UserMetricEntryModal } from './UserMetricEntryModal';
+import { UserHotlineCompact } from './portal/UserHotlineCompact';
+import { HealthAssistantFab } from './HealthAssistantFab';
 import type { UserMetricKey } from '../../services/observationMapper';
 
 export type UserProfileSubView = 'menu' | 'record' | 'followup' | 'plan' | 'apps';
@@ -275,9 +277,7 @@ export const UserHealthHome: React.FC<Props> = ({
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xl">📄</span>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-bold text-slate-800">查看完整健康档案与方案</div>
-              <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">
-                {assessment?.summary || '体检指标与专属管理方案'}
-              </div>
+              <div className="mt-0.5 text-xs text-slate-500">点击进入查看详情</div>
             </div>
             <span className="shrink-0 text-slate-300">›</span>
           </button>
@@ -304,21 +304,11 @@ export const UserHealthHome: React.FC<Props> = ({
             ))}
           </div>
         </div>
+
+        <UserHotlineCompact className="mt-2" />
       </div>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom)+16px)] z-40">
-        <div className="mx-auto flex w-full max-w-md justify-end px-4">
-          <button
-            type="button"
-            aria-label="智能问答助手"
-            title="智能问答"
-            onClick={() => setView('assistant')}
-            className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-teal-600 text-2xl text-white shadow-lg shadow-teal-600/30 transition-transform hover:bg-teal-700 active:scale-95"
-          >
-            🤖
-          </button>
-        </div>
-      </div>
+      <HealthAssistantFab onClick={() => setView('assistant')} />
 
       {onUpdateRecord ? (
         <UserMetricEntryModal

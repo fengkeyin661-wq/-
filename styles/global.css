@@ -125,3 +125,17 @@ body {
 .user-initial-loader {
   animation: appFadeIn 0.2s ease-out both;
 }
+
+@keyframes healthFabFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.health-assistant-fab {
+  animation: healthFabFloat 2.8s ease-in-out infinite;
+}

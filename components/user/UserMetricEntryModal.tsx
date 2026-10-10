@@ -3,6 +3,7 @@ import type { HealthRecord } from '../../types';
 import type { UserMetricKey } from '../../services/observationMapper';
 import { buildChartSeries, fetchObservationSeries } from '../../services/observationService';
 import { MetricTrendChart } from '../MetricTrendChart';
+import { ModalPortal } from './ModalPortal';
 
 /** 身高/体重/血压/血糖 → 血脂四项 → 腰围/体脂率 */
 const METRIC_OPTIONS: { key: UserMetricKey; label: string; hint: string }[] = [
@@ -129,6 +130,7 @@ export const UserMetricEntryModal: React.FC<Props> = ({
       : 'w-full max-w-md max-h-[min(90vh,640px)] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl';
 
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
       onClick={onClose}
@@ -342,5 +344,6 @@ export const UserMetricEntryModal: React.FC<Props> = ({
         )}
       </div>
     </div>
+    </ModalPortal>
   );
 };

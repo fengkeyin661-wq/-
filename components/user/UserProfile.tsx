@@ -14,7 +14,6 @@ import { HealthArchiveReadView } from './HealthArchiveReadView';
 import type { UserMetricKey } from '../../services/observationMapper';
 import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
 import { UserRiskHeroBanner } from './UserRiskHeroBanner';
-import { UserHotlineCompact } from './portal/UserHotlineCompact';
 import { UserNeedSurveyBanner } from './portal/UserNeedSurveyBanner';
 
 // 用户端预留：assessment.diabetesReport / record.diabetesManagement 由管理端糖尿病专栏写入，后续可在此展示「我的糖尿病管理」
@@ -631,15 +630,8 @@ export const UserProfile: React.FC<Props> = ({
 
                 {subView === 'menu' && (
                     <div className="flex-1 space-y-4 p-4">
-                        <UserHotlineCompact />
-                        <MenuButton
-                            icon="📊"
-                            label="在首页查看核心指标与趋势"
-                            desc="更新数据、查看图表与风险总览"
-                            onClick={() => onNavigate('home')}
-                        />
                         {onOpenNeedSurvey ? <UserNeedSurveyBanner onClick={onOpenNeedSurvey} /> : null}
-                        <MenuGroup title="健康管理">
+                        <div className="space-y-2">
                             <MenuButton icon="📄" label="我的健康档案" desc="体检指标与风险评估" onClick={() => setSubView('record')} />
                             <MenuButton
                                 icon="📅"
@@ -648,7 +640,7 @@ export const UserProfile: React.FC<Props> = ({
                                 onClick={() => setSubView('followup')}
                             />
                             <MenuButton icon="🥗" label="饮食与运动方案" desc="查看健康管理方案" onClick={() => setSubView('plan')} />
-                        </MenuGroup>
+                        </div>
                         <MenuGroup title="服务与活动">
                             <MenuButton icon="🎉" label="我的社区活动" desc="已报名活动状态" onClick={() => setSubView('events')} />
                             <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请" onClick={() => setSubView('apps')} />
