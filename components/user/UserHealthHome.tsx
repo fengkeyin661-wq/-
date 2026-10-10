@@ -180,7 +180,7 @@ export const UserHealthHome: React.FC<Props> = ({
           <p className="text-xs text-slate-500">以下为您当前最需要关注的健康信息</p>
         </div>
 
-        <UserRiskHeroBanner assessment={assessment} />
+        <UserRiskHeroBanner assessment={assessment} summaryExpandable />
 
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
@@ -258,9 +258,6 @@ export const UserHealthHome: React.FC<Props> = ({
               <div className="text-lg font-black text-slate-800">{model.nextFollowUp.date}</div>
               {model.nextFollowUp.status === 'overdue' ? (
                 <span className="text-xs font-bold text-red-600">已逾期，请尽快联系管家</span>
-              ) : null}
-              {model.nextFollowUp.focusItems?.length ? (
-                <p className="mt-1 text-xs text-slate-600">{model.nextFollowUp.focusItems.join('、')}</p>
               ) : null}
             </div>
           ) : null}

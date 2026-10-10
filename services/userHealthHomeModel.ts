@@ -31,18 +31,6 @@ export interface UserHealthHomeModel {
   hasAssessment: boolean;
 }
 
-const dedupeStrings = (items: string[]): string[] => {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of items) {
-    const t = raw.trim();
-    if (!t || seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
-  }
-  return out;
-};
-
 export const pickNextFollowUp = (schedule: ScheduledFollowUp[] | undefined): ScheduledFollowUp | null => {
   const list = (schedule || []).filter((x) => x.status === 'pending' || x.status === 'overdue');
   if (!list.length) return null;
@@ -66,12 +54,6 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
       focusHighlights.push({ text, severity: 'yellow' });
     }
   }
-  const focusFromSchedule = nextFollowUp?.focusItems || [];
-  for (const text of dedupeStrings(focusFromSchedule)) {
-    if (focusHighlights.some((f) => f.text === text)) continue;
-    focusHighlights.push({ text, severity: 'focus' });
-  }
-
   const nextActions: UserHomeNextAction[] = [];
   let actionIdx = 0;
   const pushAction = (item: Omit<UserHomeNextAction, 'id' | 'priority'>, priority: number) => {
@@ -108,7 +90,7 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
     pushAction(
       {
         title: '查看下阶段健康管理执行单',
-        description: `下次随访：${nextFollowUp.date}${nextFollowUp.focusItems?.length ? ` · 重点：${nextFollowUp.focusItems.slice(0, 2).join('、')}` : ''}`,
+        description: `下次随访：${nextFollowUp.date}`,
         action: 'followup',
       },
       10
