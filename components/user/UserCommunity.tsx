@@ -21,6 +21,8 @@ import {
     resolvePackageDisplayPricing,
 } from '../../services/userServiceCatalog';
 import { PackageItemGroupedList } from '../checkup/PackageItemGroupedList';
+import { UserPortalSection } from './portal/UserPortalPageShell';
+import { UserNeedSurveyBanner } from './portal/UserNeedSurveyBanner';
 
 interface Props {
     userId?: string;
@@ -479,17 +481,15 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
     );
 
     return (
-        <div className="min-h-full bg-slate-50 pb-28">
+        <div className="min-h-full bg-slate-50 pb-[calc(84px+env(safe-area-inset-bottom)+16px)]">
             <div className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 backdrop-blur-md">
-                <div className="px-5 py-4">
-                    <h1 className="text-2xl font-black text-slate-800 tracking-tight">服务</h1>
-                    <p className="text-sm text-slate-500">临床检查 · 健康体检 · 健康服务</p>
+                <div className="flex items-center justify-between gap-3 px-4 py-3">
+                    <h1 className="text-lg font-black text-slate-800">服务</h1>
                 </div>
-
-                <div className="px-5 pb-3">
+                <div className="px-4 pb-2">
                     <div className="relative">
                         <input
-                            className="w-full bg-slate-100 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:bg-white focus:ring-2 focus:ring-teal-500 transition-all outline-none"
+                            className="w-full rounded-xl border-none bg-slate-100 py-2.5 pl-10 pr-4 text-sm outline-none transition-all focus:bg-white focus:ring-2 focus:ring-teal-500"
                             placeholder="搜索检查、套餐、服务、活动..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -497,44 +497,26 @@ export const UserCommunity: React.FC<Props> = ({ userId, userName, defaultContac
                         <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
                     </div>
                 </div>
-
-                <div className="px-5 pb-3 flex gap-2 overflow-x-auto scrollbar-hide">
+                <div className="grid grid-cols-3 gap-1 px-4 pb-3">
                     {SERVICE_MAIN_CATEGORIES.map((cat) => (
                         <button
                             key={cat.id}
                             type="button"
                             onClick={() => setMainCategory(cat.id)}
-                            className={`shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 ${
+                            className={`rounded-lg py-2 text-center text-xs font-bold transition-all ${
                                 mainCategory === cat.id
-                                    ? 'bg-slate-800 text-white shadow-lg'
-                                    : 'bg-white text-slate-600 border border-slate-200'
+                                    ? 'bg-teal-600 text-white'
+                                    : 'bg-slate-100 text-slate-600'
                             }`}
                         >
-                            <span>{cat.icon}</span>
-                            <span>{cat.label}</span>
+                            {cat.label}
                         </button>
                     ))}
                 </div>
             </div>
 
-            <div className="p-4 space-y-6">
-                {onOpenNeedSurvey ? (
-                    <button
-                        type="button"
-                        onClick={onOpenNeedSurvey}
-                        className="w-full rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-600 to-cyan-600 p-4 text-left text-white shadow-sm active:scale-[0.99]"
-                    >
-                        <div className="flex items-start justify-between gap-3">
-                            <div>
-                                <p className="text-xs font-bold text-teal-100">手机填写 · 约 12—15 分钟</p>
-                                <h2 className="mt-1 text-lg font-black">教职工健康需求调查</h2>
-                                <p className="mt-1 text-xs text-teal-50">了解就医、康复、照护和上门服务需求，结果仅作汇总分析。</p>
-                            </div>
-                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/20 text-xl">📋</span>
-                        </div>
-                        <p className="mt-3 text-sm font-bold">立即填写 →</p>
-                    </button>
-                ) : null}
+            <div className="space-y-4 p-4">
+                {onOpenNeedSurvey ? <UserNeedSurveyBanner onClick={onOpenNeedSurvey} /> : null}
                 {loading ? (
                     <div className="text-center py-16 text-slate-400">加载中...</div>
                 ) : (

@@ -10,18 +10,17 @@ import {
     ContentItem,
     isHealthManagerContent,
 } from '../../services/contentService';
-import { HealthTrendCharts } from '../HealthTrendCharts';
 import { HealthArchiveReadView } from './HealthArchiveReadView';
-import { UserMetricEntryModal } from './UserMetricEntryModal';
-import { fetchLatestAssessmentRun } from '../../services/assessmentPipelineService';
 import type { UserMetricKey } from '../../services/observationMapper';
 import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
 import { UserRiskHeroBanner } from './UserRiskHeroBanner';
+import { UserHotlineCompact } from './portal/UserHotlineCompact';
+import { UserNeedSurveyBanner } from './portal/UserNeedSurveyBanner';
 
 // 用户端预留：assessment.diabetesReport / record.diabetesManagement 由管理端糖尿病专栏写入，后续可在此展示「我的糖尿病管理」
 
-const PROFILE_MENU_TIP =
-    '尚未建档请联系健康管家；初始登录密码为体检编号，首次登录后须修改密码。建议每周更新基础指标，疑问请拨打健康管家固定电话咨询。';
+const PROFILE_SECURITY_TIP =
+    '尚未建档请联系健康管家。初始登录密码为体检编号，修改成功后请使用新密码登录。';
 
 interface Props {
   record: HealthRecord;
@@ -38,7 +37,7 @@ interface Props {
   onNavigate: (tab: string) => void;
   onOpenNeedSurvey?: () => void;
   onArchiveRefresh?: () => void;
-  subViewRequest?: 'menu' | 'record' | 'followup' | 'plan' | null;
+  subViewRequest?: 'menu' | 'record' | 'followup' | 'plan' | 'apps' | null;
   onSubViewRequestConsumed?: () => void;
 }
 
@@ -75,31 +74,9 @@ export const UserProfile: React.FC<Props> = ({
     const [pwdSaving, setPwdSaving] = useState(false);
     const [pwdMsg, setPwdMsg] = useState('');
     // ... (keep existing methods: loadInteractions, handleSaveRecord, handleCancelInteraction) ...
-    const [isBasicEditOpen, setIsBasicEditOpen] = useState(false);
-    const [isBasicCardExpanded, setIsBasicCardExpanded] = useState(false);
-    const [recomputeHint, setRecomputeHint] = useState<string | null>(null);
-
     useEffect(() => {
         loadInteractions();
     }, [userId]);
-
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            const run = await fetchLatestAssessmentRun(userId);
-            if (cancelled || !run) return;
-            if (run.status === 'running' || run.status === 'pending') {
-                setRecomputeHint('健康评估更新中，请稍候刷新…');
-            } else if (run.status === 'failed') {
-                setRecomputeHint('最近一次自动评估失败，请联系健康管家');
-            } else {
-                setRecomputeHint(null);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [userId, archive.updated_at, archive.draft_data?.generatedAt]);
 
     useEffect(() => {
         const id = archive.health_manager_content_id;
@@ -142,15 +119,6 @@ export const UserProfile: React.FC<Props> = ({
     }, []);
 
     const loadInteractions = async () => { const all = await fetchInteractions(); setInteractions(all.filter(i => i.userId === userId)); };
-    const handleMetricSave = async (payload: {
-        metric: UserMetricKey;
-        values: Record<string, number | string>;
-        measuredAt: string;
-    }) => {
-        await onUpdateRecord(payload);
-        setIsBasicEditOpen(false);
-        onArchiveRefresh?.();
-    };
     const handleChangePassword = async () => {
         setPwdMsg('');
         if (pwdNew !== pwdConfirm) {
@@ -182,22 +150,7 @@ export const UserProfile: React.FC<Props> = ({
         }
     };
 
-    const historyRecords = [
-        ...(archive.history_versions || []).map((v) => v.health_record),
-        record,
-    ];
     const nextFollowup = (archive.follow_up_schedule || []).find((x) => x.status === 'pending');
-    const trendRows = historyRecords.map((r, idx) => ({
-        label: `#${idx + 1}`,
-        weight: Number(r.checkup.basics.weight || 0),
-        bmi: Number(r.checkup.basics.bmi || 0),
-        waist: Number(r.checkup.basics.waist || 0),
-        bodyFatRate: Number(r.riskModelExtras?.bodyFatRate || 0),
-        sbp: Number(r.checkup.basics.sbp || 0),
-        dbp: Number(r.checkup.basics.dbp || 0),
-        tc: Number(r.checkup.labBasic.lipids?.tc || 0),
-        glucose: Number(r.checkup.labBasic.glucose?.fasting || 0),
-    }));
 
     // ... (keep renderRecordView, renderFollowupView) ...
     const renderRecordView = () => (
@@ -581,15 +534,16 @@ export const UserProfile: React.FC<Props> = ({
                 <p className="text-xs font-bold text-teal-700">健康管理服务电话</p>
                 <p className="mt-2 text-2xl font-black tracking-wide text-teal-900">{HEALTH_MANAGEMENT_HOTLINE}</p>
             </a>
-            <p className="text-center text-xs leading-relaxed text-slate-500">{PROFILE_MENU_TIP}</p>
+            <p className="text-center text-xs leading-relaxed text-slate-500">{PROFILE_SECURITY_TIP}</p>
         </div>
     );
 
     const renderSecurityView = () => (
         <div className="space-y-4 p-4 pb-24 animate-slideInRight">
             <h2 className="text-lg font-bold text-slate-800">修改密码</h2>
+            <p className="text-xs leading-relaxed text-slate-500">{PROFILE_SECURITY_TIP}</p>
             <p className="text-xs text-slate-500">
-                若从未修改过密码，「当前密码」请填写体检编号；修改成功后请使用新密码登录。
+                若从未修改过密码，「当前密码」请填写体检编号。
             </p>
             <div className="space-y-3 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
                 <div>
@@ -676,109 +630,32 @@ export const UserProfile: React.FC<Props> = ({
                 )}
 
                 {subView === 'menu' && (
-                    <div className="flex-1 space-y-3 p-4">
-                        <a
-                            href={HEALTH_MANAGEMENT_HOTLINE_TEL}
-                            className="block rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3.5 text-center shadow-sm transition-colors hover:bg-teal-100/80"
-                        >
-                            <p className="text-xs font-bold text-teal-700">健康管理服务电话</p>
-                            <p className="mt-0.5 text-lg font-black tracking-wide text-teal-900">{HEALTH_MANAGEMENT_HOTLINE}</p>
-                        </a>
-                        <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                            <div className="mb-3 flex items-center justify-between">
-                                <h3 className="font-bold text-slate-800">基础身体指标</h3>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsBasicCardExpanded((v) => !v)}
-                                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700"
-                                    >
-                                        {isBasicCardExpanded ? '收起详情' : '查看详情'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsBasicEditOpen(true)}
-                                        className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700"
-                                    >
-                                        更新数据
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 text-center">
-                                <div className="rounded-lg bg-slate-50 p-3">
-                                    <div className="mb-1 text-xs text-slate-400">BMI</div>
-                                    <div className="text-lg font-black text-slate-700">
-                                        {record.checkup.basics.bmi || '-'}
-                                    </div>
-                                </div>
-                                <div className="rounded-lg bg-slate-50 p-3">
-                                    <div className="mb-1 text-xs text-slate-400">血压</div>
-                                    <div className="text-lg font-black text-slate-700">
-                                        {record.checkup.basics.sbp}/{record.checkup.basics.dbp}
-                                    </div>
-                                </div>
-                                <div className="rounded-lg bg-slate-50 p-3">
-                                    <div className="mb-1 text-xs text-slate-400">血糖</div>
-                                    <div className="text-lg font-black text-slate-700">
-                                        {record.checkup.labBasic.glucose?.fasting || '-'}
-                                    </div>
-                                </div>
-                                <div className="rounded-lg bg-slate-50 p-3">
-                                    <div className="mb-1 text-xs text-slate-400">HbA1c</div>
-                                    <div className="text-lg font-black text-slate-700">
-                                        {record.checkup.labBasic.hba1c ?? record.checkup.optional.hba1c ?? '-'}
-                                    </div>
-                                </div>
-                                <div className="rounded-lg bg-slate-50 p-3">
-                                    <div className="mb-1 text-xs text-slate-400">ABI</div>
-                                    <div className="text-lg font-black text-slate-700">
-                                        {record.checkup.optional.arteriosclerosis?.abi
-                                            ?? record.checkup.optional.arteriosclerosis?.rightABI
-                                            ?? record.checkup.optional.arteriosclerosis?.leftABI
-                                            ?? '-'}
-                                    </div>
-                                </div>
-                                <div className="rounded-lg bg-slate-50 p-3">
-                                    <div className="mb-1 text-xs text-slate-400">体脂率</div>
-                                    <div className="text-lg font-black text-slate-700">
-                                        {(record.checkup.bodyComposition?.bodyFatRate ?? record.riskModelExtras?.bodyFatRate)
-                                            ? `${record.checkup.bodyComposition?.bodyFatRate ?? record.riskModelExtras?.bodyFatRate}%`
-                                            : '-'}
-                                    </div>
-                                </div>
-                            </div>
-                            {isBasicCardExpanded && (
-                                <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
-                                    <div className="mb-2 flex items-center justify-between">
-                                        <h4 className="text-sm font-bold text-slate-700">关键指标动态曲线</h4>
-                                        <span className="text-[11px] text-slate-400">来自连续观测记录</span>
-                                    </div>
-                                    <HealthTrendCharts checkupId={userId} variant="dashboard" />
-                                    {/* legacy mini charts removed */}
-</div>
-                            )}
-                            {archive.draft_data && (
-                                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                                    有新的 AI 健康建议待医生审核发布（
-                                    {new Date(archive.draft_data.generatedAt).toLocaleString()}）
-                                </div>
-                            )}
-                            {recomputeHint && <p className="mt-2 text-xs text-blue-600">{recomputeHint}</p>}
-                        </div>
-                        <MenuButton icon="📋" label="需求调查问卷" desc="手机填写健康、就医与上门服务需求" onClick={() => onOpenNeedSurvey?.()} />
-                        <MenuButton icon="📄" label="我的健康档案" desc="查看体检指标与风险评估" onClick={() => setSubView('record')} />
+                    <div className="flex-1 space-y-4 p-4">
+                        <UserHotlineCompact />
                         <MenuButton
-                            icon="📅"
-                            label={`我的随访记录${nextFollowup?.date ? `（下次 ${nextFollowup.date}）` : ''}`}
-                            desc={nextFollowup?.date ? `执行单与历史随访 · 下次随访 ${nextFollowup.date}` : '执行单与历史随访'}
-                            onClick={() => setSubView('followup')}
+                            icon="📊"
+                            label="在首页查看核心指标与趋势"
+                            desc="更新数据、查看图表与风险总览"
+                            onClick={() => onNavigate('home')}
                         />
-                        <MenuButton icon="🥗" label="我的饮食与运动方案" desc="查看今日AI定制计划" onClick={() => setSubView('plan')} />
-                        <MenuButton icon="🎉" label="我的社区活动" desc="已报名的活动状态" onClick={() => setSubView('events')} />
-                        <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请历史" onClick={() => setSubView('apps')} />
-                        <MenuButton icon="🧑‍⚕️" label="我的健康管家" desc="查看固定电话" onClick={() => setSubView('manager')} />
-                        <MenuButton icon="💬" label="我的消息" desc="进入消息中心与医生/管家沟通" onClick={() => onNavigate('message')} />
-                        <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
+                        {onOpenNeedSurvey ? <UserNeedSurveyBanner onClick={onOpenNeedSurvey} /> : null}
+                        <MenuGroup title="健康管理">
+                            <MenuButton icon="📄" label="我的健康档案" desc="体检指标与风险评估" onClick={() => setSubView('record')} />
+                            <MenuButton
+                                icon="📅"
+                                label={`我的随访记录${nextFollowup?.date ? `（${nextFollowup.date}）` : ''}`}
+                                desc="执行单与历史随访"
+                                onClick={() => setSubView('followup')}
+                            />
+                            <MenuButton icon="🥗" label="饮食与运动方案" desc="查看健康管理方案" onClick={() => setSubView('plan')} />
+                        </MenuGroup>
+                        <MenuGroup title="服务与活动">
+                            <MenuButton icon="🎉" label="我的社区活动" desc="已报名活动状态" onClick={() => setSubView('events')} />
+                            <MenuButton icon="📝" label="我的申请记录" desc="签约、预约与服务申请" onClick={() => setSubView('apps')} />
+                        </MenuGroup>
+                        <MenuGroup title="账户">
+                            <MenuButton icon="🔐" label="账户与安全" desc="修改登录密码" onClick={() => setSubView('security')} />
+                        </MenuGroup>
                     </div>
                 )}
 
@@ -792,8 +669,7 @@ export const UserProfile: React.FC<Props> = ({
 
                 {/* Logout Button (Only on Menu) */}
                 {subView === 'menu' && (
-                    <div className="mt-auto space-y-4 p-6 pb-[calc(env(safe-area-inset-bottom)+12px)]">
-                        <p className="text-center text-xs leading-relaxed text-slate-500">{PROFILE_MENU_TIP}</p>
+                    <div className="mt-auto p-6 pb-[calc(env(safe-area-inset-bottom)+12px)]">
                         <button 
                             onClick={onLogout}
                             className="w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold border border-red-100 hover:bg-red-100 hover:shadow-md transition-all active:scale-95"
@@ -802,18 +678,17 @@ export const UserProfile: React.FC<Props> = ({
                         </button>
                     </div>
                 )}
-
-                <UserMetricEntryModal
-                    open={subView === 'menu' && isBasicEditOpen}
-                    onClose={() => setIsBasicEditOpen(false)}
-                    record={record}
-                    checkupId={userId}
-                    onSave={handleMetricSave}
-                />
             </div>
         </div>
     );
 };
+
+const MenuGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+    <div className="space-y-2">
+        <h3 className="px-1 text-xs font-bold uppercase tracking-wide text-slate-400">{title}</h3>
+        <div className="space-y-2">{children}</div>
+    </div>
+);
 
 const MenuButton: React.FC<{icon: string, label: string, desc: string, onClick: () => void}> = ({ icon, label, desc, onClick }) => (
     <button 

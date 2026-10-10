@@ -6,6 +6,8 @@ import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
 import { BookingContactModal } from './BookingContactModal';
+import { UserPortalPageShell, UserPortalSection } from './portal/UserPortalPageShell';
+import { UserNeedSurveyBanner } from './portal/UserNeedSurveyBanner';
 
 interface Props {
     userId?: string;
@@ -425,59 +427,43 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
     }
 
     // ======== RENDER: MAIN VIEW (Care workflow + Chat List) ========
-    return (
-        <div className="min-h-full bg-slate-50 pb-28">
-            {/* Header */}
-            <div className="sticky top-0 z-10 border-b border-slate-100 bg-white px-5 py-4">
-                <h1 className="text-2xl font-black text-slate-800 tracking-tight">消息中心</h1>
-                <p className="mt-1 text-sm text-slate-500">医生与健康管理团队在线沟通</p>
-            </div>
+    const headerTrailing =
+        doctorList.length > 0 ? (
+            <button
+                type="button"
+                onClick={() => onOpenDoctors?.()}
+                className="text-xs font-bold text-teal-700"
+            >
+                签约医生
+            </button>
+        ) : null;
 
-            {/* Header actions */}
-            <div className="sticky top-[72px] z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-3">
-                <button className="px-4 py-2 rounded-xl text-sm font-bold bg-teal-600 text-white shadow-lg relative">
-                    💬 我的消息
-                    {totalUnread > 0 && (
-                        <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse">
+    return (
+        <>
+        <UserPortalPageShell
+            title="消息"
+            subtitle={
+                totalUnread > 0
+                    ? `${totalUnread > 9 ? '9+' : totalUnread} 条未读`
+                    : '与签约医生、健康管理师沟通'
+            }
+            trailing={
+                <div className="flex items-center gap-2">
+                    {totalUnread > 0 ? (
+                        <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">
                             {totalUnread > 9 ? '9+' : totalUnread}
                         </span>
-                    )}
-                </button>
-                <button
-                    onClick={() => onOpenDoctors?.()}
-                    className="px-4 py-2 rounded-xl text-sm font-bold bg-blue-50 text-blue-700 border border-blue-100"
-                >
-                    去医生签约
-                </button>
-            </div>
-
-            <div className="p-4">
+                    ) : null}
+                    {headerTrailing}
+                </div>
+            }
+        >
                 {loading ? (
                     <div className="text-center py-16 text-slate-400">加载中...</div>
                 ) : (
-                    // ======== CHAT LIST + CARE WORKFLOW ========
-                    <div className="space-y-4">
-                        {onOpenNeedSurvey ? (
-                            <button
-                                type="button"
-                                onClick={onOpenNeedSurvey}
-                                className="w-full rounded-2xl border border-teal-100 bg-teal-50 p-4 text-left active:scale-[0.99]"
-                            >
-                                <p className="text-xs font-bold text-teal-700">需求调查</p>
-                                <h2 className="mt-1 font-black text-slate-800">填写健康与上门服务需求问卷</h2>
-                                <p className="mt-1 text-xs text-slate-500">手机填写，约 12—15 分钟，结果仅作汇总分析</p>
-                            </button>
-                        ) : null}
-                        <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                            <h2 className="font-bold text-slate-800">社区支持</h2>
-                            <div className="mt-3 grid grid-cols-2 gap-2">
-                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-blue-50 px-2 py-2 text-xs font-bold text-blue-700">医疗服务</button>
-                                <button type="button" onClick={() => onOpenCommunity?.()} className="rounded-xl bg-purple-50 px-2 py-2 text-xs font-bold text-purple-700">健康活动</button>
-                            </div>
-                        </div>
-                        <div className="pt-1">
-                            <h2 className="mb-2 text-sm font-black text-slate-700">我的咨询会话</h2>
-                        </div>
+                    <div className="space-y-3">
+                        {onOpenNeedSurvey ? <UserNeedSurveyBanner onClick={onOpenNeedSurvey} /> : null}
+                        <UserPortalSection title="咨询会话">
                         {doctorList.length === 0 ? (
                             <div className="text-center py-16 bg-white rounded-2xl">
                                 <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 opacity-50">👨‍⚕️</div>
@@ -527,9 +513,10 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
                                 </div>
                             ))
                         )}
+                        </UserPortalSection>
                     </div>
                 )}
-            </div>
+        </UserPortalPageShell>
 
             {/* Doctor Detail Modal */}
             {selectedDoctor && (
@@ -654,6 +641,6 @@ export const UserInteraction: React.FC<Props> = ({ userId, userName, archive, on
                     </div>
                 </div>
             )}
-        </div>
+        </>
     );
 };

@@ -461,6 +461,10 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           onOpenMessage={(_doctorId) => {
             setActiveTab('message');
           }}
+          onViewAllApps={() => {
+            setProfileSubViewRequest('apps');
+            setActiveTab('profile');
+          }}
         />
       )}
       {activeTab === 'message' && (

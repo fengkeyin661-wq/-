@@ -14,10 +14,8 @@ import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorSched
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
 import { BookingContactModal } from './BookingContactModal';
 import { ModalPortal } from './ModalPortal';
-import {
-  HEALTH_MANAGEMENT_HOTLINE,
-  HEALTH_MANAGEMENT_HOTLINE_TEL,
-} from '../../services/userServiceCatalog';
+import { UserPortalPageShell, UserPortalSection } from './portal/UserPortalPageShell';
+import { UserHotlineCompact } from './portal/UserHotlineCompact';
 
 interface Props {
   userId?: string;
@@ -26,6 +24,7 @@ interface Props {
   /** 已登录时预填预约联系电话 */
   defaultContactPhone?: string;
   onOpenMessage?: (doctorId: string) => void;
+  onViewAllApps?: () => void;
 }
 const MANAGER_DEEP_LINK_KEY = 'user_manager_recommend_deeplink';
 const MANAGER_DEEP_LINK_TTL_MS = 2 * 60 * 1000;
@@ -65,7 +64,15 @@ const buildWeeklyScheduleSummary = (doctor: ContentItem): string[] => {
 
 const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
-export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaultContactPhone = '', onOpenMessage }) => {
+export const UserDoctors: React.FC<Props> = ({
+  userId,
+  userName,
+  archive,
+  defaultContactPhone = '',
+  onOpenMessage,
+  onViewAllApps,
+}) => {
+  const [dutyBoardExpanded, setDutyBoardExpanded] = useState(false);
   const [doctors, setDoctors] = useState<ContentItem[]>([]);
   const [interactions, setInteractions] = useState<InteractionItem[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<ContentItem | null>(null);
@@ -223,6 +230,12 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
     [doctors],
   );
 
+  const todayDayKey = useMemo(() => {
+    const d = new Date().getDay();
+    const map = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+    return map[d];
+  }, []);
+
   const weeklyDutyBoard = useMemo(() => {
     return DAY_KEYS.map((dayKey) => ({
       dayKey,
@@ -250,6 +263,12 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
         .filter(Boolean) as { id: string; name: string; dept: string; slotText: string }[],
     }));
   }, [clinicalDoctors]);
+
+  const todayDutySummary = useMemo(() => {
+    const today = weeklyDutyBoard.find((d) => d.dayKey === todayDayKey);
+    if (!today?.entries.length) return '今日暂无排班';
+    return today.entries.map((e) => `${e.name}（${e.dept}）`).slice(0, 3).join('、');
+  }, [weeklyDutyBoard, todayDayKey]);
 
   const slotUsage = (docId: string, slot: { displayDate: string; dayKey: string; slotId: string }) => {
     const fragment = `${slot.displayDate}${SLOT_MAP[slot.slotId]}`;
@@ -325,68 +344,70 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
     refresh();
   };
 
-  return (
-    <div className="min-h-full bg-slate-50 p-4 pb-24 space-y-5">
-      <div className="rounded-2xl bg-white border border-slate-100 p-4">
-        <h1 className="text-xl font-black text-slate-800">医生</h1>
-        <p className="text-xs text-slate-500 mt-1">查看值班表、预约门诊；咨询请前往「消息」</p>
-        <div className="mt-3 rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 flex items-center justify-between gap-2">
-          <div>
-            <div className="text-[11px] font-bold text-teal-800">健康管理服务电话</div>
-            <a href={HEALTH_MANAGEMENT_HOTLINE_TEL} className="text-base font-black text-teal-700">{HEALTH_MANAGEMENT_HOTLINE}</a>
-          </div>
-          <a href={HEALTH_MANAGEMENT_HOTLINE_TEL} className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white">拨打</a>
-        </div>
-      </div>
-
-      <section className="rounded-2xl border border-blue-100 bg-white overflow-hidden shadow-sm">
-        <div className="bg-blue-600 px-4 py-3 text-white">
-          <h2 className="text-sm font-black">每周医生值班表</h2>
-          <p className="text-[11px] text-blue-100 mt-0.5">置顶展示，便于快速查看可预约时段</p>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {weeklyDutyBoard.every((d) => d.entries.length === 0) ? (
-            <div className="p-6 text-center text-sm text-slate-400">暂无值班安排，请联系医院维护医生排班</div>
-          ) : (
-            weeklyDutyBoard.map((day) => (
-              <div key={day.dayKey} className="p-3">
-                <div className="text-xs font-black text-slate-500 mb-2">{day.label}</div>
-                {day.entries.length === 0 ? (
-                  <div className="text-xs text-slate-300 pl-1">— 暂无排班 —</div>
-                ) : (
-                  <div className="space-y-2">
-                    {day.entries.map((entry) => (
-                      <button
-                        type="button"
-                        key={entry.id}
-                        onClick={() => {
-                          const doc = doctorMap.get(entry.id);
-                          if (doc) setSelectedDoctor(doc);
-                        }}
-                        className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50/40 transition-colors"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-bold text-slate-800">{entry.name}</span>
-                          <span className="text-[10px] text-blue-600 font-bold">预约 →</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">{entry.dept} · {entry.slotText}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+  const renderDutyDay = (day: (typeof weeklyDutyBoard)[0]) => (
+    <div key={day.dayKey} className="p-3">
+      <div className="mb-2 text-xs font-black text-slate-500">{day.label}</div>
+      {day.entries.length === 0 ? (
+        <div className="pl-1 text-xs text-slate-300">— 暂无排班 —</div>
+      ) : (
+        <div className="space-y-2">
+          {day.entries.map((entry) => (
+            <button
+              type="button"
+              key={entry.id}
+              onClick={() => {
+                const doc = doctorMap.get(entry.id);
+                if (doc) setSelectedDoctor(doc);
+              }}
+              className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/40"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-bold text-slate-800">{entry.name}</span>
+                <span className="text-[10px] font-bold text-blue-600">预约 →</span>
               </div>
-            ))
-          )}
+              <div className="mt-0.5 text-[11px] text-slate-500">
+                {entry.dept} · {entry.slotText}
+              </div>
+            </button>
+          ))}
         </div>
-      </section>
+      )}
+    </div>
+  );
 
-      <section className="space-y-3">
-        <div className="rounded-2xl border border-slate-100 bg-white p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-black text-slate-700">健康管理团队</h2>
-            <span className="text-[11px] font-bold text-slate-400">联合干预</span>
+  return (
+    <>
+    <UserPortalPageShell title="医生" subtitle="预约门诊；在线咨询请前往「消息」">
+      <UserHotlineCompact />
+
+      <UserPortalSection title="排班">
+        <div className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
+          <div className="border-b border-slate-100 bg-blue-50/80 px-4 py-3">
+            <div className="text-xs font-bold text-slate-600">今日可预约</div>
+            <p className="mt-1 text-sm text-slate-800">{todayDutySummary}</p>
+            <button
+              type="button"
+              onClick={() => setDutyBoardExpanded((v) => !v)}
+              className="mt-2 text-xs font-bold text-blue-700"
+            >
+              {dutyBoardExpanded ? '收起全周排班' : '查看全周排班'}
+            </button>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          {dutyBoardExpanded ? (
+            <div className="divide-y divide-slate-100">
+              {weeklyDutyBoard.every((d) => d.entries.length === 0) ? (
+                <div className="p-6 text-center text-sm text-slate-400">暂无值班安排</div>
+              ) : (
+                weeklyDutyBoard.map(renderDutyDay)
+              )}
+            </div>
+          ) : null}
+        </div>
+      </UserPortalSection>
+
+      <UserPortalSection title="健康管理团队">
+        <div className="rounded-2xl border border-slate-100 bg-white p-3">
+          <div className="grid grid-cols-2 gap-2">
             {teamCards.map((card) => (
               <button
                 type="button"
@@ -399,129 +420,121 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
                   if (card.item) setSelectedDoctor(card.item);
                   else setTeamRecommendRole(card.role);
                 }}
-                className={`rounded-xl border p-3 text-left ${card.tone} ${card.item ? '' : 'opacity-70'}`}
+                className={`rounded-lg border p-2.5 text-left ${card.tone} ${card.item ? '' : 'opacity-70'}`}
               >
-                <div className="text-[11px] font-black">{card.role}</div>
-                <div className="mt-1 truncate text-sm font-bold text-slate-800">
+                <div className="text-[10px] font-black">{card.role}</div>
+                <div className="mt-0.5 truncate text-xs font-bold text-slate-800">
                   {hasSignedTeamMember ? card.item?.title || '待匹配' : '待签约'}
                 </div>
               </button>
             ))}
           </div>
         </div>
-      </section>
+      </UserPortalSection>
 
-      {hasSignedTeamMember && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-black text-slate-700">健康管理师（主导协同）</h2>
-          {managerResources.length === 0 ? (
-            <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
-              暂无健康管理师资源，请联系医院维护医生资源标签
-            </div>
-          ) : (
-            managerResources.map((mgr) => (
-              <div key={`mgr-${mgr.id}`} className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-center gap-3">
-                {avatar(mgr)}
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-slate-800">{mgr.title}</div>
-                  <div className="text-xs text-slate-600">
-                    {mgr.details?.dept || '健康管理中心'}
-                    {' · '}{HEALTH_MANAGEMENT_HOTLINE}
-                  </div>
-                </div>
-                <button
-                  className={`text-xs px-3 py-1.5 rounded-lg font-bold ${signedDoctorIdSet.has(mgr.id) ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-teal-600 text-white'}`}
-                  disabled={signedDoctorIdSet.has(mgr.id)}
-                  onClick={() => submitInteraction('doctor_signing', mgr, '申请健康管理师签约')}
-                >
-                  {signedDoctorIdSet.has(mgr.id) ? '已签约' : '签约'}
-                </button>
-              </div>
-            ))
-          )}
-        </section>
-      )}
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">我签约的医生</h2>
-        {signedDoctors.length === 0 ? (
-          <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
-            暂无已签约医生
-          </div>
-        ) : (
-          signedDoctors.map((doc) => (
-            <div key={`sign-${doc.id}`} className="rounded-xl bg-white border border-slate-100 p-3 flex items-center gap-3">
-              {avatar(doc)}
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-slate-800">{doc.title}</div>
-                <div className="text-xs text-slate-500">{doc.details?.dept} · {doc.details?.title}</div>
+      {hasSignedTeamMember && managerResources.length > 0 ? (
+        <UserPortalSection title="健康管理师">
+          {managerResources.slice(0, 2).map((mgr) => (
+            <div key={`mgr-${mgr.id}`} className="mb-2 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              {avatar(mgr)}
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-slate-800">{mgr.title}</div>
+                <div className="text-xs text-slate-600">{mgr.details?.dept || '健康管理中心'}</div>
               </div>
               <button
-                className="text-xs px-3 py-1.5 rounded-lg bg-teal-600 text-white font-bold"
-                onClick={() => onOpenMessage?.(doc.id)}
+                type="button"
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold ${signedDoctorIdSet.has(mgr.id) ? 'cursor-not-allowed bg-slate-200 text-slate-500' : 'bg-teal-600 text-white'}`}
+                disabled={signedDoctorIdSet.has(mgr.id)}
+                onClick={() => submitInteraction('doctor_signing', mgr, '申请健康管理师签约')}
               >
-                去消息
+                {signedDoctorIdSet.has(mgr.id) ? '已签约' : '签约'}
               </button>
             </div>
-          ))
-        )}
-      </section>
+          ))}
+        </UserPortalSection>
+      ) : null}
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">我预约的医生</h2>
-        {bookedInteractions.length === 0 ? (
-          <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-400">
-            暂无预约记录
+      <UserPortalSection title="我的医生服务">
+        <div className="space-y-3 rounded-2xl border border-slate-100 bg-white p-3">
+          <div>
+            <div className="mb-2 text-xs font-bold text-slate-500">签约</div>
+            {signedDoctors.length === 0 ? (
+              <p className="text-xs text-slate-400">暂无已签约医生</p>
+            ) : (
+              signedDoctors.slice(0, 2).map((doc) => (
+                <div key={`sign-${doc.id}`} className="mb-2 flex items-center gap-3 rounded-xl bg-slate-50 p-3">
+                  {avatar(doc)}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-bold text-slate-800">{doc.title}</div>
+                    <div className="text-xs text-slate-500">{doc.details?.dept}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-bold text-white"
+                    onClick={() => onOpenMessage?.(doc.id)}
+                  >
+                    消息
+                  </button>
+                </div>
+              ))
+            )}
           </div>
-        ) : (
-          bookedInteractions.map((item) => (
-            <div key={item.id} className="rounded-xl bg-white border border-slate-100 p-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="font-bold text-slate-800">{item.targetName}</div>
-                <div className="text-xs text-slate-500">{item.details || '预约挂号'}</div>
-                <div className="text-xs text-slate-400 mt-1">{item.date}</div>
-              </div>
-              <span className={`text-xs px-2 py-1 rounded font-bold ${
-                item.status === 'confirmed'
-                  ? 'bg-green-100 text-green-700'
-                  : item.status === 'pending'
-                  ? 'bg-yellow-100 text-yellow-700'
-                  : 'bg-slate-100 text-slate-600'
-              }`}>
-                {item.status === 'confirmed' ? '已确认' : item.status === 'pending' ? '待审核' : '已完成'}
-              </span>
-            </div>
-          ))
-        )}
-      </section>
+          <div className="border-t border-slate-100 pt-3">
+            <div className="mb-2 text-xs font-bold text-slate-500">预约</div>
+            {bookedInteractions.length === 0 ? (
+              <p className="text-xs text-slate-400">暂无预约记录</p>
+            ) : (
+              bookedInteractions.slice(0, 2).map((item) => (
+                <div key={item.id} className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-slate-50 p-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-slate-800">{item.targetName}</div>
+                    <div className="truncate text-xs text-slate-500">{item.details || '预约挂号'}</div>
+                  </div>
+                  <span className="shrink-0 rounded bg-yellow-100 px-2 py-0.5 text-[10px] font-bold text-yellow-700">
+                    {item.status === 'confirmed' ? '已确认' : item.status === 'pending' ? '待审核' : '已完成'}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          {(signedDoctors.length > 2 || bookedInteractions.length > 2) && onViewAllApps ? (
+            <button type="button" onClick={onViewAllApps} className="w-full pt-1 text-center text-xs font-bold text-teal-700">
+              查看全部申请记录 →
+            </button>
+          ) : null}
+        </div>
+      </UserPortalSection>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-black text-slate-700">医院医生资源</h2>
+      <UserPortalSection title="医院医生">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="搜索科室/医生名称"
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500"
+          className="mb-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500"
         />
         {loading ? (
-          <div className="rounded-xl bg-white border border-slate-100 p-6 text-center text-slate-400">加载中...</div>
+          <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-slate-400">加载中...</div>
         ) : (
-          filteredResources.map((doc) => (
-            <div
-              key={`res-${doc.id}`}
-              className="rounded-xl bg-white border border-slate-100 p-3 flex items-center gap-3 cursor-pointer"
-              onClick={() => setSelectedDoctor(doc)}
-            >
-              {avatar(doc)}
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-slate-800">{doc.title}</div>
-                <div className="text-xs text-slate-500">{doc.details?.dept} · {doc.details?.title}</div>
-              </div>
-              <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 font-bold">详情</span>
-            </div>
-          ))
+          <div className="space-y-2">
+            {filteredResources.map((doc) => (
+              <button
+                type="button"
+                key={`res-${doc.id}`}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 text-left active:scale-[0.99]"
+                onClick={() => setSelectedDoctor(doc)}
+              >
+                {avatar(doc)}
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-slate-800">{doc.title}</div>
+                  <div className="truncate text-xs text-slate-500">{doc.details?.dept} · {doc.details?.title}</div>
+                </div>
+                <span className="text-slate-300">›</span>
+              </button>
+            ))}
+          </div>
         )}
-      </section>
+      </UserPortalSection>
+    </UserPortalPageShell>
 
       {selectedDoctor && (
         <ModalPortal>
@@ -679,6 +692,6 @@ export const UserDoctors: React.FC<Props> = ({ userId, userName, archive, defaul
           </div>
         </ModalPortal>
       )}
-    </div>
+    </>
   );
 };

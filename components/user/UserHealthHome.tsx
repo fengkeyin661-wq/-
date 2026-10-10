@@ -20,7 +20,7 @@ import { HighLipidTag } from '../HighLipidTag';
 import { UserMetricEntryModal } from './UserMetricEntryModal';
 import type { UserMetricKey } from '../../services/observationMapper';
 
-export type UserProfileSubView = 'menu' | 'record' | 'followup' | 'plan';
+export type UserProfileSubView = 'menu' | 'record' | 'followup' | 'plan' | 'apps';
 
 interface Props {
   archive: HealthArchive | null;
@@ -163,8 +163,12 @@ export const UserHealthHome: React.FC<Props> = ({
     c.optional?.arteriosclerosis?.leftABI;
   const bodyFatRate = c.bodyComposition?.bodyFatRate ?? record.riskModelExtras?.bodyFatRate;
 
+  const homeSubtitle = model.nextFollowUp?.date
+    ? `下次随访 ${model.nextFollowUp.date}`
+    : '以下为您当前最需要关注的健康信息';
+
   return (
-    <div className="min-h-full animate-fadeIn bg-slate-50 pb-32">
+    <div className="min-h-full animate-fadeIn bg-slate-50 pb-[calc(84px+env(safe-area-inset-bottom)+80px)]">
       {(assessment?.isCritical || assessment?.criticalWarning) && (
         <div className="border-b border-red-300 bg-red-600 px-4 py-3 text-white">
           <p className="text-sm font-bold">⚠️ {assessment.criticalWarning || '存在危急或重大异常，请尽快联系健康管家或就医'}</p>
@@ -176,8 +180,8 @@ export const UserHealthHome: React.FC<Props> = ({
 
       <div className="space-y-4 p-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">你好，{record.profile.name}</h1>
-          <p className="text-xs text-slate-500">以下为您当前最需要关注的健康信息</p>
+          <h1 className="text-lg font-black text-slate-800">你好，{record.profile.name}</h1>
+          <p className="text-xs text-slate-500">{homeSubtitle}</p>
         </div>
 
         <UserRiskHeroBanner assessment={assessment} summaryExpandable />
@@ -302,7 +306,7 @@ export const UserHealthHome: React.FC<Props> = ({
         </div>
       </div>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom)+12px)] z-40">
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom)+16px)] z-40">
         <div className="mx-auto flex w-full max-w-md justify-end px-4">
           <button
             type="button"
