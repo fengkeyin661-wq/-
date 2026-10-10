@@ -8,7 +8,12 @@ import { UserProfileShell } from './UserProfileShell';
 import { ForcePasswordChangeModal } from './ForcePasswordChangeModal';
 import { UserCommunity } from './UserCommunity';
 import { UserDoctors } from './UserDoctors';
-import { openNeedSurvey } from '../../services/staffNeedSurveyCatalog';
+import {
+  openNeedSurvey,
+  USER_STAFF_NEED_SURVEY_VISIBLE,
+} from '../../services/staffNeedSurveyCatalog';
+
+const userOpenNeedSurvey = USER_STAFF_NEED_SURVEY_VISIBLE ? openNeedSurvey : undefined;
 import {
   HealthArchive,
   findArchiveByCheckupId,
@@ -23,6 +28,31 @@ const USER_PORTAL_SESSION_KEY = 'USER_PORTAL_SESSION_V1';
 /** 历史：仅 sessionStorage 存 id，启动时迁移到 localStorage */
 const LEGACY_USER_SESSION_CHECKUP_KEY = 'user_portal_checkup_id';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const PORTAL_PWD_PROMPT_SKIP_PREFIX = 'portal_pwd_prompt_skip:';
+
+const isPasswordPromptSkipped = (checkupId: string): boolean => {
+  try {
+    return sessionStorage.getItem(`${PORTAL_PWD_PROMPT_SKIP_PREFIX}${checkupId}`) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const skipPasswordPromptForSession = (checkupId: string) => {
+  try {
+    sessionStorage.setItem(`${PORTAL_PWD_PROMPT_SKIP_PREFIX}${checkupId}`, '1');
+  } catch {
+    /* ignore */
+  }
+};
+
+const clearPasswordPromptSkip = (checkupId: string) => {
+  try {
+    sessionStorage.removeItem(`${PORTAL_PWD_PROMPT_SKIP_PREFIX}${checkupId}`);
+  } catch {
+    /* ignore */
+  }
+};
 
 type PortalSessionV1 = { checkupId: string; expiresAt: number };
 
@@ -83,7 +113,16 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
   const [activeTab, setActiveTab] = useState('habits');
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
+  const [passwordPromptSkipped, setPasswordPromptSkipped] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!userArchive?.checkup_id) {
+      setPasswordPromptSkipped(false);
+      return;
+    }
+    setPasswordPromptSkipped(isPasswordPromptSkipped(userArchive.checkup_id));
+  }, [userArchive?.checkup_id]);
   const refreshUnreadCount = useCallback(async () => {
     if (!userArchive) return;
     const count = await getUnreadCount(userArchive.checkup_id);
@@ -405,7 +444,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           userName={userArchive ? resolvedUserName : undefined}
           defaultContactPhone={userArchive?.phone || userArchive?.health_record?.profile?.phone || ''}
           assessment={userArchive?.assessment_data}
-          onOpenNeedSurvey={openNeedSurvey}
+          onOpenNeedSurvey={userOpenNeedSurvey}
         />
       )}
       {activeTab === 'doctor' && (
@@ -428,7 +467,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
           onMessageRead={refreshUnreadCount}
           onOpenDoctors={() => setActiveTab('doctor')}
           onOpenCommunity={() => setActiveTab('community')}
-          onOpenNeedSurvey={openNeedSurvey}
+          onOpenNeedSurvey={userOpenNeedSurvey}
         />
       )}
       {activeTab === 'profile' &&
@@ -442,20 +481,29 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
             onUpdateRecord={handleUpdateRecord}
             onLogout={handleProfileLogout}
             onNavigate={setActiveTab}
-            onOpenNeedSurvey={openNeedSurvey}
+            onOpenNeedSurvey={userOpenNeedSurvey}
             onArchiveRefresh={() =>
               userArchive && loadArchiveById(userArchive.checkup_id, true)
             }
           />
         ) : (
-            <UserProfileShell onLoginSuccess={handleShellLoginSuccess} onOpenNeedSurvey={openNeedSurvey} />
+            <UserProfileShell onLoginSuccess={handleShellLoginSuccess} onOpenNeedSurvey={userOpenNeedSurvey} />
         ))}
     </UserLayout>
-    {userArchive && isDefaultPortalPassword(userArchive) ? (
+    {userArchive &&
+    isDefaultPortalPassword(userArchive) &&
+    !passwordPromptSkipped ? (
       <ForcePasswordChangeModal
         open
         checkupId={userArchive.checkup_id}
-        onSuccess={() => loadArchiveById(userArchive.checkup_id, true)}
+        onSuccess={() => {
+          clearPasswordPromptSkip(userArchive.checkup_id);
+          void loadArchiveById(userArchive.checkup_id, true);
+        }}
+        onSkip={() => {
+          skipPasswordPromptForSession(userArchive.checkup_id);
+          setPasswordPromptSkipped(true);
+        }}
       />
     ) : null}
     </>

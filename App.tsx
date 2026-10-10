@@ -23,7 +23,11 @@ import {
   type ChronicDiseaseSubTab,
 } from './components/ChronicDiseaseManagementModule';
 import { StaffWorkloadPanel } from './components/StaffWorkloadPanel';
-import { closeNeedSurvey, isNeedSurveyHash } from './services/staffNeedSurveyCatalog';
+import {
+  closeNeedSurvey,
+  isNeedSurveyHash,
+  USER_STAFF_NEED_SURVEY_VISIBLE,
+} from './services/staffNeedSurveyCatalog';
 import { CheckupBookingMobileDashboard } from './components/CheckupBookingMobileDashboard';
 import {
   canAccessCheckupBookingDashboard,
@@ -248,6 +252,15 @@ export const App: React.FC = () => {
   const canShowDoctorEntry = portalMode === 'all' || portalMode === 'doctor';
   /** 职工健康入口仅在主域名聚合页展示；`user.` 子域直达 UserApp，不在此展示 */
   const canShowUserEntry = portalMode === 'all';
+
+  useEffect(() => {
+    if (USER_STAFF_NEED_SURVEY_VISIBLE) return;
+    const staffPreview =
+      isAuthenticated &&
+      (currentUserRole === 'admin' || currentUserRole === 'health_manager');
+    if (staffPreview) return;
+    if (isNeedSurveyHash(routeHash)) closeNeedSurvey();
+  }, [routeHash, isAuthenticated, currentUserRole]);
 
   useEffect(() => {
     const syncHash = () => setRouteHash(window.location.hash);
@@ -948,8 +961,15 @@ export const App: React.FC = () => {
       return <CheckupApp />;
   }
 
-  if (isNeedSurveyHash(routeHash)) {
-      return <StaffNeedSurveyPage onClose={closeNeedSurvey} />;
+  const needSurveyStaffPreview =
+    isAuthenticated &&
+    (currentUserRole === 'admin' || currentUserRole === 'health_manager');
+
+  if (
+    isNeedSurveyHash(routeHash) &&
+    (USER_STAFF_NEED_SURVEY_VISIBLE || needSurveyStaffPreview)
+  ) {
+    return <StaffNeedSurveyPage onClose={closeNeedSurvey} />;
   }
 
   if (isCheckupBookingDashboardHash(routeHash)) {
@@ -1056,7 +1076,9 @@ export const App: React.FC = () => {
                         <p className="text-[11px] text-green-800/80 mb-2">无自助注册。浏览资源、预约挂号可在应用内直接操作；使用档案与随访请先完成体检建档并由中心开通账号。</p>
                         <button type="button" onClick={() => handleUserLogin()} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg text-sm hover:bg-green-700 mb-2">登录</button>
                         <button className="text-xs text-green-700 font-bold self-start hover:underline" onClick={() => setActiveTab('external_survey')}>📝 还没有档案？填写健康问卷</button>
-                        <button className="text-xs text-teal-700 font-bold self-start hover:underline mt-1" onClick={() => { window.location.hash = '/need-survey'; }}>📋 教职工健康需求调查（手机填写）</button>
+                        {USER_STAFF_NEED_SURVEY_VISIBLE ? (
+                          <button type="button" className="text-xs text-teal-700 font-bold self-start hover:underline mt-1" onClick={() => { window.location.hash = '/need-survey'; }}>📋 教职工健康需求调查（手机填写）</button>
+                        ) : null}
                     </div>
                 ) : (
                     <button onClick={() => setShowUserEntry(true)} className="bg-white p-6 rounded-2xl shadow-lg border border-green-100 hover:shadow-xl hover:border-green-300 transition-all text-left group relative overflow-hidden">
@@ -1071,8 +1093,12 @@ export const App: React.FC = () => {
             </div>
             <div className="mt-12 text-xs text-slate-400 flex gap-4">
                 <span className="cursor-pointer hover:text-teal-600" onClick={() => setActiveTab('external_survey')}>健康问卷填报</span>
-                <span>|</span>
-                <span className="cursor-pointer hover:text-teal-600" onClick={() => { window.location.hash = '/need-survey'; }}>需求调查</span>
+                {USER_STAFF_NEED_SURVEY_VISIBLE ? (
+                  <>
+                    <span>|</span>
+                    <span className="cursor-pointer hover:text-teal-600" onClick={() => { window.location.hash = '/need-survey'; }}>需求调查</span>
+                  </>
+                ) : null}
                 <span>|</span>
                 <span className="cursor-pointer hover:text-teal-600" onClick={openCheckupBookingDashboard}>体检预约看板</span>
                 <span>|</span>

@@ -25,6 +25,10 @@ export type DoorServiceItem = {
 };
 
 export const NEED_SURVEY_HASH = '#/need-survey';
+
+/** 用户端（职工健康服务）是否展示需求调查入口；改为 true 即可恢复链接与直达页 */
+export const USER_STAFF_NEED_SURVEY_VISIBLE = false;
+
 export const NEED_SURVEY_VERSION = '2026-v1';
 export const NEED_SURVEY_BATCH = '正式调查-2026';
 

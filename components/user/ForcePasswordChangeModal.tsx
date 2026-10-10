@@ -5,9 +5,10 @@ interface Props {
   open: boolean;
   checkupId: string;
   onSuccess: () => void;
+  onSkip?: () => void;
 }
 
-export const ForcePasswordChangeModal: React.FC<Props> = ({ open, checkupId, onSuccess }) => {
+export const ForcePasswordChangeModal: React.FC<Props> = ({ open, checkupId, onSuccess, onSkip }) => {
   const [pwdNew, setPwdNew] = useState('');
   const [pwdConfirm, setPwdConfirm] = useState('');
   const [saving, setSaving] = useState(false);
@@ -52,9 +53,9 @@ export const ForcePasswordChangeModal: React.FC<Props> = ({ open, checkupId, onS
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto mb-5 h-1 w-12 rounded-full bg-slate-200" />
-        <h2 className="text-center text-xl font-black text-slate-800">请修改登录密码</h2>
+        <h2 className="text-center text-xl font-black text-slate-800">建议修改登录密码</h2>
         <p className="mt-3 text-center text-sm leading-relaxed text-slate-600">
-          您当前使用的是初始密码（体检编号），为保障账户安全，请立即设置新密码后再继续使用。
+          您当前使用的是初始密码（体检编号）。为保障账户安全，建议尽快设置新密码；也可稍后在「我的 → 账户与安全」中修改。
         </p>
         <div className="mt-5 space-y-3">
           <div>
@@ -93,6 +94,16 @@ export const ForcePasswordChangeModal: React.FC<Props> = ({ open, checkupId, onS
           >
             {saving ? '保存中...' : '确认修改'}
           </button>
+          {onSkip ? (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={onSkip}
+              className="w-full rounded-xl border border-slate-200 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              暂不修改
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
