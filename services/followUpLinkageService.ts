@@ -96,6 +96,27 @@ export const expandFocusItems = (src: string[] | string | undefined | null): str
   return out;
 };
 
+const GENERIC_FOLLOWUP_FOCUS = /^常规|一般|随访$|复查$|^常规复查$/;
+
+/** 过滤「常规复查」等泛化表述，便于工作台与用户端突出本期重点 */
+export const isGenericFollowUpFocusText = (text: string): boolean => {
+  const t = String(text || '').trim();
+  if (t.length < 2) return true;
+  if (GENERIC_FOLLOWUP_FOCUS.test(t)) return true;
+  return false;
+};
+
+export const filterPriorityFocusItems = (items: string[]): string[] => {
+  const byKey = new Map<string, string>();
+  for (const raw of items) {
+    if (isGenericFollowUpFocusText(raw)) continue;
+    const key = normalizeFocusItemKey(raw);
+    if (key.length < 2) continue;
+    if (!byKey.has(key)) byKey.set(key, raw.trim());
+  }
+  return Array.from(byKey.values());
+};
+
 export const mergeFocusItems = (...sources: (string[] | string | undefined | null)[]): string[] => {
   const byKey = new Map<string, string>();
   for (const src of sources) {
@@ -181,7 +202,9 @@ export type FollowUpWorklistRow = {
   archive: HealthArchive;
   kind: FollowUpWorklistKind;
   priority: number;
-  routine?: { date: string; daysLeft: number; focus: string };
+  /** 本期优先核对（与随访录入上下文一致） */
+  priorityFocusItems: string[];
+  routine?: { date: string; daysLeft: number; focus: string; priorityFocusItems: string[] };
   critical?: {
     item: string;
     desc: string;
@@ -248,10 +271,15 @@ export const buildFollowUpWorklist = (
       const diffDays = Math.ceil((taskDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       if (diffDays > withinDays) continue;
       const id = arch.checkup_id;
+      const priorityFocusItems = resolvePriorityFocusForArchive(arch);
       const routine = {
         date: task.date,
         daysLeft: diffDays,
-        focus: (task.focusItems || []).join(', '),
+        focus:
+          priorityFocusItems.slice(0, 3).join(' · ') ||
+          filterPriorityFocusItems(task.focusItems || []).join(' · ') ||
+          '打开工作区查看要点',
+        priorityFocusItems,
       };
       const existing = map.get(id);
       if (!existing) {
@@ -259,10 +287,12 @@ export const buildFollowUpWorklist = (
           archive: arch,
           kind: 'routine',
           priority: computeRoutineWorklistPriority(diffDays),
+          priorityFocusItems: priorityFocusItems,
           routine,
         });
       } else if (!existing.routine || diffDays < existing.routine.daysLeft) {
         existing.routine = routine;
+        existing.priorityFocusItems = priorityFocusItems;
         if (existing.kind === 'routine') {
           existing.priority = computeRoutineWorklistPriority(diffDays);
         }
@@ -276,12 +306,20 @@ export const buildFollowUpWorklist = (
     const critical = buildCriticalWorklistSummary(arch);
     const priority = computeCriticalWorklistPriority(arch);
     const existing = map.get(id);
+    const rowFocus = resolvePriorityFocusForArchive(arch);
     if (existing) {
       existing.kind = 'critical';
       existing.critical = critical;
       existing.priority = Math.max(existing.priority, priority);
+      if (!existing.priorityFocusItems.length) existing.priorityFocusItems = rowFocus;
     } else {
-      map.set(id, { archive: arch, kind: 'critical', priority, critical });
+      map.set(id, {
+        archive: arch,
+        kind: 'critical',
+        priority,
+        critical,
+        priorityFocusItems: rowFocus,
+      });
     }
   }
 
@@ -526,6 +564,12 @@ export const buildFollowUpContext = (archive: HealthArchive): FollowUpContext =>
     partialTasks,
     chainSummaryText: buildFollowUpChainSummary(followUps, 3),
   };
+};
+
+/** 管理端待办队列 / 录入：与 followUpContext 一致的优先核对项 */
+export const resolvePriorityFocusForArchive = (archive: HealthArchive): string[] => {
+  const ctx = buildFollowUpContext(archive);
+  return filterPriorityFocusItems(ctx.focusItems).slice(0, 6);
 };
 
 export const linkFollowUpToCritical = (

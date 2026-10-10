@@ -10,6 +10,7 @@ import {
   computeIndicatorDelta,
   getIndicatorValuesFromRecord,
   mergeFocusItems,
+  filterPriorityFocusItems,
 } from '../services/followUpLinkageService';
 import { FollowUpWorklistPanel } from './FollowUpWorklistPanel';
 import {
@@ -127,7 +128,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
     layout === 'embedded' ? 'entry' : 'timeline',
   );
   const [worklistCollapsed, setWorklistCollapsed] = useState(false);
-  const [contextPanelExpanded, setContextPanelExpanded] = useState(false);
+  const [contextPanelExpanded, setContextPanelExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // State for viewing history details
@@ -246,6 +247,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
       [patientArchive]
   );
 
+  const priorityFocusItems = useMemo(
+      () => (followUpContext ? filterPriorityFocusItems(followUpContext.focusItems) : []),
+      [followUpContext]
+  );
+
   const mergedTimeline = useMemo(
       () => (patientArchive ? buildMergedTimeline(patientArchive) : []),
       [patientArchive]
@@ -333,11 +339,22 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
     // 单一合并入口：followUpContext 已含排期/上次计划，再并入当前方案文案；
     // mergeFocusItems 会规范化并去重，避免「血压」与「血压复查」并存。
-    const itemsToCheck = mergeFocusItems(
-      followUpContext?.focusItems,
-      nextScheduled?.focusItems,
-      activePlanText || '',
+    let itemsToCheck = filterPriorityFocusItems(
+      mergeFocusItems(
+        followUpContext?.focusItems,
+        nextScheduled?.focusItems,
+        activePlanText || '',
+      ),
     );
+    if (itemsToCheck.length === 0 && assessment?.structuredTasks?.length) {
+      itemsToCheck = assessment.structuredTasks
+        .filter((t) => t.isKeyGoal)
+        .map((t) => t.description)
+        .slice(0, 5);
+    }
+    if (itemsToCheck.length === 0 && followUpContext?.failedTasks?.length) {
+      itemsToCheck = followUpContext.failedTasks.map((t) => `补做未达标：${t.description}`);
+    }
     if (itemsToCheck.length > 0) {
         baseState.medicalCompliance = itemsToCheck.map(item => ({
             item,
@@ -345,7 +362,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
             result: ''
         }));
     } else {
-        baseState.medicalCompliance = [{ item: '常规复查项目', status: 'not_checked', result: '' }];
+        baseState.medicalCompliance = [
+          { item: '记录本期沟通结论与患者配合情况', status: 'not_checked', result: '' },
+        ];
     }
 
     baseState.taskCompliance = buildTaskComplianceFromPrior(latestRecord, assessment, isAssessmentNewer);
@@ -801,7 +820,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                 <div className="absolute -left-[23px] top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-blue-500 bg-blue-500"></div>
                                 <div className="text-xs text-blue-600 font-bold mb-1">{nextScheduled.date}</div>
                                 <div className="text-sm font-bold text-slate-800">计划中</div>
-                                <div className="text-xs text-slate-500 mt-1 max-w-[150px] truncate">{nextScheduled.focusItems.join(', ')}</div>
+                                <div className="text-xs text-slate-600 mt-1 max-w-[200px]">
+                                  {priorityFocusItems.length
+                                    ? priorityFocusItems.slice(0, 3).map((f, i) => (
+                                        <span key={f} className="block truncate">
+                                          {i + 1}. {f}
+                                        </span>
+                                      ))
+                                    : filterPriorityFocusItems(nextScheduled.focusItems || []).slice(0, 2).join(' · ') || '待维护要点'}
+                                </div>
                             </div>
                          )}
                     </div>
@@ -813,34 +840,68 @@ export const FollowUpDashboard: React.FC<Props> = ({
       {workspaceTab === 'entry' && assessment && currentPatientId && (
           <>
           {followUpContext && (
-              <div className="mb-6 rounded-xl border border-teal-200 bg-gradient-to-r from-teal-50 to-blue-50 shadow-sm overflow-hidden">
+              <div className="mb-6 space-y-3">
+              <div className="rounded-xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-black uppercase tracking-wide text-amber-800">本期优先随访核对</div>
+                    <div className="mt-0.5 text-sm font-bold text-slate-800">{followUpContext.sourceLabel}</div>
+                  </div>
+                  {followUpContext.criticalTrack ? (
+                    <button
+                      type="button"
+                      onClick={() => currentArchive && setCriticalModalArchive(currentArchive)}
+                      className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700"
+                    >
+                      危急值待办 →
+                    </button>
+                  ) : null}
+                </div>
+                {priorityFocusItems.length > 0 ? (
+                  <ol className="mt-3 space-y-2">
+                    {priorityFocusItems.map((item, i) => (
+                      <li key={item} className="flex gap-2 text-sm text-slate-800">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-xs font-black text-white">
+                          {i + 1}
+                        </span>
+                        <span className="font-medium leading-snug pt-0.5">{item}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="mt-2 text-sm text-amber-900/80">
+                    排期未维护专项要点：请从评估方案勾选关键目标，或在提交后写入 adjustedFocusItems。
+                  </p>
+                )}
+                {followUpContext.failedTasks.length + followUpContext.partialTasks.length > 0 ? (
+                  <div className="mt-3 border-t border-amber-200/80 pt-2">
+                    <div className="text-[11px] font-bold text-red-700">上期未达标（本期必追问）</div>
+                    <ul className="mt-1 space-y-0.5 text-xs text-red-800">
+                      {[...followUpContext.failedTasks, ...followUpContext.partialTasks].map((t) => (
+                        <li key={t.taskId || t.description}>· {t.description}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-xl border border-teal-200 bg-gradient-to-r from-teal-50 to-blue-50 shadow-sm overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setContextPanelExpanded((v) => !v)}
                     className="w-full flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-left hover:bg-teal-100/40"
                   >
-                    <span className="text-sm font-bold text-teal-900">本次随访要点 · {followUpContext.sourceLabel}</span>
+                    <span className="text-sm font-bold text-teal-900">辅助信息（指标对比 / 更多上下文）</span>
                     <span className="text-xs text-teal-700">{contextPanelExpanded ? '收起 ▲' : '展开 ▼'}</span>
                   </button>
                   {contextPanelExpanded ? (
                   <div className="px-5 pb-5 border-t border-teal-100">
-                  <div className="flex flex-wrap items-start justify-between gap-3 mb-4 pt-3">
-                      {followUpContext.criticalTrack && (
-                          <button
-                              type="button"
-                              onClick={() => currentArchive && setCriticalModalArchive(currentArchive)}
-                              className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-red-700"
-                          >
-                              危急值：{followUpContext.criticalTrack.status === 'pending_initial' ? '待初次通知' : '待二次回访'} →
-                          </button>
-                      )}
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                      <div className="bg-white/80 p-3 rounded-lg border border-teal-100">
-                          <div className="text-xs font-bold text-teal-700 mb-2">本期核对清单</div>
-                          <ul className="space-y-1 text-slate-700">
-                              {(followUpContext.focusItems.length ? followUpContext.focusItems : ['常规复查']).map((item, i) => (
-                                  <li key={i} className="flex gap-1"><span className="text-teal-500">•</span>{item}</li>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm pt-3">
+                      <div className="bg-white/80 p-3 rounded-lg border border-teal-100 md:col-span-2">
+                          <div className="text-xs font-bold text-teal-700 mb-2">完整核对清单（含合并项）</div>
+                          <ul className="flex flex-wrap gap-2 text-slate-700">
+                              {(followUpContext.focusItems.length ? followUpContext.focusItems : ['暂无专项']).map((item, i) => (
+                                  <li key={i} className="rounded-full bg-teal-50 px-2 py-0.5 text-xs border border-teal-100">{item}</li>
                               ))}
                           </ul>
                       </div>
@@ -861,21 +922,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               </ul>
                           )}
                       </div>
-                      <div className="bg-white/80 p-3 rounded-lg border border-teal-100">
-                          <div className="text-xs font-bold text-teal-700 mb-2">上期未达标任务</div>
-                          {followUpContext.failedTasks.length + followUpContext.partialTasks.length === 0 ? (
-                              <p className="text-slate-500 text-xs">上期任务均已达标或无记录</p>
-                          ) : (
-                              <ul className="space-y-1 text-xs text-slate-700">
-                                  {[...followUpContext.failedTasks, ...followUpContext.partialTasks].map((t, i) => (
-                                      <li key={i} className="text-red-700">⚠ {t.description}</li>
-                                  ))}
-                              </ul>
-                          )}
-                      </div>
                   </div>
                   </div>
                   ) : null}
+              </div>
               </div>
           )}
           <FollowUpTalkScriptReminder
@@ -896,15 +946,25 @@ export const FollowUpDashboard: React.FC<Props> = ({
               <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
                   {/* ... same logic ... */}
                   <div className="lg:col-span-1 space-y-6">
-                      <section className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 h-full">
-                           <h4 className="font-bold text-yellow-800 mb-3 flex justify-between items-center">
-                               <span>1. 上期复查重点核对</span>
-                               <span className="text-xs font-normal opacity-70">请核实执行情况</span>
+                      <section className="bg-yellow-50 p-4 rounded-lg border-2 border-amber-300 h-full">
+                           <h4 className="font-bold text-amber-900 mb-1 flex justify-between items-center">
+                               <span>1. 本期优先核对</span>
+                               <span className="text-xs font-normal text-amber-700">按序号逐项核实</span>
                            </h4>
+                           {priorityFocusItems.length > 0 ? (
+                             <p className="mb-3 text-[11px] text-amber-800/90">与顶部「优先随访核对」一致，请勿跳过未查项。</p>
+                           ) : null}
                            {formData.medicalCompliance && formData.medicalCompliance.length > 0 ? (
                                <div className="space-y-3">
                                    {formData.medicalCompliance.map((item, idx) => (
-                                       <div key={idx} className="bg-white p-3 rounded border border-yellow-100 shadow-sm relative">
+                                       <div key={idx} className={`bg-white p-3 rounded border shadow-sm relative ${
+                                         idx < priorityFocusItems.length ? 'border-amber-300 ring-1 ring-amber-100' : 'border-yellow-100'
+                                       }`}>
+                                           {idx < priorityFocusItems.length ? (
+                                             <span className="absolute -left-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-600 text-[10px] font-black text-white">
+                                               {idx + 1}
+                                             </span>
+                                           ) : null}
                                            <button onClick={() => removeMedicalComplianceItem(idx)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 font-bold">×</button>
                                            <div className="font-bold text-slate-800 mb-2 text-sm">{item.item}</div>
                                            <div className="flex gap-2 text-xs flex-wrap">

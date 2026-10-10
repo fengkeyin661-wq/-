@@ -211,10 +211,24 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
     return <span className="text-xs text-slate-400">初次通知后生成</span>;
   };
 
-  const focusSummary = (row: FollowUpWorklistRow) => {
-    if (row.routine?.focus) return row.routine.focus;
-    if (row.critical?.desc) return row.critical.desc;
-    return '—';
+  const renderPriorityFocus = (row: FollowUpWorklistRow) => {
+    const items = row.priorityFocusItems || row.routine?.priorityFocusItems || [];
+    if (items.length) {
+      return (
+        <ul className="space-y-0.5">
+          {items.slice(0, 3).map((item, i) => (
+            <li key={item} className="flex gap-1.5 text-xs text-slate-700">
+              <span className="font-black text-amber-700">{i + 1}.</span>
+              <span className="line-clamp-2">{item}</span>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    if (row.critical?.item) {
+      return <span className="text-xs font-bold text-red-700">{row.critical.item}</span>;
+    }
+    return <span className="text-slate-400 text-xs">待维护要点</span>;
   };
 
   const handleExport = () => {
@@ -292,7 +306,7 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
                   <th className="p-3">随访类别</th>
                   <th className="p-3 min-w-[140px]">危急值</th>
                   <th className="p-3">计划与倒计时</th>
-                  <th className="p-3">重点复查 / 描述</th>
+                  <th className="p-3 min-w-[160px]">本期优先核对</th>
                   <th className="p-3">最近随访</th>
                   <th className="p-3 text-center">操作</th>
                 </tr>
@@ -345,8 +359,8 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
                         )}
                       </td>
                       <td className="p-3">{planCell(row)}</td>
-                      <td className="p-3 text-xs text-slate-600 max-w-[180px] line-clamp-2" title={focusSummary(row)}>
-                        {focusSummary(row)}
+                      <td className="p-3 max-w-[200px]">
+                        {renderPriorityFocus(row)}
                       </td>
                       <td className="p-3 text-xs text-slate-500">
                         {getLatestFollowUp(archive.follow_ups)?.date || '无'}

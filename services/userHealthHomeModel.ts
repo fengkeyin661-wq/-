@@ -1,6 +1,10 @@
 import type { HealthAssessment, ScheduledFollowUp } from '../types';
 import type { HealthArchive } from './dataService';
-import { buildFollowUpContext, normalizeFocusItemKey } from './followUpLinkageService';
+import {
+  buildFollowUpContext,
+  filterPriorityFocusItems,
+  normalizeFocusItemKey,
+} from './followUpLinkageService';
 
 export type UserHomeActionKind =
   | 'metrics'
@@ -40,16 +44,6 @@ export interface UserHealthHomeModel {
   hasAssessment: boolean;
 }
 
-const GENERIC_FOCUS = /^常规|一般|随访$|复查$/;
-
-const isGenericFocusText = (text: string): boolean => {
-  const t = text.trim();
-  if (t.length < 2) return true;
-  if (GENERIC_FOCUS.test(t)) return true;
-  if (t === '常规复查') return true;
-  return false;
-};
-
 const dedupeActionsByTitle = (actions: UserHomeNextAction[]): UserHomeNextAction[] => {
   const seen = new Set<string>();
   const out: UserHomeNextAction[] = [];
@@ -87,7 +81,7 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
   }
   const followCtx = archive ? buildFollowUpContext(archive) : null;
   const followUpSourceLabel = followCtx?.sourceLabel || '';
-  const followUpFocusItems = (followCtx?.focusItems || []).filter((t) => !isGenericFocusText(t)).slice(0, 5);
+  const followUpFocusItems = filterPriorityFocusItems(followCtx?.focusItems || []).slice(0, 5);
 
   const nextActions: UserHomeNextAction[] = [];
   let actionIdx = 0;
