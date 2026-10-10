@@ -1,8 +1,16 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord } from '../types';
+import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord, FollowUpRecord } from '../types';
+import { getLatestFollowUp } from '../services/followUpLinkageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { SystemRiskPortrait } from './SystemRiskPortrait';
+import { HealthTrendCharts } from './HealthTrendCharts';
+
+export const FOLLOWUP_WORKSPACE_ANCHOR_ID = 'followup-detail-anchor';
+
+export function scrollToFollowUpWorkspace() {
+  document.getElementById(FOLLOWUP_WORKSPACE_ANCHOR_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 interface Props {
   assessment: HealthAssessment;
@@ -14,6 +22,11 @@ interface Props {
   onUpdateReport?: (file: File) => void; // Changed from onReevaluate to file upload handler
   onUpdateRiskAnalysis?: () => void; // Prop to refresh archives if models are updated
   onSupplementQuestionnaire?: () => void; // Add Supplement Questionnaire Callback
+  followUps?: FollowUpRecord[];
+  checkupId?: string;
+  /** 页内嵌入随访区时：滚动至随访工作区并展开录入 */
+  onEnterFollowUpWorkspace?: () => void;
+  onViewFollowUps?: () => void;
 }
 
 const COLORS = {
@@ -31,11 +44,34 @@ export const AssessmentReport: React.FC<Props> = ({
     onSave, 
     onUpdateReport,
     onUpdateRiskAnalysis,
-    onSupplementQuestionnaire
+    onSupplementQuestionnaire,
+    followUps = [],
+    checkupId,
+    onEnterFollowUpWorkspace,
+    onViewFollowUps,
 }) => {
+  const trendCheckupId = checkupId ?? profile?.checkupId ?? healthRecord?.profile.checkupId;
+
+  const handleEnterFollowUp = () => {
+    onEnterFollowUpWorkspace?.();
+    scrollToFollowUpWorkspace();
+    onViewFollowUps?.();
+  };
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [opsMenuOpen, setOpsMenuOpen] = useState(false);
+  const opsMenuRef = useRef<HTMLDivElement>(null);
+  const latestFollowUp = getLatestFollowUp(followUps);
+
+  useEffect(() => {
+    if (!opsMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (opsMenuRef.current && !opsMenuRef.current.contains(e.target as Node)) setOpsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [opsMenuOpen]);
 
   // Sync state when props change (e.g. switching patients)
   useEffect(() => {
@@ -325,7 +361,7 @@ export const AssessmentReport: React.FC<Props> = ({
                     <p class="disclaimer">本方案仅供参考，具体治疗请遵医嘱。</p>
                     <div class="contact-info">
                         <span>制定机构：郑州大学医院</span>
-                        <span>服务热线：0371-67739261</span>
+                        <span>服务热线：0371-67739538</span>
                         <span>工作时间：周一至周五上午8:00-12:00，下午2:30-5:30</span>
                     </div>
                 </div>
@@ -391,37 +427,58 @@ export const AssessmentReport: React.FC<Props> = ({
                     onChange={handleFileChange}
                 />
                 
-                {onUpdateReport && (
-                    <button 
-                        onClick={handleUpdateClick} 
-                        className="bg-white border border-indigo-200 text-indigo-700 px-5 py-2 rounded-lg font-bold hover:bg-indigo-50 flex items-center gap-2 transition-colors shadow-sm"
-                    >
-                        📈 更新体检报告
-                    </button>
-                )}
-                
-                {onSupplementQuestionnaire && (
-                    <button 
-                        onClick={onSupplementQuestionnaire} 
-                        className="bg-white border border-blue-200 text-blue-700 px-5 py-2 rounded-lg font-bold hover:bg-blue-50 flex items-center gap-2 transition-colors shadow-sm"
-                    >
-                        📝 补充问卷信息
-                    </button>
-                )}
-
                 <button onClick={() => setIsEditing(true)} className="bg-white border border-teal-200 text-teal-700 px-5 py-2 rounded-lg font-medium hover:bg-teal-50 flex items-center gap-2">
                     ✏️ 医生修订
                 </button>
                 <button onClick={handlePrint} className="bg-slate-800 text-white px-5 py-2 rounded-lg font-medium hover:bg-slate-700 flex items-center gap-2">
                     🖨️ 打印报告
                 </button>
+                {(onUpdateReport || onSupplementQuestionnaire) && (
+                  <div className="relative" ref={opsMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setOpsMenuOpen((v) => !v)}
+                      className="bg-white border border-slate-200 text-slate-700 px-5 py-2 rounded-lg font-medium hover:bg-slate-50"
+                    >
+                      操作 ▾
+                    </button>
+                    {opsMenuOpen ? (
+                      <div className="absolute right-0 top-full z-40 mt-1 min-w-[11rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                        {onUpdateReport ? (
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                            onClick={() => {
+                              setOpsMenuOpen(false);
+                              handleUpdateClick();
+                            }}
+                          >
+                            更新体检报告
+                          </button>
+                        ) : null}
+                        {onSupplementQuestionnaire ? (
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                            onClick={() => {
+                              setOpsMenuOpen(false);
+                              onSupplementQuestionnaire();
+                            }}
+                          >
+                            补充问卷信息
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
              </>
          )}
       </div>
       
       {/* Patient Profile Card (Screen Only) */}
       {profile && (
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
+        <div className="hidden print:flex bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex-col md:flex-row justify-between items-center gap-4">
              <div className="flex items-center gap-4 w-full md:w-auto">
                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200 shrink-0">
                     {profile.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
@@ -501,6 +558,45 @@ export const AssessmentReport: React.FC<Props> = ({
           </div>
       )}
 
+      {latestFollowUp && (
+          <div className="bg-teal-50 border border-teal-200 rounded-lg p-5 mb-6">
+              <div className="flex justify-between items-start gap-4 mb-3">
+                  <h3 className="text-lg font-bold text-teal-800 flex items-center gap-2">
+                      <span>🔗</span> 随访进展摘要
+                  </h3>
+                  {(onEnterFollowUpWorkspace || onViewFollowUps) && (
+                      <button
+                          type="button"
+                          onClick={handleEnterFollowUp}
+                          className="text-xs text-teal-700 font-bold hover:underline shrink-0"
+                      >
+                          继续随访监测 ↓
+                      </button>
+                  )}
+              </div>
+              <div className="text-sm text-slate-700 space-y-2">
+                  <p>
+                      <span className="font-bold">最近随访：</span>
+                      {latestFollowUp.date} · {latestFollowUp.method}
+                  </p>
+                  {latestFollowUp.assessment.continuitySummary && (
+                      <p><span className="font-bold">相对上次进展：</span>{latestFollowUp.assessment.continuitySummary}</p>
+                  )}
+                  {latestFollowUp.assessment.taskReviewSummary && (
+                      <p><span className="font-bold">任务回顾：</span>{latestFollowUp.assessment.taskReviewSummary}</p>
+                  )}
+                  {latestFollowUp.indicatorDelta && Object.keys(latestFollowUp.indicatorDelta).length > 0 && (
+                      <div>
+                          <span className="font-bold">指标变化：</span>
+                          <span className="text-slate-600 ml-1">
+                              {Object.entries(latestFollowUp.indicatorDelta).map(([k, d]) => `${k} ${d.prev}→${d.curr}${d.unit}`).join('；')}
+                          </span>
+                      </div>
+                  )}
+              </div>
+          </div>
+      )}
+
       {/* Summary Section */}
       <div className="bg-white rounded-xl shadow p-6 flex flex-col md:flex-row items-start gap-8 print:shadow-none print:border">
         <div className="w-32 h-32 flex-shrink-0 mx-auto md:mx-0">
@@ -544,6 +640,48 @@ export const AssessmentReport: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {(editData.elderlyRiskLevel || (profile?.age && profile.age >= 60)) && (
+          <div className="bg-violet-50 border border-violet-200 rounded-lg p-5 mb-6">
+              <h3 className="text-lg font-bold text-violet-900 flex items-center gap-2 mb-2">
+                  <span>👴</span> 老年专项评估（CGA）
+              </h3>
+              {editData.elderlyRiskLevel ? (
+                  <div className="text-sm text-slate-700 space-y-2">
+                      <p>
+                          <span className="font-bold">分级：</span>
+                          <span className={
+                            editData.elderlyRiskLevel === RiskLevel.RED ? 'text-red-700 font-bold' :
+                            editData.elderlyRiskLevel === RiskLevel.YELLOW ? 'text-amber-700 font-bold' :
+                            'text-emerald-700 font-bold'
+                          }>
+                            {editData.elderlyRiskLevel === RiskLevel.RED ? '高风险' :
+                             editData.elderlyRiskLevel === RiskLevel.YELLOW ? '中风险' : '低风险'}
+                          </span>
+                      </p>
+                      {editData.elderlyRiskSummary && (
+                          <p><span className="font-bold">摘要：</span>{editData.elderlyRiskSummary}</p>
+                      )}
+                      {(editData.elderlyRiskReasons || []).length > 0 && (
+                          <ul className="list-disc pl-5 space-y-0.5">
+                              {(editData.elderlyRiskReasons || []).slice(0, 5).map((r, i) => (
+                                  <li key={i}>{r}</li>
+                              ))}
+                          </ul>
+                      )}
+                      {editData.elderlyPersonalizedPlan?.followup?.length ? (
+                          <p className="text-xs text-violet-700">
+                              随访建议：{editData.elderlyPersonalizedPlan.followup[0]}
+                          </p>
+                      ) : null}
+                  </div>
+              ) : (
+                  <p className="text-sm text-violet-800">
+                      受检人年龄 ≥60 岁，建议在「老年专项评估」模块完成 CGA 量表筛查。
+                  </p>
+              )}
+          </div>
+      )}
 
       {/* Risk Factors Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -613,6 +751,18 @@ export const AssessmentReport: React.FC<Props> = ({
              </div>
           </div>
       </div>
+
+      {trendCheckupId ? (
+        <div className="bg-white p-6 rounded-xl shadow border border-slate-100 print:hidden">
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
+            <span>📈</span> 近年核心指标变化趋势
+          </h3>
+          <p className="text-xs text-slate-500 mb-4">
+            汇总历年体检与随访录入的血压、体重、血糖、血脂等观测值，便于对照评估与干预效果
+          </p>
+          <HealthTrendCharts checkupId={trendCheckupId} variant="admin" />
+        </div>
+      ) : null}
       
       {/* Follow-up Plan Section */}
       <div className="bg-blue-50 p-6 rounded border border-blue-200 print:bg-transparent print:border-slate-300">
@@ -645,6 +795,19 @@ export const AssessmentReport: React.FC<Props> = ({
               )}
           </div>
       </div>
+
+      {(onEnterFollowUpWorkspace || onViewFollowUps) && (
+        <div className="print:hidden rounded-lg border border-teal-200 bg-teal-50/50 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-teal-900">下方可录入随访、查看路径与执行单</p>
+          <button
+            type="button"
+            onClick={handleEnterFollowUp}
+            className="shrink-0 px-4 py-2 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700"
+          >
+            继续随访录入 ↓
+          </button>
+        </div>
+      )}
 
       {/* Signature for Print */}
       <div className="hidden print:flex justify-between mt-12 pt-8 border-t border-slate-300">

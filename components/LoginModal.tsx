@@ -1,15 +1,19 @@
 
 import React, { useState } from 'react';
-import { fetchContent, ContentItem } from '../services/contentService';
+import { fetchContent, ContentItem, isHealthManagerContent } from '../services/contentService';
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    onLoginSuccess: (role: 'admin' | 'home' | 'resource_admin' | 'doctor', doctorInfo?: ContentItem) => void;
+    onLoginSuccess: (
+        role: 'admin' | 'home' | 'resource_admin' | 'doctor' | 'health_manager',
+        doctorInfo?: ContentItem,
+        managerInfo?: ContentItem,
+    ) => void;
     roleContext?: {
         title: string;
         color: string;
-        allowedRoles: string[]; // 'admin', 'home', 'resource_admin', 'doctor'
+        allowedRoles: string[]; // 'admin', 'home', 'resource_admin', 'doctor', 'health_manager'
     };
 }
 
@@ -93,7 +97,29 @@ export const LoginModal: React.FC<Props> = ({ isOpen, onClose, onLoginSuccess, r
             }
         } 
 
-        // 2. Check Dynamic Doctor Roles
+        // 2. Check Health Manager (admin backend access)
+        if (allowed.includes('health_manager')) {
+            try {
+                const doctors = await fetchContent('doctor', 'active');
+                const manager = doctors.find(
+                    (doc) =>
+                        isHealthManagerContent(doc) &&
+                        doc.details?.admin_access === true &&
+                        doc.details?.username === username &&
+                        doc.details?.password === password,
+                );
+                if (manager) {
+                    onLoginSuccess('health_manager', undefined, manager);
+                    setIsLoading(false);
+                    onClose();
+                    return;
+                }
+            } catch (e) {
+                console.error('Health manager login check failed', e);
+            }
+        }
+
+        // 3. Check Dynamic Doctor Roles
         if (allowed.includes('doctor')) {
             try {
                 const doctors = await fetchContent('doctor', 'active');

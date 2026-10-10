@@ -1,0 +1,294 @@
+import type { CheckupAbnormality, FollowUpRecord, RiskLevel } from '../types';
+import type { HealthArchive } from './dataService';
+import { buildFollowUpContext, getLatestFollowUp, normalizeFocusItemKey } from './followUpLinkageService';
+
+export type PlanAdherenceGrade = 1 | 2 | 3 | 4 | 5;
+
+export type AbnormalityFollowUpStatus =
+  | 'pending'
+  | 'retest_done'
+  | 'further_exam_done'
+  | 'referred'
+  | 'declined';
+
+export type AbnormalityFollowUp = {
+  key: string;
+  item: string;
+  lastResult?: string;
+  status: AbnormalityFollowUpStatus;
+  note?: string;
+};
+
+export type SupervisionMetricKey =
+  | 'sbp'
+  | 'dbp'
+  | 'glucose'
+  | 'weight'
+  | 'tc'
+  | 'tg'
+  | 'ldl'
+  | 'hdl';
+
+export interface SupervisionMetricSlot {
+  key: SupervisionMetricKey;
+  label: string;
+  unit: string;
+  refHint?: string;
+}
+
+export interface SupervisionBrief {
+  riskLevel: RiskLevel | 'UNKNOWN';
+  sourceLabel: string;
+  riskFocusLines: string[];
+  metricSlots: SupervisionMetricSlot[];
+  abnormalityTracks: AbnormalityFollowUp[];
+  hasCriticalTrack: boolean;
+}
+
+export const PLAN_ADHERENCE_LABELS: Record<PlanAdherenceGrade, string> = {
+  5: '很好（基本按方案执行）',
+  4: '较好（多数做到）',
+  3: '一般（时好时坏）',
+  2: '较差（明显未跟上）',
+  1: '很差（几乎未执行）',
+};
+
+const abnormalityKey = (item: string, result?: string) =>
+  normalizeFocusItemKey(`${item}|${result || ''}`);
+
+const STATUS_SORT_WEIGHT: Record<AbnormalityFollowUpStatus, number> = {
+  pending: 0,
+  referred: 40,
+  retest_done: 50,
+  further_exam_done: 55,
+  declined: 100,
+};
+
+/** 随访录入：异常项按优先级自上而下（待跟进、高危相关优先） */
+export const sortAbnormalityTracksByPriority = (
+  tracks: AbnormalityFollowUp[],
+  archive: HealthArchive
+): AbnormalityFollowUp[] => {
+  const criticalItem = archive.critical_track?.critical_item?.toLowerCase() || '';
+  const redLines = (archive.assessment_data?.risks?.red || []).map((s) => String(s).toLowerCase());
+  const yellowLines = (archive.assessment_data?.risks?.yellow || []).map((s) => String(s).toLowerCase());
+
+  const score = (row: AbnormalityFollowUp): number => {
+    let s = STATUS_SORT_WEIGHT[row.status] ?? 30;
+    const blob = `${row.item} ${row.lastResult || ''}`.toLowerCase();
+    if (criticalItem && blob.includes(criticalItem)) s -= 50;
+    if (redLines.some((r) => r.length > 1 && (blob.includes(r) || r.includes(blob.slice(0, 8))))) s -= 30;
+    else if (yellowLines.some((r) => r.length > 1 && blob.includes(r))) s -= 15;
+    if (/危急|严重|显著|明显异常|↑↑|高危/.test(blob)) s -= 12;
+    return s;
+  };
+
+  return [...tracks].sort((a, b) => score(a) - score(b) || a.item.localeCompare(b.item, 'zh-CN'));
+};
+
+const textBlob = (archive: HealthArchive): string => {
+  const a = archive.assessment_data;
+  const parts = [
+    ...(a?.risks?.red || []),
+    ...(a?.risks?.yellow || []),
+    ...(a?.followUpPlan?.nextCheckItems || []),
+    ...(a?.managementPlan?.monitoring || []),
+    archive.critical_track?.critical_item || '',
+    archive.critical_track?.critical_desc || '',
+  ];
+  return parts.join(' ').toLowerCase();
+};
+
+const wantsBp = (blob: string) => /血压|高血压|hbp|收缩|舒张/.test(blob);
+const wantsGlucose = (blob: string) => /血糖|糖尿病|糖化|hba1c|glucose/.test(blob);
+const wantsLipid = (blob: string) => /血脂|胆固醇|ldl|hdl|tg|tc|高脂/.test(blob);
+const wantsWeight = (blob: string) =>
+  /体重|bmi|肥胖|腰围|减重/.test(blob) || wantsBp(blob) || wantsGlucose(blob);
+
+const buildMetricSlots = (archive: HealthArchive, blob: string): SupervisionMetricSlot[] => {
+  const slots: SupervisionMetricSlot[] = [];
+  const push = (slot: SupervisionMetricSlot) => {
+    if (slots.some((s) => s.key === slot.key)) return;
+    if (slots.length >= 4) return;
+    slots.push(slot);
+  };
+
+  if (wantsBp(blob)) {
+    push({ key: 'sbp', label: '收缩压', unit: 'mmHg', refHint: '<140' });
+    push({ key: 'dbp', label: '舒张压', unit: 'mmHg', refHint: '<90' });
+  }
+  if (wantsGlucose(blob)) {
+    push({ key: 'glucose', label: '空腹血糖', unit: 'mmol/L', refHint: '3.9–6.1' });
+  }
+  if (wantsWeight(blob)) {
+    push({ key: 'weight', label: '体重', unit: 'kg' });
+  }
+  if (wantsLipid(blob)) {
+    push({ key: 'ldl', label: 'LDL-C', unit: 'mmol/L', refHint: '<3.4' });
+    if (slots.length < 4) push({ key: 'tg', label: 'TG', unit: 'mmol/L', refHint: '<1.7' });
+  }
+
+  if (slots.length === 0) {
+    push({ key: 'sbp', label: '收缩压', unit: 'mmHg', refHint: '<140' });
+    push({ key: 'dbp', label: '舒张压', unit: 'mmHg', refHint: '<90' });
+    push({ key: 'weight', label: '体重', unit: 'kg' });
+  }
+
+  return slots.slice(0, 4);
+};
+
+const buildRiskFocusLines = (archive: HealthArchive): string[] => {
+  const out: string[] = [];
+  const track = archive.critical_track;
+  if (track && track.status !== 'archived' && track.critical_item) {
+    out.push(`危急/重点：${track.critical_item}`);
+  }
+  const a = archive.assessment_data;
+  for (const line of a?.risks?.red || []) {
+    const t = String(line).trim();
+    if (t && !out.includes(t)) out.push(t);
+    if (out.length >= 4) return out;
+  }
+  for (const line of a?.risks?.yellow || []) {
+    const t = String(line).trim();
+    if (t && !out.some((x) => normalizeFocusItemKey(x) === normalizeFocusItemKey(t))) out.push(t);
+    if (out.length >= 4) break;
+  }
+  return out.slice(0, 4);
+};
+
+const stripCriticalPrefix = (focusLine: string) =>
+  focusLine.replace(/^危急\/重点：/, '').trim();
+
+const textMatchesFocusLine = (text: string, focusLine: string): boolean => {
+  const blob = String(text || '').toLowerCase();
+  const raw = stripCriticalPrefix(focusLine).toLowerCase();
+  if (!raw || raw.length < 2) return false;
+  if (blob.includes(raw)) return true;
+  const fk = normalizeFocusItemKey(raw);
+  const bk = normalizeFocusItemKey(blob);
+  if (fk.length >= 2 && (bk.includes(fk) || fk.includes(bk))) return true;
+  const head = raw.slice(0, Math.min(6, raw.length));
+  return head.length >= 2 && blob.includes(head);
+};
+
+const checkupAbnMatchesFocus = (ab: CheckupAbnormality, focusLine: string): boolean => {
+  const blob = [ab.item, ab.category, ab.result, ab.clinicalSig].filter(Boolean).join(' ');
+  return textMatchesFocusLine(blob, focusLine);
+};
+
+const priorRowMatchesFocus = (row: AbnormalityFollowUp, focusLine: string): boolean =>
+  textMatchesFocusLine(`${row.item} ${row.lastResult || ''}`, focusLine);
+
+/** 与 buildRiskFocusLines 一一对应，便于录入区与「本期监督重点」一致 */
+const mergeAbnormalityTracks = (archive: HealthArchive): AbnormalityFollowUp[] => {
+  const focusLines = buildRiskFocusLines(archive);
+  if (!focusLines.length) return [];
+
+  const prior = getLatestFollowUp(archive.follow_ups);
+  const priorRows = prior?.abnormalityFollowUps || [];
+  const checkupAbn = archive.health_record?.checkup?.abnormalities || [];
+  const usedPriorKeys = new Set<string>();
+
+  return focusLines.map((focus) => {
+    const priorHit = priorRows.find((r) => !usedPriorKeys.has(r.key) && priorRowMatchesFocus(r, focus));
+    if (priorHit) {
+      usedPriorKeys.add(priorHit.key);
+      return { ...priorHit, item: focus };
+    }
+
+    const matchedAb = checkupAbn.find((ab) => checkupAbnMatchesFocus(ab, focus));
+    let lastResult = matchedAb
+      ? [matchedAb.result, matchedAb.clinicalSig].filter(Boolean).join(' · ').slice(0, 120)
+      : undefined;
+    if (!lastResult && focus.startsWith('危急/重点：') && archive.critical_track?.critical_desc) {
+      lastResult = archive.critical_track.critical_desc.slice(0, 120);
+    }
+
+    const label = stripCriticalPrefix(focus) || focus;
+    return {
+      key: abnormalityKey(label, lastResult),
+      item: focus,
+      lastResult: lastResult || undefined,
+      status: 'pending' as const,
+      note: '',
+    };
+  });
+};
+
+export const buildSupervisionBrief = (archive: HealthArchive | null | undefined): SupervisionBrief => {
+  if (!archive) {
+    return {
+      riskLevel: 'UNKNOWN',
+      sourceLabel: '',
+      riskFocusLines: [],
+      metricSlots: [],
+      abnormalityTracks: [],
+      hasCriticalTrack: false,
+    };
+  }
+
+  const ctx = buildFollowUpContext(archive);
+  const blob = textBlob(archive);
+  const track = archive.critical_track;
+  const hasCriticalTrack = Boolean(track && track.status !== 'archived');
+
+  return {
+    riskLevel: archive.assessment_data?.riskLevel || 'UNKNOWN',
+    sourceLabel: ctx.sourceLabel,
+    riskFocusLines: buildRiskFocusLines(archive),
+    metricSlots: buildMetricSlots(archive, blob),
+    abnormalityTracks: mergeAbnormalityTracks(archive),
+    hasCriticalTrack,
+  };
+};
+
+export const resolveSupervisionPriorityFocus = (archive: HealthArchive): string[] =>
+  buildSupervisionBrief(archive).riskFocusLines.slice(0, 3);
+
+export const deriveLegacyComplianceSummary = (record: FollowUpRecord | null | undefined): string | null => {
+  if (!record) return null;
+  const med = record.medicalCompliance || [];
+  const tasks = record.taskCompliance || [];
+  if (!med.length && !tasks.length) return null;
+  const medPart = med.length
+    ? `复查核对 ${med.filter((m) => m.status === 'improved').length}/${med.length} 项改善`
+    : '';
+  const taskPart = tasks.length
+    ? `方案任务 ${tasks.filter((t) => t.status === 'achieved').length}/${tasks.length} 达标`
+    : '';
+  return [medPart, taskPart].filter(Boolean).join(' · ');
+};
+
+export const formatPlanAdherenceGrade = (grade?: PlanAdherenceGrade | null): string =>
+  grade ? PLAN_ADHERENCE_LABELS[grade] : '未评价';
+
+export const countClosedAbnormalityTracks = (rows: AbnormalityFollowUp[] | undefined): number =>
+  (rows || []).filter((r) => r.status !== 'pending').length;
+
+/** 从上次随访判断是否需要本期追问（新模型 + 旧 taskCompliance 兼容） */
+export const resolveSupervisionFollowUpFlags = (prior: FollowUpRecord | null | undefined) => {
+  const lowAdherence =
+    prior?.planAdherenceGrade != null && prior.planAdherenceGrade <= 2;
+  const pendingAbn = (prior?.abnormalityFollowUps || []).filter((a) => a.status === 'pending');
+  const failedTasks = (prior?.taskCompliance || []).filter((t) => t.status === 'failed');
+  const partialTasks = (prior?.taskCompliance || []).filter((t) => t.status === 'partial');
+  return { lowAdherence, pendingAbn, failedTasks, partialTasks };
+};
+
+export const buildSupervisionChainLine = (r: FollowUpRecord): string => {
+  const grade = r.planAdherenceGrade
+    ? `方案总评 ${r.planAdherenceGrade}/5`
+    : deriveLegacyComplianceSummary(r) || '';
+  const abn = r.abnormalityFollowUps?.length
+    ? `异常跟踪 ${countClosedAbnormalityTracks(r.abnormalityFollowUps)}/${r.abnormalityFollowUps.length} 已更新`
+    : '';
+  const ind = r.indicators;
+  const metric =
+    ind.sbp || ind.dbp
+      ? `BP ${ind.sbp || '-'}/${ind.dbp || '-'}`
+      : ind.glucose
+        ? `血糖 ${ind.glucose}`
+        : '';
+  return [grade, abn, metric].filter(Boolean).join(' · ');
+};
