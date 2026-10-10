@@ -930,7 +930,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
               <div className="p-6 space-y-8">
                       <section className="bg-yellow-50 p-4 rounded-lg border-2 border-amber-300">
                            <h4 className="font-bold text-amber-900 mb-2">1. 异常指标跟踪</h4>
-                           <p className="text-[11px] text-amber-800/90 mb-3">记录复测或进一步检查进展，无需逐项盘问所有化验。</p>
+                           <p className="text-[11px] text-amber-800/90 mb-3">
+                             与上方「本期监督重点」一致（中高危因素）；记录复测或进一步检查进展即可。
+                           </p>
                            {formData.abnormalityFollowUps && formData.abnormalityFollowUps.length > 0 ? (
                                <div className="flex flex-col gap-3">
                                    {formData.abnormalityFollowUps.map((row, idx) => (
@@ -959,7 +961,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                    ))}
                                </div>
                            ) : (
-                             <p className="text-xs text-slate-500">暂无体检异常项；可在备注中记录其他检查安排。</p>
+                             <p className="text-xs text-slate-500">暂无中高危监督重点，无需填写异常跟踪；可在下方沟通备注中补充。</p>
                            )}
                       </section>
 

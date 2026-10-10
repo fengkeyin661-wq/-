@@ -1,4 +1,4 @@
-import type { FollowUpRecord, RiskLevel } from '../types';
+import type { CheckupAbnormality, FollowUpRecord, RiskLevel } from '../types';
 import type { HealthArchive } from './dataService';
 import { buildFollowUpContext, getLatestFollowUp, normalizeFocusItemKey } from './followUpLinkageService';
 
@@ -157,31 +157,63 @@ const buildRiskFocusLines = (archive: HealthArchive): string[] => {
   return out.slice(0, 4);
 };
 
+const stripCriticalPrefix = (focusLine: string) =>
+  focusLine.replace(/^危急\/重点：/, '').trim();
+
+const textMatchesFocusLine = (text: string, focusLine: string): boolean => {
+  const blob = String(text || '').toLowerCase();
+  const raw = stripCriticalPrefix(focusLine).toLowerCase();
+  if (!raw || raw.length < 2) return false;
+  if (blob.includes(raw)) return true;
+  const fk = normalizeFocusItemKey(raw);
+  const bk = normalizeFocusItemKey(blob);
+  if (fk.length >= 2 && (bk.includes(fk) || fk.includes(bk))) return true;
+  const head = raw.slice(0, Math.min(6, raw.length));
+  return head.length >= 2 && blob.includes(head);
+};
+
+const checkupAbnMatchesFocus = (ab: CheckupAbnormality, focusLine: string): boolean => {
+  const blob = [ab.item, ab.category, ab.result, ab.clinicalSig].filter(Boolean).join(' ');
+  return textMatchesFocusLine(blob, focusLine);
+};
+
+const priorRowMatchesFocus = (row: AbnormalityFollowUp, focusLine: string): boolean =>
+  textMatchesFocusLine(`${row.item} ${row.lastResult || ''}`, focusLine);
+
+/** 与 buildRiskFocusLines 一一对应，便于录入区与「本期监督重点」一致 */
 const mergeAbnormalityTracks = (archive: HealthArchive): AbnormalityFollowUp[] => {
-  const byKey = new Map<string, AbnormalityFollowUp>();
+  const focusLines = buildRiskFocusLines(archive);
+  if (!focusLines.length) return [];
+
   const prior = getLatestFollowUp(archive.follow_ups);
-
-  for (const row of prior?.abnormalityFollowUps || []) {
-    byKey.set(row.key, { ...row });
-  }
-
+  const priorRows = prior?.abnormalityFollowUps || [];
   const checkupAbn = archive.health_record?.checkup?.abnormalities || [];
-  for (const ab of checkupAbn.slice(0, 8)) {
-    const item = ab.item?.trim() || ab.category?.trim() || '异常项';
-    const lastResult = [ab.result, ab.clinicalSig].filter(Boolean).join(' · ').slice(0, 120);
-    const key = abnormalityKey(item, lastResult);
-    if (!byKey.has(key)) {
-      byKey.set(key, {
-        key,
-        item,
-        lastResult: lastResult || undefined,
-        status: 'pending',
-        note: '',
-      });
-    }
-  }
+  const usedPriorKeys = new Set<string>();
 
-  return sortAbnormalityTracksByPriority(Array.from(byKey.values()), archive).slice(0, 12);
+  return focusLines.map((focus) => {
+    const priorHit = priorRows.find((r) => !usedPriorKeys.has(r.key) && priorRowMatchesFocus(r, focus));
+    if (priorHit) {
+      usedPriorKeys.add(priorHit.key);
+      return { ...priorHit, item: focus };
+    }
+
+    const matchedAb = checkupAbn.find((ab) => checkupAbnMatchesFocus(ab, focus));
+    let lastResult = matchedAb
+      ? [matchedAb.result, matchedAb.clinicalSig].filter(Boolean).join(' · ').slice(0, 120)
+      : undefined;
+    if (!lastResult && focus.startsWith('危急/重点：') && archive.critical_track?.critical_desc) {
+      lastResult = archive.critical_track.critical_desc.slice(0, 120);
+    }
+
+    const label = stripCriticalPrefix(focus) || focus;
+    return {
+      key: abnormalityKey(label, lastResult),
+      item: focus,
+      lastResult: lastResult || undefined,
+      status: 'pending' as const,
+      note: '',
+    };
+  });
 };
 
 export const buildSupervisionBrief = (archive: HealthArchive | null | undefined): SupervisionBrief => {
