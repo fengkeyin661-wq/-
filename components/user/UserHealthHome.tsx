@@ -183,17 +183,28 @@ export const UserHealthHome: React.FC<Props> = ({
         <UserRiskHeroBanner assessment={assessment} summaryExpandable />
 
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="font-bold text-slate-800">核心指标</h2>
-            {onUpdateRecord ? (
-              <button
-                type="button"
-                onClick={() => setMetricModalOpen(true)}
-                className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700"
-              >
-                更新数据
-              </button>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-2">
+              {checkupId ? (
+                <button
+                  type="button"
+                  onClick={() => setTrendsOpen((v) => !v)}
+                  className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700"
+                >
+                  {trendsOpen ? '收起趋势' : '关键指标趋势'}
+                </button>
+              ) : null}
+              {onUpdateRecord ? (
+                <button
+                  type="button"
+                  onClick={() => setMetricModalOpen(true)}
+                  className="rounded-lg bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-700"
+                >
+                  更新数据
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="mb-3 flex flex-wrap gap-2">
             <HighGlucoseTag record={record} />
@@ -216,6 +227,11 @@ export const UserHealthHome: React.FC<Props> = ({
             ))}
           </div>
           {recomputeHint ? <p className="mt-2 text-xs text-blue-600">{recomputeHint}</p> : null}
+          {trendsOpen && checkupId ? (
+            <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <HealthTrendCharts checkupId={checkupId} variant="dashboard" />
+            </div>
+          ) : null}
           {archive.draft_data ? (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               有新的 AI 健康建议待医生审核发布
@@ -246,6 +262,23 @@ export const UserHealthHome: React.FC<Props> = ({
           </div>
         )}
 
+        {model.hasAssessment ? (
+          <button
+            type="button"
+            onClick={() => handleAction('record')}
+            className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-sm transition-colors hover:bg-slate-50 active:scale-[0.99]"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xl">📄</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-bold text-slate-800">查看完整健康档案与方案</div>
+              <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+                {assessment?.summary || '体检指标与专属管理方案'}
+              </div>
+            </div>
+            <span className="shrink-0 text-slate-300">›</span>
+          </button>
+        ) : null}
+
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <h2 className="mb-3 font-bold text-slate-800">下一步健康计划</h2>
           {model.nextFollowUp ? (
@@ -267,40 +300,19 @@ export const UserHealthHome: React.FC<Props> = ({
             ))}
           </div>
         </div>
+      </div>
 
-        <div className="rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden">
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom)+12px)] z-40">
+        <div className="mx-auto flex w-full max-w-md justify-end px-4">
           <button
             type="button"
-            onClick={() => setTrendsOpen((v) => !v)}
-            className="flex w-full items-center justify-between px-4 py-3 text-left font-bold text-slate-800"
+            aria-label="智能问答助手"
+            title="智能问答"
+            onClick={() => setView('assistant')}
+            className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-teal-600 text-2xl text-white shadow-lg shadow-teal-600/30 transition-transform hover:bg-teal-700 active:scale-95"
           >
-            关键指标趋势
-            <span className="text-slate-400">{trendsOpen ? '收起' : '展开'}</span>
+            🤖
           </button>
-          {trendsOpen && checkupId ? (
-            <div className="border-t border-slate-100 p-3">
-              <HealthTrendCharts checkupId={checkupId} variant="dashboard" />
-            </div>
-          ) : null}
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { label: '智能问答', icon: '🤖', onClick: () => setView('assistant') },
-            { label: '消息', icon: '💬', onClick: () => onNavigateTab('message') },
-            { label: '医生', icon: '🩺', onClick: () => onNavigateTab('doctor') },
-            { label: '服务', icon: '🏥', onClick: () => onNavigateTab('community') },
-          ].map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={item.onClick}
-              className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-4 shadow-sm active:scale-[0.98]"
-            >
-              <span className="text-2xl">{item.icon}</span>
-              <span className="text-sm font-bold text-slate-700">{item.label}</span>
-            </button>
-          ))}
         </div>
       </div>
 

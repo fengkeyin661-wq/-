@@ -158,15 +158,6 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
     );
   }
 
-  pushAction(
-    {
-      title: '查看完整健康档案与方案',
-      description: assessment?.summary?.slice(0, 60) || '体检指标与专属管理方案',
-      action: 'record',
-    },
-    90
-  );
-
   nextActions.sort((a, b) => a.priority - b.priority);
   return { nextFollowUp, hasOverdueFollowUp, focusHighlights, nextActions, hasAssessment };
 };
