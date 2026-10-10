@@ -5,11 +5,8 @@ import {
   filterPriorityFocusItems,
   normalizeFocusItemKey,
 } from './followUpLinkageService';
-import {
-  buildFollowUpGuidance,
-  userSelfGuideForFocusItem,
-  type FollowUpUserStep,
-} from './followUpGuidance';
+import { buildFollowUpGuidance, type FollowUpUserStep } from './followUpGuidance';
+import { resolveSupervisionPriorityFocus } from './followUpSupervisionService';
 
 export type UserHomeActionKind =
   | 'metrics'
@@ -89,7 +86,9 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
   }
   const followCtx = archive ? buildFollowUpContext(archive) : null;
   const followUpSourceLabel = followCtx?.sourceLabel || '';
-  const followUpFocusItems = filterPriorityFocusItems(followCtx?.focusItems || []).slice(0, 5);
+  const followUpFocusItems = archive
+    ? resolveSupervisionPriorityFocus(archive).slice(0, 5)
+    : filterPriorityFocusItems(followCtx?.focusItems || []).slice(0, 5);
   const guidance = archive ? buildFollowUpGuidance(archive) : null;
   const followUpUserSteps = (guidance?.userSteps || []).slice(0, 5);
   const followUpPrepSummary = guidance?.userPrepSummary || '';
@@ -172,11 +171,11 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
     );
   }
 
-  for (const item of followUpFocusItems.slice(0, 4)) {
+  if (followUpFocusItems.length) {
     pushAction(
       {
-        title: item,
-        description: userSelfGuideForFocusItem(item),
+        title: '我对照方案关注风险重点',
+        description: followUpFocusItems.slice(0, 3).join('、'),
         action: 'followup',
         tier: 'primary',
       },

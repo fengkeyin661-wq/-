@@ -1162,6 +1162,19 @@ export interface FollowUpRecord {
   
   otherInfo?: string;
 
+  /** 健康管理方案整体落实（1–5，5 最好） */
+  planAdherenceGrade?: 1 | 2 | 3 | 4 | 5;
+  planAdherenceNote?: string;
+  abnormalityFollowUps?: {
+    key: string;
+    item: string;
+    lastResult?: string;
+    status: 'pending' | 'retest_done' | 'further_exam_done' | 'referred' | 'declined';
+    note?: string;
+  }[];
+  /** 提交时冻结的监督重点，供时间轴展示 */
+  supervisionSnapshot?: string[];
+
   followUpType?: 'routine' | 'critical_secondary' | 'critical_conversion';
   linkedCriticalTrackId?: string;
   sourceScheduleId?: string;

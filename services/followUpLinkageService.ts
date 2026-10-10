@@ -9,6 +9,11 @@ import type {
   ScheduledFollowUp,
 } from '../types';
 import { RiskLevel } from '../types';
+import {
+  buildSupervisionChainLine,
+  resolveSupervisionFollowUpFlags,
+  resolveSupervisionPriorityFocus,
+} from './followUpSupervisionService';
 
 const METRIC_DEFS: { key: keyof FollowUpRecord['indicators']; label: string; unit: string }[] = [
   { key: 'sbp', label: '收缩压', unit: 'mmHg' },
@@ -495,6 +500,7 @@ export const buildFollowUpChainSummary = (followUps: FollowUpRecord[] = [], limi
     .map((r, idx) => {
       const n = sorted.length - recent.length + idx + 1;
       const ind = r.indicators;
+      const supervisionLine = buildSupervisionChainLine(r);
       const tasks = r.taskCompliance || [];
       const achieved = tasks.filter((t) => t.status === 'achieved').length;
       const failed = tasks.filter((t) => t.status === 'failed').length;
@@ -503,9 +509,9 @@ export const buildFollowUpChainSummary = (followUps: FollowUpRecord[] = [], limi
         .join('；');
       return [
         `第${n}次 ${r.date} (${r.method})`,
-        `指标: BP ${ind.sbp}/${ind.dbp}, 血糖 ${ind.glucose}, 体重 ${ind.weight}`,
-        med ? `复查项: ${med}` : '',
-        tasks.length ? `生活方式任务: ${achieved}达标/${failed}未做/共${tasks.length}项` : '',
+        supervisionLine || `指标: BP ${ind.sbp}/${ind.dbp}, 血糖 ${ind.glucose}, 体重 ${ind.weight}`,
+        !supervisionLine && med ? `复查项: ${med}` : '',
+        !supervisionLine && tasks.length ? `生活方式任务: ${achieved}达标/${failed}未做/共${tasks.length}项` : '',
         r.assessment?.majorIssues ? `主要问题: ${r.assessment.majorIssues}` : '',
         r.assessment?.nextCheckPlan ? `下期计划: ${r.assessment.nextCheckPlan}` : '',
         r.assessment?.continuitySummary ? `进展: ${r.assessment.continuitySummary}` : '',
@@ -550,7 +556,26 @@ export const buildFollowUpContext = (archive: HealthArchive): FollowUpContext =>
     : {};
 
   const tasks = priorRecord?.taskCompliance || [];
-  const failedTasks = tasks.filter((t) => t.status === 'failed');
+  const flags = resolveSupervisionFollowUpFlags(priorRecord);
+  const syntheticFailed: NonNullable<FollowUpRecord['taskCompliance']> = [];
+  if (flags.lowAdherence) {
+    syntheticFailed.push({
+      taskId: 'plan_adherence_low',
+      description: '上期方案落实总评偏低，需加强督促',
+      status: 'failed',
+    });
+  }
+  for (const ab of flags.pendingAbn.slice(0, 3)) {
+    syntheticFailed.push({
+      taskId: `abn_${ab.key}`,
+      description: `异常待跟进：${ab.item}`,
+      status: 'failed',
+    });
+  }
+  const failedTasks =
+    syntheticFailed.length > 0
+      ? syntheticFailed
+      : tasks.filter((t) => t.status === 'failed');
   const partialTasks = tasks.filter((t) => t.status === 'partial');
 
   return {
@@ -568,6 +593,8 @@ export const buildFollowUpContext = (archive: HealthArchive): FollowUpContext =>
 
 /** 管理端待办队列 / 录入：与 followUpContext 一致的优先核对项 */
 export const resolvePriorityFocusForArchive = (archive: HealthArchive): string[] => {
+  const fromSupervision = resolveSupervisionPriorityFocus(archive);
+  if (fromSupervision.length) return fromSupervision.slice(0, 6);
   const ctx = buildFollowUpContext(archive);
   return filterPriorityFocusItems(ctx.focusItems).slice(0, 6);
 };
@@ -687,7 +714,12 @@ export const buildMergedTimeline = (archive: HealthArchive): TimelineNode[] => {
       date: r.date,
       type: 'follow_up',
       title: `${r.method}随访`,
-      summary: r.assessment?.majorIssues || r.mainComplaint || '',
+      summary:
+        buildSupervisionChainLine(r) ||
+        r.assessment?.continuitySummary ||
+        r.assessment?.majorIssues ||
+        r.mainComplaint ||
+        '',
       riskLevel: r.assessment?.riskLevel,
       linkedCritical: !!r.linkedCriticalTrackId,
     });

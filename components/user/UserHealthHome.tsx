@@ -307,7 +307,7 @@ export const UserHealthHome: React.FC<Props> = ({
               ) : null}
               {model.followUpFocusItems.length > 0 ? (
                 <ul className="mt-3 space-y-1.5 border-t border-blue-200/60 pt-2">
-                  <li className="text-[11px] font-bold text-blue-800">我这期要重点做好：</li>
+                  <li className="text-[11px] font-bold text-blue-800">我这期要留意的风险重点：</li>
                   {model.followUpFocusItems.map((item, i) => (
                     <li key={`ff-${i}`} className="flex gap-2 text-sm text-slate-800">
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white">

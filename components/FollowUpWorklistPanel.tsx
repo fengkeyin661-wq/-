@@ -15,7 +15,6 @@ import {
   resolveCriticalTrackStatus,
   type FollowUpWorklistRow,
 } from '../services/followUpLinkageService';
-import { buildFollowUpGuidance } from '../services/followUpGuidance';
 import {
   exportCriticalFollowUpArchives,
   exportFollowUpWorklistRows,
@@ -214,10 +213,19 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
 
   const renderPriorityFocus = (row: FollowUpWorklistRow) => {
     const items = row.priorityFocusItems || row.routine?.priorityFocusItems || [];
-    const firstAsk = buildFollowUpGuidance(row.archive).staffCues[0]?.askScript;
+    const risk = row.archive.assessment_data?.riskLevel;
     if (items.length) {
       return (
         <div>
+          {risk === 'RED' || risk === 'YELLOW' ? (
+            <span
+              className={`inline-block mb-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                risk === 'RED' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-900'
+              }`}
+            >
+              {risk === 'RED' ? '高风险' : '中风险'}
+            </span>
+          ) : null}
           <ul className="space-y-0.5">
             {items.slice(0, 3).map((item, i) => (
               <li key={item} className="flex gap-1.5 text-xs text-slate-700">
@@ -226,12 +234,6 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
               </li>
             ))}
           </ul>
-          {firstAsk ? (
-            <p className="mt-1.5 text-[10px] leading-snug text-teal-800 line-clamp-2">
-              <span className="font-bold">首问：</span>
-              {firstAsk}
-            </p>
-          ) : null}
         </div>
       );
     }

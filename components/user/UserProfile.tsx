@@ -14,6 +14,7 @@ import { HealthArchiveReadView } from './HealthArchiveReadView';
 import type { UserMetricKey } from '../../services/observationMapper';
 import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
 import { buildFollowUpGuidance } from '../../services/followUpGuidance';
+import { buildSupervisionBrief } from '../../services/followUpSupervisionService';
 import { UserRiskHeroBanner } from './UserRiskHeroBanner';
 import { UserNeedSurveyBanner } from './portal/UserNeedSurveyBanner';
 
@@ -211,15 +212,27 @@ export const UserProfile: React.FC<Props> = ({
         const latest = followups[0];
         const pending = nextFollowup;
         const guidance = buildFollowUpGuidance(archive);
+        const supervision = buildSupervisionBrief(archive);
+        const pendingAbn = supervision.abnormalityTracks.filter((a) => a.status === 'pending');
         const latestPlan = latest?.assessment?.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '待医生更新';
         const latestIssues = latest?.assessment?.majorIssues || assessment?.summary || '暂无';
         const latestGoals = latest?.assessment?.lifestyleGoals || [];
         const latestMessage = latest?.assessment?.doctorMessage || latest?.assessment?.riskJustification || '请持续监测并按计划执行。';
         return (
             <div className="p-4 space-y-6 animate-slideInRight pb-20">
-                {(guidance.priorityFocusItems.length > 0 || guidance.userSteps.length > 0) && (
+                {(guidance.priorityFocusItems.length > 0 || guidance.userSteps.length > 0 || pendingAbn.length > 0) && (
                     <div className="rounded-xl border-2 border-amber-300 bg-gradient-to-b from-amber-50 to-white p-4 shadow-sm">
-                        <h3 className="text-sm font-black text-amber-950">我这期要重点做好</h3>
+                        <h3 className="text-sm font-black text-amber-950">我这期的随访配合</h3>
+                        {pendingAbn.length > 0 ? (
+                            <div className="mt-2 rounded-lg bg-white border border-amber-100 px-3 py-2">
+                                <div className="text-xs font-bold text-amber-900">待跟进的异常项</div>
+                                <ul className="mt-1 text-xs text-slate-700 list-disc pl-4">
+                                    {pendingAbn.slice(0, 4).map((a) => (
+                                        <li key={a.key}>{a.item}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
                         <p className="mt-1 text-xs text-amber-900/90">{guidance.userPrepSummary}</p>
                         {guidance.priorityFocusItems.length > 0 ? (
                             <ol className="mt-3 space-y-2">

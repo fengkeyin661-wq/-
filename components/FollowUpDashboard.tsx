@@ -6,14 +6,19 @@ import {
   buildFollowUpContext,
   buildFollowUpChainSummary,
   buildMergedTimeline,
-  buildTaskComplianceFromPrior,
   computeIndicatorDelta,
   getIndicatorValuesFromRecord,
-  mergeFocusItems,
   filterPriorityFocusItems,
-  resolvePriorityFocusForArchive,
 } from '../services/followUpLinkageService';
 import { buildFollowUpGuidance } from '../services/followUpGuidance';
+import {
+  buildSupervisionBrief,
+  PLAN_ADHERENCE_LABELS,
+  formatPlanAdherenceGrade,
+  type AbnormalityFollowUpStatus,
+  type PlanAdherenceGrade,
+  type SupervisionMetricKey,
+} from '../services/followUpSupervisionService';
 import { FollowUpWorklistPanel } from './FollowUpWorklistPanel';
 import {
   isSmsConfigured,
@@ -56,52 +61,6 @@ interface Props {
   hideClinicalHeader?: boolean;
 }
 
-const DEFAULT_LIFESTYLE_TASKS: NonNullable<FollowUpRecord['taskCompliance']> = [
-  { taskId: 'lifestyle_diet', description: '饮食：低盐低脂、均衡膳食', status: 'achieved' },
-  { taskId: 'lifestyle_exercise', description: '运动：每周中等强度有氧运动', status: 'achieved' },
-  { taskId: 'lifestyle_sleep', description: '睡眠：规律作息，保证充足睡眠', status: 'achieved' },
-  { taskId: 'lifestyle_smoke', description: '吸烟：无吸烟或已戒烟', status: 'achieved' },
-];
-
-const buildLifestyleTaskCompliance = (
-  assessment: HealthAssessment | null | undefined,
-  latestRecord: FollowUpRecord | null,
-  isAssessmentNewer: boolean,
-): NonNullable<FollowUpRecord['taskCompliance']> => {
-  if (assessment?.structuredTasks?.length) {
-    return assessment.structuredTasks.map((task) => ({
-      taskId: task.id,
-      description: [task.description, task.targetValue ? `目标 ${task.targetValue}` : ''].filter(Boolean).join(' · '),
-      status: 'achieved' as const,
-      note: task.frequency || undefined,
-    }));
-  }
-
-  const items: string[] = [];
-  const appendPlan = (plan?: HealthAssessment['managementPlan']) => {
-    if (!plan) return;
-    for (const d of plan.dietary || []) items.push(`饮食：${d}`);
-    for (const e of plan.exercise || []) items.push(`运动：${e}`);
-    for (const m of plan.monitoring || []) items.push(`监测：${m}`);
-  };
-
-  if (isAssessmentNewer && assessment) {
-    appendPlan(assessment.managementPlan);
-  } else if (latestRecord?.assessment?.lifestyleGoals?.length) {
-    items.push(...latestRecord.assessment.lifestyleGoals);
-  } else {
-    appendPlan(assessment?.managementPlan);
-  }
-
-  if (items.length === 0) return DEFAULT_LIFESTYLE_TASKS;
-
-  return items.slice(0, 10).map((desc, idx) => ({
-    taskId: `lifestyle_${idx}`,
-    description: desc,
-    status: 'achieved' as const,
-  }));
-};
-
 export const FollowUpDashboard: React.FC<Props> = ({
     records, 
     assessment, 
@@ -130,7 +89,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
     layout === 'embedded' ? 'entry' : 'timeline',
   );
   const [worklistCollapsed, setWorklistCollapsed] = useState(false);
-  const [contextPanelExpanded, setContextPanelExpanded] = useState(true);
+  const [contextPanelExpanded, setContextPanelExpanded] = useState(false);
+  const [extraMetricsOpen, setExtraMetricsOpen] = useState(false);
+  const [metricSkipped, setMetricSkipped] = useState<Partial<Record<SupervisionMetricKey, boolean>>>({});
+  const [lifestyleDetailOpen, setLifestyleDetailOpen] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // State for viewing history details
@@ -249,14 +211,24 @@ export const FollowUpDashboard: React.FC<Props> = ({
       [patientArchive]
   );
 
-  const priorityFocusItems = useMemo(
-      () => (patientArchive ? resolvePriorityFocusForArchive(patientArchive) : []),
+  const supervisionBrief = useMemo(
+      () => (patientArchive ? buildSupervisionBrief(patientArchive) : null),
       [patientArchive]
+  );
+
+  const priorityFocusItems = useMemo(
+      () => supervisionBrief?.riskFocusLines || [],
+      [supervisionBrief]
   );
 
   const followUpGuidance = useMemo(
       () => (patientArchive ? buildFollowUpGuidance(patientArchive) : null),
       [patientArchive]
+  );
+
+  const primaryMetricKeys = useMemo(
+      () => new Set(supervisionBrief?.metricSlots.map((s) => s.key) || []),
+      [supervisionBrief]
   );
 
   const mergedTimeline = useMemo(
@@ -344,40 +316,18 @@ export const FollowUpDashboard: React.FC<Props> = ({
         }
     }
 
-    // 单一合并入口：followUpContext 已含排期/上次计划，再并入当前方案文案；
-    // mergeFocusItems 会规范化并去重，避免「血压」与「血压复查」并存。
-    let itemsToCheck = filterPriorityFocusItems(
-      mergeFocusItems(
-        followUpContext?.focusItems,
-        nextScheduled?.focusItems,
-        activePlanText || '',
-      ),
-    );
-    if (itemsToCheck.length === 0 && assessment?.structuredTasks?.length) {
-      itemsToCheck = assessment.structuredTasks
-        .filter((t) => t.isKeyGoal)
-        .map((t) => t.description)
-        .slice(0, 5);
-    }
-    if (itemsToCheck.length === 0 && followUpContext?.failedTasks?.length) {
-      itemsToCheck = followUpContext.failedTasks.map((t) => `补做未达标：${t.description}`);
-    }
-    if (itemsToCheck.length > 0) {
-        baseState.medicalCompliance = itemsToCheck.map(item => ({
-            item,
-            status: 'not_checked' as const,
-            result: ''
-        }));
-    } else {
-        baseState.medicalCompliance = [
-          { item: '记录本期沟通结论与患者配合情况', status: 'not_checked', result: '' },
-        ];
-    }
-
-    baseState.taskCompliance = buildTaskComplianceFromPrior(latestRecord, assessment, isAssessmentNewer);
+    const brief = patientArchive ? buildSupervisionBrief(patientArchive) : null;
+    baseState.medicalCompliance = [];
+    baseState.taskCompliance = [];
+    baseState.abnormalityFollowUps = (brief?.abnormalityTracks || []).map((row) => ({ ...row }));
+    baseState.planAdherenceGrade = undefined;
+    baseState.planAdherenceNote = '';
     baseState.priorFollowUpId = latestRecord?.id;
     baseState.sourceScheduleId = nextScheduled?.id;
-    baseState.focusSnapshot = itemsToCheck;
+    baseState.focusSnapshot = brief?.riskFocusLines || [];
+    baseState.supervisionSnapshot = brief?.riskFocusLines || [];
+    setMetricSkipped({});
+    setExtraMetricsOpen(false);
     baseState.followUpType =
       followUpContext?.sourceLabel === '危急值二次回访' ? 'critical_secondary' : 'routine';
     baseState.linkedCriticalTrackId = followUpContext?.criticalTrack?.id;
@@ -409,55 +359,71 @@ export const FollowUpDashboard: React.FC<Props> = ({
     }
   };
 
-  const updateMedicalCompliance = (index: number, field: string, value: any) => {
-      if (!formData.medicalCompliance) return;
-      const newList = [...formData.medicalCompliance];
-      newList[index] = { ...newList[index], [field]: value };
-      setFormData(prev => ({ ...prev, medicalCompliance: newList }));
+  const updateAbnormalityRow = (
+    index: number,
+    field: 'status' | 'note',
+    value: AbnormalityFollowUpStatus | string
+  ) => {
+    const rows = formData.abnormalityFollowUps || [];
+    const next = [...rows];
+    if (!next[index]) return;
+    next[index] = { ...next[index], [field]: value };
+    setFormData((prev) => ({ ...prev, abnormalityFollowUps: next }));
   };
 
-  const removeMedicalComplianceItem = (index: number) => {
-      if (!formData.medicalCompliance) return;
-      const newList = [...formData.medicalCompliance];
-      newList.splice(index, 1);
-      setFormData(prev => ({ ...prev, medicalCompliance: newList }));
-  };
-
-  const updateTaskCompliance = (index: number, status: 'achieved' | 'partial' | 'failed') => {
-      if (!formData.taskCompliance) return;
-      const newTasks = [...formData.taskCompliance];
-      newTasks[index].status = status;
-      setFormData(prev => ({ ...prev, taskCompliance: newTasks }));
-  };
-  
-  const removeTaskComplianceItem = (index: number) => {
-      if (!formData.taskCompliance) return;
-      const newList = [...formData.taskCompliance];
-      newList.splice(index, 1);
-      setFormData(prev => ({ ...prev, taskCompliance: newList }));
-  };
+  const ABNORMALITY_STATUS_OPTIONS: { val: AbnormalityFollowUpStatus; label: string }[] = [
+    { val: 'pending', label: '待跟进' },
+    { val: 'retest_done', label: '已复测' },
+    { val: 'further_exam_done', label: '已进一步检查' },
+    { val: 'referred', label: '已就医/转诊' },
+    { val: 'declined', label: '拒绝/未做' },
+  ];
 
   const handleSubmit = async () => {
+    if (!formData.planAdherenceGrade) {
+      alert('请选择「健康管理方案落实总评」后再提交。');
+      return;
+    }
     setIsAnalyzing(true);
     try {
+        const skippedNote = Object.entries(metricSkipped)
+          .filter(([, v]) => v)
+          .map(([k]) => k)
+          .join('、');
+        const gradeSummary = formatPlanAdherenceGrade(formData.planAdherenceGrade);
+        const abnSummary = (formData.abnormalityFollowUps || [])
+          .map((a) => `${a.item}:${a.status}${a.note ? `(${a.note})` : ''}`)
+          .join('；');
+        const submitPayload = {
+          ...formData,
+          otherInfo: [formData.otherInfo, skippedNote ? `本次未测指标：${skippedNote}` : '']
+            .filter(Boolean)
+            .join('\n'),
+          assessment: {
+            ...formData.assessment,
+            taskReviewSummary: [gradeSummary, formData.planAdherenceNote].filter(Boolean).join(' · '),
+          },
+        };
         const chainSummary = patientArchive
-            ? buildFollowUpChainSummary([...(patientArchive.follow_ups || []), { ...formData, id: 'draft' } as FollowUpRecord], 3)
+            ? buildFollowUpChainSummary([...(patientArchive.follow_ups || []), { ...submitPayload, id: 'draft' } as FollowUpRecord], 3)
             : '';
-        const result = await analyzeFollowUpRecord(formData, assessment, latestRecord, {
+        const result = await analyzeFollowUpRecord(submitPayload, assessment, latestRecord, {
             chainSummary,
             context: followUpContext
                 ? {
                       sourceLabel: followUpContext.sourceLabel,
-                      focusItems: followUpContext.focusItems,
+                      focusItems: priorityFocusItems,
                       failedTasks: followUpContext.failedTasks,
+                      supervisionNote: `方案总评 ${formData.planAdherenceGrade}/5；异常跟踪：${abnSummary || '无'}`,
                   }
                 : undefined,
         });
         const finalData = {
-            ...formData,
+            ...submitPayload,
+            supervisionSnapshot: priorityFocusItems,
             indicatorDelta: indicatorPreviewDelta,
             assessment: {
-                ...formData.assessment,
+                ...submitPayload.assessment,
                 riskLevel: result.riskLevel,
                 riskJustification: result.riskJustification,
                 doctorMessage: result.doctorMessage,
@@ -466,7 +432,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 lifestyleGoals: result.lifestyleGoals,
                 continuitySummary: result.continuitySummary,
                 adjustedFocusItems: result.adjustedFocusItems,
-                taskReviewSummary: result.taskReviewSummary,
+                taskReviewSummary: result.taskReviewSummary || submitPayload.assessment.taskReviewSummary,
                 criticalStatusNote: result.criticalStatusNote,
             }
         };
@@ -851,8 +817,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
               <div className="rounded-xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <div className="text-xs font-black uppercase tracking-wide text-amber-800">本期优先随访核对</div>
+                    <div className="text-xs font-black uppercase tracking-wide text-amber-800">本期监督重点</div>
                     <div className="mt-0.5 text-sm font-bold text-slate-800">{followUpContext.sourceLabel}</div>
+                    <p className="mt-1 text-[11px] text-amber-900/85">
+                      对照方案整体监督，不必逐项盘问所有指标；中高危与异常复测优先。
+                    </p>
                   </div>
                   {followUpContext.criticalTrack ? (
                     <button
@@ -877,37 +846,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </ol>
                 ) : (
                   <p className="mt-2 text-sm text-amber-900/80">
-                    排期未维护专项要点：请从评估方案勾选关键目标，或在提交后写入 adjustedFocusItems。
+                    暂无中高危提示：请完成方案总评，并更新异常指标跟踪。
                   </p>
                 )}
                 {followUpContext.failedTasks.length + followUpContext.partialTasks.length > 0 ? (
                   <div className="mt-3 border-t border-amber-200/80 pt-2">
-                    <div className="text-[11px] font-bold text-red-700">上期未达标（本期必追问）</div>
+                    <div className="text-[11px] font-bold text-red-700">上期需跟进</div>
                     <ul className="mt-1 space-y-0.5 text-xs text-red-800">
                       {[...followUpContext.failedTasks, ...followUpContext.partialTasks].map((t) => (
                         <li key={t.taskId || t.description}>· {t.description}</li>
                       ))}
                     </ul>
-                  </div>
-                ) : null}
-                {followUpGuidance?.staffCues?.length ? (
-                  <div className="mt-3 border-t border-amber-200/80 pt-3 space-y-2">
-                    <div className="text-[11px] font-bold text-amber-900">沟通指引（按序号提问并记录）</div>
-                    {followUpGuidance.staffCues.slice(0, 4).map((cue, i) => (
-                      <div key={cue.focusItem} className="rounded-lg bg-white/90 border border-amber-100 px-3 py-2 text-xs">
-                        <div className="font-bold text-slate-800">
-                          {i + 1}. {cue.focusItem}
-                        </div>
-                        <p className="mt-0.5 text-slate-700">
-                          <span className="text-teal-800 font-bold">可问：</span>
-                          {cue.askScript}
-                        </p>
-                        <p className="mt-0.5 text-slate-500">{cue.recordHint}</p>
-                      </div>
-                    ))}
-                    <p className="text-[11px] text-amber-800/80">
-                      完整话术见下方「沟通话术提醒」；录入时在「本期优先核对」标记改善/未改善。
-                    </p>
                   </div>
                 ) : null}
               </div>
@@ -958,8 +907,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
           <FollowUpTalkScriptReminder
               sourceLabel={followUpContext?.sourceLabel}
               className="mb-6"
-              staffOpeningHint={followUpGuidance?.staffOpeningHint}
-              staffCues={followUpGuidance?.staffCues}
+              defaultExpanded={false}
           />
           <div className="bg-white rounded-xl shadow border border-slate-200 mb-8 overflow-hidden animate-slideUp">
               {/* ... Entry Form Content ... */}
@@ -976,183 +924,175 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   {/* ... same logic ... */}
                   <div className="lg:col-span-1 space-y-6">
                       <section className="bg-yellow-50 p-4 rounded-lg border-2 border-amber-300 h-full">
-                           <h4 className="font-bold text-amber-900 mb-1 flex justify-between items-center">
-                               <span>1. 本期优先核对</span>
-                               <span className="text-xs font-normal text-amber-700">按序号逐项核实</span>
-                           </h4>
-                           {priorityFocusItems.length > 0 ? (
-                             <p className="mb-3 text-[11px] text-amber-800/90">与顶部「优先随访核对」一致，请勿跳过未查项。</p>
-                           ) : null}
-                           {formData.medicalCompliance && formData.medicalCompliance.length > 0 ? (
-                               <div className="space-y-3">
-                                   {formData.medicalCompliance.map((item, idx) => (
-                                       <div key={idx} className={`bg-white p-3 rounded border shadow-sm relative ${
-                                         idx < priorityFocusItems.length ? 'border-amber-300 ring-1 ring-amber-100' : 'border-yellow-100'
-                                       }`}>
-                                           {idx < priorityFocusItems.length ? (
-                                             <span className="absolute -left-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-600 text-[10px] font-black text-white">
-                                               {idx + 1}
-                                             </span>
+                           <h4 className="font-bold text-amber-900 mb-2">1. 异常指标跟踪</h4>
+                           <p className="text-[11px] text-amber-800/90 mb-3">记录复测或进一步检查进展，无需逐项盘问所有化验。</p>
+                           {formData.abnormalityFollowUps && formData.abnormalityFollowUps.length > 0 ? (
+                               <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                                   {formData.abnormalityFollowUps.map((row, idx) => (
+                                       <div key={row.key} className="bg-white p-3 rounded border border-amber-100 text-xs space-y-2">
+                                           <div className="font-bold text-slate-800">{row.item}</div>
+                                           {row.lastResult ? (
+                                             <p className="text-slate-500">上次：{row.lastResult}</p>
                                            ) : null}
-                                           <button onClick={() => removeMedicalComplianceItem(idx)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 font-bold">×</button>
-                                           <div className="font-bold text-slate-800 mb-2 text-sm">{item.item}</div>
-                                           <div className="flex gap-2 text-xs flex-wrap">
-                                               {[
-                                                   { val: 'improved', label: '改善', color: 'text-green-600' },
-                                                   { val: 'not_improved', label: '未改善', color: 'text-red-600' },
-                                                   { val: 'not_checked', label: '未查', color: 'text-slate-500' }
-                                               ].map(opt => (
-                                                   <label key={opt.val} className="flex items-center gap-1 cursor-pointer bg-slate-50 px-2 py-1 rounded hover:bg-slate-100">
-                                                       <input 
-                                                            type="radio" 
-                                                            name={`med_${idx}`} 
-                                                            checked={item.status === opt.val}
-                                                            onChange={() => updateMedicalCompliance(idx, 'status', opt.val)} 
-                                                       />
-                                                       <span className={opt.color}>{opt.label}</span>
-                                                   </label>
-                                               ))}
-                                           </div>
-                                           {item.status === 'not_improved' && (
-                                               <input type="text" placeholder="请输入异常数值或情况..." 
-                                                   className="mt-2 text-xs border border-red-200 rounded p-1 w-full bg-red-50 focus:outline-none focus:border-red-400"
-                                                   value={item.result}
-                                                   onChange={(e) => updateMedicalCompliance(idx, 'result', e.target.value)} />
-                                           )}
+                                           <select
+                                             className="w-full border rounded p-1.5 text-xs bg-slate-50"
+                                             value={row.status}
+                                             onChange={(e) => updateAbnormalityRow(idx, 'status', e.target.value as AbnormalityFollowUpStatus)}
+                                           >
+                                             {ABNORMALITY_STATUS_OPTIONS.map((o) => (
+                                               <option key={o.val} value={o.val}>{o.label}</option>
+                                             ))}
+                                           </select>
+                                           <input
+                                             type="text"
+                                             placeholder="结果或安排简述…"
+                                             className="w-full border rounded p-1.5 text-xs"
+                                             value={row.note || ''}
+                                             onChange={(e) => updateAbnormalityRow(idx, 'note', e.target.value)}
+                                           />
                                        </div>
                                    ))}
                                </div>
-                           ) : <p className="text-xs text-slate-400">无特定复查要求</p>}
+                           ) : (
+                             <p className="text-xs text-slate-500">暂无体检异常项；可在备注中记录其他检查安排。</p>
+                           )}
                       </section>
                   </div>
 
                   <div className="lg:col-span-2 space-y-6 flex flex-col">
                       <section className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                           <h4 className="font-bold text-slate-800 mb-4 flex items-end gap-2">
-                               2. 核心指标录入
-                               <span className="text-[10px] text-slate-400 font-normal bg-white px-2 py-0.5 rounded border">参考范围仅供参考</span>
-                           </h4>
-                           {/* ... indicator inputs ... */}
-                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-4">
-                               <div>
-                                   <label className="text-xs text-slate-500 block mb-1 font-medium">
-                                       血压 (mmHg) <span className="text-slate-400 font-normal ml-1 text-[10px]">Ref: &lt;140/90</span>
-                                   </label>
-                                   <div className="flex gap-2">
-                                       <div className="relative w-full">
-                                            <input type="number" placeholder="收缩压" className="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.sbp || ''} onChange={e => updateForm('indicators', 'sbp', Number(e.target.value))} />
-                                       </div>
-                                       <div className="relative w-full">
-                                            <input type="number" placeholder="舒张压" className="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.dbp || ''} onChange={e => updateForm('indicators', 'dbp', Number(e.target.value))} />
-                                       </div>
+                           <h4 className="font-bold text-slate-800 mb-3">2. 风险相关指标（按需）</h4>
+                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                             {(supervisionBrief?.metricSlots || []).map((slot) => {
+                               const skipped = metricSkipped[slot.key];
+                               return (
+                                 <div key={slot.key} className="bg-white rounded border border-slate-100 p-3">
+                                   <div className="flex justify-between items-start gap-2 mb-1">
+                                     <label className="text-xs font-bold text-slate-700">
+                                       {slot.label} ({slot.unit})
+                                       {slot.refHint ? <span className="font-normal text-slate-400 ml-1">{slot.refHint}</span> : null}
+                                     </label>
+                                     <label className="text-[10px] text-slate-500 flex items-center gap-1 shrink-0">
+                                       <input
+                                         type="checkbox"
+                                         checked={!!skipped}
+                                         onChange={(e) => setMetricSkipped((prev) => ({ ...prev, [slot.key]: e.target.checked }))}
+                                       />
+                                       本次未测
+                                     </label>
                                    </div>
-                               </div>
-                               <div>
-                                   <label className="text-xs text-slate-500 block mb-1 font-medium">
-                                       空腹血糖 (mmol/L) <span className="text-slate-400 font-normal ml-1 text-[10px]">Ref: 3.9-6.1</span>
-                                   </label>
-                                   <input type="number" step="0.1" className="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.glucose || ''} onChange={e => updateForm('indicators', 'glucose', Number(e.target.value))} />
-                               </div>
+                                   <input
+                                     type="number"
+                                     step={slot.key === 'glucose' ? 0.1 : slot.key === 'weight' ? 0.1 : 1}
+                                     disabled={skipped}
+                                     className="w-full border rounded p-2 text-sm disabled:bg-slate-100"
+                                     value={formData.indicators[slot.key] ?? ''}
+                                     onChange={(e) => updateForm('indicators', slot.key, Number(e.target.value))}
+                                   />
+                                 </div>
+                               );
+                             })}
                            </div>
-                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-2">
-                               <div>
-                                   <label className="text-xs text-slate-500 block mb-1 font-medium">体重 (kg)</label>
-                                   <input type="number" className="w-full border rounded p-2 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.weight || ''} onChange={e => updateForm('indicators', 'weight', Number(e.target.value))} />
-                               </div>
-                           </div>
-                           <div className="mt-3 bg-white p-3 rounded border border-slate-100 shadow-sm">
-                                <label className="text-xs text-slate-600 block mb-2 font-bold">
-                                    血脂四项 (mmol/L)
-                                </label>
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                    <div>
-                                        <span className="text-[10px] text-slate-400 block mb-1">总胆固醇 (TC) &lt;5.2</span>
-                                        <input type="number" step="0.01" className="w-full border rounded p-1.5 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.tc || ''} onChange={e => updateForm('indicators', 'tc', Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] text-slate-400 block mb-1">甘油三酯 (TG) &lt;1.7</span>
-                                        <input type="number" step="0.01" className="w-full border rounded p-1.5 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.tg || ''} onChange={e => updateForm('indicators', 'tg', Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] text-slate-400 block mb-1">低密度 (LDL-C) &lt;3.4</span>
-                                        <input type="number" step="0.01" className="w-full border rounded p-1.5 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.ldl || ''} onChange={e => updateForm('indicators', 'ldl', Number(e.target.value))} />
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] text-slate-400 block mb-1">高密度 (HDL-C) &gt;1.0</span>
-                                        <input type="number" step="0.01" className="w-full border rounded p-1.5 text-sm focus:ring-1 focus:ring-teal-500" value={formData.indicators.hdl || ''} onChange={e => updateForm('indicators', 'hdl', Number(e.target.value))} />
-                                    </div>
-                                </div>
-                           </div>
+                           <button
+                             type="button"
+                             onClick={() => setExtraMetricsOpen((v) => !v)}
+                             className="mt-3 text-xs font-bold text-teal-700 hover:underline"
+                           >
+                             {extraMetricsOpen ? '收起更多指标 ▲' : '展开更多指标 ▼'}
+                           </button>
+                           {extraMetricsOpen ? (
+                             <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white p-3 rounded border border-slate-100">
+                               {(['tc', 'tg', 'ldl', 'hdl'] as const)
+                                 .filter((k) => !primaryMetricKeys.has(k))
+                                 .map((k) => (
+                                   <div key={k}>
+                                     <span className="text-[10px] text-slate-400 block mb-1 uppercase">{k}</span>
+                                     <input
+                                       type="number"
+                                       step="0.01"
+                                       className="w-full border rounded p-1.5 text-sm"
+                                       value={formData.indicators[k] || ''}
+                                       onChange={(e) => updateForm('indicators', k, Number(e.target.value))}
+                                     />
+                                   </div>
+                                 ))}
+                               {!primaryMetricKeys.has('sbp') ? (
+                                 <>
+                                   <div>
+                                     <span className="text-[10px] text-slate-400 block mb-1">收缩压</span>
+                                     <input type="number" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.sbp || ''} onChange={(e) => updateForm('indicators', 'sbp', Number(e.target.value))} />
+                                   </div>
+                                   <div>
+                                     <span className="text-[10px] text-slate-400 block mb-1">舒张压</span>
+                                     <input type="number" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.dbp || ''} onChange={(e) => updateForm('indicators', 'dbp', Number(e.target.value))} />
+                                   </div>
+                                 </>
+                               ) : null}
+                               {!primaryMetricKeys.has('glucose') ? (
+                                 <div>
+                                   <span className="text-[10px] text-slate-400 block mb-1">空腹血糖</span>
+                                   <input type="number" step="0.1" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.glucose || ''} onChange={(e) => updateForm('indicators', 'glucose', Number(e.target.value))} />
+                                 </div>
+                               ) : null}
+                               {!primaryMetricKeys.has('weight') ? (
+                                 <div>
+                                   <span className="text-[10px] text-slate-400 block mb-1">体重</span>
+                                   <input type="number" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.weight || ''} onChange={(e) => updateForm('indicators', 'weight', Number(e.target.value))} />
+                                 </div>
+                               ) : null}
+                             </div>
+                           ) : null}
                       </section>
 
                       <section className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
-                          <h4 className="font-bold text-indigo-800 mb-3">3. 生活方式与备注</h4>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                              <div>
-                                  <label className="text-xs text-indigo-600 block mb-1 font-bold">饮食情况</label>
-                                  <input
-                                      type="text"
-                                      className="w-full border border-indigo-200 rounded p-2 text-sm bg-white"
-                                      value={formData.lifestyle.diet}
-                                      onChange={(e) => updateForm('lifestyle', 'diet', e.target.value)}
-                                  />
-                              </div>
-                              <div>
-                                  <label className="text-xs text-indigo-600 block mb-1 font-bold">运动情况</label>
-                                  <input
-                                      type="text"
-                                      className="w-full border border-indigo-200 rounded p-2 text-sm bg-white"
-                                      value={formData.lifestyle.exercise}
-                                      onChange={(e) => updateForm('lifestyle', 'exercise', e.target.value)}
-                                  />
-                              </div>
-                              <div>
-                                  <label className="text-xs text-indigo-600 block mb-1 font-bold">睡眠 (小时)</label>
-                                  <input
-                                      type="number"
-                                      step="0.5"
-                                      className="w-full border border-indigo-200 rounded p-2 text-sm bg-white"
-                                      value={formData.lifestyle.sleepHours || ''}
-                                      onChange={(e) => updateForm('lifestyle', 'sleepHours', Number(e.target.value))}
-                                  />
-                              </div>
-                              <div>
-                                  <label className="text-xs text-indigo-600 block mb-1 font-bold">吸烟 (支/日)</label>
-                                  <input
-                                      type="number"
-                                      className="w-full border border-indigo-200 rounded p-2 text-sm bg-white"
-                                      value={formData.lifestyle.smokingAmount ?? ''}
-                                      onChange={(e) => updateForm('lifestyle', 'smokingAmount', Number(e.target.value))}
-                                  />
-                              </div>
+                          <h4 className="font-bold text-indigo-800 mb-3">3. 健康管理方案落实总评</h4>
+                          <p className="text-[11px] text-indigo-900/80 mb-3">饮食、运动等整体情况一次评价即可，不必分项盘问。</p>
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {([5, 4, 3, 2, 1] as PlanAdherenceGrade[]).map((g) => (
+                              <button
+                                key={g}
+                                type="button"
+                                onClick={() => setFormData((prev) => ({ ...prev, planAdherenceGrade: g }))}
+                                className={`px-3 py-2 rounded-lg border text-xs font-bold transition-colors ${
+                                  formData.planAdherenceGrade === g
+                                    ? 'bg-indigo-600 text-white border-indigo-700'
+                                    : 'bg-white text-slate-600 border-indigo-200 hover:bg-indigo-100/50'
+                                }`}
+                              >
+                                {g} 分
+                              </button>
+                            ))}
                           </div>
-                          <div className="mb-4">
-                              <label className="text-xs text-indigo-600 block mb-1 font-bold">生活方式核对</label>
-                              {formData.taskCompliance && formData.taskCompliance.length > 0 ? (
-                                  <div className="space-y-2">
-                                      {formData.taskCompliance.map((task, idx) => (
-                                          <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-indigo-100 text-xs">
-                                              <span className="truncate max-w-[60%]" title={task.description}>{task.description}</span>
-                                              <div className="flex gap-1">
-                                                  {(['achieved', 'partial', 'failed'] as const).map((st) => (
-                                                      <button key={st} onClick={()=>updateTaskCompliance(idx, st)} 
-                                                          className={`px-2 py-0.5 rounded border ${task.status===st ? (st==='achieved'?'bg-green-500 text-white':st==='partial'?'bg-amber-500 text-white':'bg-red-500 text-white') : 'bg-white text-slate-400'}`}>
-                                                          {st==='achieved'?'达标':st==='partial'?'部分':'未做'}
-                                                      </button>
-                                                  ))}
-                                              </div>
-                                          </div>
-                                      ))}
-                                  </div>
-                              ) : (
-                                  <div className="text-xs text-slate-400">暂无核对项，请根据健康管理方案手动补充备注</div>
-                              )}
-                          </div>
+                          {formData.planAdherenceGrade ? (
+                            <p className="text-xs text-indigo-900 mb-2">{PLAN_ADHERENCE_LABELS[formData.planAdherenceGrade]}</p>
+                          ) : (
+                            <p className="text-xs text-red-600 mb-2">提交前请选择总评</p>
+                          )}
+                          <input
+                            type="text"
+                            className="w-full border border-indigo-200 rounded p-2 text-sm bg-white mb-3"
+                            placeholder="总评备注（可选）"
+                            value={formData.planAdherenceNote || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, planAdherenceNote: e.target.value }))}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setLifestyleDetailOpen((v) => !v)}
+                            className="text-xs font-bold text-indigo-700 mb-2"
+                          >
+                            {lifestyleDetailOpen ? '收起补充说明 ▲' : '补充说明（可选）▼'}
+                          </button>
+                          {lifestyleDetailOpen ? (
+                            <div className="grid grid-cols-2 gap-2 mb-3">
+                              <input type="text" className="border rounded p-2 text-xs bg-white" placeholder="饮食简述" value={formData.lifestyle.diet} onChange={(e) => updateForm('lifestyle', 'diet', e.target.value)} />
+                              <input type="text" className="border rounded p-2 text-xs bg-white" placeholder="运动简述" value={formData.lifestyle.exercise} onChange={(e) => updateForm('lifestyle', 'exercise', e.target.value)} />
+                            </div>
+                          ) : null}
                           <div>
-                              <label className="text-xs text-indigo-600 block mb-1 font-bold">其他情况备注</label>
+                              <label className="text-xs text-indigo-600 block mb-1 font-bold">沟通备注</label>
                               <textarea 
                                   className="w-full border border-indigo-200 rounded p-2 text-sm h-24 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                  placeholder="请输入患者主诉或其他补充信息..."
+                                  placeholder="患者主诉、约定下一步等…"
                                   value={formData.otherInfo || ''}
                                   onChange={e => updateForm('otherInfo', '', e.target.value)}
                               />
@@ -1211,7 +1151,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
               {followUpGuidance && (followUpGuidance.priorityFocusItems.length > 0 || followUpGuidance.userSteps.length > 0) ? (
                 <div className="mb-8 rounded-xl border-2 border-amber-200 bg-amber-50/60 p-5">
-                  <h3 className="text-base font-black text-amber-950">本期随访重点（用户端同步展示）</h3>
+                  <h3 className="text-base font-black text-amber-950">本期监督重点（用户端同步）</h3>
                   <p className="mt-1 text-sm text-amber-900/90">
                     {followUpGuidance.userPrepSummary || '请按下列步骤指导用户准备，减少电话来回确认。'}
                   </p>
@@ -1418,6 +1358,27 @@ export const FollowUpDashboard: React.FC<Props> = ({
                             </div>
                         )}
                     </section>
+
+                    {viewingRecord.planAdherenceGrade ? (
+                        <section className="bg-indigo-50 p-3 rounded-lg text-sm">
+                            <h4 className="font-bold text-indigo-900 mb-1 text-sm">方案落实总评</h4>
+                            <p>{viewingRecord.planAdherenceGrade}/5 · {formatPlanAdherenceGrade(viewingRecord.planAdherenceGrade)}</p>
+                            {viewingRecord.planAdherenceNote ? <p className="text-xs text-slate-600 mt-1">{viewingRecord.planAdherenceNote}</p> : null}
+                        </section>
+                    ) : null}
+                    {viewingRecord.abnormalityFollowUps && viewingRecord.abnormalityFollowUps.length > 0 ? (
+                        <section className="bg-amber-50 p-3 rounded-lg text-sm">
+                            <h4 className="font-bold text-amber-900 mb-2 text-sm">异常指标跟踪</h4>
+                            <ul className="space-y-1 text-xs">
+                                {viewingRecord.abnormalityFollowUps.map((a) => (
+                                    <li key={a.key}>
+                                        {a.item} — {ABNORMALITY_STATUS_OPTIONS.find((o) => o.val === a.status)?.label || a.status}
+                                        {a.note ? `（${a.note}）` : ''}
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    ) : null}
 
                     {/* Compliance */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

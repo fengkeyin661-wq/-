@@ -4,6 +4,7 @@ import {
   filterPriorityFocusItems,
   resolvePriorityFocusForArchive,
 } from './followUpLinkageService';
+import { buildSupervisionBrief } from './followUpSupervisionService';
 
 export interface FollowUpStaffCue {
   focusItem: string;
@@ -108,24 +109,23 @@ export const buildFollowUpGuidance = (archive: HealthArchive | null | undefined)
   }
 
   const ctx = buildFollowUpContext(archive);
-  const priorityFocusItems = resolvePriorityFocusForArchive(archive);
+  const brief = buildSupervisionBrief(archive);
+  const priorityFocusItems = brief.riskFocusLines.length
+    ? brief.riskFocusLines
+    : resolvePriorityFocusForArchive(archive);
   const pending = ctx.pendingSchedule;
   const overdue = (archive.follow_up_schedule || []).some((s) => s.status === 'overdue');
+  const pendingAbn = brief.abnormalityTracks.filter((a) => a.status === 'pending');
 
-  const staffCues: FollowUpStaffCue[] = priorityFocusItems.map((focusItem) => ({
-    focusItem,
-    ...cueForFocusItem(focusItem),
-  }));
-
-  for (const task of ctx.failedTasks.slice(0, 2)) {
-    const label = `补做：${task.description}`;
-    if (staffCues.some((c) => c.focusItem.includes(task.description))) continue;
-    staffCues.push({
-      focusItem: label,
-      askScript: `上次约定的「${task.description}」还没完全做到，最近有尝试吗？卡在哪一步？`,
-      recordHint: '记录原因与本次承诺；录入时标记任务达标情况。',
-    });
-  }
+  const focusSummary =
+    priorityFocusItems.slice(0, 3).join('、') || '中高危指标与方案落实';
+  const staffCues: FollowUpStaffCue[] = [
+    {
+      focusItem: '本期监督要点',
+      askScript: `本期重点：${focusSummary}。了解整体方案执行情况（总评），并更新异常复测/检查进展即可。`,
+      recordHint: '录入：方案总评、异常跟踪状态、相关风险指标（按需）；不必逐项盘问所有化验。',
+    },
+  ];
 
   const userSteps: FollowUpUserStep[] = [];
   let stepId = 0;
@@ -133,65 +133,45 @@ export const buildFollowUpGuidance = (archive: HealthArchive | null | undefined)
     userSteps.push({ ...step, id: `us-${stepId++}` });
   };
 
-  if (pending?.date) {
-    pushUser({
-      kind: 'prepare',
-      title: overdue ? '我的随访日期已过' : `在 ${pending.date} 前完成下面几件事`,
-      detail: ctx.sourceLabel
-        ? `这是${ctx.sourceLabel}前的自我准备，做完我心里更有数。`
-        : '我先逐项做好，需要沟通时会更顺畅。',
-    });
-  }
-
-  for (const item of priorityFocusItems.slice(0, 4)) {
+  if (pendingAbn.length) {
     pushUser({
       kind: 'action',
-      title: item,
-      detail: userSelfGuideForFocusItem(item),
+      title: '我跟进体检异常项的复测或检查',
+      detail: pendingAbn
+        .slice(0, 3)
+        .map((a) => a.item)
+        .join('、'),
     });
   }
 
-  if (ctx.failedTasks.length) {
+  if (priorityFocusItems.length) {
     pushUser({
       kind: 'action',
-      title: '我先补做上次没完全做到的事',
-      detail: ctx.failedTasks
-        .slice(0, 2)
-        .map((t) => t.description)
-        .join('；'),
+      title: '我留意这期的风险重点',
+      detail: priorityFocusItems.slice(0, 3).join('、'),
     });
-  }
-
-  const nextPlan =
-    filterPriorityFocusItems(
-      ctx.priorRecord?.assessment?.adjustedFocusItems ||
-        (ctx.priorRecord?.assessment?.nextCheckPlan
-          ? [ctx.priorRecord.assessment.nextCheckPlan]
-          : [])
-    )[0] || archive.assessment_data?.followUpPlan?.nextCheckItems?.[0];
-
-  if (userSteps.length < 4 && nextPlan) {
+  } else if (pending?.date) {
     pushUser({
       kind: 'prepare',
-      title: '我安排好复查或化验',
-      detail: String(nextPlan).slice(0, 120),
+      title: overdue ? '我的随访日期已过' : `在 ${pending.date} 前完成配合事项`,
+      detail: '我对照健康管理方案自检，并准备好必要的化验单。',
     });
   }
 
   pushUser({
     kind: 'metric',
-    title: '我把最近测到的数据记到首页',
-    detail: '血压、血糖、体重等录入后，我可以自己看变化趋势。',
+    title: '我把与风险相关的指标记到首页',
+    detail: brief.metricSlots.map((s) => s.label).join('、') || '血压、体重等',
   });
 
   pushUser({
-    kind: 'contact',
-    title: '有不清楚的地方，我联系健康管理服务电话',
-    detail: '我把体检报告、化验单和常用药清单放在手边，需要时好说明。',
+    kind: 'action',
+    title: '我对照方案给自己打个分',
+    detail: '饮食、运动等整体是否跟上，心里有个数，随访沟通会更高效。',
   });
 
   const name = archive.name || archive.health_record?.profile?.name || '老师';
-  const staffOpeningHint = `您好，我是健康管理师，关于${name}老师${pending?.date ? ` ${pending.date} ` : ''}的${ctx.sourceLabel || '健康管理随访'}，想逐项核对 ${priorityFocusItems.length || '本期'} 个重点，大约 5–10 分钟，您现在方便吗？`;
+  const staffOpeningHint = `您好，我是健康管理师，${name}老师${pending?.date ? ` ${pending.date} ` : ''}${ctx.sourceLabel || '健康管理随访'}，想了解一下方案整体执行和中高危指标情况，大约 5 分钟，您现在方便吗？`;
 
   const userPrepSummary =
     priorityFocusItems.length > 0
@@ -202,7 +182,7 @@ export const buildFollowUpGuidance = (archive: HealthArchive | null | undefined)
     sourceLabel: ctx.sourceLabel,
     priorityFocusItems,
     staffCues,
-    userSteps: userSteps.slice(0, 6),
+    userSteps: userSteps.slice(0, 4),
     staffOpeningHint,
     userPrepSummary,
   };

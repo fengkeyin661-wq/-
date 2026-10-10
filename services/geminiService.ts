@@ -702,7 +702,15 @@ export const analyzeFollowUpRecord = async (
     form: any,
     ass: any,
     last: any,
-    options?: { chainSummary?: string; context?: { sourceLabel?: string; focusItems?: string[]; failedTasks?: { description: string }[] } }
+    options?: {
+        chainSummary?: string;
+        context?: {
+            sourceLabel?: string;
+            focusItems?: string[];
+            failedTasks?: { description: string }[];
+            supervisionNote?: string;
+        };
+    }
 ) => {
     const fallback = {
         riskLevel: (last?.assessment?.riskLevel || ass?.riskLevel || RiskLevel.GREEN) as RiskLevel,
@@ -726,7 +734,7 @@ export const analyzeFollowUpRecord = async (
         : '';
     const ctx = options?.context;
     const contextBlock = ctx
-        ? `\n5) 本次随访上下文：来源=${ctx.sourceLabel || '常规'}；本期核对=${(ctx.focusItems || []).join('、')}；上期未达标任务=${(ctx.failedTasks || []).map((t) => t.description).join('、') || '无'}\n`
+        ? `\n5) 本次随访上下文：来源=${ctx.sourceLabel || '常规'}；监督重点=${(ctx.focusItems || []).join('、')}；上期需跟进=${(ctx.failedTasks || []).map((t) => t.description).join('、') || '无'}；${ctx.supervisionNote || ''}\n`
         : '';
 
     const prompt = `
@@ -753,7 +761,8 @@ ${chainBlock}${contextBlock}
 }
 
 要求：
-- 结合本次指标变化（血压、血糖、体重、血脂等）与 medicalCompliance、taskCompliance 判断风险级别；
+- 结合本次风险相关指标变化与 planAdherenceGrade（方案总评 1–5）、abnormalityFollowUps（异常跟踪）判断风险级别；
+- 不必假设逐项 medicalCompliance/taskCompliance；总评低或异常仍 pending 时应提高关注；
 - 必须引用上次随访计划完成情况，目标要具体可执行；
 - lifestyleGoals 最多 5 条；adjustedFocusItems 最多 5 条；
 - nextCheckPlan 必须是可落地的检查/随访要点。
