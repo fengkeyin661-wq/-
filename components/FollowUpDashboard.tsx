@@ -92,7 +92,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const [contextPanelExpanded, setContextPanelExpanded] = useState(false);
   const [extraMetricsOpen, setExtraMetricsOpen] = useState(false);
   const [metricSkipped, setMetricSkipped] = useState<Partial<Record<SupervisionMetricKey, boolean>>>({});
-  const [lifestyleDetailOpen, setLifestyleDetailOpen] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // State for viewing history details
@@ -230,6 +229,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
       () => new Set(supervisionBrief?.metricSlots.map((s) => s.key) || []),
       [supervisionBrief]
   );
+
+  const managementPlanRef = useMemo(() => {
+      const plan = assessment?.managementPlan;
+      return {
+          dietary: plan?.dietary || [],
+          exercise: plan?.exercise || [],
+      };
+  }, [assessment?.managementPlan]);
 
   const mergedTimeline = useMemo(
       () => (patientArchive ? buildMergedTimeline(patientArchive) : []),
@@ -920,14 +927,12 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </div>
               </div>
               
-              <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  {/* ... same logic ... */}
-                  <div className="lg:col-span-1 space-y-6">
-                      <section className="bg-yellow-50 p-4 rounded-lg border-2 border-amber-300 h-full">
+              <div className="p-6 space-y-8">
+                      <section className="bg-yellow-50 p-4 rounded-lg border-2 border-amber-300">
                            <h4 className="font-bold text-amber-900 mb-2">1. 异常指标跟踪</h4>
                            <p className="text-[11px] text-amber-800/90 mb-3">记录复测或进一步检查进展，无需逐项盘问所有化验。</p>
                            {formData.abnormalityFollowUps && formData.abnormalityFollowUps.length > 0 ? (
-                               <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                                    {formData.abnormalityFollowUps.map((row, idx) => (
                                        <div key={row.key} className="bg-white p-3 rounded border border-amber-100 text-xs space-y-2">
                                            <div className="font-bold text-slate-800">{row.item}</div>
@@ -957,9 +962,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                              <p className="text-xs text-slate-500">暂无体检异常项；可在备注中记录其他检查安排。</p>
                            )}
                       </section>
-                  </div>
 
-                  <div className="lg:col-span-2 space-y-6 flex flex-col">
                       <section className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                            <h4 className="font-bold text-slate-800 mb-3">2. 风险相关指标（按需）</h4>
                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1046,7 +1049,37 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
                       <section className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
                           <h4 className="font-bold text-indigo-800 mb-3">3. 健康管理方案落实总评</h4>
-                          <p className="text-[11px] text-indigo-900/80 mb-3">饮食、运动等整体情况一次评价即可，不必分项盘问。</p>
+                          <p className="text-[11px] text-indigo-900/80 mb-3">对照下方饮食、运动建议整体打分，不必分项盘问。</p>
+                          {(managementPlanRef.dietary.length > 0 || managementPlanRef.exercise.length > 0) ? (
+                            <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="rounded-lg border border-indigo-100 bg-white p-3">
+                                <div className="text-xs font-bold text-emerald-800 mb-2">饮食建议（方案）</div>
+                                {managementPlanRef.dietary.length ? (
+                                  <ul className="text-xs text-slate-700 space-y-1 list-disc pl-4">
+                                    {managementPlanRef.dietary.map((line, i) => (
+                                      <li key={`d-${i}`}>{line}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-xs text-slate-400">暂无</p>
+                                )}
+                              </div>
+                              <div className="rounded-lg border border-indigo-100 bg-white p-3">
+                                <div className="text-xs font-bold text-sky-800 mb-2">运动建议（方案）</div>
+                                {managementPlanRef.exercise.length ? (
+                                  <ul className="text-xs text-slate-700 space-y-1 list-disc pl-4">
+                                    {managementPlanRef.exercise.map((line, i) => (
+                                      <li key={`e-${i}`}>{line}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-xs text-slate-400">暂无</p>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mb-3 text-xs text-indigo-800/70">当前评估暂无结构化饮食/运动条目，请结合执行单总评。</p>
+                          )}
                           <div className="flex flex-wrap gap-2 mb-3">
                             {([5, 4, 3, 2, 1] as PlanAdherenceGrade[]).map((g) => (
                               <button
@@ -1071,23 +1104,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           <input
                             type="text"
                             className="w-full border border-indigo-200 rounded p-2 text-sm bg-white mb-3"
-                            placeholder="总评备注（可选）"
+                            placeholder="总评备注（可选，如饮食/运动执行亮点或困难）"
                             value={formData.planAdherenceNote || ''}
                             onChange={(e) => setFormData((prev) => ({ ...prev, planAdherenceNote: e.target.value }))}
                           />
-                          <button
-                            type="button"
-                            onClick={() => setLifestyleDetailOpen((v) => !v)}
-                            className="text-xs font-bold text-indigo-700 mb-2"
-                          >
-                            {lifestyleDetailOpen ? '收起补充说明 ▲' : '补充说明（可选）▼'}
-                          </button>
-                          {lifestyleDetailOpen ? (
-                            <div className="grid grid-cols-2 gap-2 mb-3">
-                              <input type="text" className="border rounded p-2 text-xs bg-white" placeholder="饮食简述" value={formData.lifestyle.diet} onChange={(e) => updateForm('lifestyle', 'diet', e.target.value)} />
-                              <input type="text" className="border rounded p-2 text-xs bg-white" placeholder="运动简述" value={formData.lifestyle.exercise} onChange={(e) => updateForm('lifestyle', 'exercise', e.target.value)} />
-                            </div>
-                          ) : null}
                           <div>
                               <label className="text-xs text-indigo-600 block mb-1 font-bold">沟通备注</label>
                               <textarea 
@@ -1106,7 +1126,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       >
                           {isAnalyzing ? '🤖 AI 正在分析并存档...' : '✅ 提交并生成评估'}
                       </button>
-                  </div>
               </div>
           </div>
           </>

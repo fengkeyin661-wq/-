@@ -54,7 +54,6 @@ export const UserHealthHome: React.FC<Props> = ({
 }) => {
   const [view, setView] = useState<'dashboard' | 'assistant'>('dashboard');
   const [trendsOpen, setTrendsOpen] = useState(false);
-  const [routineOpen, setRoutineOpen] = useState(false);
   const [metricModalOpen, setMetricModalOpen] = useState(false);
   const [recomputeHint, setRecomputeHint] = useState<string | null>(null);
 
@@ -273,13 +272,13 @@ export const UserHealthHome: React.FC<Props> = ({
         {model.hasAssessment ? (
           <button
             type="button"
-            onClick={() => handleAction('record')}
+            onClick={() => handleAction('plan')}
             className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white p-4 text-left shadow-sm transition-colors hover:bg-slate-50 active:scale-[0.99]"
           >
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xl">📄</span>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-bold text-slate-800">查看完整健康档案与方案</div>
-              <div className="mt-0.5 text-xs text-slate-500">点击进入查看详情</div>
+              <div className="text-sm font-bold text-slate-800">查看完整健康管理方案</div>
+              <div className="mt-0.5 text-xs text-slate-500">饮食、运动与随访执行单</div>
             </div>
             <span className="shrink-0 text-slate-300">›</span>
           </button>
@@ -287,85 +286,30 @@ export const UserHealthHome: React.FC<Props> = ({
 
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <h2 className="mb-3 font-bold text-slate-800">下一步健康计划</h2>
-          {model.nextFollowUp ? (
-            <div
-              className={`mb-4 rounded-xl border p-3 ${
-                model.hasOverdueFollowUp ? 'border-red-200 bg-red-50' : 'border-blue-100 bg-blue-50'
-              }`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-bold text-slate-500">我的随访安排</div>
-                {model.followUpSourceLabel ? (
-                  <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold text-blue-700">
-                    {model.followUpSourceLabel}
-                  </span>
-                ) : null}
-              </div>
-              <div className="text-lg font-black text-slate-800">{model.nextFollowUp.date}</div>
-              {model.nextFollowUp.status === 'overdue' ? (
-                <span className="text-xs font-bold text-red-600">已过计划日期，我需要尽快联系健康管理团队</span>
-              ) : null}
-              {model.followUpFocusItems.length > 0 ? (
-                <ul className="mt-3 space-y-1.5 border-t border-blue-200/60 pt-2">
-                  <li className="text-[11px] font-bold text-blue-800">我这期要留意的风险重点：</li>
-                  {model.followUpFocusItems.map((item, i) => (
-                    <li key={`ff-${i}`} className="flex gap-2 text-sm text-slate-800">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white">
-                        {i + 1}
-                      </span>
-                      <span className="font-medium leading-snug">{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-xs text-slate-600">打开执行单看我该做哪些事</p>
-              )}
-              {model.followUpUserSteps.length > 0 ? (
-                <div className="mt-3 border-t border-blue-200/60 pt-2">
-                  <div className="text-[11px] font-bold text-blue-800">本周我要做</div>
-                  <ul className="mt-2 space-y-2">
-                    {model.followUpUserSteps.slice(0, 4).map((step, i) => (
-                      <li key={step.id} className="flex gap-2 text-xs text-slate-700">
-                        <span className="shrink-0 font-black text-blue-600">{i + 1}.</span>
-                        <span>
-                          <span className="font-bold text-slate-800">{step.title}</span>
-                          {step.detail ? ` — ${step.detail}` : ''}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+          {model.followUpFocusItems.length > 0 ? (
+            <div className="mb-4">
+              <div className="text-xs font-bold text-slate-500 mb-2">风险重点</div>
+              <ul className="space-y-1.5">
+                {model.followUpFocusItems.map((item, i) => (
+                  <li key={`ff-${i}`} className="flex gap-2 text-sm text-slate-800">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white">
+                      {i + 1}
+                    </span>
+                    <span className="font-medium leading-snug">{item}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
           {model.primaryActions.length > 0 ? (
-            <div className="mb-3 space-y-2">
+            <div className="space-y-2">
               <div className="text-xs font-bold text-slate-500">优先行动</div>
               {model.primaryActions.map((action) => (
                 <NextActionRow key={action.id} action={action} onPress={() => handleAction(action.action)} />
               ))}
             </div>
           ) : null}
-          {model.routineActions.length > 0 ? (
-            <div>
-              <button
-                type="button"
-                onClick={() => setRoutineOpen((v) => !v)}
-                className="flex w-full items-center justify-between text-xs font-bold text-slate-500"
-              >
-                日常建议（可选）
-                <span>{routineOpen ? '收起' : '展开'}</span>
-              </button>
-              {routineOpen ? (
-                <div className="mt-2 space-y-2">
-                  {model.routineActions.map((action) => (
-                    <NextActionRow key={action.id} action={action} onPress={() => handleAction(action.action)} muted />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {!model.nextFollowUp && model.primaryActions.length === 0 && model.routineActions.length === 0 ? (
+          {model.followUpFocusItems.length === 0 && model.primaryActions.length === 0 ? (
             <p className="text-sm text-slate-400">暂无待办，请保持当前健康管理节奏</p>
           ) : null}
         </div>
