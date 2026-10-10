@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive, findArchiveByCheckupId, updateArchiveMeta, normalizePhone } from '../services/dataService';
+import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive, findArchiveByCheckupId, updateArchiveMeta, normalizePhone, isDefaultPortalPassword, resetPortalPasswordToDefault } from '../services/dataService';
 import {
     formatArchiveListCacheTime,
     isArchiveListCacheFresh,
@@ -108,6 +108,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editForm, setEditForm] = useState<HealthProfile | null>(null);
     const [editProfileComplete, setEditProfileComplete] = useState(true);
+    const [isResettingPortalPassword, setIsResettingPortalPassword] = useState(false);
 
     // Critical Modal State
     const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
@@ -609,6 +610,35 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             if (onDataUpdate) onDataUpdate();
         } else alert(result.message);
     };
+
+    const handleResetPortalPassword = async () => {
+        if (!editingArchive) return;
+        const checkupId = editingArchive.checkup_id;
+        const loginPasswordHint = editForm?.checkupId?.trim() || checkupId;
+        const phoneHint = editForm?.phone || editingArchive.phone || '档案登记手机号';
+        if (
+            !confirm(
+                `确定将「${editingArchive.name}」（${checkupId}）的用户端登录密码重置为初始密码吗？\n\n重置后：\n· 登录账号：${phoneHint}\n· 登录密码：体检编号 ${loginPasswordHint}\n· 职工登录后须再次修改密码`,
+            )
+        ) {
+            return;
+        }
+        setIsResettingPortalPassword(true);
+        try {
+            const res = await resetPortalPasswordToDefault(checkupId);
+            if (res.success) {
+                alert(res.message);
+                setEditingArchive({ ...editingArchive, password_hash: null });
+                loadData({ force: true });
+                if (onDataUpdate) onDataUpdate();
+            } else {
+                alert(res.message || '重置失败');
+            }
+        } finally {
+            setIsResettingPortalPassword(false);
+        }
+    };
+
     const handleCriticalSave = async (
         record: CriticalTrackRecord,
         options?: { sendSms?: boolean; delayContactWeek?: boolean },
@@ -1126,6 +1156,26 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                                 <input type="checkbox" className="mt-1" checked={editProfileComplete} onChange={(e) => setEditProfileComplete(e.target.checked)} />
                                 <span>健康档案已完善（取消勾选后，用户登录端将提示联系健康管家完成建档）</span>
                             </label>
+                            <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3">
+                                <p className="text-xs font-bold text-amber-900 mb-1">职工端登录密码</p>
+                                <p className="text-[11px] text-amber-900/90 leading-relaxed mb-2">
+                                    {editingArchive && isDefaultPortalPassword(editingArchive)
+                                        ? '当前为初始密码（体检编号），职工可直接用手机号 + 体检编号登录。'
+                                        : '职工已修改过密码；若忘记新密码，可重置为初始密码（体检编号）。'}
+                                </p>
+                                <button
+                                    type="button"
+                                    disabled={isResettingPortalPassword || (editingArchive ? isDefaultPortalPassword(editingArchive) : false)}
+                                    onClick={() => void handleResetPortalPassword()}
+                                    className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {isResettingPortalPassword
+                                        ? '重置中…'
+                                        : editingArchive && isDefaultPortalPassword(editingArchive)
+                                          ? '已是初始密码'
+                                          : '一键重置为初始密码'}
+                                </button>
+                            </div>
                         </div>
                         <div className="flex justify-end gap-3 mt-6">
                             <button onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">取消</button>

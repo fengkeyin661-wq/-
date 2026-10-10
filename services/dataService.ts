@@ -358,6 +358,71 @@ export const updatePortalPassword = async (
 export const isDefaultPortalPassword = (archive: HealthArchive): boolean =>
     !archive.password_hash || String(archive.password_hash).length === 0;
 
+/** 管理员重置职工端密码：清空 password_hash，登录密码恢复为体检编号 */
+export const resetPortalPasswordToDefault = async (
+    checkupId: string,
+): Promise<{ success: boolean; message?: string }> => {
+    const id = checkupId?.trim();
+    if (!id) return { success: false, message: '缺少体检编号' };
+
+    let archive = await findArchiveByCheckupId(id);
+    if (!archive) {
+        try {
+            const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+            if (raw) {
+                const all: HealthArchive[] = JSON.parse(raw);
+                archive = all.find((a) => a.checkup_id === id) || null;
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+    if (!archive) return { success: false, message: '未找到档案' };
+
+    const updatedAt = new Date().toISOString();
+    const next: HealthArchive = { ...archive, password_hash: null, updated_at: updatedAt };
+
+    try {
+        const raw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (raw) {
+            const all: HealthArchive[] = JSON.parse(raw);
+            const idx = all.findIndex((a) => a.checkup_id === id);
+            if (idx >= 0) {
+                all[idx] = { ...all[idx], password_hash: null, updated_at: updatedAt };
+                localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(all));
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+
+    if (isSupabaseConfigured()) {
+        try {
+            const { error } = await supabase
+                .from('health_archives')
+                .update({ password_hash: null, updated_at: updatedAt })
+                .eq('checkup_id', id);
+            if (error) {
+                if (error.message.includes('Could not find') || error.code === '42703') {
+                    return {
+                        success: false,
+                        message: '数据库缺少 password_hash 列，请执行 health_archive_portal 迁移',
+                    };
+                }
+                return { success: false, message: error.message };
+            }
+        } catch (e: any) {
+            return { success: false, message: e?.message || '重置失败' };
+        }
+    }
+
+    syncArchiveToLocal(next);
+    return {
+        success: true,
+        message: `已重置为初始密码。请告知职工：登录手机号为档案登记手机号，密码为体检编号 ${id}，登录后需重新设置新密码。`,
+    };
+};
+
 export type ArchivePortalMetaPatch = Partial<{
     profile_complete: boolean;
     health_manager_content_id: string | null;
