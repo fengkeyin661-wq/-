@@ -5,6 +5,7 @@ import {
   buildUserHealthHomeModel,
   type UserHomeActionKind,
   type UserHomeNextAction,
+  type UserHomeActionTier,
 } from '../../services/userHealthHomeModel';
 import {
   HEALTH_MANAGEMENT_HOTLINE,
@@ -53,6 +54,7 @@ export const UserHealthHome: React.FC<Props> = ({
 }) => {
   const [view, setView] = useState<'dashboard' | 'assistant'>('dashboard');
   const [trendsOpen, setTrendsOpen] = useState(false);
+  const [routineOpen, setRoutineOpen] = useState(false);
   const [metricModalOpen, setMetricModalOpen] = useState(false);
   const [recomputeHint, setRecomputeHint] = useState<string | null>(null);
 
@@ -291,18 +293,65 @@ export const UserHealthHome: React.FC<Props> = ({
                 model.hasOverdueFollowUp ? 'border-red-200 bg-red-50' : 'border-blue-100 bg-blue-50'
               }`}
             >
-              <div className="text-xs font-bold text-slate-500">下次随访</div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-bold text-slate-500">下次随访</div>
+                {model.followUpSourceLabel ? (
+                  <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                    {model.followUpSourceLabel}
+                  </span>
+                ) : null}
+              </div>
               <div className="text-lg font-black text-slate-800">{model.nextFollowUp.date}</div>
               {model.nextFollowUp.status === 'overdue' ? (
                 <span className="text-xs font-bold text-red-600">已逾期，请尽快联系管家</span>
               ) : null}
+              {model.followUpFocusItems.length > 0 ? (
+                <ul className="mt-3 space-y-1.5 border-t border-blue-200/60 pt-2">
+                  <li className="text-[11px] font-bold text-blue-800">本期只需优先核对：</li>
+                  {model.followUpFocusItems.map((item, i) => (
+                    <li key={`ff-${i}`} className="flex gap-2 text-sm text-slate-800">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white">
+                        {i + 1}
+                      </span>
+                      <span className="font-medium leading-snug">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-xs text-slate-600">打开执行单查看管家为您定制的核对项</p>
+              )}
             </div>
           ) : null}
-          <div className="space-y-2">
-            {model.nextActions.slice(0, 6).map((action) => (
-              <NextActionRow key={action.id} action={action} onPress={() => handleAction(action.action)} />
-            ))}
-          </div>
+          {model.primaryActions.length > 0 ? (
+            <div className="mb-3 space-y-2">
+              <div className="text-xs font-bold text-slate-500">优先行动</div>
+              {model.primaryActions.map((action) => (
+                <NextActionRow key={action.id} action={action} onPress={() => handleAction(action.action)} />
+              ))}
+            </div>
+          ) : null}
+          {model.routineActions.length > 0 ? (
+            <div>
+              <button
+                type="button"
+                onClick={() => setRoutineOpen((v) => !v)}
+                className="flex w-full items-center justify-between text-xs font-bold text-slate-500"
+              >
+                日常建议（可选）
+                <span>{routineOpen ? '收起' : '展开'}</span>
+              </button>
+              {routineOpen ? (
+                <div className="mt-2 space-y-2">
+                  {model.routineActions.map((action) => (
+                    <NextActionRow key={action.id} action={action} onPress={() => handleAction(action.action)} muted />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {!model.nextFollowUp && model.primaryActions.length === 0 && model.routineActions.length === 0 ? (
+            <p className="text-sm text-slate-400">暂无待办，请保持当前健康管理节奏</p>
+          ) : null}
         </div>
 
         <UserHotlineCompact className="mt-2" />
@@ -327,13 +376,39 @@ export const UserHealthHome: React.FC<Props> = ({
   );
 };
 
-const NextActionRow: React.FC<{ action: UserHomeNextAction; onPress: () => void }> = ({ action, onPress }) => (
+const tierLabel: Record<UserHomeActionTier, string> = {
+  urgent: '紧急',
+  primary: '重点',
+  routine: '日常',
+};
+
+const tierClass: Record<UserHomeActionTier, string> = {
+  urgent: 'bg-red-100 text-red-700 border-red-200',
+  primary: 'bg-amber-100 text-amber-800 border-amber-200',
+  routine: 'bg-slate-100 text-slate-600 border-slate-200',
+};
+
+const NextActionRow: React.FC<{
+  action: UserHomeNextAction;
+  onPress: () => void;
+  muted?: boolean;
+}> = ({ action, onPress, muted }) => (
   <button
     type="button"
     onClick={onPress}
-    className="flex w-full items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 text-left transition-colors hover:bg-teal-50/80 active:scale-[0.99]"
+    className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition-colors active:scale-[0.99] ${
+      muted
+        ? 'border-slate-100 bg-white hover:bg-slate-50'
+        : action.tier === 'urgent'
+          ? 'border-red-100 bg-red-50/80 hover:bg-red-50'
+          : 'border-slate-100 bg-slate-50 hover:bg-teal-50/80'
+    }`}
   >
-    <span className="mt-0.5 text-teal-600">›</span>
+    <span
+      className={`mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-black ${tierClass[action.tier]}`}
+    >
+      {tierLabel[action.tier]}
+    </span>
     <div className="min-w-0 flex-1">
       <div className="text-sm font-bold text-slate-800">{action.title}</div>
       {action.description ? <div className="mt-0.5 text-xs text-slate-500">{action.description}</div> : null}
