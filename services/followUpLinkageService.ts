@@ -175,6 +175,122 @@ export const isCriticalFollowUpPending = (arch: HealthArchive): boolean => {
 export const countPendingCriticalFollowUps = (archives: HealthArchive[] = []): number =>
   archives.filter(isCriticalFollowUpPending).length;
 
+export type FollowUpWorklistKind = 'critical' | 'routine';
+
+export type FollowUpWorklistRow = {
+  archive: HealthArchive;
+  kind: FollowUpWorklistKind;
+  priority: number;
+  routine?: { date: string; daysLeft: number; focus: string };
+  critical?: {
+    item: string;
+    desc: string;
+    statusLabel: string;
+    level?: string;
+    secondaryDue?: string;
+    contactRetryDue?: string;
+  };
+};
+
+export const computeCriticalWorklistPriority = (arch: HealthArchive): number => {
+  const t = arch.critical_track;
+  let score = 0;
+  if (isCriticalContactRetryDue(arch)) score += 2000;
+  if (!t && arch.assessment_data?.isCritical) score += 1000;
+  if (t?.status === 'pending_initial') score += 1000;
+  else if (t?.status === 'pending_secondary') {
+    const due = new Date(t.secondary_due_date || 0).getTime();
+    const now = Date.now();
+    if (now > due) score += 500;
+    score += (now - due) / (1000 * 60 * 60 * 24);
+  }
+  if (t?.critical_level?.includes('A')) score += 200;
+  return score;
+};
+
+const computeRoutineWorklistPriority = (daysLeft: number): number => {
+  if (daysLeft < 0) return 400 + Math.abs(daysLeft);
+  if (daysLeft === 0) return 350;
+  return Math.max(0, 100 - daysLeft * 10);
+};
+
+export const buildCriticalWorklistSummary = (arch: HealthArchive) => {
+  const track = arch.critical_track;
+  const badge = getCriticalStatusBadge(arch, 'pending');
+  const parsed = arch.assessment_data?.criticalWarning
+    ? parseCriticalWarning(arch.assessment_data.criticalWarning)
+    : null;
+  return {
+    item: track?.critical_item || parsed?.item || '重点关注项',
+    desc: track?.critical_desc || arch.assessment_data?.criticalWarning || '存在危急指标',
+    statusLabel: badge.label,
+    level: track?.critical_level || parsed?.level,
+    secondaryDue: track?.secondary_due_date,
+    contactRetryDue: track?.contact_retry_due,
+  };
+};
+
+/** 7 天内 pending 排期 + 全部待办危急值，同一人合并为一行（危急优先） */
+export const buildFollowUpWorklist = (
+  archives: HealthArchive[] = [],
+  options?: { routineWithinDays?: number },
+): FollowUpWorklistRow[] => {
+  const withinDays = options?.routineWithinDays ?? 7;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const map = new Map<string, FollowUpWorklistRow>();
+
+  for (const arch of archives) {
+    const schedule = arch.follow_up_schedule || [];
+    for (const task of schedule) {
+      if (task.status !== 'pending') continue;
+      const taskDate = new Date(task.date);
+      const diffDays = Math.ceil((taskDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays > withinDays) continue;
+      const id = arch.checkup_id;
+      const routine = {
+        date: task.date,
+        daysLeft: diffDays,
+        focus: (task.focusItems || []).join(', '),
+      };
+      const existing = map.get(id);
+      if (!existing) {
+        map.set(id, {
+          archive: arch,
+          kind: 'routine',
+          priority: computeRoutineWorklistPriority(diffDays),
+          routine,
+        });
+      } else if (!existing.routine || diffDays < existing.routine.daysLeft) {
+        existing.routine = routine;
+        if (existing.kind === 'routine') {
+          existing.priority = computeRoutineWorklistPriority(diffDays);
+        }
+      }
+    }
+  }
+
+  for (const arch of archives) {
+    if (!isCriticalFollowUpPending(arch)) continue;
+    const id = arch.checkup_id;
+    const critical = buildCriticalWorklistSummary(arch);
+    const priority = computeCriticalWorklistPriority(arch);
+    const existing = map.get(id);
+    if (existing) {
+      existing.kind = 'critical';
+      existing.critical = critical;
+      existing.priority = Math.max(existing.priority, priority);
+    } else {
+      map.set(id, { archive: arch, kind: 'critical', priority, critical });
+    }
+  }
+
+  return [...map.values()].sort((a, b) => b.priority - a.priority);
+};
+
+export const listArchivedCriticalFollowUps = (archives: HealthArchive[] = []): HealthArchive[] =>
+  archives.filter(isCriticalFollowUpArchived);
+
 /** 是否应出现在「已归档结案」名单（须已完成处置流程） */
 export const isCriticalFollowUpArchived = (arch: HealthArchive): boolean => {
   const track = arch.critical_track;

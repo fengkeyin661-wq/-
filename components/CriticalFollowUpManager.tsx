@@ -21,8 +21,7 @@ import {
     resolveArchivePhone,
     sendCriticalSms,
 } from '../services/smsService';
-// @ts-ignore
-import * as XLSX from 'xlsx';
+import { exportCriticalFollowUpArchives } from '../services/criticalFollowUpExport';
 
 interface Props {
     archives: HealthArchive[];
@@ -216,39 +215,9 @@ export const CriticalFollowUpManager: React.FC<Props> = ({
 
     const handleExport = (type: 'pending' | 'archived') => {
         const data = type === 'pending' ? criticalGroups.pending : criticalGroups.archived;
-        if (data.length === 0) return alert("名单为空，无法导出");
-
         const exportSort = type === subTab ? sortConfig : (type === 'pending' ? PENDING_DEFAULT_SORT : ARCHIVED_DEFAULT_SORT);
         const sortedData = [...data].sort((a, b) => compareArchives(a, b, exportSort));
-        const rows = sortedData.map(arch => {
-            const track = arch.critical_track;
-            return {
-                "体检编号": arch.checkup_id,
-                "姓名": arch.name,
-                "性别": arch.gender,
-                "年龄": arch.age,
-                "单位/部门": arch.department,
-                "联系电话": arch.phone || '-',
-                "危急项目": track?.critical_item || "待定",
-                "异常描述": track?.critical_desc || arch.assessment_data?.criticalWarning || "-",
-                "当前状态": getCriticalStatusBadge(arch, type).label.replace(/^[🔥🕒✅]\s*/, ''),
-                "计划回访日期": track?.secondary_due_date || "-",
-                "初次记录人": track?.initial_recorder_name
-                    ? formatCriticalRecorder(track.initial_recorder_name, track.initial_recorder_role)
-                    : "-",
-                "二次记录人": track?.secondary_recorder_name
-                    ? formatCriticalRecorder(track.secondary_recorder_name, track.secondary_recorder_role)
-                    : "-",
-                "体检日期": formatArchiveCheckupDate(arch),
-                "处置记录": track?.initial_feedback || "-",
-                "最后更新": new Date(arch.updated_at || arch.created_at).toLocaleString()
-            };
-        });
-
-        const ws = XLSX.utils.json_to_sheet(rows);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "危急值随访名单");
-        XLSX.writeFile(wb, `危急值随访_${type === 'pending' ? '待处理' : '已结案'}_${new Date().toISOString().split('T')[0]}.xlsx`);
+        exportCriticalFollowUpArchives(sortedData, type);
     };
 
     return (
