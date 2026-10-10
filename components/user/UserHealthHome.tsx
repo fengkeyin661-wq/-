@@ -320,6 +320,25 @@ export const UserHealthHome: React.FC<Props> = ({
               ) : (
                 <p className="mt-2 text-xs text-slate-600">打开执行单查看管家为您定制的核对项</p>
               )}
+              {model.followUpPrepSummary ? (
+                <p className="mt-2 text-xs font-medium text-blue-900/90">{model.followUpPrepSummary}</p>
+              ) : null}
+              {model.followUpUserSteps.length > 0 ? (
+                <div className="mt-3 border-t border-blue-200/60 pt-2">
+                  <div className="text-[11px] font-bold text-blue-800">本周请您配合</div>
+                  <ul className="mt-2 space-y-2">
+                    {model.followUpUserSteps.slice(0, 4).map((step, i) => (
+                      <li key={step.id} className="flex gap-2 text-xs text-slate-700">
+                        <span className="shrink-0 font-black text-blue-600">{i + 1}.</span>
+                        <span>
+                          <span className="font-bold text-slate-800">{step.title}</span>
+                          {step.detail ? ` — ${step.detail}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           ) : null}
           {model.primaryActions.length > 0 ? (

@@ -13,6 +13,7 @@ import {
 import { HealthArchiveReadView } from './HealthArchiveReadView';
 import type { UserMetricKey } from '../../services/observationMapper';
 import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
+import { buildFollowUpGuidance } from '../../services/followUpGuidance';
 import { UserRiskHeroBanner } from './UserRiskHeroBanner';
 import { UserNeedSurveyBanner } from './portal/UserNeedSurveyBanner';
 
@@ -209,12 +210,44 @@ export const UserProfile: React.FC<Props> = ({
         const followups = [...(archive.follow_ups || [])].sort((a, b) => (a.date < b.date ? 1 : -1));
         const latest = followups[0];
         const pending = nextFollowup;
+        const guidance = buildFollowUpGuidance(archive);
         const latestPlan = latest?.assessment?.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '待医生更新';
         const latestIssues = latest?.assessment?.majorIssues || assessment?.summary || '暂无';
         const latestGoals = latest?.assessment?.lifestyleGoals || [];
         const latestMessage = latest?.assessment?.doctorMessage || latest?.assessment?.riskJustification || '请持续监测并按计划执行。';
         return (
             <div className="p-4 space-y-6 animate-slideInRight pb-20">
+                {(guidance.priorityFocusItems.length > 0 || guidance.userSteps.length > 0) && (
+                    <div className="rounded-xl border-2 border-amber-300 bg-gradient-to-b from-amber-50 to-white p-4 shadow-sm">
+                        <h3 className="text-sm font-black text-amber-950">本期只需优先配合</h3>
+                        <p className="mt-1 text-xs text-amber-900/90">{guidance.userPrepSummary}</p>
+                        {guidance.priorityFocusItems.length > 0 ? (
+                            <ol className="mt-3 space-y-2">
+                                {guidance.priorityFocusItems.map((item, i) => (
+                                    <li key={item} className="flex gap-2 text-sm text-slate-800">
+                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-xs font-black text-white">
+                                            {i + 1}
+                                        </span>
+                                        <span className="font-medium leading-snug pt-0.5">{item}</span>
+                                    </li>
+                                ))}
+                            </ol>
+                        ) : null}
+                        <div className="mt-4 border-t border-amber-200/80 pt-3">
+                            <div className="text-xs font-bold text-slate-700">具体怎么做</div>
+                            <ul className="mt-2 space-y-2">
+                                {guidance.userSteps.map((step, i) => (
+                                    <li key={step.id} className="rounded-lg bg-white border border-amber-100 px-3 py-2">
+                                        <div className="text-sm font-bold text-slate-800">
+                                            {i + 1}. {step.title}
+                                        </div>
+                                        <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{step.detail}</p>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                )}
                 <div className="bg-white rounded-xl shadow-lg border-t-4 border-blue-500 overflow-hidden">
                     <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-blue-50/50">
                         <h3 className="font-bold text-slate-800 flex items-center gap-2">

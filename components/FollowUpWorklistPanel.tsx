@@ -15,6 +15,7 @@ import {
   resolveCriticalTrackStatus,
   type FollowUpWorklistRow,
 } from '../services/followUpLinkageService';
+import { buildFollowUpGuidance } from '../services/followUpGuidance';
 import {
   exportCriticalFollowUpArchives,
   exportFollowUpWorklistRows,
@@ -213,16 +214,25 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
 
   const renderPriorityFocus = (row: FollowUpWorklistRow) => {
     const items = row.priorityFocusItems || row.routine?.priorityFocusItems || [];
+    const firstAsk = buildFollowUpGuidance(row.archive).staffCues[0]?.askScript;
     if (items.length) {
       return (
-        <ul className="space-y-0.5">
-          {items.slice(0, 3).map((item, i) => (
-            <li key={item} className="flex gap-1.5 text-xs text-slate-700">
-              <span className="font-black text-amber-700">{i + 1}.</span>
-              <span className="line-clamp-2">{item}</span>
-            </li>
-          ))}
-        </ul>
+        <div>
+          <ul className="space-y-0.5">
+            {items.slice(0, 3).map((item, i) => (
+              <li key={item} className="flex gap-1.5 text-xs text-slate-700">
+                <span className="font-black text-amber-700">{i + 1}.</span>
+                <span className="line-clamp-2">{item}</span>
+              </li>
+            ))}
+          </ul>
+          {firstAsk ? (
+            <p className="mt-1.5 text-[10px] leading-snug text-teal-800 line-clamp-2">
+              <span className="font-bold">首问：</span>
+              {firstAsk}
+            </p>
+          ) : null}
+        </div>
       );
     }
     if (row.critical?.item) {

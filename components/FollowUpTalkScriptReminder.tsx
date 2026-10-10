@@ -4,6 +4,7 @@ import {
   resolveFollowUpTalkScenario,
   type FollowUpTalkScenario,
 } from '../services/followUpTalkScripts';
+import type { FollowUpStaffCue } from '../services/followUpGuidance';
 
 interface Props {
   /** 如「常规随访」「危急值二次回访」 */
@@ -13,6 +14,8 @@ interface Props {
   className?: string;
   /** 整块话术面板默认是否展开（默认收起） */
   defaultExpanded?: boolean;
+  staffOpeningHint?: string;
+  staffCues?: FollowUpStaffCue[];
 }
 
 /** 随访沟通话术提醒：默认收起，点击展开查看步骤内容 */
@@ -21,6 +24,8 @@ export const FollowUpTalkScriptReminder: React.FC<Props> = ({
   scenario: scenarioProp,
   className = '',
   defaultExpanded = false,
+  staffOpeningHint,
+  staffCues = [],
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -60,6 +65,33 @@ export const FollowUpTalkScriptReminder: React.FC<Props> = ({
           <p className="text-[11px] text-amber-800/70">
             请结合「本次随访要点」灵活调整，勿照本宣科。
           </p>
+          {staffOpeningHint ? (
+            <div className="rounded-lg border border-amber-300 bg-white px-3.5 py-3">
+              <div className="text-xs font-bold text-amber-900 mb-1">建议开场（可复制）</div>
+              <p className="text-[13px] leading-relaxed text-slate-800">{staffOpeningHint}</p>
+            </div>
+          ) : null}
+          {staffCues.length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-white px-3.5 py-3 space-y-3">
+              <div className="text-xs font-bold text-amber-900">本期逐项核对话术</div>
+              {staffCues.map((cue, i) => (
+                <div key={cue.focusItem} className="border-t border-amber-50 pt-2 first:border-0 first:pt-0">
+                  <div className="text-sm font-bold text-slate-800">
+                    <span className="text-amber-600 mr-1">{i + 1}.</span>
+                    {cue.focusItem}
+                  </div>
+                  <p className="mt-1 text-[13px] text-slate-700">
+                    <span className="font-bold text-teal-800">可问：</span>
+                    {cue.askScript}
+                  </p>
+                  <p className="mt-0.5 text-[12px] text-slate-500">
+                    <span className="font-bold text-slate-600">记录：</span>
+                    {cue.recordHint}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {script.sections.map((section, idx) => (
             <div
               key={section.id}

@@ -11,7 +11,9 @@ import {
   getIndicatorValuesFromRecord,
   mergeFocusItems,
   filterPriorityFocusItems,
+  resolvePriorityFocusForArchive,
 } from '../services/followUpLinkageService';
+import { buildFollowUpGuidance } from '../services/followUpGuidance';
 import { FollowUpWorklistPanel } from './FollowUpWorklistPanel';
 import {
   isSmsConfigured,
@@ -248,8 +250,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
   );
 
   const priorityFocusItems = useMemo(
-      () => (followUpContext ? filterPriorityFocusItems(followUpContext.focusItems) : []),
-      [followUpContext]
+      () => (patientArchive ? resolvePriorityFocusForArchive(patientArchive) : []),
+      [patientArchive]
+  );
+
+  const followUpGuidance = useMemo(
+      () => (patientArchive ? buildFollowUpGuidance(patientArchive) : null),
+      [patientArchive]
   );
 
   const mergedTimeline = useMemo(
@@ -883,6 +890,26 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     </ul>
                   </div>
                 ) : null}
+                {followUpGuidance?.staffCues?.length ? (
+                  <div className="mt-3 border-t border-amber-200/80 pt-3 space-y-2">
+                    <div className="text-[11px] font-bold text-amber-900">沟通指引（按序号提问并记录）</div>
+                    {followUpGuidance.staffCues.slice(0, 4).map((cue, i) => (
+                      <div key={cue.focusItem} className="rounded-lg bg-white/90 border border-amber-100 px-3 py-2 text-xs">
+                        <div className="font-bold text-slate-800">
+                          {i + 1}. {cue.focusItem}
+                        </div>
+                        <p className="mt-0.5 text-slate-700">
+                          <span className="text-teal-800 font-bold">可问：</span>
+                          {cue.askScript}
+                        </p>
+                        <p className="mt-0.5 text-slate-500">{cue.recordHint}</p>
+                      </div>
+                    ))}
+                    <p className="text-[11px] text-amber-800/80">
+                      完整话术见下方「沟通话术提醒」；录入时在「本期优先核对」标记改善/未改善。
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               <div className="rounded-xl border border-teal-200 bg-gradient-to-r from-teal-50 to-blue-50 shadow-sm overflow-hidden">
@@ -931,6 +958,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
           <FollowUpTalkScriptReminder
               sourceLabel={followUpContext?.sourceLabel}
               className="mb-6"
+              staffOpeningHint={followUpGuidance?.staffOpeningHint}
+              staffCues={followUpGuidance?.staffCues}
           />
           <div className="bg-white rounded-xl shadow border border-slate-200 mb-8 overflow-hidden animate-slideUp">
               {/* ... Entry Form Content ... */}
@@ -1179,6 +1208,41 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       <span>⚠️ 您正在修订执行单内容，修改将同步更新至系统记录。</span>
                   </div>
               )}
+
+              {followUpGuidance && (followUpGuidance.priorityFocusItems.length > 0 || followUpGuidance.userSteps.length > 0) ? (
+                <div className="mb-8 rounded-xl border-2 border-amber-200 bg-amber-50/60 p-5">
+                  <h3 className="text-base font-black text-amber-950">本期随访重点（用户端同步展示）</h3>
+                  <p className="mt-1 text-sm text-amber-900/90">
+                    {followUpGuidance.userPrepSummary || '请按下列步骤指导用户准备，减少电话来回确认。'}
+                  </p>
+                  {followUpGuidance.priorityFocusItems.length > 0 ? (
+                    <ol className="mt-3 flex flex-wrap gap-2">
+                      {followUpGuidance.priorityFocusItems.map((item, i) => (
+                        <li
+                          key={item}
+                          className="rounded-full bg-white border border-amber-200 px-3 py-1 text-sm font-medium text-slate-800"
+                        >
+                          <span className="text-amber-700 font-black mr-1">{i + 1}</span>
+                          {item}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
+                  <ul className="mt-4 space-y-2">
+                    {followUpGuidance.userSteps.map((step, i) => (
+                      <li key={step.id} className="flex gap-3 rounded-lg bg-white border border-amber-100 px-4 py-3">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-xs font-black text-white">
+                          {i + 1}
+                        </span>
+                        <div>
+                          <div className="text-sm font-bold text-slate-800">{step.title}</div>
+                          <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{step.detail}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-6">

@@ -5,6 +5,7 @@ import {
   filterPriorityFocusItems,
   normalizeFocusItemKey,
 } from './followUpLinkageService';
+import { buildFollowUpGuidance, type FollowUpUserStep } from './followUpGuidance';
 
 export type UserHomeActionKind =
   | 'metrics'
@@ -37,6 +38,9 @@ export interface UserHealthHomeModel {
   followUpSourceLabel: string;
   /** 本期随访应核对的重点（与管家端随访上下文一致） */
   followUpFocusItems: string[];
+  /** 本周配合步骤（与管家端指引一致） */
+  followUpUserSteps: FollowUpUserStep[];
+  followUpPrepSummary: string;
   focusHighlights: UserHomeFocusItem[];
   nextActions: UserHomeNextAction[];
   primaryActions: UserHomeNextAction[];
@@ -82,6 +86,9 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
   const followCtx = archive ? buildFollowUpContext(archive) : null;
   const followUpSourceLabel = followCtx?.sourceLabel || '';
   const followUpFocusItems = filterPriorityFocusItems(followCtx?.focusItems || []).slice(0, 5);
+  const guidance = archive ? buildFollowUpGuidance(archive) : null;
+  const followUpUserSteps = (guidance?.userSteps || []).slice(0, 5);
+  const followUpPrepSummary = guidance?.userPrepSummary || '';
 
   const nextActions: UserHomeNextAction[] = [];
   let actionIdx = 0;
@@ -112,6 +119,8 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
       hasOverdueFollowUp,
       followUpSourceLabel,
       followUpFocusItems,
+      followUpUserSteps,
+      followUpPrepSummary,
       focusHighlights,
       nextActions,
       primaryActions: nextActions,
@@ -265,6 +274,8 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
     hasOverdueFollowUp,
     followUpSourceLabel,
     followUpFocusItems,
+    followUpUserSteps,
+    followUpPrepSummary,
     focusHighlights,
     nextActions: sorted,
     primaryActions,
