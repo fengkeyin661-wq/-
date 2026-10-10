@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserLayout } from './UserLayout';
-import { UserHabits } from './UserHabits';
+import { UserHealthHome, type UserProfileSubView } from './UserHealthHome';
 import { UserInteraction } from './UserInteraction';
 import { UserProfile } from './UserProfile';
 import { UserProfileShell } from './UserProfileShell';
@@ -110,7 +110,8 @@ interface Props {
 }
 
 export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('habits');
+  const [activeTab, setActiveTab] = useState('home');
+  const [profileSubViewRequest, setProfileSubViewRequest] = useState<UserProfileSubView | null>(null);
   const [loading, setLoading] = useState(true);
   const [userArchive, setUserArchive] = useState<HealthArchive | null>(null);
   const [passwordPromptSkipped, setPasswordPromptSkipped] = useState(false);
@@ -396,7 +397,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     clearPortalSession();
     setUserArchive(null);
     setUnreadCount(0);
-    setActiveTab('habits');
+    setActiveTab('home');
     onLogout?.();
   };
 
@@ -405,7 +406,7 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
     syncArchiveToLocal(archive);
     writePortalSession(archive.checkup_id);
     setLoading(false);
-    setActiveTab('habits');
+    setActiveTab('home');
   };
 
   const handleTabChange = (tab: string) => {
@@ -429,13 +430,17 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
       unreadCount={unreadCount}
       profileIncompleteBanner={profileIncompleteBanner}
     >
-      {activeTab === 'habits' && (
-        <UserHabits
+      {activeTab === 'home' && (
+        <UserHealthHome
+          archive={userArchive}
           assessment={userArchive?.assessment_data}
-          userCheckupId={userArchive?.checkup_id}
           userName={userArchive ? resolvedUserName : '访客'}
           record={userArchive?.health_record}
           onRefresh={() => userArchive && loadArchiveById(userArchive.checkup_id, true)}
+          onUpdateRecord={userArchive ? handleUpdateRecord : undefined}
+          onNavigateTab={setActiveTab}
+          onOpenProfileSubView={(sub) => setProfileSubViewRequest(sub)}
+          onOpenLogin={() => setActiveTab('profile')}
         />
       )}
       {activeTab === 'community' && (
@@ -485,6 +490,8 @@ export const UserApp: React.FC<Props> = ({ initialCheckupId, onLogout }) => {
             onArchiveRefresh={() =>
               userArchive && loadArchiveById(userArchive.checkup_id, true)
             }
+            subViewRequest={activeTab === 'profile' ? profileSubViewRequest : null}
+            onSubViewRequestConsumed={() => setProfileSubViewRequest(null)}
           />
         ) : (
             <UserProfileShell onLoginSuccess={handleShellLoginSuccess} onOpenNeedSurvey={userOpenNeedSurvey} />

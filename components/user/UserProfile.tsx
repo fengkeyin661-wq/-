@@ -17,6 +17,7 @@ import { UserMetricEntryModal } from './UserMetricEntryModal';
 import { fetchLatestAssessmentRun } from '../../services/assessmentPipelineService';
 import type { UserMetricKey } from '../../services/observationMapper';
 import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
+import { UserRiskHeroBanner } from './UserRiskHeroBanner';
 
 // 用户端预留：assessment.diabetesReport / record.diabetesManagement 由管理端糖尿病专栏写入，后续可在此展示「我的糖尿病管理」
 
@@ -38,6 +39,8 @@ interface Props {
   onNavigate: (tab: string) => void;
   onOpenNeedSurvey?: () => void;
   onArchiveRefresh?: () => void;
+  subViewRequest?: 'menu' | 'record' | 'followup' | 'plan' | null;
+  onSubViewRequestConsumed?: () => void;
 }
 
 export const UserProfile: React.FC<Props> = ({
@@ -51,10 +54,18 @@ export const UserProfile: React.FC<Props> = ({
     onNavigate,
     onOpenNeedSurvey,
     onArchiveRefresh,
+    subViewRequest,
+    onSubViewRequestConsumed,
 }) => {
     const [subView, setSubView] = useState<
         'menu' | 'record' | 'followup' | 'plan' | 'events' | 'apps' | 'security' | 'manager'
     >('menu');
+
+    useEffect(() => {
+        if (!subViewRequest || subViewRequest === 'menu') return;
+        setSubView(subViewRequest);
+        onSubViewRequestConsumed?.();
+    }, [subViewRequest, onSubViewRequestConsumed]);
     // ... (keep existing state/effects) ...
     const [interactions, setInteractions] = useState<InteractionItem[]>([]);
     const [healthManager, setHealthManager] = useState<ContentItem | null>(null);
@@ -192,29 +203,7 @@ export const UserProfile: React.FC<Props> = ({
     // ... (keep renderRecordView, renderFollowupView) ...
     const renderRecordView = () => (
         <div className="p-4 space-y-6 animate-slideInRight pb-20">
-            {/* 1. Risk Status Banner (Synced with Admin Report) */}
-            <div className={`rounded-2xl p-5 text-white shadow-lg ${
-                assessment?.riskLevel === 'RED' ? 'bg-gradient-to-r from-red-500 to-rose-600' :
-                assessment?.riskLevel === 'YELLOW' ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
-                'bg-gradient-to-r from-teal-500 to-emerald-600'
-            }`}>
-                <div className="flex justify-between items-start">
-                    <div>
-                        <div className="text-xs opacity-80 font-bold uppercase tracking-wider mb-1">综合风险评估</div>
-                        <div className="text-3xl font-black mb-2">
-                            {assessment?.riskLevel === 'RED' ? '高风险' : assessment?.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
-                        </div>
-                        {assessment?.isCritical && (
-                            <div className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded text-xs font-bold inline-block">
-                                ⚠️ 存在危急/重大异常
-                            </div>
-                        )}
-                    </div>
-                    <div className="text-4xl opacity-30">
-                        {assessment?.riskLevel === 'RED' ? '🚨' : assessment?.riskLevel === 'YELLOW' ? '⚠️' : '🛡️'}
-                    </div>
-                </div>
-            </div>
+            <UserRiskHeroBanner assessment={assessment} showSummary={false} />
 
             {/* 2. Health Archive Details */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
