@@ -22,6 +22,7 @@ import {
   ChronicDiseaseManagementModule,
   type ChronicDiseaseSubTab,
 } from './components/ChronicDiseaseManagementModule';
+import { PatientClinicalHeader } from './components/clinical/PatientClinicalHeader';
 import { StaffWorkloadPanel } from './components/StaffWorkloadPanel';
 import {
   closeNeedSurvey,
@@ -1160,7 +1161,17 @@ export const App: React.FC = () => {
             {activeTab === 'survey' && <HealthSurvey onSubmit={handleHealthSurveySubmit} initialData={healthRecord} isLoading={isLoading} />}
             {activeTab === 'external_survey' && <NativeSurveyForm onSubmit={handleSurveySubmit} isLoading={isLoading} initialCheckupId={healthRecord?.profile.checkupId} />}
             {activeTab === 'assessment' && assessment && healthRecord && (
-              <div className="space-y-10 pb-10">
+              <div className="space-y-6 pb-10">
+                <PatientClinicalHeader
+                  healthRecord={healthRecord}
+                  assessment={assessment}
+                  subtitle="风险评估与方案 · 下方可继续随访录入"
+                  sticky
+                  onNavigateDiabetes={(arch) => handleSelectPatient(arch, 'diabetes')}
+                  onNavigateHypertension={(arch) => handleSelectPatient(arch, 'hypertension')}
+                  onNavigateLipid={(arch) => handleSelectPatient(arch, 'lipid')}
+                  currentArchive={archives.find((a) => a.checkup_id === healthRecord.profile.checkupId) ?? undefined}
+                />
                 <AssessmentReport
                   assessment={assessment}
                   patientName={healthRecord.profile.name}
@@ -1177,6 +1188,7 @@ export const App: React.FC = () => {
                 />
                 <FollowUpDashboard
                   layout="embedded"
+                  hideClinicalHeader
                   expandEntryToken={followUpExpandEntryToken}
                   records={followUps}
                   assessment={assessment}

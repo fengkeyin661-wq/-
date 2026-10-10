@@ -20,10 +20,10 @@ import {
   type SmsSentRole,
 } from '../services/smsService';
 import { CriticalHandleModal } from './CriticalHandleModal';
-import { HighGlucoseTag } from './HighGlucoseTag';
-import { HighBloodPressureTag } from './HighBloodPressureTag';
-import { HighLipidTag } from './HighLipidTag';
 import { FollowUpTalkScriptReminder } from './FollowUpTalkScriptReminder';
+import { PatientClinicalHeader } from './clinical/PatientClinicalHeader';
+
+export type FollowUpWorkspaceTab = 'timeline' | 'entry' | 'guide';
 
 interface Props {
   records: FollowUpRecord[];
@@ -49,6 +49,8 @@ interface Props {
   scrollToDetailToken?: number;
   /** 递增时仅展开录入区（评估页内「继续随访」） */
   expandEntryToken?: number;
+  /** 评估页嵌入时不重复顶栏（由 App 统一展示） */
+  hideClinicalHeader?: boolean;
 }
 
 const DEFAULT_LIFESTYLE_TASKS: NonNullable<FollowUpRecord['taskCompliance']> = [
@@ -118,9 +120,14 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onOpenAssessment,
     scrollToDetailToken = 0,
     expandEntryToken = 0,
+    hideClinicalHeader = false,
 }) => {
   const detailAnchorRef = useRef<HTMLDivElement>(null);
-  const [isEntryExpanded, setIsEntryExpanded] = useState(layout === 'embedded');
+  const [workspaceTab, setWorkspaceTab] = useState<FollowUpWorkspaceTab>(
+    layout === 'embedded' ? 'entry' : 'timeline',
+  );
+  const [worklistCollapsed, setWorklistCollapsed] = useState(false);
+  const [contextPanelExpanded, setContextPanelExpanded] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // State for viewing history details
@@ -148,32 +155,36 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const handleWorklistSelectPatient = useCallback(
     (archive: HealthArchive, options?: { scrollToDetail?: boolean }) => {
       onPatientChange?.(archive);
-      setIsEntryExpanded(true);
+      setWorkspaceTab('entry');
+      if (layout === 'full') setWorklistCollapsed(true);
       if (options?.scrollToDetail) {
         requestAnimationFrame(() => {
           detailAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
       }
     },
-    [onPatientChange],
+    [onPatientChange, layout],
   );
 
   useEffect(() => {
     if (layout !== 'embedded') return;
-    if (assessment && currentPatientId) setIsEntryExpanded(true);
+    if (assessment && currentPatientId) setWorkspaceTab('entry');
   }, [layout, assessment, currentPatientId]);
 
   useEffect(() => {
     if (!scrollToDetailToken) return;
     requestAnimationFrame(() => {
       detailAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setIsEntryExpanded(true);
+      setWorkspaceTab('entry');
     });
   }, [scrollToDetailToken]);
 
   useEffect(() => {
     if (!expandEntryToken) return;
-    setIsEntryExpanded(true);
+    setWorkspaceTab('entry');
+    requestAnimationFrame(() => {
+      detailAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }, [expandEntryToken]);
 
   // Sort records by date
@@ -447,6 +458,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 `随访记录已保存，但AI分析未成功，当前为回退建议。原因：${result?.analysisError || '未获取到模型返回'}${cloudHint}`
             );
         }
+        setWorkspaceTab('guide');
+        requestAnimationFrame(() => {
+          detailAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
     } catch (e) {
         alert(`自动分析失败: ${e instanceof Error ? e.message : '未知错误'}。`);
     } finally {
@@ -624,86 +639,22 @@ export const FollowUpDashboard: React.FC<Props> = ({
           if (onRefresh) onRefresh();
           if (options?.convertToFollowUp && criticalModalArchive && onPatientChange) {
               onPatientChange(criticalModalArchive);
-              setIsEntryExpanded(true);
+              setWorkspaceTab('entry');
           }
       } else {
           alert('保存失败: ' + res.message);
       }
   };
 
-  const summaryChartData = assessment ? [
-    { name: 'High', value: Math.max(assessment.risks?.red?.length || 0, 0.5), color: '#ef4444' },
-    { name: 'Medium', value: Math.max(assessment.risks?.yellow?.length || 0, 0.5), color: '#eab308' },
-    { name: 'Low', value: Math.max(5 - (assessment.risks?.red?.length || 0) - (assessment.risks?.yellow?.length || 0), 1), color: '#22c55e' },
-  ] : [];
-
-  const workspaceTitle =
-    layout === 'embedded'
-      ? `随访监测 · ${healthRecord?.profile.name || currentPatientName}`
-      : '个体随访工作区';
-
-  const compactPatientCard =
-    layout === 'full' && currentPatientId ? (
-      <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden animate-fadeIn">
-        <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex flex-wrap justify-between items-start gap-2">
-          <div>
-            <h3 className="font-bold text-slate-800 text-sm">{healthRecord?.profile.name || currentPatientName}</h3>
-            <p className="text-[11px] font-mono text-slate-500">{currentPatientId}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {healthRecord && onNavigateDiabetes && currentArchive && (
-              <HighGlucoseTag record={healthRecord} onClick={() => onNavigateDiabetes(currentArchive)} />
-            )}
-            {healthRecord && onNavigateHypertension && currentArchive && (
-              <HighBloodPressureTag record={healthRecord} onClick={() => onNavigateHypertension(currentArchive)} />
-            )}
-            {healthRecord && onNavigateLipid && currentArchive && (
-              <HighLipidTag record={healthRecord} onClick={() => onNavigateLipid(currentArchive)} />
-            )}
-            {assessment && (
-              <span
-                className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
-                  assessment.riskLevel === 'RED'
-                    ? 'bg-red-50 text-red-600 border-red-200'
-                    : assessment.riskLevel === 'YELLOW'
-                      ? 'bg-yellow-50 text-yellow-600 border-yellow-200'
-                      : 'bg-green-50 text-green-600 border-green-200'
-                }`}
-              >
-                {assessment.riskLevel === 'RED' ? '高风险' : assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="p-4 space-y-3 text-xs text-slate-600">
-          {healthRecord && (
-            <p>
-              {healthRecord.profile.gender} / {healthRecord.profile.age}岁 · {healthRecord.profile.department}
-            </p>
-          )}
-          {assessment?.summary && (
-            <p className="line-clamp-3 text-slate-500 leading-relaxed">{assessment.summary}</p>
-          )}
-          {onOpenAssessment && (
-            <button
-              type="button"
-              onClick={onOpenAssessment}
-              className="w-full py-2 rounded-lg border border-teal-200 text-teal-800 text-xs font-bold hover:bg-teal-50"
-            >
-              打开完整风险评估与方案 →
-            </button>
-          )}
-        </div>
-      </div>
-    ) : layout === 'full' ? (
-      <div className="bg-white p-8 rounded-xl shadow border border-slate-100 text-center text-sm text-slate-400">
-        请从上方随访工作列表选择受检者
-      </div>
-    ) : null;
+  const workspaceTabs: { id: FollowUpWorkspaceTab; label: string }[] = [
+    { id: 'timeline', label: '随访路径' },
+    { id: 'entry', label: '本次录入' },
+    { id: 'guide', label: '执行单' },
+  ];
 
   return (
     <div className="animate-fadeIn pb-10">
-      {layout === 'full' && (
+      {layout === 'full' && !worklistCollapsed && (
         <FollowUpWorklistPanel
           archives={allArchives}
           currentPatientId={currentPatientId}
@@ -714,37 +665,83 @@ export const FollowUpDashboard: React.FC<Props> = ({
         />
       )}
 
+      {layout === 'full' && worklistCollapsed && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2">
+          <span className="text-xs text-slate-600">
+            当前：{healthRecord?.profile.name || currentPatientName || '未选择'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setWorklistCollapsed(false)}
+            className="text-xs font-bold text-teal-700 hover:underline"
+          >
+            展开待办队列 · 切换职工
+          </button>
+        </div>
+      )}
+
       <div id="followup-detail-anchor" ref={detailAnchorRef} className="scroll-mt-4 pt-2">
-        <h2 className="text-base font-black text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">{workspaceTitle}</h2>
+        {!hideClinicalHeader && healthRecord && currentPatientId ? (
+          <PatientClinicalHeader
+            healthRecord={healthRecord}
+            assessment={assessment}
+            subtitle={layout === 'embedded' ? '随访监测工作区' : '个体随访工作区'}
+            onOpenAssessment={onOpenAssessment}
+            onDelayPlan={handleDelayOneMonth}
+            onFollowUpSms={handleGenerateSms}
+            showDelayPlan={Boolean(assessment && nextScheduled)}
+            showFollowUpSms={Boolean(assessment && nextScheduled)}
+            onNavigateDiabetes={onNavigateDiabetes}
+            onNavigateHypertension={onNavigateHypertension}
+            onNavigateLipid={onNavigateLipid}
+            currentArchive={currentArchive ?? undefined}
+          />
+        ) : layout === 'embedded' ? (
+          <h2 className="text-base font-black text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
+            随访监测工作区
+          </h2>
+        ) : null}
+
+        {currentPatientId && assessment ? (
+          <div className="sticky top-0 z-20 mb-4 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+            {workspaceTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setWorkspaceTab(tab.id)}
+                className={`flex-1 rounded-md px-3 py-2 text-xs font-bold transition-colors ${
+                  workspaceTab === tab.id
+                    ? tab.id === 'entry'
+                      ? 'bg-teal-600 text-white'
+                      : 'bg-slate-800 text-white'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        ) : layout === 'full' && !currentPatientId ? (
+          <div className="rounded-xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-400">
+            请从待办队列选择受检者后开始随访
+          </div>
+        ) : null}
       </div>
 
-      <div
-        className={`grid grid-cols-1 gap-8 mb-8 ${
-          layout === 'full' ? 'lg:grid-cols-3' : ''
-        }`}
-      >
-          {layout === 'full' && <div className="lg:col-span-1 space-y-6">{compactPatientCard}</div>}
-
-          <div
-            className={`bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-full min-h-[400px] ${
-              layout === 'full' ? 'lg:col-span-2' : ''
-            }`}
-          >
-            <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 justify-between">
-                <div className="flex items-center gap-2">
-                    <span>📅</span> 随访路径
-                </div>
-                {assessment && nextScheduled && (
-                    <button
-                        type="button"
-                        onClick={handleDelayOneMonth}
-                        title="电话无人接听时可延期一个月"
-                        className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-lg hover:bg-amber-100 font-bold"
-                    >
-                        延期1个月
-                    </button>
-                )}
-            </h2>
+      {currentPatientId && assessment && workspaceTab === 'timeline' && (
+          <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col min-h-[320px] mb-8">
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <span>📅</span> 随访路径
+              </h2>
+              <button
+                type="button"
+                onClick={() => setWorkspaceTab('entry')}
+                className="text-xs font-bold text-teal-700 hover:underline"
+              >
+                去录入 →
+              </button>
+            </div>
             
             <div className="flex-1 overflow-y-auto pr-2 relative">
                 {!assessment ? (
@@ -810,34 +807,24 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     </div>
                 )}
             </div>
-            
-            {assessment && (
-                <div className="mt-4 pt-2 border-t border-slate-100">
-                    <button 
-                        onClick={() => setIsEntryExpanded(!isEntryExpanded)}
-                        className={`w-full py-2 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors ${isEntryExpanded ? 'bg-slate-100 text-slate-600' : 'bg-teal-600 text-white shadow-lg'}`}
-                    >
-                        {isEntryExpanded ? '🔼 收起录入表单' : '📝 录入本次随访'}
-                    </button>
-                </div>
-            )}
           </div>
-      </div>
+      )}
 
-      {/* Entry Form, Guide, etc (same as previous) */}
-      {isEntryExpanded && assessment && (
+      {workspaceTab === 'entry' && assessment && currentPatientId && (
           <>
           {followUpContext && (
-              <div className="bg-gradient-to-r from-teal-50 to-blue-50 rounded-xl border border-teal-200 p-5 mb-6 shadow-sm">
-                  <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                      <div>
-                          <h3 className="text-lg font-bold text-teal-900 flex items-center gap-2">
-                              <span>🎯</span> 本次随访要点
-                          </h3>
-                          <span className="text-xs bg-teal-600 text-white px-2 py-0.5 rounded-full mt-1 inline-block">
-                              {followUpContext.sourceLabel}
-                          </span>
-                      </div>
+              <div className="mb-6 rounded-xl border border-teal-200 bg-gradient-to-r from-teal-50 to-blue-50 shadow-sm overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setContextPanelExpanded((v) => !v)}
+                    className="w-full flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-left hover:bg-teal-100/40"
+                  >
+                    <span className="text-sm font-bold text-teal-900">本次随访要点 · {followUpContext.sourceLabel}</span>
+                    <span className="text-xs text-teal-700">{contextPanelExpanded ? '收起 ▲' : '展开 ▼'}</span>
+                  </button>
+                  {contextPanelExpanded ? (
+                  <div className="px-5 pb-5 border-t border-teal-100">
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-4 pt-3">
                       {followUpContext.criticalTrack && (
                           <button
                               type="button"
@@ -887,13 +874,15 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           )}
                       </div>
                   </div>
+                  </div>
+                  ) : null}
               </div>
           )}
           <FollowUpTalkScriptReminder
               sourceLabel={followUpContext?.sourceLabel}
               className="mb-6"
           />
-          <div className="bg-white rounded-xl shadow-lg border-2 border-teal-500 mb-8 overflow-hidden animate-slideUp">
+          <div className="bg-white rounded-xl shadow border border-slate-200 mb-8 overflow-hidden animate-slideUp">
               {/* ... Entry Form Content ... */}
               <div className="bg-teal-50 px-6 py-4 border-b border-teal-100 flex justify-between items-center">
                   <h3 className="text-lg font-bold text-teal-800 flex items-center gap-2">
@@ -1094,9 +1083,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
           </>
       )}
 
-      {/* Guide Section (Same as previous) */}
-      {(latestRecord || assessment) && (
-          <div className="bg-white p-8 rounded-xl shadow-lg border-t-4 border-teal-600">
+      {workspaceTab === 'guide' && (latestRecord || assessment) && (
+          <div className="bg-white p-8 rounded-xl shadow border border-slate-200 mb-8">
               {/* ... Guide content ... */}
               <div className="flex justify-between items-start mb-6">
                   <div>

@@ -229,8 +229,8 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
     <section className="mb-8 bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden animate-fadeIn">
       <div className="p-4 md:p-5 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-black text-slate-800">随访工作列表</h2>
-          <p className="text-xs text-slate-500 mt-0.5">危急值重点与 7 日内计划随访合并排序；危急值单独列标注</p>
+          <h2 className="text-lg font-black text-slate-800">随访工作台 · 待办队列</h2>
+          <p className="text-xs text-slate-500 mt-0.5">危急值与 7 日内计划随访合并排序；选人后进入下方工作区录入</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
@@ -313,15 +313,9 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
                       } ${selected ? 'ring-2 ring-inset ring-teal-400 bg-teal-50/30' : 'hover:bg-slate-50'}`}
                     >
                       <td className="p-3">
-                        <button
-                          type="button"
-                          className="text-left"
-                          onClick={() => onSelectPatient(archive, { scrollToDetail: true })}
-                        >
-                          <div className="font-bold text-slate-800">{archive.name}</div>
-                          <div className="text-[11px] text-slate-500">{archive.checkup_id}</div>
-                          <div className="text-[11px] text-slate-400">{archive.department}</div>
-                        </button>
+                        <div className="font-bold text-slate-800">{archive.name}</div>
+                        <div className="text-[11px] text-slate-500">{archive.checkup_id}</div>
+                        <div className="text-[11px] text-slate-400">{archive.department}</div>
                       </td>
                       <td className="p-3">
                         <span
@@ -373,7 +367,7 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
                             onClick={() => onSelectPatient(archive, { scrollToDetail: true })}
                             className="px-2 py-1 rounded text-[10px] font-bold bg-teal-600 text-white hover:bg-teal-700"
                           >
-                            录入随访
+                            开始随访
                           </button>
                         </div>
                       </td>

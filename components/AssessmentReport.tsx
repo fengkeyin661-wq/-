@@ -60,7 +60,18 @@ export const AssessmentReport: React.FC<Props> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [opsMenuOpen, setOpsMenuOpen] = useState(false);
+  const opsMenuRef = useRef<HTMLDivElement>(null);
   const latestFollowUp = getLatestFollowUp(followUps);
+
+  useEffect(() => {
+    if (!opsMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (opsMenuRef.current && !opsMenuRef.current.contains(e.target as Node)) setOpsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [opsMenuOpen]);
 
   // Sync state when props change (e.g. switching patients)
   useEffect(() => {
@@ -416,37 +427,58 @@ export const AssessmentReport: React.FC<Props> = ({
                     onChange={handleFileChange}
                 />
                 
-                {onUpdateReport && (
-                    <button 
-                        onClick={handleUpdateClick} 
-                        className="bg-white border border-indigo-200 text-indigo-700 px-5 py-2 rounded-lg font-bold hover:bg-indigo-50 flex items-center gap-2 transition-colors shadow-sm"
-                    >
-                        📈 更新体检报告
-                    </button>
-                )}
-                
-                {onSupplementQuestionnaire && (
-                    <button 
-                        onClick={onSupplementQuestionnaire} 
-                        className="bg-white border border-blue-200 text-blue-700 px-5 py-2 rounded-lg font-bold hover:bg-blue-50 flex items-center gap-2 transition-colors shadow-sm"
-                    >
-                        📝 补充问卷信息
-                    </button>
-                )}
-
                 <button onClick={() => setIsEditing(true)} className="bg-white border border-teal-200 text-teal-700 px-5 py-2 rounded-lg font-medium hover:bg-teal-50 flex items-center gap-2">
                     ✏️ 医生修订
                 </button>
                 <button onClick={handlePrint} className="bg-slate-800 text-white px-5 py-2 rounded-lg font-medium hover:bg-slate-700 flex items-center gap-2">
                     🖨️ 打印报告
                 </button>
+                {(onUpdateReport || onSupplementQuestionnaire) && (
+                  <div className="relative" ref={opsMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setOpsMenuOpen((v) => !v)}
+                      className="bg-white border border-slate-200 text-slate-700 px-5 py-2 rounded-lg font-medium hover:bg-slate-50"
+                    >
+                      操作 ▾
+                    </button>
+                    {opsMenuOpen ? (
+                      <div className="absolute right-0 top-full z-40 mt-1 min-w-[11rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                        {onUpdateReport ? (
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                            onClick={() => {
+                              setOpsMenuOpen(false);
+                              handleUpdateClick();
+                            }}
+                          >
+                            更新体检报告
+                          </button>
+                        ) : null}
+                        {onSupplementQuestionnaire ? (
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                            onClick={() => {
+                              setOpsMenuOpen(false);
+                              onSupplementQuestionnaire();
+                            }}
+                          >
+                            补充问卷信息
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
              </>
          )}
       </div>
       
       {/* Patient Profile Card (Screen Only) */}
       {profile && (
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
+        <div className="hidden print:flex bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex-col md:flex-row justify-between items-center gap-4">
              <div className="flex items-center gap-4 w-full md:w-auto">
                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200 shrink-0">
                     {profile.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
@@ -765,17 +797,14 @@ export const AssessmentReport: React.FC<Props> = ({
       </div>
 
       {(onEnterFollowUpWorkspace || onViewFollowUps) && (
-        <div className="print:hidden rounded-xl border-2 border-dashed border-teal-300 bg-teal-50/60 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <p className="text-sm font-black text-teal-900">下方为随访监测工作区</p>
-            <p className="text-xs text-teal-800/80 mt-1">可查看随访路径、录入本次随访，无需再切换侧栏菜单或重新选人</p>
-          </div>
+        <div className="print:hidden rounded-lg border border-teal-200 bg-teal-50/50 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-teal-900">下方可录入随访、查看路径与执行单</p>
           <button
             type="button"
             onClick={handleEnterFollowUp}
-            className="shrink-0 px-5 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 shadow-sm"
+            className="shrink-0 px-4 py-2 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700"
           >
-            继续：随访路径与本次录入 ↓
+            继续随访录入 ↓
           </button>
         </div>
       )}
