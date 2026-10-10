@@ -627,34 +627,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
       {/* Charts and Timeline Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* Left Column: Charts + Profile Summary */}
+          {/* Left Column: 风险评估与方案（含近年指标趋势） */}
           <div className="lg:col-span-2 space-y-6">
-              {/* Charts Card */}
-              <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col">
-                 <div className="mb-4">
-                     <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                        <span>📈</span> 核心指标监测
-                     </h2>
-                     <p className="text-xs text-slate-500 mt-1">
-                       默认血压、体重、空腹血糖分图展示；血脂四项（含 HDL）分项展示，不显示心率
-                     </p>
-                 </div>
-                 {currentPatientId ? (
-                   <HealthTrendCharts checkupId={currentPatientId} variant="admin" />
-                 ) : (
-                   <div className="py-12 text-center text-sm text-slate-400 bg-slate-50 rounded-lg">
-                     请先选择受检者
-                   </div>
-                 )}
-              </div>
-
-              {/* Patient Basic Info & Assessment Card (New) */}
-              {healthRecord && (
+              {currentPatientId ? (
                   <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden animate-fadeIn">
                       <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex justify-between items-center">
-                          <h3 className="font-bold text-slate-700 flex items-center gap-2 text-sm">
-                              <span>📋</span> 档案基本信息与评估结果
-                          </h3>
+                          <div>
+                              <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
+                                  <span>📋</span> 风险评估与方案
+                              </h3>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                  综合评估结论与历年体检/随访指标趋势同一视图查看
+                              </p>
+                          </div>
                           <div className="flex items-center gap-2">
                             {healthRecord && onNavigateDiabetes && currentArchive && (
                               <HighGlucoseTag
@@ -685,7 +670,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
                           )}
                           </div>
                       </div>
-                      <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                      {healthRecord ? (
+                      <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-slate-100">
                           {/* Profile Table-like list */}
                           <div className="grid grid-cols-2 gap-y-3 text-sm">
                               <div className="flex flex-col">
@@ -731,6 +718,43 @@ export const FollowUpDashboard: React.FC<Props> = ({
                               )}
                           </div>
                       </div>
+                      ) : (
+                          <div className="px-5 py-4 text-sm text-slate-500 border-b border-slate-100">
+                              档案详情加载中或未选中，下方仍可查看该职工历年指标趋势。
+                          </div>
+                      )}
+
+                      {assessment && (assessment.followUpPlan?.nextCheckItems?.length || assessment.managementPlan) ? (
+                          <div className="px-5 py-4 border-b border-slate-100 bg-teal-50/40">
+                              <h4 className="text-xs font-black uppercase text-teal-800 mb-2">管理方案要点</h4>
+                              {assessment.followUpPlan?.nextCheckItems?.length ? (
+                                  <p className="text-xs text-slate-700 mb-2">
+                                      <span className="font-bold text-slate-800">复查重点：</span>
+                                      {assessment.followUpPlan.nextCheckItems.join('、')}
+                                  </p>
+                              ) : null}
+                              {assessment.managementPlan?.monitoring?.length ? (
+                                  <p className="text-xs text-slate-600">
+                                      <span className="font-bold text-slate-700">监测建议：</span>
+                                      {assessment.managementPlan.monitoring.slice(0, 4).join('；')}
+                                  </p>
+                              ) : null}
+                          </div>
+                      ) : null}
+
+                      <div className="p-5">
+                          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
+                              <span>📈</span> 近年核心指标变化趋势
+                          </h4>
+                          <p className="text-xs text-slate-500 mb-4">
+                              汇总历年体检与随访录入的血压、体重、血糖、血脂等观测值，便于对照评估与干预效果
+                          </p>
+                          <HealthTrendCharts checkupId={currentPatientId} variant="admin" />
+                      </div>
+                  </div>
+              ) : (
+                  <div className="bg-white p-8 rounded-xl shadow border border-slate-100 text-center text-sm text-slate-400">
+                      请从上方随访工作列表选择受检者，查看风险评估与指标趋势
                   </div>
               )}
           </div>
