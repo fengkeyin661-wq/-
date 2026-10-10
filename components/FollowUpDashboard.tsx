@@ -20,7 +20,6 @@ import {
   type SmsSentRole,
 } from '../services/smsService';
 import { CriticalHandleModal } from './CriticalHandleModal';
-import { HealthTrendCharts } from './HealthTrendCharts';
 import { HighGlucoseTag } from './HighGlucoseTag';
 import { HighBloodPressureTag } from './HighBloodPressureTag';
 import { HighLipidTag } from './HighLipidTag';
@@ -44,6 +43,12 @@ interface Props {
   /** 从 App 等外部入口定位危急值工作队列 */
   criticalFocus?: { checkupId: string | null; openModal: boolean; token: number };
   userRole?: SmsSentRole;
+  layout?: 'full' | 'embedded';
+  onOpenAssessment?: () => void;
+  /** 递增时滚到个体工作区并展开录入（如从档案入口进入随访 Tab） */
+  scrollToDetailToken?: number;
+  /** 递增时仅展开录入区（评估页内「继续随访」） */
+  expandEntryToken?: number;
 }
 
 const DEFAULT_LIFESTYLE_TASKS: NonNullable<FollowUpRecord['taskCompliance']> = [
@@ -109,9 +114,13 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onNavigateLipid,
     criticalFocus,
     userRole = 'admin',
+    layout = 'full',
+    onOpenAssessment,
+    scrollToDetailToken = 0,
+    expandEntryToken = 0,
 }) => {
   const detailAnchorRef = useRef<HTMLDivElement>(null);
-  const [isEntryExpanded, setIsEntryExpanded] = useState(true);
+  const [isEntryExpanded, setIsEntryExpanded] = useState(layout === 'embedded');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // State for viewing history details
@@ -148,6 +157,24 @@ export const FollowUpDashboard: React.FC<Props> = ({
     },
     [onPatientChange],
   );
+
+  useEffect(() => {
+    if (layout !== 'embedded') return;
+    if (assessment && currentPatientId) setIsEntryExpanded(true);
+  }, [layout, assessment, currentPatientId]);
+
+  useEffect(() => {
+    if (!scrollToDetailToken) return;
+    requestAnimationFrame(() => {
+      detailAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setIsEntryExpanded(true);
+    });
+  }, [scrollToDetailToken]);
+
+  useEffect(() => {
+    if (!expandEntryToken) return;
+    setIsEntryExpanded(true);
+  }, [expandEntryToken]);
 
   // Sort records by date
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -610,157 +637,99 @@ export const FollowUpDashboard: React.FC<Props> = ({
     { name: 'Low', value: Math.max(5 - (assessment.risks?.red?.length || 0) - (assessment.risks?.yellow?.length || 0), 1), color: '#22c55e' },
   ] : [];
 
+  const workspaceTitle =
+    layout === 'embedded'
+      ? `随访监测 · ${healthRecord?.profile.name || currentPatientName}`
+      : '个体随访工作区';
+
+  const compactPatientCard =
+    layout === 'full' && currentPatientId ? (
+      <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden animate-fadeIn">
+        <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex flex-wrap justify-between items-start gap-2">
+          <div>
+            <h3 className="font-bold text-slate-800 text-sm">{healthRecord?.profile.name || currentPatientName}</h3>
+            <p className="text-[11px] font-mono text-slate-500">{currentPatientId}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {healthRecord && onNavigateDiabetes && currentArchive && (
+              <HighGlucoseTag record={healthRecord} onClick={() => onNavigateDiabetes(currentArchive)} />
+            )}
+            {healthRecord && onNavigateHypertension && currentArchive && (
+              <HighBloodPressureTag record={healthRecord} onClick={() => onNavigateHypertension(currentArchive)} />
+            )}
+            {healthRecord && onNavigateLipid && currentArchive && (
+              <HighLipidTag record={healthRecord} onClick={() => onNavigateLipid(currentArchive)} />
+            )}
+            {assessment && (
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
+                  assessment.riskLevel === 'RED'
+                    ? 'bg-red-50 text-red-600 border-red-200'
+                    : assessment.riskLevel === 'YELLOW'
+                      ? 'bg-yellow-50 text-yellow-600 border-yellow-200'
+                      : 'bg-green-50 text-green-600 border-green-200'
+                }`}
+              >
+                {assessment.riskLevel === 'RED' ? '高风险' : assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="p-4 space-y-3 text-xs text-slate-600">
+          {healthRecord && (
+            <p>
+              {healthRecord.profile.gender} / {healthRecord.profile.age}岁 · {healthRecord.profile.department}
+            </p>
+          )}
+          {assessment?.summary && (
+            <p className="line-clamp-3 text-slate-500 leading-relaxed">{assessment.summary}</p>
+          )}
+          {onOpenAssessment && (
+            <button
+              type="button"
+              onClick={onOpenAssessment}
+              className="w-full py-2 rounded-lg border border-teal-200 text-teal-800 text-xs font-bold hover:bg-teal-50"
+            >
+              打开完整风险评估与方案 →
+            </button>
+          )}
+        </div>
+      </div>
+    ) : layout === 'full' ? (
+      <div className="bg-white p-8 rounded-xl shadow border border-slate-100 text-center text-sm text-slate-400">
+        请从上方随访工作列表选择受检者
+      </div>
+    ) : null;
+
   return (
     <div className="animate-fadeIn pb-10">
-      <FollowUpWorklistPanel
-        archives={allArchives}
-        currentPatientId={currentPatientId}
-        onSelectPatient={handleWorklistSelectPatient}
-        onRefresh={() => onRefresh?.()}
-        criticalFocus={criticalFocus}
-        userRole={userRole}
-      />
+      {layout === 'full' && (
+        <FollowUpWorklistPanel
+          archives={allArchives}
+          currentPatientId={currentPatientId}
+          onSelectPatient={handleWorklistSelectPatient}
+          onRefresh={() => onRefresh?.()}
+          criticalFocus={criticalFocus}
+          userRole={userRole}
+        />
+      )}
 
       <div id="followup-detail-anchor" ref={detailAnchorRef} className="scroll-mt-4 pt-2">
-        <h2 className="text-base font-black text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">个体随访工作区</h2>
+        <h2 className="text-base font-black text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">{workspaceTitle}</h2>
       </div>
 
-      {/* Charts and Timeline Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* Left Column: 风险评估与方案（含近年指标趋势） */}
-          <div className="lg:col-span-2 space-y-6">
-              {currentPatientId ? (
-                  <div className="bg-white rounded-xl shadow border border-slate-100 overflow-hidden animate-fadeIn">
-                      <div className="bg-slate-50 px-6 py-3 border-b border-slate-200 flex justify-between items-center">
-                          <div>
-                              <h3 className="font-bold text-slate-800 flex items-center gap-2 text-base">
-                                  <span>📋</span> 风险评估与方案
-                              </h3>
-                              <p className="text-[11px] text-slate-500 mt-0.5">
-                                  综合评估结论与历年体检/随访指标趋势同一视图查看
-                              </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {healthRecord && onNavigateDiabetes && currentArchive && (
-                              <HighGlucoseTag
-                                record={healthRecord}
-                                onClick={() => onNavigateDiabetes(currentArchive)}
-                              />
-                            )}
-                            {healthRecord && onNavigateHypertension && currentArchive && (
-                              <HighBloodPressureTag
-                                record={healthRecord}
-                                onClick={() => onNavigateHypertension(currentArchive)}
-                              />
-                            )}
-                            {healthRecord && onNavigateLipid && currentArchive && (
-                              <HighLipidTag
-                                record={healthRecord}
-                                onClick={() => onNavigateLipid(currentArchive)}
-                              />
-                            )}
-                          {assessment && (
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase border ${
-                                  assessment.riskLevel === 'RED' ? 'bg-red-50 text-red-600 border-red-200' :
-                                  assessment.riskLevel === 'YELLOW' ? 'bg-yellow-50 text-yellow-600 border-yellow-200' :
-                                  'bg-green-50 text-green-600 border-green-200'
-                              }`}>
-                                  {assessment.riskLevel === 'RED' ? '高风险' : assessment.riskLevel === 'YELLOW' ? '中风险' : '低风险'}
-                              </span>
-                          )}
-                          </div>
-                      </div>
+      <div
+        className={`grid grid-cols-1 gap-8 mb-8 ${
+          layout === 'full' ? 'lg:grid-cols-3' : ''
+        }`}
+      >
+          {layout === 'full' && <div className="lg:col-span-1 space-y-6">{compactPatientCard}</div>}
 
-                      {healthRecord ? (
-                      <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-slate-100">
-                          {/* Profile Table-like list */}
-                          <div className="grid grid-cols-2 gap-y-3 text-sm">
-                              <div className="flex flex-col">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">姓名</span>
-                                  <span className="font-black text-slate-800">{healthRecord.profile.name}</span>
-                              </div>
-                              <div className="flex flex-col">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">体检编号</span>
-                                  <span className="font-mono text-slate-600">{healthRecord.profile.checkupId}</span>
-                              </div>
-                              <div className="flex flex-col">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">性别 / 年龄</span>
-                                  <span className="text-slate-700">{healthRecord.profile.gender} / {healthRecord.profile.age}岁</span>
-                              </div>
-                              <div className="flex flex-col">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">部门 / 单位</span>
-                                  <span className="text-slate-700 truncate" title={healthRecord.profile.department}>{healthRecord.profile.department}</span>
-                              </div>
-                              <div className="flex flex-col">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">空腹血糖 / HbA1c</span>
-                                  <span className="text-slate-700">
-                                    {healthRecord.checkup?.labBasic?.glucose?.fasting || '-'}
-                                    {' / '}
-                                    {healthRecord.checkup?.labBasic?.hba1c ?? healthRecord.checkup?.optional?.hba1c ?? '-'}
-                                  </span>
-                              </div>
-                              <div className="flex flex-col col-span-2">
-                                  <span className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">联系电话</span>
-                                  <span className="font-mono text-slate-700">{healthRecord.profile.phone || '未记录'}</span>
-                              </div>
-                          </div>
-
-                          {/* Assessment Summary Box */}
-                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col h-full">
-                              <span className="text-[10px] text-slate-400 font-bold uppercase mb-2">综合评估综述</span>
-                              <div className="text-xs text-slate-600 leading-relaxed overflow-y-auto max-h-[80px] scrollbar-thin">
-                                  {assessment?.summary || '暂无历史评估综述'}
-                              </div>
-                              {assessment?.isCritical && (
-                                  <div className="mt-2 text-[10px] bg-red-100 text-red-700 px-2 py-1 rounded font-bold flex items-center gap-1">
-                                      <span>🚨</span> 危急值警示：{assessment.criticalWarning}
-                                  </div>
-                              )}
-                          </div>
-                      </div>
-                      ) : (
-                          <div className="px-5 py-4 text-sm text-slate-500 border-b border-slate-100">
-                              档案详情加载中或未选中，下方仍可查看该职工历年指标趋势。
-                          </div>
-                      )}
-
-                      {assessment && (assessment.followUpPlan?.nextCheckItems?.length || assessment.managementPlan) ? (
-                          <div className="px-5 py-4 border-b border-slate-100 bg-teal-50/40">
-                              <h4 className="text-xs font-black uppercase text-teal-800 mb-2">管理方案要点</h4>
-                              {assessment.followUpPlan?.nextCheckItems?.length ? (
-                                  <p className="text-xs text-slate-700 mb-2">
-                                      <span className="font-bold text-slate-800">复查重点：</span>
-                                      {assessment.followUpPlan.nextCheckItems.join('、')}
-                                  </p>
-                              ) : null}
-                              {assessment.managementPlan?.monitoring?.length ? (
-                                  <p className="text-xs text-slate-600">
-                                      <span className="font-bold text-slate-700">监测建议：</span>
-                                      {assessment.managementPlan.monitoring.slice(0, 4).join('；')}
-                                  </p>
-                              ) : null}
-                          </div>
-                      ) : null}
-
-                      <div className="p-5">
-                          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
-                              <span>📈</span> 近年核心指标变化趋势
-                          </h4>
-                          <p className="text-xs text-slate-500 mb-4">
-                              汇总历年体检与随访录入的血压、体重、血糖、血脂等观测值，便于对照评估与干预效果
-                          </p>
-                          <HealthTrendCharts checkupId={currentPatientId} variant="admin" />
-                      </div>
-                  </div>
-              ) : (
-                  <div className="bg-white p-8 rounded-xl shadow border border-slate-100 text-center text-sm text-slate-400">
-                      请从上方随访工作列表选择受检者，查看风险评估与指标趋势
-                  </div>
-              )}
-          </div>
-
-          {/* Right Column: Timeline */}
-          <div className="bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-full min-h-[400px]">
+          <div
+            className={`bg-white p-6 rounded-xl shadow border border-slate-100 flex flex-col h-full min-h-[400px] ${
+              layout === 'full' ? 'lg:col-span-2' : ''
+            }`}
+          >
             <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 justify-between">
                 <div className="flex items-center gap-2">
                     <span>📅</span> 随访路径

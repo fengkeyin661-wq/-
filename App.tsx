@@ -220,6 +220,8 @@ export const App: React.FC = () => {
   const [currentHypertension, setCurrentHypertension] = useState<HypertensionStandaloneParticipant | null>(null);
   const [lipidParticipants, setLipidParticipants] = useState<LipidStandaloneParticipant[]>([]);
   const [currentLipid, setCurrentLipid] = useState<LipidStandaloneParticipant | null>(null);
+  const [followUpScrollToken, setFollowUpScrollToken] = useState(0);
+  const [followUpExpandEntryToken, setFollowUpExpandEntryToken] = useState(0);
 
   const ensureSupabaseSessionForStaff = useCallback(async (): Promise<{ ok: boolean; message?: string }> => {
     if (!isSupabaseConfigured()) return { ok: false, message: 'Supabase 未配置' };
@@ -546,7 +548,10 @@ export const App: React.FC = () => {
       setSchedule(archive.follow_up_schedule || []);
       setRiskAnalysis(archive.risk_analysis);
 
-      if (mode === 'followup') setActiveTab('followup');
+      if (mode === 'followup') {
+        setActiveTab('followup');
+        setFollowUpScrollToken((t) => t + 1);
+      }
       else if (mode === 'assessment') setActiveTab('assessment');
       else if (mode === 'edit') setActiveTab('survey');
       else if (mode === 'diabetes') {
@@ -1129,19 +1134,48 @@ export const App: React.FC = () => {
             {activeTab === 'survey' && <HealthSurvey onSubmit={handleHealthSurveySubmit} initialData={healthRecord} isLoading={isLoading} />}
             {activeTab === 'external_survey' && <NativeSurveyForm onSubmit={handleSurveySubmit} isLoading={isLoading} initialCheckupId={healthRecord?.profile.checkupId} />}
             {activeTab === 'assessment' && assessment && healthRecord && (
-              <AssessmentReport
-                assessment={assessment}
-                patientName={healthRecord.profile.name}
-                profile={healthRecord.profile}
-                healthRecord={healthRecord}
-                riskAnalysis={riskAnalysis}
-                followUps={followUps}
-                onViewFollowUps={() => setActiveTab('followup')}
-                onSave={handleSaveAssessment}
-                onUpdateReport={handleUpdateCheckupReport}
-                onUpdateRiskAnalysis={refreshArchives}
-                onSupplementQuestionnaire={() => setActiveTab('external_survey')}
-              />
+              <div className="space-y-10 pb-10">
+                <AssessmentReport
+                  assessment={assessment}
+                  patientName={healthRecord.profile.name}
+                  profile={healthRecord.profile}
+                  healthRecord={healthRecord}
+                  riskAnalysis={riskAnalysis}
+                  followUps={followUps}
+                  checkupId={healthRecord.profile.checkupId}
+                  onEnterFollowUpWorkspace={() => setFollowUpExpandEntryToken((t) => t + 1)}
+                  onSave={handleSaveAssessment}
+                  onUpdateReport={handleUpdateCheckupReport}
+                  onUpdateRiskAnalysis={refreshArchives}
+                  onSupplementQuestionnaire={() => setActiveTab('external_survey')}
+                />
+                <FollowUpDashboard
+                  layout="embedded"
+                  expandEntryToken={followUpExpandEntryToken}
+                  records={followUps}
+                  assessment={assessment}
+                  schedule={schedule}
+                  onAddRecord={handleAddFollowUp}
+                  onUpdateData={handleManualDataUpdate}
+                  allArchives={archives}
+                  onPatientChange={(arch) => handleSelectPatient(arch, 'assessment')}
+                  onNavigateDiabetes={(arch) => handleSelectPatient(arch, 'diabetes')}
+                  onNavigateHypertension={(arch) => handleSelectPatient(arch, 'hypertension')}
+                  onNavigateLipid={(arch) => handleSelectPatient(arch, 'lipid')}
+                  criticalFocus={criticalFocus}
+                  currentPatientId={healthRecord.profile.checkupId}
+                  isAuthenticated={isAuthenticated}
+                  healthRecord={healthRecord}
+                  onRefresh={refreshArchives}
+                  userRole={
+                    currentUserRole === 'doctor'
+                      ? 'doctor'
+                      : currentUserRole === 'health_manager'
+                        ? 'health_manager'
+                        : 'admin'
+                  }
+                />
+              </div>
             )}
             {activeTab === 'assessment' && (!assessment || !healthRecord) && (
               <div className="h-full flex flex-col items-center justify-center text-center space-y-4 px-6">
@@ -1201,6 +1235,9 @@ export const App: React.FC = () => {
             
             {activeTab === 'followup' && (
               <FollowUpDashboard
+                layout="full"
+                scrollToDetailToken={followUpScrollToken}
+                onOpenAssessment={() => setActiveTab('assessment')}
                 records={followUps}
                 assessment={assessment}
                 schedule={schedule}

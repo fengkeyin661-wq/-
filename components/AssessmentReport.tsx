@@ -4,6 +4,13 @@ import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRec
 import { getLatestFollowUp } from '../services/followUpLinkageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { SystemRiskPortrait } from './SystemRiskPortrait';
+import { HealthTrendCharts } from './HealthTrendCharts';
+
+export const FOLLOWUP_WORKSPACE_ANCHOR_ID = 'followup-detail-anchor';
+
+export function scrollToFollowUpWorkspace() {
+  document.getElementById(FOLLOWUP_WORKSPACE_ANCHOR_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 interface Props {
   assessment: HealthAssessment;
@@ -16,6 +23,9 @@ interface Props {
   onUpdateRiskAnalysis?: () => void; // Prop to refresh archives if models are updated
   onSupplementQuestionnaire?: () => void; // Add Supplement Questionnaire Callback
   followUps?: FollowUpRecord[];
+  checkupId?: string;
+  /** 页内嵌入随访区时：滚动至随访工作区并展开录入 */
+  onEnterFollowUpWorkspace?: () => void;
   onViewFollowUps?: () => void;
 }
 
@@ -36,8 +46,17 @@ export const AssessmentReport: React.FC<Props> = ({
     onUpdateRiskAnalysis,
     onSupplementQuestionnaire,
     followUps = [],
+    checkupId,
+    onEnterFollowUpWorkspace,
     onViewFollowUps,
 }) => {
+  const trendCheckupId = checkupId ?? profile?.checkupId ?? healthRecord?.profile.checkupId;
+
+  const handleEnterFollowUp = () => {
+    onEnterFollowUpWorkspace?.();
+    scrollToFollowUpWorkspace();
+    onViewFollowUps?.();
+  };
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -513,13 +532,13 @@ export const AssessmentReport: React.FC<Props> = ({
                   <h3 className="text-lg font-bold text-teal-800 flex items-center gap-2">
                       <span>🔗</span> 随访进展摘要
                   </h3>
-                  {onViewFollowUps && (
+                  {(onEnterFollowUpWorkspace || onViewFollowUps) && (
                       <button
                           type="button"
-                          onClick={onViewFollowUps}
+                          onClick={handleEnterFollowUp}
                           className="text-xs text-teal-700 font-bold hover:underline shrink-0"
                       >
-                          查看完整随访记录 →
+                          继续随访监测 ↓
                       </button>
                   )}
               </div>
@@ -700,6 +719,18 @@ export const AssessmentReport: React.FC<Props> = ({
              </div>
           </div>
       </div>
+
+      {trendCheckupId ? (
+        <div className="bg-white p-6 rounded-xl shadow border border-slate-100 print:hidden">
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
+            <span>📈</span> 近年核心指标变化趋势
+          </h3>
+          <p className="text-xs text-slate-500 mb-4">
+            汇总历年体检与随访录入的血压、体重、血糖、血脂等观测值，便于对照评估与干预效果
+          </p>
+          <HealthTrendCharts checkupId={trendCheckupId} variant="admin" />
+        </div>
+      ) : null}
       
       {/* Follow-up Plan Section */}
       <div className="bg-blue-50 p-6 rounded border border-blue-200 print:bg-transparent print:border-slate-300">
@@ -732,6 +763,22 @@ export const AssessmentReport: React.FC<Props> = ({
               )}
           </div>
       </div>
+
+      {(onEnterFollowUpWorkspace || onViewFollowUps) && (
+        <div className="print:hidden rounded-xl border-2 border-dashed border-teal-300 bg-teal-50/60 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <p className="text-sm font-black text-teal-900">下方为随访监测工作区</p>
+            <p className="text-xs text-teal-800/80 mt-1">可查看随访路径、录入本次随访，无需再切换侧栏菜单或重新选人</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleEnterFollowUp}
+            className="shrink-0 px-5 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-bold hover:bg-teal-700 shadow-sm"
+          >
+            继续：随访路径与本次录入 ↓
+          </button>
+        </div>
+      )}
 
       {/* Signature for Print */}
       <div className="hidden print:flex justify-between mt-12 pt-8 border-t border-slate-300">
