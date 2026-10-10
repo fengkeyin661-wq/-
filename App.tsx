@@ -18,9 +18,10 @@ import { SystemRiskPortrait } from './components/SystemRiskPortrait';
 import { DoctorPatients } from './components/DoctorPatients';
 import { DoctorMessageCenter } from './components/DoctorMessageCenter';
 import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
-import { DiabetesManagementModule } from './components/DiabetesManagementModule';
-import { HypertensionManagementModule } from './components/HypertensionManagementModule';
-import { LipidManagementModule } from './components/LipidManagementModule';
+import {
+  ChronicDiseaseManagementModule,
+  type ChronicDiseaseSubTab,
+} from './components/ChronicDiseaseManagementModule';
 import { StaffWorkloadPanel } from './components/StaffWorkloadPanel';
 import { closeNeedSurvey, isNeedSurveyHash } from './services/staffNeedSurveyCatalog';
 import { CheckupBookingMobileDashboard } from './components/CheckupBookingMobileDashboard';
@@ -212,6 +213,7 @@ export const App: React.FC = () => {
   
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingElderly, setIsSavingElderly] = useState(false);
+  const [chronicDiseaseSubTab, setChronicDiseaseSubTab] = useState<ChronicDiseaseSubTab>('diabetes');
   const [standaloneParticipants, setStandaloneParticipants] = useState<DiabetesStandaloneParticipant[]>([]);
   const [currentStandalone, setCurrentStandalone] = useState<DiabetesStandaloneParticipant | null>(null);
   const [hypertensionParticipants, setHypertensionParticipants] = useState<HypertensionStandaloneParticipant[]>([]);
@@ -548,7 +550,8 @@ export const App: React.FC = () => {
       else if (mode === 'assessment') setActiveTab('assessment');
       else if (mode === 'edit') setActiveTab('survey');
       else if (mode === 'diabetes') {
-        setActiveTab('diabetes_management');
+        setChronicDiseaseSubTab('diabetes');
+        setActiveTab('chronic_disease_management');
         void (async () => {
           try {
             const { participant } = await ensureStandaloneFromArchive(archive);
@@ -564,7 +567,8 @@ export const App: React.FC = () => {
           }
         })();
       } else if (mode === 'hypertension') {
-        setActiveTab('hypertension_management');
+        setChronicDiseaseSubTab('hypertension');
+        setActiveTab('chronic_disease_management');
         void (async () => {
           try {
             const { participant } = await ensureHypertensionStandaloneFromArchive(archive);
@@ -580,7 +584,8 @@ export const App: React.FC = () => {
           }
         })();
       } else if (mode === 'lipid') {
-        setActiveTab('lipid_management');
+        setChronicDiseaseSubTab('lipid');
+        setActiveTab('chronic_disease_management');
         void (async () => {
           try {
             const { participant } = await ensureLipidStandaloneFromArchive(archive);
@@ -611,6 +616,18 @@ export const App: React.FC = () => {
           token: prev.token + 1,
       }));
       setActiveTab('followup');
+  }, [activeTab]);
+
+  useEffect(() => {
+      const legacyToSub: Record<string, ChronicDiseaseSubTab> = {
+          diabetes_management: 'diabetes',
+          hypertension_management: 'hypertension',
+          lipid_management: 'lipid',
+      };
+      const sub = legacyToSub[activeTab];
+      if (!sub) return;
+      setChronicDiseaseSubTab(sub);
+      setActiveTab('chronic_disease_management');
   }, [activeTab]);
 
   const handleHealthSurveySubmit = async (data: HealthRecord) => {
@@ -1162,30 +1179,22 @@ export const App: React.FC = () => {
                     isSaving={isSavingElderly}
                 />
             )}
-            {activeTab === 'diabetes_management' && (
-                <DiabetesManagementModule
-                    participants={standaloneParticipants}
-                    currentParticipant={currentStandalone}
-                    onSelectParticipant={setCurrentStandalone}
-                    onRefresh={refreshStandaloneParticipants}
-                    archives={archives}
-                />
-            )}
-            {activeTab === 'hypertension_management' && (
-                <HypertensionManagementModule
-                    participants={hypertensionParticipants}
-                    currentParticipant={currentHypertension}
-                    onSelectParticipant={setCurrentHypertension}
-                    onRefresh={refreshHypertensionParticipants}
-                    archives={archives}
-                />
-            )}
-            {activeTab === 'lipid_management' && (
-                <LipidManagementModule
-                    participants={lipidParticipants}
-                    currentParticipant={currentLipid}
-                    onSelectParticipant={setCurrentLipid}
-                    onRefresh={refreshLipidParticipants}
+            {activeTab === 'chronic_disease_management' && (
+                <ChronicDiseaseManagementModule
+                    activeSubTab={chronicDiseaseSubTab}
+                    onSubTabChange={setChronicDiseaseSubTab}
+                    diabetesParticipants={standaloneParticipants}
+                    currentDiabetes={currentStandalone}
+                    onSelectDiabetes={setCurrentStandalone}
+                    onRefreshDiabetes={refreshStandaloneParticipants}
+                    hypertensionParticipants={hypertensionParticipants}
+                    currentHypertension={currentHypertension}
+                    onSelectHypertension={setCurrentHypertension}
+                    onRefreshHypertension={refreshHypertensionParticipants}
+                    lipidParticipants={lipidParticipants}
+                    currentLipid={currentLipid}
+                    onSelectLipid={setCurrentLipid}
+                    onRefreshLipid={refreshLipidParticipants}
                     archives={archives}
                 />
             )}
