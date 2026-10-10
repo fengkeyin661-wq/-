@@ -35,7 +35,6 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'diabetes_management', label: '糖尿病专项筛查', icon: '🩸', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'hypertension_management', label: '高血压专项筛查', icon: '🫀', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'lipid_management', label: '血脂异常专项管理', icon: '🧪', roles: ['admin', 'doctor', 'health_manager'] },
-    { id: 'risk_portrait', label: '危急值随访管理', icon: '🛡️', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'followup', label: '随访监测', icon: '📅', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'my_workload', label: '我的工作', icon: '📈', roles: ['health_manager'] },
     { id: 'doctor_messages', label: '消息', icon: '💬', roles: ['doctor'] },
@@ -47,7 +46,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const visibleItems = isAuthenticated 
     ? navItems.filter(item => item.roles.includes(currentUserRole || 'admin'))
-    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'diabetes_management', 'hypertension_management', 'lipid_management', 'risk_portrait', 'followup', 'heatmap'].includes(item.id));
+    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'diabetes_management', 'hypertension_management', 'lipid_management', 'followup', 'heatmap'].includes(item.id));
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden print:block print:h-auto print:overflow-visible">

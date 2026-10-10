@@ -17,7 +17,6 @@ import { ResourceAdmin } from './components/ResourceAdmin';
 import { SystemRiskPortrait } from './components/SystemRiskPortrait';
 import { DoctorPatients } from './components/DoctorPatients';
 import { DoctorMessageCenter } from './components/DoctorMessageCenter';
-import { CriticalFollowUpManager } from './components/CriticalFollowUpManager'; // New Import
 import { ElderlyAssessmentModule } from './components/ElderlyAssessmentModule';
 import { DiabetesManagementModule } from './components/DiabetesManagementModule';
 import { HypertensionManagementModule } from './components/HypertensionManagementModule';
@@ -63,6 +62,7 @@ import { logStaffWork } from './services/staffWorkLogService';
 import {
   buildFollowUpChainSummary,
   computeIndicatorDelta,
+  countPendingCriticalFollowUps,
   getLatestFollowUp,
   resolveCriticalIfApplicable,
 } from './services/followUpLinkageService';
@@ -174,9 +174,12 @@ export const App: React.FC = () => {
   const portalMode = detectPortalModeFromHostname();
   const [routeHash, setRouteHash] = useState(() => (typeof window !== 'undefined' ? window.location.hash : ''));
   const [activeTab, setActiveTab] = useState('dashboard');
-  /** 从随访监测跳转危急值随访管理时的定位 */
-  const [criticalNavToken, setCriticalNavToken] = useState(0);
-  const [criticalNavTarget, setCriticalNavTarget] = useState<{ checkupId: string | null; openModal: boolean } | null>(null);
+  /** 随访监测内危急值工作队列定位（原独立 Tab 已并入 followup） */
+  const [criticalFocus, setCriticalFocus] = useState<{
+    checkupId: string | null;
+    openModal: boolean;
+    token: number;
+  }>({ checkupId: null, openModal: false, token: 0 });
   
   // Auth State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -595,14 +598,20 @@ export const App: React.FC = () => {
       } else setActiveTab('dashboard');
   };
 
-  const handleNavigateCriticalManager = (archive?: HealthArchive, openModal = false) => {
-      setCriticalNavTarget({
-          checkupId: archive?.checkup_id ?? null,
-          openModal: Boolean(archive && openModal),
-      });
-      setCriticalNavToken((t) => t + 1);
-      setActiveTab('risk_portrait');
-  };
+  const followupPendingCriticalBadge = React.useMemo(
+      () => countPendingCriticalFollowUps(archives),
+      [archives],
+  );
+
+  useEffect(() => {
+      if (activeTab !== 'risk_portrait') return;
+      setCriticalFocus((prev) => ({
+          checkupId: null,
+          openModal: false,
+          token: prev.token + 1,
+      }));
+      setActiveTab('followup');
+  }, [activeTab]);
 
   const handleHealthSurveySubmit = async (data: HealthRecord) => {
       setIsLoading(true);
@@ -1086,7 +1095,12 @@ export const App: React.FC = () => {
               setShowUserEntry(false);
               setArchives([]);
             }}
-            navBadges={currentUserRole === 'doctor' ? { doctor_messages: doctorMessageUnread } : undefined}
+            navBadges={{
+                ...(followupPendingCriticalBadge > 0 ? { followup: followupPendingCriticalBadge } : {}),
+                ...(currentUserRole === 'doctor' && doctorMessageUnread > 0
+                    ? { doctor_messages: doctorMessageUnread }
+                    : {}),
+            }}
         >
             {activeTab === 'dashboard' && (
                 <div className="h-full flex flex-col items-center justify-center text-center space-y-6 opacity-60">
@@ -1176,18 +1190,6 @@ export const App: React.FC = () => {
                 />
             )}
             
-            {/* TAB REPLACEMENT LOGIC: 危急值随访管理 */}
-            {activeTab === 'risk_portrait' && (
-                <CriticalFollowUpManager 
-                    archives={archives} 
-                    onRefresh={refreshArchives}
-                    onNavigateFollowUp={(arch) => handleSelectPatient(arch, 'followup')}
-                    initialFocusCheckupId={criticalNavTarget?.checkupId ?? null}
-                    initialFocusOpenModal={criticalNavTarget?.openModal ?? false}
-                    focusNavToken={criticalNavToken}
-                />
-            )}
-            
             {activeTab === 'followup' && (
               <FollowUpDashboard
                 records={followUps}
@@ -1200,7 +1202,7 @@ export const App: React.FC = () => {
                 onNavigateDiabetes={(arch) => handleSelectPatient(arch, 'diabetes')}
                 onNavigateHypertension={(arch) => handleSelectPatient(arch, 'hypertension')}
                 onNavigateLipid={(arch) => handleSelectPatient(arch, 'lipid')}
-                onNavigateCriticalManager={(arch) => handleNavigateCriticalManager(arch, Boolean(arch))}
+                criticalFocus={criticalFocus}
                 currentPatientId={healthRecord?.profile.checkupId}
                 isAuthenticated={isAuthenticated}
                 healthRecord={healthRecord}

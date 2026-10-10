@@ -8,14 +8,14 @@ import {
   buildMergedTimeline,
   buildTaskComplianceFromPrior,
   computeIndicatorDelta,
+  countPendingCriticalFollowUps,
   getIndicatorValuesFromRecord,
   mergeFocusItems,
   isCriticalFollowUpPending,
   isCriticalContactDeferred,
   isCriticalContactRetryDue,
-  listCriticalContactRetryDue,
-  formatLocalYmd,
 } from '../services/followUpLinkageService';
+import { CriticalFollowUpManager } from './CriticalFollowUpManager';
 import {
   isSmsConfigured,
   resolveArchivePhone,
@@ -45,10 +45,12 @@ interface Props {
   onNavigateDiabetes?: (archive: HealthArchive) => void;
   onNavigateHypertension?: (archive: HealthArchive) => void;
   onNavigateLipid?: (archive: HealthArchive) => void;
-  /** 跳转到「危急值随访管理」栏目，可选定位到指定人员 */
-  onNavigateCriticalManager?: (archive?: HealthArchive) => void;
+  /** 从 App 等外部入口定位危急值工作队列 */
+  criticalFocus?: { checkupId: string | null; openModal: boolean; token: number };
   userRole?: SmsSentRole;
 }
+
+type FollowUpViewMode = 'critical_queue' | 'individual';
 
 const DEFAULT_LIFESTYLE_TASKS: NonNullable<FollowUpRecord['taskCompliance']> = [
   { taskId: 'lifestyle_diet', description: '饮食：低盐低脂、均衡膳食', status: 'achieved' },
@@ -111,9 +113,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
     onNavigateDiabetes,
     onNavigateHypertension,
     onNavigateLipid,
-    onNavigateCriticalManager,
+    criticalFocus,
     userRole = 'admin',
 }) => {
+  const userPinnedViewRef = useRef(false);
+  const [viewMode, setViewMode] = useState<FollowUpViewMode>('individual');
   const [isEntryExpanded, setIsEntryExpanded] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
@@ -138,31 +142,30 @@ export const FollowUpDashboard: React.FC<Props> = ({
 
   // State for Critical Value Modal
   const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
-  const [showContactRetryRemind, setShowContactRetryRemind] = useState(false);
-  const contactRetryRemindKeyRef = useRef('');
 
-  const contactRetryDueList = useMemo(
-    () => listCriticalContactRetryDue(allArchives || []),
+  const pendingCriticalCount = useMemo(
+    () => countPendingCriticalFollowUps(allArchives || []),
     [allArchives],
   );
 
   useEffect(() => {
-    if (contactRetryDueList.length === 0) {
-      setShowContactRetryRemind(false);
-      return;
-    }
-    const key = `${formatLocalYmd()}:${contactRetryDueList.map((a) => a.checkup_id).sort().join(',')}`;
-    contactRetryRemindKeyRef.current = key;
-    if (sessionStorage.getItem('crit_contact_retry_popup_fu') === key) return;
-    setShowContactRetryRemind(true);
-  }, [contactRetryDueList]);
+    if (userPinnedViewRef.current) return;
+    if (pendingCriticalCount > 0) setViewMode('critical_queue');
+    else setViewMode('individual');
+  }, [pendingCriticalCount]);
 
-  const dismissContactRetryRemind = () => {
-    if (contactRetryRemindKeyRef.current) {
-      sessionStorage.setItem('crit_contact_retry_popup_fu', contactRetryRemindKeyRef.current);
-    }
-    setShowContactRetryRemind(false);
+  useEffect(() => {
+    if (!criticalFocus?.token) return;
+    userPinnedViewRef.current = true;
+    setViewMode('critical_queue');
+  }, [criticalFocus?.token]);
+
+  const handleViewModeChange = (mode: FollowUpViewMode) => {
+    userPinnedViewRef.current = true;
+    setViewMode(mode);
   };
+
+  const openCriticalQueue = () => handleViewModeChange('critical_queue');
 
   // Sort records by date
   const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -695,141 +698,85 @@ export const FollowUpDashboard: React.FC<Props> = ({
     { name: 'Low', value: Math.max(5 - (assessment.risks?.red?.length || 0) - (assessment.risks?.yellow?.length || 0), 1), color: '#22c55e' },
   ] : [];
 
+  const segmentTabs = (
+    <div className="mb-6 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-4">
+      <button
+        type="button"
+        onClick={() => handleViewModeChange('critical_queue')}
+        className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${
+          viewMode === 'critical_queue'
+            ? 'bg-red-600 text-white shadow-md'
+            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+        }`}
+      >
+        危急值工作队列
+        {pendingCriticalCount > 0 ? (
+          <span
+            className={`min-w-[22px] rounded-full px-1.5 py-0.5 text-xs font-black ${
+              viewMode === 'critical_queue' ? 'bg-white text-red-600' : 'bg-red-500 text-white'
+            }`}
+          >
+            {pendingCriticalCount > 99 ? '99+' : pendingCriticalCount}
+          </span>
+        ) : null}
+      </button>
+      <button
+        type="button"
+        onClick={() => handleViewModeChange('individual')}
+        className={`rounded-xl px-4 py-2.5 text-sm font-bold transition-all ${
+          viewMode === 'individual'
+            ? 'bg-teal-600 text-white shadow-md'
+            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+        }`}
+      >
+        个体随访监测
+      </button>
+    </div>
+  );
+
+  if (viewMode === 'critical_queue') {
+    return (
+      <div className="animate-fadeIn pb-10">
+        {segmentTabs}
+        <CriticalFollowUpManager
+          archives={allArchives}
+          onRefresh={() => onRefresh?.()}
+          onNavigateFollowUp={(arch) => {
+            userPinnedViewRef.current = true;
+            setViewMode('individual');
+            onPatientChange?.(arch);
+            setIsEntryExpanded(true);
+          }}
+          initialFocusCheckupId={criticalFocus?.checkupId ?? null}
+          initialFocusOpenModal={criticalFocus?.openModal ?? false}
+          focusNavToken={criticalFocus?.token ?? 0}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="animate-fadeIn pb-10">
+      {segmentTabs}
 
-      {/* Critical Value Alert Section (Updated) */}
-      {pendingCriticalTasks.length > 0 && (
-          <div className="mb-8 animate-fadeIn">
-              <div className="flex items-center justify-between gap-4 mb-4">
-                  <div className="flex items-center gap-2">
-                      <span className="text-2xl animate-pulse">🚨</span>
-                      <h2 className="text-xl font-bold text-red-700">
-                          危急值待处理 
-                          <span className="text-sm font-normal text-white bg-red-600 px-2 py-1 rounded-full ml-2 shadow-sm">
-                              {pendingCriticalTasks.length} 人
-                          </span>
-                      </h2>
-                  </div>
-                  {onNavigateCriticalManager && (
-                      <button
-                          type="button"
-                          onClick={() => onNavigateCriticalManager()}
-                          className="shrink-0 text-sm font-semibold text-red-700 hover:text-red-900 bg-white border border-red-200 hover:border-red-300 px-3 py-1.5 rounded-lg shadow-sm transition-colors"
-                      >
-                          前往危急值随访管理 →
-                      </button>
-                  )}
+      {pendingCriticalCount > 0 && (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50/80 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-red-900">
+                  <span className="text-lg">🚨</span>
+                  <span>
+                      危急值待随访追踪 <strong>{pendingCriticalCount}</strong> 人
+                      {pendingCriticalTasks.length > 0 && pendingCriticalTasks.length !== pendingCriticalCount ? (
+                          <span className="text-red-700/80">（其中 {pendingCriticalTasks.length} 人需近期处置）</span>
+                      ) : null}
+                  </span>
               </div>
-              
-              <div className="flex overflow-x-auto pb-4 gap-4 scrollbar-thin scrollbar-thumb-red-200 scrollbar-track-red-50">
-                  {pendingCriticalTasks.map((arch) => {
-                      const track = arch.critical_track || {
-                          critical_level: arch.assessment_data?.criticalWarning?.includes('[A类]') ? 'A类' : 'B类',
-                          critical_item: '危急值筛查',
-                          critical_desc: arch.assessment_data?.criticalWarning || '存在危急指标',
-                          status: 'pending_initial' as const,
-                          secondary_due_date: '',
-                      };
-                      const isA = track.critical_level?.includes('A');
-                      const isInitial = !arch.critical_track || arch.critical_track.status === 'pending_initial';
-                      const contactRetryDue = isCriticalContactRetryDue(arch);
-                      const contactDeferred = isCriticalContactDeferred(arch);
-                      
-                      // Status Logic & Styling
-                      let statusBadge = { text: '待初次通知', color: 'bg-red-600' };
-                      let cardBorder = "border-l-4 border-l-red-600 bg-red-50/50 border-t border-r border-b border-red-200"; // Default Initial Style
-
-                      if (contactRetryDue) {
-                          statusBadge = { text: '再联系到期', color: 'bg-amber-600 animate-pulse' };
-                          cardBorder = "border-l-4 border-l-amber-500 bg-amber-50/60 border-t border-r border-b border-amber-200";
-                      } else if (contactDeferred) {
-                          statusBadge = { text: `延期至 ${arch.critical_track?.contact_retry_due}`, color: 'bg-amber-500' };
-                          cardBorder = "border-l-4 border-l-amber-400 bg-white border-t border-r border-b border-amber-100";
-                      } else if (!isInitial) {
-                          // Secondary Style
-                          cardBorder = "border-l-4 border-l-orange-500 bg-white border-t border-r border-b border-slate-200";
-                          
-                          const today = new Date();
-                          today.setHours(0,0,0,0);
-                          const due = new Date(track.secondary_due_date);
-                          const diffTime = due.getTime() - today.getTime();
-                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                          
-                          if (diffDays < 0) {
-                              statusBadge = { text: `逾期 ${Math.abs(diffDays)} 天`, color: 'bg-red-800 animate-pulse' };
-                          } else if (diffDays === 0) {
-                              statusBadge = { text: '今日需回访', color: 'bg-orange-600' };
-                          } else {
-                              statusBadge = { text: `剩 ${diffDays} 天回访`, color: 'bg-blue-500' };
-                          }
-                      }
-
-                      return (
-                          <div 
-                              key={arch.id}
-                              onClick={() => setCriticalModalArchive(arch)}
-                              className={`relative p-4 rounded-xl transition-all cursor-pointer hover:shadow-lg hover:-translate-y-1 min-w-[280px] w-[280px] flex-shrink-0 group ${cardBorder}`}
-                          >
-                              <div className={`absolute top-0 right-0 px-3 py-1 rounded-bl-xl rounded-tr-lg text-xs font-bold text-white ${statusBadge.color}`}>
-                                  {statusBadge.text}
-                              </div>
-                              
-                              <div className="flex items-center gap-3 mb-3 mt-1">
-                                  <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-xl shadow-sm border border-slate-100">
-                                      {arch.gender === '女' ? '👩' : '👨'}
-                                  </div>
-                                  <div>
-                                      <div className="font-bold text-slate-800 text-lg leading-tight">
-                                          {maskName(arch.name)}
-                                      </div>
-                                      <div className="text-xs text-slate-500">
-                                          {arch.age}岁 · {arch.department}
-                                      </div>
-                                  </div>
-                              </div>
-
-                              <div className="bg-white p-2.5 rounded-lg border border-slate-100 mb-2 shadow-inner h-[50px] overflow-hidden">
-                                  <div className="text-[10px] text-slate-400 uppercase font-bold mb-1 flex justify-between">
-                                      <span>异常描述</span>
-                                      <span className={isA ? "text-red-600 font-black" : "text-orange-500 font-bold"}>
-                                          {isA ? 'A类危急' : 'B类重大'}
-                                      </span>
-                                  </div>
-                                  <div className="text-xs text-red-700 font-bold line-clamp-2" title={track.critical_desc}>
-                                      {track.critical_item}: {track.critical_desc}
-                                  </div>
-                              </div>
-
-                              <div className="flex justify-between items-center gap-2 text-xs mt-2">
-                                  <span className="text-slate-500 font-medium truncate">
-                                      {isInitial ? '需立即联系' : `计划: ${track.secondary_due_date}`}
-                                  </span>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                      <span className={`text-white px-2 py-1 rounded font-bold shadow-sm transition-colors ${
-                                          isInitial ? 'bg-red-600 group-hover:bg-red-700' : 'bg-orange-500 group-hover:bg-orange-600'
-                                      }`}>
-                                          {isInitial ? '立即处置' : '录入追踪'}
-                                      </span>
-                                      {onNavigateCriticalManager && (
-                                          <button
-                                              type="button"
-                                              title="在危急值随访管理中打开"
-                                              onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  onNavigateCriticalManager(arch);
-                                              }}
-                                              className="text-red-700 hover:text-red-900 bg-white border border-red-200 hover:border-red-300 px-2 py-1 rounded font-bold shadow-sm transition-colors"
-                                          >
-                                              管理
-                                          </button>
-                                      )}
-                                  </div>
-                              </div>
-                          </div>
-                      )
-                  })}
-              </div>
+              <button
+                  type="button"
+                  onClick={openCriticalQueue}
+                  className="shrink-0 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-bold text-red-700 hover:bg-red-50"
+              >
+                  查看工作队列
+              </button>
           </div>
       )}
 
@@ -1687,62 +1634,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
           />
       )}
 
-      {showContactRetryRemind && contactRetryDueList.length > 0 && (
-          <div className="fixed inset-0 bg-slate-900/60 z-[80] flex items-center justify-center backdrop-blur-sm">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 border-t-8 border-amber-500 animate-scaleIn">
-                  <h3 className="text-xl font-bold text-amber-800 mb-1">危急值再联系提醒</h3>
-                  <p className="text-sm text-slate-600 mb-4">
-                      以下 {contactRetryDueList.length} 人此前因电话联系不上已延期一周，今日起需再次联系。
-                  </p>
-                  <ul className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg mb-5">
-                      {contactRetryDueList.map((arch) => (
-                          <li key={arch.checkup_id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                              <div className="min-w-0">
-                                  <div className="font-bold text-slate-800">{arch.name}</div>
-                                  <div className="text-xs text-slate-500 truncate">
-                                      {arch.checkup_id} · {arch.critical_track?.critical_item || '危急值'}
-                                      {arch.critical_track?.contact_retry_due
-                                          ? ` · 计划 ${arch.critical_track.contact_retry_due}`
-                                          : ''}
-                                  </div>
-                              </div>
-                              <button
-                                  type="button"
-                                  onClick={() => {
-                                      dismissContactRetryRemind();
-                                      setCriticalModalArchive(arch);
-                                  }}
-                                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700"
-                              >
-                                  立即处理
-                              </button>
-                          </li>
-                      ))}
-                  </ul>
-                  <div className="flex justify-end gap-2">
-                      {onNavigateCriticalManager && (
-                          <button
-                              type="button"
-                              onClick={() => {
-                                  dismissContactRetryRemind();
-                                  onNavigateCriticalManager();
-                              }}
-                              className="px-4 py-2 rounded-lg text-sm font-bold text-amber-800 hover:bg-amber-50"
-                          >
-                              前往危急值管理
-                          </button>
-                      )}
-                      <button
-                          type="button"
-                          onClick={dismissContactRetryRemind}
-                          className="px-5 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100"
-                      >
-                          稍后处理
-                      </button>
-                  </div>
-              </div>
-          </div>
-      )}
     </div>
   );
 };

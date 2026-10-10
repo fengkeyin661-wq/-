@@ -171,6 +171,10 @@ export const isCriticalFollowUpPending = (arch: HealthArchive): boolean => {
   return track.status === 'pending_initial' || track.status === 'pending_secondary';
 };
 
+/** 侧栏角标 / 默认子视图：待随访追踪名单人数 */
+export const countPendingCriticalFollowUps = (archives: HealthArchive[] = []): number =>
+  archives.filter(isCriticalFollowUpPending).length;
+
 /** 是否应出现在「已归档结案」名单（须已完成处置流程） */
 export const isCriticalFollowUpArchived = (arch: HealthArchive): boolean => {
   const track = arch.critical_track;
