@@ -5,6 +5,7 @@ import { fetchContent, ContentItem, fetchInteractions, readLocalContent, readLoc
 import { ResourceCover } from './ResourceCover';
 import { SLOT_MAP, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { formatTimedBookingUserAlert, submitTimedBooking } from '../../services/bookingSubmit';
 import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
@@ -207,19 +208,16 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
         if (!pendingService) return;
         const { target, timeSlot } = pendingService;
         const detailsLine = `服务预约：${timeSlot}，价格: ${target.details?.price || '免费'}`;
-        const uid = resolveBookingUserId(userCheckupId, phone);
-        await saveInteraction({
-            id: `service_booking_${Date.now()}`,
-            type: 'service_booking',
-            userId: uid,
-            userName: name.trim(),
-            targetId: target.id,
-            targetName: target.title,
-            status: 'pending',
-            date: new Date().toISOString().split('T')[0],
-            details: buildBookingDetails(name, phone, detailsLine),
+        const result = await submitTimedBooking({
+            interactionType: 'service_booking',
+            target,
+            contactName: name,
+            contactPhone: phone,
+            businessDetailsLine: detailsLine,
+            archiveUserId: userCheckupId,
+            interactions: allInteractions,
         });
-        alert('预约申请已提交，请保持手机畅通。');
+        alert(formatTimedBookingUserAlert(result, { includeManageHint: !userCheckupId }));
         setPendingService(null);
         setContactOpen(false);
         setSelectedItem(null);

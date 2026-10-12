@@ -458,25 +458,30 @@ export const saveInteraction = async (item: InteractionItem): Promise<boolean> =
 };
 
 export const updateInteractionStatus = async (id: string, status: InteractionItem['status']): Promise<boolean> => {
-    // 1. Local Update
+    return updateInteractionRecord(id, { status });
+};
+
+export const updateInteractionRecord = async (
+    id: string,
+    patch: Partial<Pick<InteractionItem, 'status' | 'details' | 'date'>>,
+): Promise<boolean> => {
     const raw = localStorage.getItem(INTERACTION_KEY);
     let all: InteractionItem[] = raw ? JSON.parse(raw) : [];
     const idx = all.findIndex(i => i.id === id);
-    if (idx >= 0) { 
-        all[idx].status = status; 
-        localStorage.setItem(INTERACTION_KEY, JSON.stringify(all)); 
+    if (idx >= 0) {
+        all[idx] = { ...all[idx], ...patch };
+        localStorage.setItem(INTERACTION_KEY, JSON.stringify(all));
     }
 
-    // 2. Cloud Update
     if (isSupabaseConfigured()) {
         try {
-            const { error } = await supabase.from('app_interactions').update({ status }).eq('id', id);
+            const { error } = await supabase.from('app_interactions').update(patch).eq('id', id);
             if (error) console.error("DB Update Interaction Error", error);
         } catch (e) {
             console.error("DB Update Interaction Exception", e);
         }
     }
-    
+
     return true;
 };
 

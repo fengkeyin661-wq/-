@@ -12,6 +12,7 @@ import {
 import { HealthArchive } from '../../services/dataService';
 import { SLOT_MAP, getNextMonthSlotsForDoctor } from '../../services/doctorScheduleUtils';
 import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { formatTimedBookingUserAlert, submitTimedBooking } from '../../services/bookingSubmit';
 import { BookingContactModal } from './BookingContactModal';
 import { ModalPortal } from './ModalPortal';
 import { UserPortalPageShell, UserPortalSection } from './portal/UserPortalPageShell';
@@ -324,20 +325,16 @@ export const UserDoctors: React.FC<Props> = ({
   const completeGuestOrUserBooking = async (name: string, phone: string) => {
     if (!pendingBooking) return;
     const { target, detailsLine } = pendingBooking;
-    const uid = resolveBookingUserId(userId, phone);
-    const fullDetails = buildBookingDetails(name, phone, detailsLine);
-    await saveInteraction({
-      id: `doctor_booking_${Date.now()}`,
-      type: 'doctor_booking',
-      userId: uid,
-      userName: name.trim(),
-      targetId: target.id,
-      targetName: target.title,
-      status: 'pending',
-      date: new Date().toISOString().split('T')[0],
-      details: fullDetails,
+    const result = await submitTimedBooking({
+      interactionType: 'doctor_booking',
+      target,
+      contactName: name,
+      contactPhone: phone,
+      businessDetailsLine: detailsLine,
+      archiveUserId: userId,
+      interactions,
     });
-    alert('挂号申请已提交，请保持手机畅通，健康管家可能致电确认。');
+    alert(formatTimedBookingUserAlert(result, { includeManageHint: !userId }));
     setPendingBooking(null);
     setContactOpen(false);
     setSelectedDoctor(null);

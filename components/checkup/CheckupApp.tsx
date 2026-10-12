@@ -23,6 +23,7 @@ import { submitCheckupBooking } from './checkupBooking';
 import { CheckupNoticePanel } from './CheckupNoticePanel';
 import { CheckupVenueInfo } from './CheckupVenueInfo';
 import { CheckupBookingSuccessModal } from './CheckupBookingSuccessModal';
+import { CheckupBookingManageModal } from './CheckupBookingManageModal';
 import { CheckupFeedbackPanel } from './CheckupFeedbackPanel';
 import { CheckupChatBot } from './CheckupChatBot';
 
@@ -46,7 +47,14 @@ export const CheckupApp: React.FC = () => {
   } | null>(null);
   const [contactOpen, setContactOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [successInfo, setSuccessInfo] = useState<{ title: string; timeSlot: string } | null>(null);
+  const [successInfo, setSuccessInfo] = useState<{
+    title: string;
+    timeSlot: string;
+    status: 'confirmed' | 'pending';
+    manageToken?: string;
+    bookingId?: string;
+  } | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -92,6 +100,11 @@ export const CheckupApp: React.FC = () => {
     [sortedPackages, activeKind],
   );
 
+  const bookableCatalog = useMemo(
+    () => [...sortedPackages, ...allServices],
+    [sortedPackages, allServices],
+  );
+
   const contactTel = useMemo(() => {
     const phone = portalGuide.phones[0] || DEFAULT_CHECKUP_PORTAL_GUIDE.phones[0];
     return `tel:${phone.replace(/-/g, '')}`;
@@ -129,17 +142,24 @@ export const CheckupApp: React.FC = () => {
     if (!pendingBook || submitting) return;
     setSubmitting(true);
     try {
-      await submitCheckupBooking({
+      const result = await submitCheckupBooking({
         packageItem: pendingBook.packageItem,
         timeSlot: pendingBook.timeSlot,
         contactName: name,
         contactPhone: phone,
+        interactions,
       });
       const booked = pendingBook;
       setPendingBook(null);
       setContactOpen(false);
       setSelectedPackage(null);
-      setSuccessInfo({ title: booked.packageItem.title, timeSlot: booked.timeSlot });
+      setSuccessInfo({
+        title: booked.packageItem.title,
+        timeSlot: booked.timeSlot,
+        status: result.status,
+        manageToken: result.manageToken,
+        bookingId: result.id,
+      });
       await loadData();
     } catch {
       alert('预约提交失败，请稍后重试或致电体检预约咨询热线。');
@@ -215,10 +235,19 @@ export const CheckupApp: React.FC = () => {
           />
         )}
 
-        <footer className="px-4 pb-28 pt-2 text-center text-xs text-slate-400">
+        <footer className="px-4 pb-28 pt-2 text-center text-xs text-slate-400 space-y-2">
           {activeKind === 'group'
             ? '团体体检请致电咨询 · 时间另行协商'
             : '访客预约 · 填写姓名与手机号即可提交，无需登录'}
+          <div>
+            <button
+              type="button"
+              onClick={() => setManageOpen(true)}
+              className="font-bold text-emerald-700 underline underline-offset-2"
+            >
+              已有预约？查询 / 改期 / 取消
+            </button>
+          </div>
         </footer>
       </main>
 
@@ -264,7 +293,17 @@ export const CheckupApp: React.FC = () => {
         open={!!successInfo}
         packageTitle={successInfo?.title}
         timeSlot={successInfo?.timeSlot}
+        status={successInfo?.status}
+        manageToken={successInfo?.manageToken}
+        bookingId={successInfo?.bookingId}
         onClose={() => setSuccessInfo(null)}
+      />
+      <CheckupBookingManageModal
+        open={manageOpen}
+        bookableCatalog={bookableCatalog}
+        interactions={interactions}
+        onClose={() => setManageOpen(false)}
+        onUpdated={() => void loadData()}
       />
 
     </div>

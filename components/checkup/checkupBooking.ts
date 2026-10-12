@@ -1,31 +1,27 @@
-import {
-  saveInteraction,
-  type ContentItem,
-} from '../../services/contentService';
-import {
-  buildBookingDetails,
-  resolveBookingUserId,
-} from '../../services/bookingContact';
+import type { ContentItem, InteractionItem } from '../../services/contentService';
+import { fetchCheckupGlobalClosedDates } from '../../services/checkupGlobalClosedDatesService';
+import { submitTimedBooking, type TimedBookingSubmitResult } from '../../services/bookingSubmit';
 
 export async function submitCheckupBooking(params: {
   packageItem: ContentItem;
   timeSlot: string;
   contactName: string;
   contactPhone: string;
-}): Promise<void> {
-  const { packageItem, timeSlot, contactName, contactPhone } = params;
+  interactions: InteractionItem[];
+  archiveUserId?: string;
+}): Promise<TimedBookingSubmitResult> {
+  const { packageItem, timeSlot, contactName, contactPhone, interactions, archiveUserId } = params;
   const detailsLine = `体检套餐预约：${timeSlot}，价格: ${packageItem.details?.price || '免费'}`;
-  const uid = resolveBookingUserId(undefined, contactPhone);
+  const closedCfg = await fetchCheckupGlobalClosedDates();
 
-  await saveInteraction({
-    id: `service_booking_${Date.now()}`,
-    type: 'service_booking',
-    userId: uid,
-    userName: contactName.trim(),
-    targetId: packageItem.id,
-    targetName: packageItem.title,
-    status: 'pending',
-    date: new Date().toISOString().split('T')[0],
-    details: buildBookingDetails(contactName, contactPhone, detailsLine),
+  return submitTimedBooking({
+    interactionType: 'service_booking',
+    target: packageItem,
+    contactName,
+    contactPhone,
+    businessDetailsLine: detailsLine,
+    archiveUserId,
+    interactions,
+    globalClosedDates: closedCfg.closedDates,
   });
 }

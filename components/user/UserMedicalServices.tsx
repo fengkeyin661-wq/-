@@ -4,7 +4,8 @@ import { fetchContent, ContentItem, saveInteraction, InteractionItem, fetchInter
 import { ResourceCover } from './ResourceCover';
 import { HealthAssessment } from '../../types';
 import { SLOT_MAP, getNextMonthSlotsForDoctor, getNextMonthSlotsForService, getServiceSlotQuota } from '../../services/doctorScheduleUtils';
-import { buildBookingDetails, resolveBookingUserId } from '../../services/bookingContact';
+import { resolveBookingUserId } from '../../services/bookingContact';
+import { formatTimedBookingUserAlert, submitTimedBooking } from '../../services/bookingSubmit';
 import { BookingContactModal } from './BookingContactModal';
 
 interface Props {
@@ -107,20 +108,31 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, default
     const completeBookWithContact = async (name: string, phone: string) => {
         if (!pendingBook) return;
         const { interactionType, target, detailsLine } = pendingBook;
-        const uid = resolveBookingUserId(userId, phone);
-        const fullDetails = buildBookingDetails(name, phone, detailsLine);
-        await saveInteraction({
-            id: `${interactionType}_${Date.now()}`,
-            type: interactionType,
-            userId: uid,
-            userName: name.trim(),
-            targetId: target.id,
-            targetName: target.title,
-            status: 'pending',
-            date: new Date().toISOString().split('T')[0],
-            details: fullDetails,
-        });
-        alert('申请已提交，请保持手机畅通，工作人员可能致电确认。');
+        if (interactionType === 'doctor_booking' || interactionType === 'service_booking') {
+            const result = await submitTimedBooking({
+                interactionType,
+                target,
+                contactName: name,
+                contactPhone: phone,
+                businessDetailsLine: detailsLine,
+                archiveUserId: userId,
+                interactions: allInteractions,
+            });
+            alert(formatTimedBookingUserAlert(result, { includeManageHint: !userId }));
+        } else {
+            await saveInteraction({
+                id: `${interactionType}_${Date.now()}`,
+                type: interactionType,
+                userId: resolveBookingUserId(userId, phone),
+                userName: name.trim(),
+                targetId: target.id,
+                targetName: target.title,
+                status: 'pending',
+                date: new Date().toISOString().split('T')[0],
+                details: `【登记】姓名：${name.trim()}；联系电话：${phone.trim()} | ${detailsLine}`,
+            });
+            alert('申请已提交，请保持手机畅通，工作人员可能致电确认。');
+        }
         setPendingBook(null);
         setContactOpen(false);
         setSelectedItem(null);
