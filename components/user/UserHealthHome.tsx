@@ -92,7 +92,7 @@ export const UserHealthHome: React.FC<Props> = ({
         onNavigateTab('profile');
         break;
       case 'plan':
-        onOpenProfileSubView('plan');
+        onOpenProfileSubView('record');
         onNavigateTab('profile');
         break;
       case 'record':

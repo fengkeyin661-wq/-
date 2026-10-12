@@ -164,7 +164,7 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
       {
         title: `我这周补做：${task.description}`,
         description: '上次没完全做到，我从这项开始',
-        action: 'plan',
+        action: 'record',
         tier: 'primary',
       },
       12
@@ -192,7 +192,7 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
       {
         title: task.description,
         description: task.frequency ? `关键目标 · ${task.frequency}` : '评估关键目标',
-        action: 'plan',
+        action: 'record',
         tier: 'primary',
       },
       22
@@ -234,7 +234,7 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
         {
           title: goal,
           description: '生活方式目标',
-          action: 'plan',
+          action: 'record',
           tier: 'routine',
         },
         45
@@ -248,7 +248,7 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
       {
         title: '今日健康提示',
         description: tips.length > 60 ? `${tips.slice(0, 60)}…` : tips,
-        action: 'plan',
+        action: 'record',
         tier: 'routine',
       },
       50

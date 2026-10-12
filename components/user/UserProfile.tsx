@@ -14,7 +14,7 @@ import { HealthArchiveReadView } from './HealthArchiveReadView';
 import type { UserMetricKey } from '../../services/observationMapper';
 import { HEALTH_MANAGEMENT_HOTLINE, HEALTH_MANAGEMENT_HOTLINE_TEL } from '../../services/userServiceCatalog';
 import { buildFollowUpGuidance } from '../../services/followUpGuidance';
-import { buildSupervisionBrief } from '../../services/followUpSupervisionService';
+import { formatPlanAdherenceGrade } from '../../services/followUpSupervisionService';
 import { UserRiskHeroBanner } from './UserRiskHeroBanner';
 import { UserNeedSurveyBanner } from './portal/UserNeedSurveyBanner';
 
@@ -62,7 +62,7 @@ export const UserProfile: React.FC<Props> = ({
 
     useEffect(() => {
         if (!subViewRequest || subViewRequest === 'menu') return;
-        setSubView(subViewRequest);
+        setSubView(subViewRequest === 'plan' ? 'record' : subViewRequest);
         onSubViewRequestConsumed?.();
     }, [subViewRequest, onSubViewRequestConsumed]);
     // ... (keep existing state/effects) ...
@@ -212,177 +212,86 @@ export const UserProfile: React.FC<Props> = ({
         const latest = followups[0];
         const pending = nextFollowup;
         const guidance = buildFollowUpGuidance(archive);
-        const supervision = buildSupervisionBrief(archive);
-        const pendingAbn = supervision.abnormalityTracks.filter((a) => a.status === 'pending');
-        const latestPlan = latest?.assessment?.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '待医生更新';
-        const latestIssues = latest?.assessment?.majorIssues || assessment?.summary || '暂无';
-        const latestGoals = latest?.assessment?.lifestyleGoals || [];
-        const latestMessage = latest?.assessment?.doctorMessage || latest?.assessment?.riskJustification || '请持续监测并按计划执行。';
+        const latestPlan = latest?.assessment?.nextCheckPlan || assessment?.followUpPlan?.nextCheckItems?.join('、') || '';
+        const latestMessage =
+            latest?.assessment?.doctorMessage ||
+            latest?.assessment?.riskJustification ||
+            assessment?.summary ||
+            '';
+
+        const historySummary = (item: FollowUpRecord) => {
+            if (item.assessment?.continuitySummary) return item.assessment.continuitySummary;
+            if (item.planAdherenceGrade) {
+                return `方案落实 ${item.planAdherenceGrade}/5 · ${formatPlanAdherenceGrade(item.planAdherenceGrade)}`;
+            }
+            const parts: string[] = [];
+            if (item.indicators.sbp || item.indicators.dbp) {
+                parts.push(`血压 ${item.indicators.sbp || '-'}/${item.indicators.dbp || '-'}`);
+            }
+            if (item.indicators.glucose) parts.push(`血糖 ${item.indicators.glucose}`);
+            return parts.join(' · ') || '已记录随访';
+        };
+
         return (
-            <div className="p-4 space-y-6 animate-slideInRight pb-20">
-                {(guidance.priorityFocusItems.length > 0 || guidance.userSteps.length > 0 || pendingAbn.length > 0) && (
-                    <div className="rounded-xl border-2 border-amber-300 bg-gradient-to-b from-amber-50 to-white p-4 shadow-sm">
-                        <h3 className="text-sm font-black text-amber-950">我这期的随访配合</h3>
-                        {pendingAbn.length > 0 ? (
-                            <div className="mt-2 rounded-lg bg-white border border-amber-100 px-3 py-2">
-                                <div className="text-xs font-bold text-amber-900">待跟进的异常项</div>
-                                <ul className="mt-1 text-xs text-slate-700 list-disc pl-4">
-                                    {pendingAbn.slice(0, 4).map((a) => (
-                                        <li key={a.key}>{a.item}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        ) : null}
-                        <p className="mt-1 text-xs text-amber-900/90">{guidance.userPrepSummary}</p>
-                        {guidance.priorityFocusItems.length > 0 ? (
-                            <ol className="mt-3 space-y-2">
-                                {guidance.priorityFocusItems.map((item, i) => (
-                                    <li key={item} className="flex gap-2 text-sm text-slate-800">
-                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-xs font-black text-white">
-                                            {i + 1}
-                                        </span>
-                                        <span className="font-medium leading-snug pt-0.5">{item}</span>
-                                    </li>
-                                ))}
-                            </ol>
-                        ) : null}
-                        <div className="mt-4 border-t border-amber-200/80 pt-3">
-                            <div className="text-xs font-bold text-slate-700">我具体怎么做</div>
-                            <ul className="mt-2 space-y-2">
-                                {guidance.userSteps.map((step, i) => (
-                                    <li key={step.id} className="rounded-lg bg-white border border-amber-100 px-3 py-2">
-                                        <div className="text-sm font-bold text-slate-800">
-                                            {i + 1}. {step.title}
-                                        </div>
-                                        <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{step.detail}</p>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    </div>
-                )}
-                <div className="bg-white rounded-xl shadow-lg border-t-4 border-blue-500 overflow-hidden">
-                    <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-blue-50/50">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                            📋 下阶段健康管理执行单
-                        </h3>
-                        <span className="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
-                            下次随访：{pending?.date || '待定'}
+            <div className="p-4 space-y-4 animate-slideInRight pb-20">
+                <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-sm font-bold text-slate-800">本期风险重点</h3>
+                        <span className="text-xs font-medium text-blue-800 bg-blue-100/80 px-2 py-0.5 rounded-full">
+                            下次随访 {pending?.date || '待定'}
                         </span>
                     </div>
-                    <div className="p-5 space-y-4">
-                        <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-                            <div className="text-xs text-slate-500">建议时间</div>
-                            <div className="text-lg font-black text-slate-800">{pending?.date || '待定'}</div>
-                            <div className="mt-2 text-xs text-slate-500">具体复查项目</div>
-                            <p className="text-sm text-slate-700 leading-relaxed mt-1">{latestPlan}</p>
-                        </div>
-                        <div className="rounded-lg border border-red-100 bg-red-50 p-4">
-                            <div className="text-sm font-bold text-red-800">⚠️ 风险警示与问题</div>
-                            <p className="text-sm text-slate-700 leading-relaxed mt-2">{latestIssues}</p>
-                        </div>
-                        <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
-                            <div className="text-sm font-bold text-emerald-800">🏃 生活方式干预目标</div>
-                            {latestGoals.length > 0 ? (
-                                <ul className="mt-2 list-disc pl-5 text-sm text-emerald-900 space-y-1">
-                                    {latestGoals.map((g, i) => <li key={`goal-${i}`}>{g}</li>)}
-                                </ul>
-                            ) : (
-                                <p className="mt-2 text-sm text-slate-600">暂无明确目标，请先完成随访录入。</p>
-                            )}
-                        </div>
-                        <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
-                            <div className="text-sm font-bold text-slate-700">医生寄语</div>
-                            <p className="mt-2 text-sm text-slate-600 leading-relaxed">{latestMessage}</p>
-                        </div>
-                    </div>
+                    {guidance.priorityFocusItems.length > 0 ? (
+                        <ul className="mt-3 space-y-1.5">
+                            {guidance.priorityFocusItems.map((item, i) => (
+                                <li key={item} className="flex gap-2 text-sm text-slate-800">
+                                    <span className="font-black text-amber-700">{i + 1}.</span>
+                                    <span className="leading-snug">{item}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="mt-2 text-xs text-slate-600">暂无专项重点，请以下方执行要点与历史记录为准。</p>
+                    )}
                 </div>
-                <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm">
-                    <h3 className="font-bold text-slate-800 mb-3">随访记录历史</h3>
+
+                {(latestPlan || latestMessage) ? (
+                    <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm space-y-3">
+                        <h3 className="text-sm font-bold text-slate-800">下阶段执行要点</h3>
+                        {latestPlan ? (
+                            <div>
+                                <div className="text-xs text-slate-500">复查与核对</div>
+                                <p className="mt-0.5 text-sm text-slate-700 leading-relaxed">{latestPlan}</p>
+                            </div>
+                        ) : null}
+                        {latestMessage ? (
+                            <div className={latestPlan ? 'border-t border-slate-100 pt-3' : ''}>
+                                <div className="text-xs text-slate-500">叮嘱</div>
+                                <p className="mt-0.5 text-sm text-slate-600 leading-relaxed">{latestMessage}</p>
+                            </div>
+                        ) : null}
+                        <p className="text-[11px] text-slate-400">饮食、运动等长期方案请见「我的健康档案」。</p>
+                    </div>
+                ) : null}
+
+                <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
+                    <h3 className="text-sm font-bold text-slate-800 mb-3">随访历史</h3>
                     {followups.length === 0 ? (
                         <div className="text-sm text-slate-400 text-center py-6">暂无随访记录</div>
                     ) : (
                         <div className="space-y-2">
                             {followups.map((item) => (
-                                <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-                                    <div className="flex items-center justify-between">
+                                <div key={item.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                                    <div className="flex items-center justify-between gap-2">
                                         <span className="text-sm font-bold text-slate-800">{item.date}</span>
-                                        <span className="text-xs text-slate-500">{item.method}</span>
+                                        <span className="text-xs text-slate-500 shrink-0">{item.method}</span>
                                     </div>
-                                    <div className="mt-1 text-xs text-slate-500">
-                                        血压 {item.indicators.sbp}/{item.indicators.dbp} mmHg · 血糖 {item.indicators.glucose || '-'} · 体重 {item.indicators.weight || '-'}kg
-                                    </div>
+                                    <p className="mt-1 text-xs text-slate-600 line-clamp-2">{historySummary(item)}</p>
                                 </div>
                             ))}
                         </div>
                     )}
                 </div>
-            </div>
-        );
-    };
-
-    const renderPlanView = () => {
-        const planFromAssessment = assessment?.managementPlan;
-        const dietaryList = planFromAssessment?.dietary || [];
-        const exerciseList = planFromAssessment?.exercise || [];
-        const monitoringList = planFromAssessment?.monitoring || [];
-        const hasPlan = dietaryList.length || exerciseList.length || monitoringList.length;
-
-        return (
-            <div className="p-4 space-y-4 animate-slideInRight">
-                {hasPlan ? (
-                    <>
-                        <div className="bg-white rounded-xl shadow-sm p-5 border border-slate-100">
-                            <div className="flex justify-between items-center mb-4">
-                                <h3 className="font-bold text-slate-800">我的健康管理方案（饮食与运动）</h3>
-                                <span className="text-xs text-slate-400">与健康管理方案保持一致</span>
-                            </div>
-                            <div className="space-y-4">
-                                <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
-                                    <h4 className="mb-2 text-sm font-bold text-emerald-800">🥗 饮食干预</h4>
-                                    {dietaryList.length ? (
-                                        <ul className="list-disc space-y-1 pl-5 text-sm text-emerald-900">
-                                            {dietaryList.map((item, i) => (
-                                                <li key={`diet-${i}`}>{item}</li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <div className="text-xs text-emerald-700/80">暂无饮食建议</div>
-                                    )}
-                                </div>
-                                <div className="rounded-lg border border-sky-100 bg-sky-50 p-4">
-                                    <h4 className="mb-2 text-sm font-bold text-sky-800">🏃 运动干预</h4>
-                                    {exerciseList.length ? (
-                                        <ul className="list-disc space-y-1 pl-5 text-sm text-sky-900">
-                                            {exerciseList.map((item, i) => (
-                                                <li key={`exercise-${i}`}>{item}</li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <div className="text-xs text-sky-700/80">暂无运动建议</div>
-                                    )}
-                                </div>
-                                <div className="rounded-lg border border-violet-100 bg-violet-50 p-4">
-                                    <h4 className="mb-2 text-sm font-bold text-violet-800">🔍 监测随访</h4>
-                                    {monitoringList.length ? (
-                                        <ul className="list-disc space-y-1 pl-5 text-sm text-violet-900">
-                                            {monitoringList.map((item, i) => (
-                                                <li key={`monitor-${i}`}>{item}</li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <div className="text-xs text-violet-700/80">暂无监测建议</div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                ) : (
-                    <div className="text-center text-slate-400 mt-10">
-                        <p>暂无健康管理方案</p>
-                        <p className="mt-2 text-xs">请先由医生端提交评估后查看</p>
-                    </div>
-                )}
             </div>
         );
     };
@@ -678,14 +587,13 @@ export const UserProfile: React.FC<Props> = ({
                     <div className="flex-1 space-y-4 p-4">
                         {onOpenNeedSurvey ? <UserNeedSurveyBanner onClick={onOpenNeedSurvey} /> : null}
                         <div className="space-y-2">
-                            <MenuButton icon="📄" label="我的健康档案" desc="体检指标与风险评估" onClick={() => setSubView('record')} />
+                            <MenuButton icon="📄" label="我的健康档案" desc="体检指标、风险与饮食运动方案" onClick={() => setSubView('record')} />
                             <MenuButton
                                 icon="📅"
                                 label={`我的随访记录${nextFollowup?.date ? `（${nextFollowup.date}）` : ''}`}
-                                desc="执行单与历史随访"
+                                desc="风险重点、执行要点与历史"
                                 onClick={() => setSubView('followup')}
                             />
-                            <MenuButton icon="🥗" label="饮食与运动方案" desc="查看健康管理方案" onClick={() => setSubView('plan')} />
                         </div>
                         <MenuGroup title="服务与活动">
                             <MenuButton icon="🎉" label="我的社区活动" desc="已报名活动状态" onClick={() => setSubView('events')} />
@@ -699,7 +607,6 @@ export const UserProfile: React.FC<Props> = ({
 
                 {subView === 'record' && renderRecordView()}
                 {subView === 'followup' && renderFollowupView()}
-                {subView === 'plan' && renderPlanView()}
                 {subView === 'events' && renderEventsView()}
                 {subView === 'apps' && renderAppsView()}
                 {subView === 'manager' && renderManagerView()}
