@@ -28,7 +28,6 @@ import {
   type SmsSentRole,
 } from '../services/smsService';
 import { CriticalHandleModal } from './CriticalHandleModal';
-import { FollowUpTalkScriptReminder } from './FollowUpTalkScriptReminder';
 import { PatientClinicalHeader } from './clinical/PatientClinicalHeader';
 
 export type FollowUpWorkspaceTab = 'timeline' | 'entry' | 'guide';
@@ -911,11 +910,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
               </div>
               </div>
           )}
-          <FollowUpTalkScriptReminder
-              sourceLabel={followUpContext?.sourceLabel}
-              className="mb-6"
-              defaultExpanded={false}
-          />
           <div className="bg-white rounded-xl shadow border border-slate-200 mb-8 overflow-hidden animate-slideUp">
               {/* ... Entry Form Content ... */}
               <div className="bg-teal-50 px-6 py-4 border-b border-teal-100 flex justify-between items-center">
