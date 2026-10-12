@@ -171,19 +171,17 @@ export const buildUserHealthHomeModel = (archive: HealthArchive | null | undefin
     );
   }
 
-  if (followUpFocusItems.length) {
+  const focusKeys = new Set(followUpFocusItems.map(normalizeFocusItemKey));
+  for (const item of followUpFocusItems.slice(0, 4)) {
     pushAction(
       {
-        title: '我对照方案关注风险重点',
-        description: followUpFocusItems.slice(0, 3).join('、'),
+        title: item,
         action: 'followup',
         tier: 'primary',
       },
       15
     );
   }
-
-  const focusKeys = new Set(followUpFocusItems.map(normalizeFocusItemKey));
   const keyTasks = (assessment?.structuredTasks || []).filter((t) => t.isKeyGoal).slice(0, 3);
   for (const task of keyTasks) {
     const key = normalizeFocusItemKey(task.description);

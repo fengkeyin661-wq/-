@@ -286,32 +286,15 @@ export const UserHealthHome: React.FC<Props> = ({
 
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <h2 className="mb-3 font-bold text-slate-800">下一步健康计划</h2>
-          {model.followUpFocusItems.length > 0 ? (
-            <div className="mb-4">
-              <div className="text-xs font-bold text-slate-500 mb-2">风险重点</div>
-              <ul className="space-y-1.5">
-                {model.followUpFocusItems.map((item, i) => (
-                  <li key={`ff-${i}`} className="flex gap-2 text-sm text-slate-800">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[10px] font-black text-white">
-                      {i + 1}
-                    </span>
-                    <span className="font-medium leading-snug">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
           {model.primaryActions.length > 0 ? (
             <div className="space-y-2">
-              <div className="text-xs font-bold text-slate-500">优先行动</div>
               {model.primaryActions.map((action) => (
                 <NextActionRow key={action.id} action={action} onPress={() => handleAction(action.action)} />
               ))}
             </div>
-          ) : null}
-          {model.followUpFocusItems.length === 0 && model.primaryActions.length === 0 ? (
+          ) : (
             <p className="text-sm text-slate-400">暂无待办，请保持当前健康管理节奏</p>
-          ) : null}
+          )}
         </div>
 
         <UserHotlineCompact className="mt-2" />
