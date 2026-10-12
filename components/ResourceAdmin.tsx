@@ -36,6 +36,8 @@ import {
     applyLivePackagePricing,
     packageIncludesService,
     summarizePackageComposition,
+    getPackageKind,
+    packageKindLabel,
     type ClinicalSubCategory,
     type HealthServiceSubCategory,
     type PackageIncludedItem,
@@ -1547,7 +1549,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                     details: {
                         ...refreshed.details,
                         showOriginalPrice: refreshed.details?.showOriginalPrice !== false,
-                        packageKind: refreshed.details?.packageKind === 'group' ? 'group' : 'personal',
+                        packageKind: getPackageKind(refreshed),
                     },
                 });
             } else {
@@ -2064,7 +2066,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                     {item.type === 'service' && `¥${item.details?.price} • ${serviceCatalogLabel(item)}`}
                                                     {item.type === 'checkup_package' && (
                                                         <>
-                                                            {`${item.details?.packageKind === 'group' ? '团体' : '个人'} · 套餐 ¥${item.details?.price || '-'} • ${summarizePackageComposition(item)}`}
+                                                            {`${packageKindLabel(getPackageKind(item))} · 套餐 ¥${item.details?.price || '-'} • ${summarizePackageComposition(item)}`}
                                                             {item.details?.showOriginalPrice !== false &&
                                                             item.details?.originalPrice &&
                                                             Number(item.details.originalPrice) > Number(item.details?.price || 0) ? (
@@ -2379,37 +2381,34 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="排序值" type="number" value={editItem.details?.sortOrder} onChange={(v:any) => updateDetail('sortOrder', v)} />
                                         <div className="col-span-2">
                                             <div className="text-xs font-bold text-slate-500 mb-2">套餐类型</div>
-                                            <div className="flex gap-3">
-                                                <label className={`flex-1 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm cursor-pointer ${
-                                                    (editItem.details?.packageKind || 'personal') === 'personal'
-                                                        ? 'border-emerald-400 bg-emerald-50 text-emerald-900 font-bold'
-                                                        : 'border-slate-200 bg-white text-slate-600'
-                                                }`}>
-                                                    <input
-                                                        type="radio"
-                                                        name="packageKind"
-                                                        checked={(editItem.details?.packageKind || 'personal') === 'personal'}
-                                                        onChange={() => updateDetail('packageKind', 'personal')}
-                                                        className="text-emerald-600"
-                                                    />
-                                                    个人体检
-                                                </label>
-                                                <label className={`flex-1 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm cursor-pointer ${
-                                                    editItem.details?.packageKind === 'group'
-                                                        ? 'border-teal-400 bg-teal-50 text-teal-900 font-bold'
-                                                        : 'border-slate-200 bg-white text-slate-600'
-                                                }`}>
-                                                    <input
-                                                        type="radio"
-                                                        name="packageKind"
-                                                        checked={editItem.details?.packageKind === 'group'}
-                                                        onChange={() => updateDetail('packageKind', 'group')}
-                                                        className="text-teal-600"
-                                                    />
-                                                    团体体检
-                                                </label>
+                                            <div className="flex flex-wrap gap-3">
+                                                {([
+                                                    ['personal', '个人体检', 'border-emerald-400 bg-emerald-50 text-emerald-900', 'text-emerald-600'],
+                                                    ['screening', '专项筛查', 'border-violet-400 bg-violet-50 text-violet-900', 'text-violet-600'],
+                                                    ['group', '团体体检', 'border-teal-400 bg-teal-50 text-teal-900', 'text-teal-600'],
+                                                ] as const).map(([value, label, activeCls, inputCls]) => {
+                                                    const current = editItem.details?.packageKind || 'personal';
+                                                    const selected = current === value;
+                                                    return (
+                                                        <label
+                                                            key={value}
+                                                            className={`flex-1 min-w-[7rem] flex items-center gap-2 rounded-xl border px-4 py-3 text-sm cursor-pointer ${
+                                                                selected ? `${activeCls} font-bold` : 'border-slate-200 bg-white text-slate-600'
+                                                            }`}
+                                                        >
+                                                            <input
+                                                                type="radio"
+                                                                name="packageKind"
+                                                                checked={selected}
+                                                                onChange={() => updateDetail('packageKind', value)}
+                                                                className={inputCls}
+                                                            />
+                                                            {label}
+                                                        </label>
+                                                    );
+                                                })}
                                             </div>
-                                            <p className="text-[11px] text-slate-400 mt-1.5">个人支持在线预约；团体在预约站展示为电话咨询。</p>
+                                            <p className="text-[11px] text-slate-400 mt-1.5">个人与专项筛查支持在线选时段预约；团体在预约站展示为电话咨询。</p>
                                         </div>
                                         <div className="col-span-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-4">
                                             <div className="flex flex-wrap items-start justify-between gap-3">

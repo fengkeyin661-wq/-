@@ -1,6 +1,6 @@
 import type { ContentItem } from './contentService';
 import type { CheckupPortalGuide } from './checkupPortalContentService';
-import { getPackageKind } from './userServiceCatalog';
+import { getPackageKind, packageKindLabel } from './userServiceCatalog';
 
 export type CheckupChatMessage = {
   role: 'user' | 'assistant';
@@ -40,7 +40,7 @@ export function buildCheckupAssistantContext(
   packages: ContentItem[],
 ): string {
   const packageLines = packages.slice(0, 24).map((p) => {
-    const kind = getPackageKind(p) === 'group' ? '团体' : '个人';
+    const kind = packageKindLabel(getPackageKind(p));
     const price = p.details?.price ? `，参考价 ${p.details.price}` : '';
     const desc = p.description?.trim() ? `：${p.description.trim().slice(0, 80)}` : '';
     return `- [${kind}] ${p.title}${price}${desc}`;

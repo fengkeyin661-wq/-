@@ -1,7 +1,11 @@
 import React from 'react';
 import type { ContentItem } from '../../services/contentService';
 import { ResourceCover } from '../user/ResourceCover';
-import { getPackageKind, resolvePackageDisplayPricing } from '../../services/userServiceCatalog';
+import {
+  getPackageKind,
+  isPackageKindOnlineBookable,
+  resolvePackageDisplayPricing,
+} from '../../services/userServiceCatalog';
 
 interface Props {
   packages: ContentItem[];
@@ -36,6 +40,7 @@ export const CheckupPackageList: React.FC<Props> = ({
       {packages.map((pkg) => {
         const kind = getPackageKind(pkg);
         const isGroup = kind === 'group';
+        const canBookOnline = isPackageKindOnlineBookable(kind);
         const { packagePrice, originalPrice, showOriginalPrice } = resolvePackageDisplayPricing(
           pkg,
           allServices,
@@ -62,6 +67,11 @@ export const CheckupPackageList: React.FC<Props> = ({
             />
             <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
               <h3 className="font-bold text-slate-800 text-base line-clamp-2 leading-snug">
+                {kind === 'screening' ? (
+                  <span className="mr-1.5 inline-block rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-black text-violet-800 align-middle">
+                    专项
+                  </span>
+                ) : null}
                 {pkg.title}
               </h3>
               <div className="flex items-end justify-between gap-2 mt-2">
@@ -89,18 +99,22 @@ export const CheckupPackageList: React.FC<Props> = ({
                   >
                     咨询
                   </a>
-                ) : (
+                ) : canBookOnline ? (
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       onBook(pkg);
                     }}
-                    className="shrink-0 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 active:scale-95 transition-transform"
+                    className={`shrink-0 px-4 py-2 rounded-xl text-white text-sm font-bold active:scale-95 transition-transform ${
+                      kind === 'screening'
+                        ? 'bg-violet-600 hover:bg-violet-700'
+                        : 'bg-emerald-600 hover:bg-emerald-700'
+                    }`}
                   >
                     预约
                   </button>
-                )}
+                ) : null}
               </div>
             </div>
           </div>

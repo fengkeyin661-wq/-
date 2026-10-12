@@ -29,8 +29,16 @@ import { CheckupChatBot } from './CheckupChatBot';
 
 const PACKAGE_TABS: { id: PackageKind; label: string }[] = [
   { id: 'personal', label: '个人体检' },
+  { id: 'screening', label: '专项筛查' },
   { id: 'group', label: '团体体检' },
 ];
+
+const tabActiveClass = (id: PackageKind, active: boolean): string => {
+  if (!active) return 'text-slate-500 hover:text-slate-700';
+  if (id === 'group') return 'bg-teal-600 text-white shadow-sm';
+  if (id === 'screening') return 'bg-violet-600 text-white shadow-sm';
+  return 'bg-emerald-600 text-white shadow-sm';
+};
 
 export const CheckupApp: React.FC = () => {
   const [packages, setPackages] = useState<ContentItem[]>([]);
@@ -196,13 +204,7 @@ export const CheckupApp: React.FC = () => {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveKind(tab.id)}
-                  className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-colors ${
-                    active
-                      ? tab.id === 'group'
-                        ? 'bg-teal-600 text-white shadow-sm'
-                        : 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
+                  className={`flex-1 py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors ${tabActiveClass(tab.id, active)}`}
                 >
                   {tab.label}
                 </button>
@@ -226,7 +228,9 @@ export const CheckupApp: React.FC = () => {
             emptyHint={
               activeKind === 'personal'
                 ? '暂无个人体检套餐'
-                : '暂无团体体检套餐，请电话咨询定制方案'
+                : activeKind === 'screening'
+                  ? '暂无专项筛查项目，请稍后再来或致电咨询'
+                  : '暂无团体体检套餐，请电话咨询定制方案'
             }
           />
         )}

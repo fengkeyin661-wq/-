@@ -109,14 +109,33 @@ export interface PackageIncludedItem {
   discountRate: number;
 }
 
-/** 体检套餐大类：个人 / 团体（未配置时默认个人） */
-export type PackageKind = 'personal' | 'group';
+/** 体检套餐大类：个人 / 专项筛查 / 团体（未配置时默认个人） */
+export type PackageKind = 'personal' | 'screening' | 'group';
 
 export const getPackageKind = (packageItem: ContentItem): PackageKind => {
   const raw = String(packageItem.details?.packageKind || '').trim().toLowerCase();
   if (raw === 'group' || raw === '团体' || raw === '团检') return 'group';
+  if (
+    raw === 'screening' ||
+    raw === 'special' ||
+    raw === '专项' ||
+    raw === '专项筛查' ||
+    raw === '筛查'
+  ) {
+    return 'screening';
+  }
   return 'personal';
 };
+
+export const packageKindLabel = (kind: PackageKind): string => {
+  if (kind === 'group') return '团体体检';
+  if (kind === 'screening') return '专项筛查';
+  return '个人体检';
+};
+
+/** 支持在线选时段预约（非电话团检） */
+export const isPackageKindOnlineBookable = (kind: PackageKind): boolean =>
+  kind === 'personal' || kind === 'screening';
 
 /**
  * 自选项目分组：从候选池中选取规定数量（如 20 选 5）。

@@ -36,7 +36,8 @@ export const CheckupPackageDetail: React.FC<Props> = ({
     packageItem,
     allServices,
   );
-  const isGroup = getPackageKind(packageItem) === 'group';
+  const kind = getPackageKind(packageItem);
+  const isGroup = kind === 'group';
   const [posterPreviewOpen, setPosterPreviewOpen] = useState(false);
 
   return (
@@ -185,7 +186,9 @@ export const CheckupPackageDetail: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={onBook}
-                className="w-full py-3.5 rounded-2xl bg-emerald-600 text-white font-bold text-base shadow-lg active:scale-[0.98] transition-transform"
+                className={`w-full py-3.5 rounded-2xl text-white font-bold text-base shadow-lg active:scale-[0.98] transition-transform ${
+                  kind === 'screening' ? 'bg-violet-600 hover:bg-violet-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
               >
                 立即预约
               </button>
