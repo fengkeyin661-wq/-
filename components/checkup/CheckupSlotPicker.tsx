@@ -14,6 +14,8 @@ interface Props {
   interactions: InteractionItem[];
   onSelectSlot: (timeSlot: string) => void;
   onClose: () => void;
+  /** 嵌套在其它弹窗（如改期）之上时使用更高层级 */
+  stackAboveDialogs?: boolean;
 }
 
 function getSlotUsage(
@@ -39,7 +41,9 @@ export const CheckupSlotPicker: React.FC<Props> = ({
   interactions,
   onSelectSlot,
   onClose,
+  stackAboveDialogs = false,
 }) => {
+  const overlayZ = stackAboveDialogs ? 'z-[130]' : 'z-[100]';
   const [globalClosedDates, setGlobalClosedDates] = useState<string[]>([]);
 
   useEffect(() => {
@@ -63,7 +67,7 @@ export const CheckupSlotPicker: React.FC<Props> = ({
   return (
     <ModalPortal>
       <div
-        className="fixed inset-0 bg-slate-900/60 z-[100] flex items-end justify-center backdrop-blur-sm animate-fadeIn"
+        className={`fixed inset-0 bg-slate-900/60 ${overlayZ} flex items-end justify-center backdrop-blur-sm animate-fadeIn`}
         onClick={onClose}
         role="dialog"
         aria-modal="true"

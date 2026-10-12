@@ -257,6 +257,7 @@ export const CheckupBookingManageModal: React.FC<Props> = ({
         <CheckupSlotPicker
           packageItem={targetContent}
           interactions={interactions}
+          stackAboveDialogs
           onSelectSlot={(ts) => void handleRescheduleSlot(ts)}
           onClose={() => setRescheduleOpen(false)}
         />
