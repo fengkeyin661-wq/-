@@ -217,7 +217,7 @@ export const UserHealthResources: React.FC<Props> = ({ assessment, userCheckupId
             archiveUserId: userCheckupId,
             interactions: allInteractions,
         });
-        alert(formatTimedBookingUserAlert(result, { includeManageHint: !userCheckupId }));
+        alert(formatTimedBookingUserAlert(result));
         setPendingService(null);
         setContactOpen(false);
         setSelectedItem(null);

@@ -51,8 +51,6 @@ export const CheckupApp: React.FC = () => {
     title: string;
     timeSlot: string;
     status: 'confirmed' | 'pending';
-    manageToken?: string;
-    bookingId?: string;
   } | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
 
@@ -157,8 +155,6 @@ export const CheckupApp: React.FC = () => {
         title: booked.packageItem.title,
         timeSlot: booked.timeSlot,
         status: result.status,
-        manageToken: result.manageToken,
-        bookingId: result.id,
       });
       await loadData();
     } catch {
@@ -294,8 +290,6 @@ export const CheckupApp: React.FC = () => {
         packageTitle={successInfo?.title}
         timeSlot={successInfo?.timeSlot}
         status={successInfo?.status}
-        manageToken={successInfo?.manageToken}
-        bookingId={successInfo?.bookingId}
         onClose={() => setSuccessInfo(null)}
       />
       <CheckupBookingManageModal

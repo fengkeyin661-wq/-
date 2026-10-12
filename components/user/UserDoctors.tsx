@@ -334,7 +334,7 @@ export const UserDoctors: React.FC<Props> = ({
       archiveUserId: userId,
       interactions,
     });
-    alert(formatTimedBookingUserAlert(result, { includeManageHint: !userId }));
+    alert(formatTimedBookingUserAlert(result));
     setPendingBooking(null);
     setContactOpen(false);
     setSelectedDoctor(null);

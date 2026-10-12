@@ -118,7 +118,7 @@ export const UserMedicalServices: React.FC<Props> = ({ userId, userName, default
                 archiveUserId: userId,
                 interactions: allInteractions,
             });
-            alert(formatTimedBookingUserAlert(result, { includeManageHint: !userId }));
+            alert(formatTimedBookingUserAlert(result));
         } else {
             await saveInteraction({
                 id: `${interactionType}_${Date.now()}`,

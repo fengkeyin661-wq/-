@@ -5,11 +5,7 @@ import {
   updateInteractionRecord,
 } from './contentService';
 import { parseBookingDetails } from './bookingContact';
-import {
-  guestBookingPhoneMatches,
-  parseManageMeta,
-  phoneDigits,
-} from './bookingManageToken';
+import { guestBookingPhoneMatches, phoneDigits } from './bookingManageToken';
 import {
   countSlotBookings,
   extractSlotFragmentFromBusinessLine,
@@ -30,31 +26,38 @@ export async function loadAllInteractions(): Promise<InteractionItem[]> {
   }
 }
 
-export function findGuestBooking(
+export function bookingMatchesPhone(booking: InteractionItem, phone: string): boolean {
+  const digits = phoneDigits(phone);
+  if (digits.length !== 11) return false;
+  if (guestBookingPhoneMatches(booking.userId, phone)) return true;
+  const parsed = parseBookingDetails(booking.details);
+  return phoneDigits(parsed.contactPhone) === digits;
+}
+
+const ACTIVE_BOOKING_TYPES = new Set<InteractionItem['type']>(['doctor_booking', 'service_booking']);
+
+/** 按预约手机号查询未取消/未完成的预约（可有多条） */
+export function findBookingsByPhone(
   interactions: InteractionItem[],
   phone: string,
-  manageToken: string,
-): InteractionItem | null {
-  const token = manageToken.trim().toUpperCase();
-  if (!token || phoneDigits(phone).length !== 11) return null;
-  return (
-    interactions.find((i) => {
+): InteractionItem[] {
+  if (phoneDigits(phone).length !== 11) return [];
+  return interactions
+    .filter((i) => {
       if (i.status === 'cancelled' || i.status === 'completed') return false;
-      if (i.type !== 'doctor_booking' && i.type !== 'service_booking') return false;
-      if (!guestBookingPhoneMatches(i.userId, phone)) return false;
-      const meta = parseManageMeta(i.details);
-      return meta?.manageToken === token;
-    }) ?? null
-  );
+      if (!ACTIVE_BOOKING_TYPES.has(i.type)) return false;
+      return bookingMatchesPhone(i, phone);
+    })
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
 export async function cancelGuestBooking(
   booking: InteractionItem,
   phone: string,
-  manageToken: string,
 ): Promise<{ ok: boolean; message: string }> {
-  const found = findGuestBooking([booking], phone, manageToken);
-  if (!found) return { ok: false, message: '未找到预约，请核对手机号与凭证码。' };
+  if (!bookingMatchesPhone(booking, phone)) {
+    return { ok: false, message: '未找到预约，请核对预约手机号。' };
+  }
   await updateInteractionRecord(booking.id, { status: 'cancelled' });
   return { ok: true, message: '预约已取消。' };
 }
@@ -62,21 +65,20 @@ export async function cancelGuestBooking(
 export async function rescheduleGuestBooking(params: {
   booking: InteractionItem;
   phone: string;
-  manageToken: string;
   newSlotFragment: string;
   target: ContentItem;
   interactions: InteractionItem[];
   globalClosedDates?: string[];
 }): Promise<{ ok: boolean; message: string }> {
-  const { booking, phone, manageToken, newSlotFragment, target, interactions, globalClosedDates } =
-    params;
-  const found = findGuestBooking([booking], phone, manageToken);
-  if (!found) return { ok: false, message: '未找到预约，请核对手机号与凭证码。' };
-  if (found.type !== 'doctor_booking' && found.type !== 'service_booking') {
+  const { booking, phone, newSlotFragment, target, interactions, globalClosedDates } = params;
+  if (!bookingMatchesPhone(booking, phone)) {
+    return { ok: false, message: '未找到预约，请核对预约手机号。' };
+  }
+  if (booking.type !== 'doctor_booking' && booking.type !== 'service_booking') {
     return { ok: false, message: '该预约类型不支持自助改期。' };
   }
 
-  const bookingType = found.type;
+  const bookingType = booking.type;
   const slots =
     bookingType === 'doctor_booking'
       ? getNextMonthSlotsForDoctor(target)
@@ -102,7 +104,7 @@ export async function rescheduleGuestBooking(params: {
     return { ok: false, message: '该时段已满，请选择其他时段。' };
   }
 
-  const details = replaceBusinessTimeSlot(String(found.details || ''), bookingType, newSlotFragment);
+  const details = replaceBusinessTimeSlot(String(booking.details || ''), bookingType, newSlotFragment);
   await updateInteractionRecord(booking.id, {
     details,
     status: 'confirmed',

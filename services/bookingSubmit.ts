@@ -7,10 +7,6 @@ import {
   validateChinaMobile,
 } from './bookingContact';
 import {
-  appendManageMeta,
-  generateManageToken,
-} from './bookingManageToken';
-import {
   SLOT_MAP,
   getNextMonthSlotsForDoctor,
   getNextMonthSlotsForService,
@@ -71,7 +67,6 @@ function resolveSlotQuota(
 export type TimedBookingSubmitResult = {
   id: string;
   status: 'confirmed' | 'pending';
-  manageToken: string;
   userMessage: string;
 };
 
@@ -107,7 +102,6 @@ export async function submitTimedBooking(params: {
 
   const slotFragment = extractSlotFragmentFromBusinessLine(businessDetailsLine);
   const id = `${interactionType}_${Date.now()}`;
-  const manageToken = generateManageToken();
   let status: 'confirmed' | 'pending' = 'pending';
   let userMessage =
     '申请已提交，请保持手机畅通，工作人员可能致电确认。';
@@ -123,7 +117,7 @@ export async function submitTimedBooking(params: {
       });
       if (count < meta.quota) {
         status = 'confirmed';
-        userMessage = '预约成功！请按时到场，如需改期或取消可使用预约凭证自助办理。';
+        userMessage = '预约成功！请按时到场。如需改期或取消，在体检预约页输入预约手机号即可办理。';
       } else {
         userMessage = '该时段名额已满，您的申请已进入候补队列，工作人员将尽快联系您。';
       }
@@ -131,8 +125,7 @@ export async function submitTimedBooking(params: {
   }
 
   const uid = resolveBookingUserId(archiveUserId, phone);
-  let details = buildBookingDetails(name, phone, businessDetailsLine);
-  details = appendManageMeta(details, manageToken, id);
+  const details = buildBookingDetails(name, phone, businessDetailsLine);
 
   await saveInteraction({
     id,
@@ -146,19 +139,11 @@ export async function submitTimedBooking(params: {
     details,
   });
 
-  return { id, status, manageToken, userMessage };
+  return { id, status, userMessage };
 }
 
-export function formatTimedBookingUserAlert(
-  result: TimedBookingSubmitResult,
-  options?: { includeManageHint?: boolean },
-): string {
-  const lines = [result.userMessage];
-  if (options?.includeManageHint !== false && result.manageToken) {
-    lines.push(`凭证码：${result.manageToken}`);
-    lines.push('未登录用户可凭「预约手机号 + 凭证码」在体检预约页办理改期/取消。');
-  }
-  return lines.join('\n');
+export function formatTimedBookingUserAlert(result: TimedBookingSubmitResult): string {
+  return result.userMessage;
 }
 
 export function replaceBusinessTimeSlot(
