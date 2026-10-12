@@ -11,6 +11,7 @@ import {
 import { fetchCheckupGlobalClosedDates } from '../../services/checkupGlobalClosedDatesService';
 import { ModalPortal } from '../user/ModalPortal';
 import { CheckupSlotPicker } from './CheckupSlotPicker';
+import { CheckupBookingSuccessModal } from './CheckupBookingSuccessModal';
 
 type Props = {
   open: boolean;
@@ -39,6 +40,11 @@ export const CheckupBookingManageModal: React.FC<Props> = ({
   const [booking, setBooking] = useState<InteractionItem | null>(null);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [successPopup, setSuccessPopup] = useState<{
+    action: 'cancel' | 'reschedule';
+    packageTitle: string;
+    timeSlot?: string;
+  } | null>(null);
 
   const targetContent = useMemo(
     () => (booking ? bookableCatalog.find((p) => p.id === booking.targetId) : undefined),
@@ -53,6 +59,7 @@ export const CheckupBookingManageModal: React.FC<Props> = ({
     setResults([]);
     setBooking(null);
     setRescheduleOpen(false);
+    setSuccessPopup(null);
   };
 
   const handleLookup = async () => {
@@ -80,13 +87,19 @@ export const CheckupBookingManageModal: React.FC<Props> = ({
     setMessage('');
     try {
       const res = await cancelGuestBooking(booking, phone);
-      setMessage(res.message);
       if (res.ok) {
+        setSuccessPopup({
+          action: 'cancel',
+          packageTitle: booking.targetName,
+          timeSlot: readCurrentSlotFragment(booking) || undefined,
+        });
+        setMessage('');
         onUpdated();
         setBooking(null);
         const all = await loadAllInteractions();
-        const next = findBookingsByPhone(all, phone);
-        setResults(next);
+        setResults(findBookingsByPhone(all, phone));
+      } else {
+        setMessage(res.message);
       }
     } finally {
       setBusy(false);
@@ -108,14 +121,22 @@ export const CheckupBookingManageModal: React.FC<Props> = ({
         interactions: all,
         globalClosedDates: closed.closedDates,
       });
-      setMessage(res.message);
       if (res.ok) {
         setRescheduleOpen(false);
+        setSuccessPopup({
+          action: 'reschedule',
+          packageTitle: booking.targetName,
+          timeSlot,
+        });
+        setMessage('');
         onUpdated();
-        const next = findBookingsByPhone(all, phone);
+        const refreshed = await loadAllInteractions();
+        const next = findBookingsByPhone(refreshed, phone);
         setResults(next);
         const updated = next.find((b) => b.id === booking.id);
         setBooking(updated ?? null);
+      } else {
+        setMessage(res.message);
       }
     } finally {
       setBusy(false);
@@ -262,6 +283,15 @@ export const CheckupBookingManageModal: React.FC<Props> = ({
           onClose={() => setRescheduleOpen(false)}
         />
       ) : null}
+
+      <CheckupBookingSuccessModal
+        open={!!successPopup}
+        action={successPopup?.action}
+        packageTitle={successPopup?.packageTitle}
+        timeSlot={successPopup?.timeSlot}
+        stackAboveManage
+        onClose={() => setSuccessPopup(null)}
+      />
     </ModalPortal>
   );
 };

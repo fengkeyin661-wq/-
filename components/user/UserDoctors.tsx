@@ -78,8 +78,8 @@ export const UserDoctors: React.FC<Props> = ({
   const [interactions, setInteractions] = useState<InteractionItem[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<ContentItem | null>(null);
   const [bookingDoctor, setBookingDoctor] = useState<ContentItem | null>(null);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [hospitalDoctorsExpanded, setHospitalDoctorsExpanded] = useState(false);
   const [teamRecommendRole, setTeamRecommendRole] = useState<string | null>(null);
   const [contactOpen, setContactOpen] = useState(false);
   const [pendingBooking, setPendingBooking] = useState<{
@@ -214,22 +214,17 @@ export const UserDoctors: React.FC<Props> = ({
     return doctors.slice(0, 8);
   };
 
-  const filteredResources = useMemo(() => {
-    const q = search.trim();
-    if (!q) return doctors;
-    return doctors.filter(
-      (d) =>
-        d.title.includes(q) ||
-        (d.description || '').includes(q) ||
-        (d.details?.dept || '').includes(q) ||
-        (d.tags || []).join('').includes(q)
-    );
-  }, [doctors, search]);
+  const HOSPITAL_DOCTOR_PREVIEW = 4;
 
   const clinicalDoctors = useMemo(
     () => doctors.filter((d) => !isHealthManagerContent(d)),
     [doctors],
   );
+
+  const visibleHospitalDoctors = useMemo(() => {
+    if (hospitalDoctorsExpanded) return clinicalDoctors;
+    return clinicalDoctors.slice(0, HOSPITAL_DOCTOR_PREVIEW);
+  }, [clinicalDoctors, hospitalDoctorsExpanded]);
 
   const todayDayKey = useMemo(() => {
     const d = new Date().getDay();
@@ -375,7 +370,48 @@ export const UserDoctors: React.FC<Props> = ({
   return (
     <>
     <UserPortalPageShell title="医生" subtitle="预约门诊；在线咨询请前往「消息」">
-      <UserHotlineCompact />
+      <UserHotlineCompact label="健康服务热线" />
+
+      <UserPortalSection title="医院医生">
+        {loading ? (
+          <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-slate-400">加载中...</div>
+        ) : clinicalDoctors.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-400">
+            暂无医院医生信息
+          </div>
+        ) : (
+          <div className="space-y-2 rounded-2xl border border-slate-100 bg-white p-2">
+            {visibleHospitalDoctors.map((doc) => (
+              <button
+                type="button"
+                key={`res-${doc.id}`}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3 text-left active:scale-[0.99] hover:border-blue-200 hover:bg-blue-50/40"
+                onClick={() => setSelectedDoctor(doc)}
+              >
+                {avatar(doc)}
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-slate-800">{doc.title}</div>
+                  <div className="truncate text-xs text-slate-500">
+                    {doc.details?.dept} · {doc.details?.title}
+                  </div>
+                </div>
+                <span className="text-slate-300">›</span>
+              </button>
+            ))}
+            {clinicalDoctors.length > HOSPITAL_DOCTOR_PREVIEW ? (
+              <button
+                type="button"
+                onClick={() => setHospitalDoctorsExpanded((v) => !v)}
+                className="w-full py-2.5 text-center text-xs font-bold text-teal-700"
+              >
+                {hospitalDoctorsExpanded
+                  ? '收起医生列表'
+                  : `查看全部医生（${clinicalDoctors.length}）`}
+              </button>
+            ) : null}
+          </div>
+        )}
+      </UserPortalSection>
 
       <UserPortalSection title="排班">
         <div className="overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
@@ -500,36 +536,6 @@ export const UserDoctors: React.FC<Props> = ({
             </button>
           ) : null}
         </div>
-      </UserPortalSection>
-
-      <UserPortalSection title="医院医生">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="搜索科室/医生名称"
-          className="mb-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500"
-        />
-        {loading ? (
-          <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-slate-400">加载中...</div>
-        ) : (
-          <div className="space-y-2">
-            {filteredResources.map((doc) => (
-              <button
-                type="button"
-                key={`res-${doc.id}`}
-                className="flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 text-left active:scale-[0.99]"
-                onClick={() => setSelectedDoctor(doc)}
-              >
-                {avatar(doc)}
-                <div className="min-w-0 flex-1">
-                  <div className="font-bold text-slate-800">{doc.title}</div>
-                  <div className="truncate text-xs text-slate-500">{doc.details?.dept} · {doc.details?.title}</div>
-                </div>
-                <span className="text-slate-300">›</span>
-              </button>
-            ))}
-          </div>
-        )}
       </UserPortalSection>
     </UserPortalPageShell>
 

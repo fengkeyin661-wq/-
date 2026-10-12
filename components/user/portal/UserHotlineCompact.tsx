@@ -6,14 +6,19 @@ import {
 
 interface Props {
   className?: string;
+  /** 默认「健康管理服务电话」；医生页等可改为「健康服务热线」 */
+  label?: string;
 }
 
-export const UserHotlineCompact: React.FC<Props> = ({ className = '' }) => (
+export const UserHotlineCompact: React.FC<Props> = ({
+  className = '',
+  label = '健康管理服务电话',
+}) => (
   <div
     className={`flex items-center justify-between gap-2 rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 ${className}`}
   >
     <div className="min-w-0">
-      <div className="text-[10px] font-bold text-teal-800">健康管理服务电话</div>
+      <div className="text-[10px] font-bold text-teal-800">{label}</div>
       <a href={HEALTH_MANAGEMENT_HOTLINE_TEL} className="text-sm font-black text-teal-900">
         {HEALTH_MANAGEMENT_HOTLINE}
       </a>
