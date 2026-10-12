@@ -71,14 +71,21 @@ export const CheckupChatBot: React.FC<Props> = ({ packages, portalGuide }) => {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 active:scale-[0.99]"
-      >
-        <span aria-hidden>🤖</span>
-        体检问答助手
-      </button>
+      <ModalPortal lockScroll={false}>
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+12px)] z-[50]">
+          <div className="mx-auto flex w-full max-w-md justify-end px-4">
+            <button
+              type="button"
+              aria-label="体检问答助手"
+              title="体检问答助手"
+              onClick={() => setOpen(true)}
+              className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-xl text-white shadow-[0_6px_20px_rgba(5,150,105,0.4)] ring-2 ring-white/90 transition-transform hover:from-emerald-600 hover:to-teal-700 active:scale-95"
+            >
+              <span aria-hidden>🤖</span>
+            </button>
+          </div>
+        </div>
+      </ModalPortal>
 
       {open && (
         <ModalPortal>

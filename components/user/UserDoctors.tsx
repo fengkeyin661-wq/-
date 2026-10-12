@@ -17,6 +17,11 @@ import { BookingContactModal } from './BookingContactModal';
 import { ModalPortal } from './ModalPortal';
 import { UserPortalPageShell, UserPortalSection } from './portal/UserPortalPageShell';
 import { UserHotlineCompact } from './portal/UserHotlineCompact';
+import {
+  doctorsMatchingTeamRole,
+  primaryDoctorForTeamRole,
+  type HealthTeamRoleId,
+} from '../../services/healthTeamRole';
 
 interface Props {
   userId?: string;
@@ -167,51 +172,26 @@ export const UserDoctors: React.FC<Props> = ({
   const signedDoctorIdSet = useMemo(() => new Set(signedInteractions.map((i) => i.targetId)), [signedInteractions]);
 
   const managerResources = useMemo(() => doctors.filter(isHealthManagerContent), [doctors]);
-  const teamCards = useMemo(() => {
-    const textOf = (d: ContentItem) =>
-      `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
-    const isNutrition = (d: ContentItem) => textOf(d).includes('营养');
-    const isSport = (d: ContentItem) => textOf(d).includes('运动') || textOf(d).includes('康复');
-    const manager = managerResources[0] || null;
-    const nutrition = doctors.find((d) => !isHealthManagerContent(d) && isNutrition(d)) || null;
-    const sport = doctors.find(
-      (d) => !isHealthManagerContent(d) && !isNutrition(d) && isSport(d)
-    ) || null;
-    const clinician = doctors.find(
-      (d) => !isHealthManagerContent(d) && !isNutrition(d) && !isSport(d)
-    ) || null;
-    return [
-      { role: '健康管家', item: manager, tone: 'bg-amber-50 border-amber-200 text-amber-700' },
-      { role: '营养师', item: nutrition, tone: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-      { role: '运动教练', item: sport, tone: 'bg-orange-50 border-orange-200 text-orange-700' },
-      { role: '临床医生', item: clinician, tone: 'bg-blue-50 border-blue-200 text-blue-700' },
-    ];
-  }, [doctors, managerResources]);
+  const TEAM_CARD_META: { role: string; roleId: HealthTeamRoleId; tone: string }[] = [
+    { role: '健康管家', roleId: 'health_manager', tone: 'bg-amber-50 border-amber-200 text-amber-700' },
+    { role: '营养师', roleId: 'nutritionist', tone: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+    { role: '运动教练', roleId: 'sport_coach', tone: 'bg-orange-50 border-orange-200 text-orange-700' },
+    { role: '临床医生', roleId: 'clinical', tone: 'bg-blue-50 border-blue-200 text-blue-700' },
+  ];
+
+  const teamCards = useMemo(
+    () =>
+      TEAM_CARD_META.map((meta) => ({
+        ...meta,
+        item: primaryDoctorForTeamRole(doctors, meta.roleId),
+      })),
+    [doctors],
+  );
+
   const recommendByRole = (role: string): ContentItem[] => {
-    const textOf = (d: ContentItem) =>
-      `${d.title}${d.description || ''}${d.details?.title || ''}${d.details?.dept || ''}${(d.tags || []).join('')}`;
-    const isNutrition = (d: ContentItem) => textOf(d).includes('营养');
-    const isSport = (d: ContentItem) => textOf(d).includes('运动') || textOf(d).includes('康复');
-    if (role === '健康管家') {
-      return managerResources.length ? managerResources : doctors.slice(0, 8);
-    }
-    if (role === '营养师') {
-      const list = doctors.filter((d) => !isHealthManagerContent(d) && isNutrition(d));
-      return list.length ? list : doctors.slice(0, 8);
-    }
-    if (role === '运动教练') {
-      const list = doctors.filter(
-        (d) => !isHealthManagerContent(d) && !isNutrition(d) && isSport(d)
-      );
-      return list.length ? list : doctors.slice(0, 8);
-    }
-    if (role === '临床医生') {
-      const list = doctors.filter(
-        (d) => !isHealthManagerContent(d) && !isNutrition(d) && !isSport(d)
-      );
-      return list.length ? list : doctors.slice(0, 8);
-    }
-    return doctors.slice(0, 8);
+    const meta = TEAM_CARD_META.find((m) => m.role === role);
+    if (!meta) return [];
+    return doctorsMatchingTeamRole(doctors, meta.roleId);
   };
 
   const HOSPITAL_DOCTOR_PREVIEW = 4;
@@ -613,8 +593,15 @@ export const UserDoctors: React.FC<Props> = ({
                 ×
               </button>
             </div>
-            <p className="text-xs text-slate-500">点击列表可查看详情并发起签约。</p>
+            <p className="text-xs text-slate-500">仅展示运营台标记为该角色的医生，点击可查看详情并发起签约。</p>
             <div className="space-y-2">
+              {recommendByRole(teamRecommendRole).length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">
+                  暂无「{teamRecommendRole}」可签约对象
+                  <br />
+                  <span className="text-xs">请在资源运营台为对应人员设置「健康管理团队角色」</span>
+                </div>
+              ) : null}
               {recommendByRole(teamRecommendRole).map((doc) => (
                 <button
                   type="button"

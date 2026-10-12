@@ -10,6 +10,7 @@ import { CheckupBookingAdminPanel } from './CheckupBookingAdminPanel';
 import { CheckupFeedbackAdminPanel } from './CheckupFeedbackAdminPanel';
 import { AuditCollapsibleSection } from './admin/AuditCollapsibleSection';
 import { isCheckupBooking } from '../services/bookingContact';
+import { HEALTH_TEAM_ROLE_OPTIONS } from '../services/healthTeamRole';
 import { openCheckupBookingDashboard } from '../services/checkupBookingDashboardRoute';
 import { calculateNutritionFromIngredients } from '../services/geminiService';
 import { getSupabaseEnvDiagnostics } from '../services/supabaseClient';
@@ -2905,7 +2906,50 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                         <InputField label="登录密码" placeholder="设置初始密码" type="text" value={editItem.details?.password} onChange={(v:any) => updateDetail('password', v)} />
                                     </FormSection>
 
-                                    <FormSection title="健康管家">
+                                    <FormSection title="健康管理团队（用户端「医生」页）">
+                                        <LabeledSelectField
+                                            label="团队角色"
+                                            value={
+                                                editItem.details?.role === 'health_manager'
+                                                    ? 'health_manager'
+                                                    : editItem.details?.healthTeamRole || 'clinical'
+                                            }
+                                            onChange={(v: string) => {
+                                                if (v === 'health_manager') {
+                                                    const tags = [...(editItem.tags || [])];
+                                                    const hasTag = tags.some((t) => String(t).includes('健康管家'));
+                                                    setEditItem({
+                                                        ...editItem,
+                                                        tags: hasTag ? tags : [...tags, '健康管家'],
+                                                        details: {
+                                                            ...editItem.details,
+                                                            role: 'health_manager',
+                                                            healthTeamRole: undefined,
+                                                        },
+                                                    });
+                                                    return;
+                                                }
+                                                const tags = (editItem.tags || []).filter(
+                                                    (t) => !String(t).includes('健康管家'),
+                                                );
+                                                setEditItem({
+                                                    ...editItem,
+                                                    tags,
+                                                    details: {
+                                                        ...editItem.details,
+                                                        role: undefined,
+                                                        healthTeamRole: v,
+                                                    },
+                                                });
+                                            }}
+                                            options={HEALTH_TEAM_ROLE_OPTIONS.map((o) => ({
+                                                value: o.id,
+                                                label: o.label,
+                                            }))}
+                                        />
+                                        <p className="col-span-2 text-[11px] text-slate-500 leading-relaxed">
+                                            「营养师 / 运动教练 / 临床医生」决定待签约列表归属；选「健康管家」等同下方勾选，且仅展示在健康管家列表。
+                                        </p>
                                         <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
                                             <input
                                                 type="checkbox"
@@ -2927,6 +2971,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                                                         details: {
                                                             ...editItem.details,
                                                             role: on ? 'health_manager' : undefined,
+                                                            healthTeamRole: on ? undefined : editItem.details?.healthTeamRole || 'clinical',
                                                         },
                                                     });
                                                 }}

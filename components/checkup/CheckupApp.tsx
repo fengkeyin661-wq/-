@@ -235,7 +235,7 @@ export const CheckupApp: React.FC = () => {
           />
         )}
 
-        <footer className="px-4 pb-28 pt-2 text-center text-xs text-slate-400 space-y-2">
+        <footer className="px-4 pt-2 text-center text-xs text-slate-400 space-y-2">
           {activeKind === 'group'
             ? '团体体检请致电咨询 · 时间另行协商'
             : '访客预约 · 填写姓名与手机号即可提交，无需登录'}
@@ -249,14 +249,13 @@ export const CheckupApp: React.FC = () => {
             </button>
           </div>
         </footer>
-      </main>
 
-      <div className="shrink-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur-md px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-[0_-4px_20px_rgba(15,23,42,0.08)]">
-        <div className="space-y-2">
-          <CheckupChatBot packages={sortedPackages} portalGuide={portalGuide} />
+        <div className="mt-4 border-t border-slate-100 px-4 pb-[calc(env(safe-area-inset-bottom)+4.5rem)] pt-4">
           <CheckupFeedbackPanel />
         </div>
-      </div>
+      </main>
+
+      <CheckupChatBot packages={sortedPackages} portalGuide={portalGuide} />
 
       {selectedPackage && (
         <CheckupPackageDetail
