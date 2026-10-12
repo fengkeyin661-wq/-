@@ -27,7 +27,10 @@ const todayKey = () => new Date().toISOString().slice(0, 10);
 export const CheckupBookingAdminPanel: React.FC<{
   title?: string;
   compact?: boolean;
-}> = ({ title = '体检预约情况汇总', compact = false }) => {
+  /** 外层 AuditCollapsibleSection 已展示标题时隐藏本面板标题 */
+  hideTitle?: boolean;
+  onInteractionsChanged?: () => void;
+}> = ({ title = '体检预约情况汇总', compact = false, hideTitle = false, onInteractionsChanged }) => {
   const [rows, setRows] = useState<InteractionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>('all');
@@ -94,6 +97,7 @@ export const CheckupBookingAdminPanel: React.FC<{
       return next;
     });
     await load();
+    onInteractionsChanged?.();
   };
 
   const toggleSelect = (id: string) => {
@@ -137,6 +141,7 @@ export const CheckupBookingAdminPanel: React.FC<{
       setSelectedIds(new Set());
       setSelected(null);
       await load();
+      onInteractionsChanged?.();
       alert(`已批量${actionLabel} ${ids.length} 条预约`);
     } catch {
       alert('批量操作失败，请重试');
@@ -154,8 +159,14 @@ export const CheckupBookingAdminPanel: React.FC<{
     <div className={compact ? '' : 'h-full overflow-y-auto p-6'}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-slate-800">{title}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">点击预约人姓名可查看联系电话。来自体检预约站与用户端体检套餐。</p>
+          {!hideTitle ? (
+            <>
+              <h3 className="text-lg font-bold text-slate-800">{title}</h3>
+              <p className="mt-0.5 text-xs text-slate-500">点击预约人姓名可查看联系电话。来自体检预约站与用户端体检套餐。</p>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500">点击预约人姓名可查看联系电话。来自体检预约站与用户端体检套餐。</p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <button

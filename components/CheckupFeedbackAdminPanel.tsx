@@ -10,7 +10,11 @@ import {
   parseCheckupFeedbackContact,
 } from '../services/checkupFeedback';
 
-export const CheckupFeedbackAdminPanel: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+export const CheckupFeedbackAdminPanel: React.FC<{
+  compact?: boolean;
+  hideTitle?: boolean;
+  onInteractionsChanged?: () => void;
+}> = ({ compact = false, hideTitle = false, onInteractionsChanged }) => {
   const [rows, setRows] = useState<InteractionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'pending' | 'all'>('pending');
@@ -39,14 +43,21 @@ export const CheckupFeedbackAdminPanel: React.FC<{ compact?: boolean }> = ({ com
   const markDone = async (id: string) => {
     await updateInteractionStatus(id, 'completed');
     await load();
+    onInteractionsChanged?.();
   };
 
   return (
     <div className={compact ? '' : 'p-6'}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-bold text-slate-800">体检预约意见反馈</h3>
-          <p className="mt-0.5 text-xs text-slate-500">来自体检预约站用户端底部反馈栏</p>
+          {!hideTitle ? (
+            <>
+              <h3 className="text-lg font-bold text-slate-800">体检预约意见反馈</h3>
+              <p className="mt-0.5 text-xs text-slate-500">来自体检预约站用户端底部反馈栏</p>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500">来自体检预约站用户端底部反馈栏</p>
+          )}
         </div>
         <button type="button" onClick={() => void load()} className="text-xs font-bold text-teal-700">
           {loading ? '刷新中…' : '刷新'}

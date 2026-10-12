@@ -8,6 +8,8 @@ import {
 } from '../services/contentService';
 import { CheckupBookingAdminPanel } from './CheckupBookingAdminPanel';
 import { CheckupFeedbackAdminPanel } from './CheckupFeedbackAdminPanel';
+import { AuditCollapsibleSection } from './admin/AuditCollapsibleSection';
+import { isCheckupBooking } from '../services/bookingContact';
 import { openCheckupBookingDashboard } from '../services/checkupBookingDashboardRoute';
 import { calculateNutritionFromIngredients } from '../services/geminiService';
 import { getSupabaseEnvDiagnostics } from '../services/supabaseClient';
@@ -380,7 +382,7 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
             if (activeTab === 'audit' || (activeTab === 'event' && eventSubTab === 'list')) {
                 const inters = await fetchInteractions();
                 // Filter what admin needs to see
-                const adminTypes = ['event_signup', 'circle_join', 'service_booking'];
+                const adminTypes = ['event_signup', 'circle_join', 'service_booking', 'checkup_feedback'];
                 setInteractions(inters.filter(i => adminTypes.includes(i.type)));
             } else {
                 setInteractions([]);
@@ -396,6 +398,32 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
         await updateInteractionStatus(id, status);
         loadData();
     };
+
+    const auditCheckupBookingPending = useMemo(
+        () =>
+            interactions.filter(
+                (i) => i.type === 'service_booking' && isCheckupBooking(i) && i.status === 'pending',
+            ).length,
+        [interactions],
+    );
+
+    const auditCheckupFeedbackPending = useMemo(
+        () => interactions.filter((i) => i.type === 'checkup_feedback' && i.status === 'pending').length,
+        [interactions],
+    );
+
+    const auditOtherPending = useMemo(
+        () =>
+            interactions.filter((i) => {
+                const d = String(i.details || '');
+                if (i.type === 'checkup_feedback') return false;
+                if (i.type === 'service_booking' && (d.includes('体检套餐预约') || d.includes('体检预约'))) {
+                    return false;
+                }
+                return i.status === 'pending';
+            }).length,
+        [interactions],
+    );
 
     const handleDeleteContent = async (id: string) => {
         if(confirm('确定删除此资源吗?')) {
@@ -1755,22 +1783,42 @@ export const ResourceAdmin: React.FC<Props> = ({ onLogout }) => {
                 <main className="flex-1 min-h-0 p-8 overflow-y-auto">
                     {activeTab === 'audit' ? (
                         <div className="space-y-6">
-                            <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                                <CheckupBookingAdminPanel title="体检预约情况汇总" compact />
-                            </section>
-                            <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                                <CheckupFeedbackAdminPanel compact />
-                            </section>
-                            <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                            <h3 className="text-lg font-bold text-slate-700 mb-4 border-l-4 border-teal-500 pl-3">
-                                其他待审核申请（活动 / 圈子 / 普通服务）
-                            </h3>
-                            {renderInteractionTable(interactions.filter((i) => {
-                                const d = String(i.details || '');
-                                if (i.type === 'checkup_feedback') return false;
-                                return !(i.type === 'service_booking' && (d.includes('体检套餐预约') || d.includes('体检预约')));
-                            }))}
-                            </section>
+                            <AuditCollapsibleSection
+                                title="体检预约情况汇总"
+                                subtitle="确认或拒绝后，若无待确认项将自动折叠"
+                                pendingCount={auditCheckupBookingPending}
+                                accentClass="border-emerald-500"
+                            >
+                                <CheckupBookingAdminPanel
+                                    compact
+                                    hideTitle
+                                    onInteractionsChanged={loadData}
+                                />
+                            </AuditCollapsibleSection>
+                            <AuditCollapsibleSection
+                                title="体检预约意见反馈"
+                                subtitle="标记已处理后，若无待办将自动折叠"
+                                pendingCount={auditCheckupFeedbackPending}
+                                accentClass="border-sky-500"
+                            >
+                                <CheckupFeedbackAdminPanel
+                                    compact
+                                    hideTitle
+                                    onInteractionsChanged={loadData}
+                                />
+                            </AuditCollapsibleSection>
+                            <AuditCollapsibleSection
+                                title="其他待审核申请（活动 / 圈子 / 普通服务）"
+                                subtitle="通过或拒绝后，若无待审核将自动折叠"
+                                pendingCount={auditOtherPending}
+                                accentClass="border-teal-500"
+                            >
+                                {renderInteractionTable(interactions.filter((i) => {
+                                    const d = String(i.details || '');
+                                    if (i.type === 'checkup_feedback') return false;
+                                    return !(i.type === 'service_booking' && (d.includes('体检套餐预约') || d.includes('体检预约')));
+                                }))}
+                            </AuditCollapsibleSection>
                         </div>
                     ) : (
                         <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col min-h-0">
