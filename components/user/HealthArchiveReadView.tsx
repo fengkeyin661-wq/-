@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { HealthRecord } from '../../types';
 import { ensureHealthRecordShape } from '../../services/healthRecordDefaults';
+import { XlmsExamPanels } from './XlmsExamPanels';
 
 const fmt = (v: unknown, unit?: string): string => {
   if (v == null || v === '') return '-';
@@ -151,7 +152,9 @@ export const HealthArchiveReadView: React.FC<Props> = ({ record: raw }) => {
     hasAny(...Object.values(opt.tumorMarkers4 || {})) ||
     hasAny(...Object.values(opt.tumorMarkers2 || {}));
 
-  if (!showBasics && !showBodyComp && !showLab && !showImaging && !showOptional) {
+  const showFullExam = (record.xlmsExams?.length ?? 0) > 0;
+
+  if (!showBasics && !showBodyComp && !showLab && !showImaging && !showOptional && !showFullExam) {
     return (
       <div className="rounded-xl border border-slate-100 bg-white p-6 text-center text-sm text-slate-400">
         暂无详细体检指标，请联系健康管家完善档案。
@@ -161,6 +164,7 @@ export const HealthArchiveReadView: React.FC<Props> = ({ record: raw }) => {
 
   return (
     <div className="space-y-3">
+      {showFullExam && <XlmsExamPanels exams={record.xlmsExams} />}
       {showBasics && (
         <Section title="基础体征" defaultOpen>
           <Grid

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
 import { ensureHealthRecordShape } from '../services/healthRecordDefaults';
+import { XlmsExamPanels } from './user/XlmsExamPanels';
 
 // @ts-ignore
 import * as mammoth from 'mammoth';
@@ -28,7 +29,7 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
   const [isEditing, setIsEditing] = useState(false);
   
   const [activeTab, setActiveTab] = useState<'profile' | 'clinical' | 'questionnaire'>('profile');
-  const [clinicalSubTab, setClinicalSubTab] = useState<'lab' | 'imaging' | 'optional'>('lab');
+  const [clinicalSubTab, setClinicalSubTab] = useState<'lab' | 'imaging' | 'optional' | 'source'>('lab');
   const [surveySubTab, setSurveySubTab] = useState<'history' | 'lifestyle' | 'mental'>('history');
 
   // Configure PDF Worker with Blob approach to avoid Cross-Origin issues
@@ -77,6 +78,8 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
         setRawText('');
     }
     setIsEditing(false);
+    setActiveTab(initialData?.xlmsExams?.length ? 'clinical' : 'profile');
+    setClinicalSubTab(initialData?.xlmsExams?.length ? 'source' : 'lab');
   }, [initialData]);
 
   const handleParse = async () => {
@@ -412,7 +415,12 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
             {activeTab === 'clinical' && (
                 <div>
                     <div className="flex border-b border-slate-200 mb-6">
-                        {[{id:'lab', label:'实验室检查'}, {id:'imaging', label:'影像/功能检查'}, {id:'optional', label:'自选项目'}].map(st => (
+                        {[
+                            ...(data.xlmsExams?.length ? [{id:'source', label:'全部结果'}] : []),
+                            {id:'lab', label:'实验室检查'},
+                            {id:'imaging', label:'影像/功能检查'},
+                            {id:'optional', label:'自选项目'},
+                        ].map(st => (
                             <button
                                 key={st.id}
                                 onClick={() => setClinicalSubTab(st.id as any)}
@@ -425,6 +433,9 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
                         ))}
                     </div>
 
+                    {clinicalSubTab === 'source' && (
+                        <XlmsExamPanels exams={data.xlmsExams} />
+                    )}
                     {clinicalSubTab === 'lab' && (
                         <div className="space-y-6">
                             <Section 
