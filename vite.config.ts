@@ -12,6 +12,48 @@ function readRequestBody(req: import('http').IncomingMessage): Promise<string> {
   });
 }
 
+function xlmsIngestDevPlugin(): Plugin {
+  return {
+    name: 'xlms-ingest-dev',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const pathname = (req.url || '').split('?')[0];
+        if (pathname !== '/api/xlms/ingest' || req.method !== 'POST') {
+          next();
+          return;
+        }
+        try {
+          const address = server.httpServer?.address();
+          const port = address && typeof address === 'object' ? address.port : 5173;
+          (globalThis as { __HEALTH_GUARD_ORIGIN?: string }).__HEALTH_GUARD_ORIGIN = `http://127.0.0.1:${port}`;
+          const bodyText = await readRequestBody(req);
+          if (!bodyText || bodyText.length > 200_000) {
+            res.statusCode = 413;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ success: false, ok: false, message: '请求过大' }));
+            return;
+          }
+          const mod = await server.ssrLoadModule('/services/xlmsIngest.ts');
+          const result = await mod.ingestStructuredVisit(JSON.parse(bodyText));
+          res.statusCode = Number(result.httpStatus) || 400;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify(result));
+        } catch (error) {
+          console.error('[xlms ingest]', error);
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({
+            success: false,
+            ok: false,
+            message: error instanceof Error ? error.message : '同步失败',
+          }));
+        }
+      });
+    },
+  };
+}
+
 function deepseekApiDevPlugin(env: Record<string, string>): Plugin {
   return {
     name: 'deepseek-api-dev',
@@ -65,7 +107,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
-    plugins: [react(), deepseekApiDevPlugin(env)],
+    plugins: [react(), deepseekApiDevPlugin(env), xlmsIngestDevPlugin()],
     server: {
       proxy: {
         '/api/baichuan': {

@@ -15,10 +15,13 @@ import { RiskLevel } from '../types';
 import { parseExamDateToIso, shouldApplyReportToSnapshot, compareExamDates } from './examDateUtils';
 import { resolveExamDateIso } from './examDateExtract';
 import {
+  formatCheckupId,
   isValidCheckupId,
   normalizeCheckupId,
   resolveCheckupIdFromReport,
 } from './checkupIdUtils';
+import { ensureHealthRecordShape } from './healthRecordDefaults';
+import { isSupabaseConfigured } from './supabaseClient';
 import { observationsFromHealthRecord } from './observationMapper';
 import { upsertObservations } from './observationService';
 import { recomputeArchive } from './recomputeArchiveService';
@@ -548,6 +551,108 @@ export const listExamDatesForArchive = async (checkupId: string): Promise<string
     dates.add(archive.health_record.profile.checkupDate.slice(0, 10));
   }
   return Array.from(dates).sort((a, b) => a.localeCompare(b));
+};
+
+const NOT_CONNECTED = '检后数据库还没连上。请在检后系统 .env 填写 VITE_SUPABASE_URL 和 VITE_SUPABASE_ANON_KEY。';
+
+const fillQuestionnaire = (questionnaire: HealthRecord['questionnaire'] | undefined): HealthRecord['questionnaire'] => {
+  const current = questionnaire || ({} as HealthRecord['questionnaire']);
+  const history = current.history || { diseases: [], details: {} };
+  const medication = current.medication || { isRegular: '', details: {} };
+  const substances = current.substances || { smoking: { status: '未记录' } };
+  return {
+    ...current,
+    history: {
+      ...history,
+      diseases: history.diseases || [],
+      details: history.details || {},
+    },
+    femaleHealth: current.femaleHealth || {},
+    familyHistory: current.familyHistory || {},
+    medication: {
+      ...medication,
+      isRegular: medication.isRegular || '',
+      details: medication.details || {},
+    },
+    diet: { ...(current.diet || {}), habits: current.diet?.habits || [] },
+    substances: {
+      ...substances,
+      smoking: { status: '未记录', ...(substances.smoking || {}) },
+    },
+    respiratory: current.respiratory || {},
+  } as HealthRecord['questionnaire'];
+};
+
+/** 院内体检库已总检记录：跳过 PDF，直接入库并走现有评估 */
+export const importStructuredCheckup = async (input: {
+  checkupId?: string;
+  tjcs?: string | number;
+  examDate?: string;
+  record?: HealthRecord;
+}): Promise<CheckupImportResult> => {
+  if (!isSupabaseConfigured()) {
+    return { success: false, message: NOT_CONNECTED };
+  }
+
+  const checkupId = formatCheckupId(input.checkupId);
+  if (!isValidCheckupId(checkupId)) {
+    return { success: false, message: '体检编号须为 6 位数字' };
+  }
+
+  const examIso = parseExamDateToIso(input.examDate || '');
+  if (!examIso) {
+    return { success: false, checkupId, message: '检查日期无效' };
+  }
+  if (!input.record?.profile) {
+    return { success: false, checkupId, message: '缺少体检记录' };
+  }
+
+  const parsed = ensureHealthRecordShape({
+    ...input.record,
+    profile: {
+      ...input.record.profile,
+      checkupId,
+      checkupDate: examIso.slice(0, 10),
+    },
+  });
+  delete parsed.profile.phone;
+  parsed.questionnaire = fillQuestionnaire(parsed.questionnaire);
+  parsed.checkup.abnormalities = parsed.checkup.abnormalities || [];
+
+  const sourceName = `xlms:${checkupId}:${input.tjcs ?? ''}`;
+  let archive = await findArchiveByCheckupId(checkupId);
+  if (!archive) {
+    const assessment = await generateHealthAssessment(parsed);
+    const schedule = generateFollowUpSchedule(assessment);
+    const portraits = generateSystemPortraits(parsed);
+    const models = evaluateRiskModels(parsed);
+    const saveRes = await saveArchive(parsed, assessment, schedule, [], { portraits, models }, {
+      completeProfileOnSave: true,
+    });
+    if (!saveRes.success) {
+      return { success: false, checkupId, message: saveRes.message || '自动建档失败' };
+    }
+    void ensureAndPersistCriticalTrack(checkupId);
+    archive = await findArchiveByCheckupId(checkupId);
+  }
+
+  const obsResult = await importCheckupReportObservations(checkupId, parsed, {
+    examDateIso: examIso,
+    fileName: sourceName,
+  });
+  if (!obsResult.success) return obsResult;
+
+  const fin = await finalizeCheckupImportBatch(checkupId, [examIso.slice(0, 10)]);
+  const snapshotNote = obsResult.appliedToSnapshot ? '已更新当前档案快照' : '本次结果已写入趋势';
+  return {
+    ...fin,
+    examDate: examIso.slice(0, 10),
+    appliedToSnapshot: obsResult.appliedToSnapshot,
+    observationCount: obsResult.observationCount,
+    message: fin.success
+      ? `体检编号 ${checkupId} · ${examIso.slice(0, 10)}：${snapshotNote}。${fin.message || ''}`
+      : fin.message,
+  };
 };
 
 export const sortArchivesByExamDate = <T extends { health_record?: HealthRecord; updated_at?: string }>(

@@ -4,6 +4,12 @@ export const DEEPSEEK_MODEL = 'deepseek-flash';
 export const DEEPSEEK_CHAT_COMPLETIONS_URL = '/api/deepseek/chat/completions';
 export const DEEPSEEK_STATUS_URL = '/api/deepseek/status';
 
+function apiUrl(path: string): string {
+  const origin = (globalThis as { __HEALTH_GUARD_ORIGIN?: string }).__HEALTH_GUARD_ORIGIN || '';
+  if (origin && path.startsWith('/')) return `${origin.replace(/\/$/, '')}${path}`;
+  return path;
+}
+
 export type DeepSeekChatPayload = {
   model?: string;
   messages: { role: string; content: string }[];
@@ -18,7 +24,7 @@ let configuredCache: boolean | null = null;
 export async function fetchDeepSeekConfigured(force = false): Promise<boolean> {
   if (!force && configuredCache !== null) return configuredCache;
   try {
-    const resp = await fetch(DEEPSEEK_STATUS_URL, { cache: 'no-store' });
+    const resp = await fetch(apiUrl(DEEPSEEK_STATUS_URL), { cache: 'no-store' });
     if (!resp.ok) {
       configuredCache = false;
       return false;
@@ -33,7 +39,7 @@ export async function fetchDeepSeekConfigured(force = false): Promise<boolean> {
 }
 
 export async function postDeepSeekChatCompletions(payload: DeepSeekChatPayload): Promise<unknown> {
-  const resp = await fetch(DEEPSEEK_CHAT_COMPLETIONS_URL, {
+  const resp = await fetch(apiUrl(DEEPSEEK_CHAT_COMPLETIONS_URL), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
