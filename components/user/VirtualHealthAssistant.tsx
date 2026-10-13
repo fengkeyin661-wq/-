@@ -1,5 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { HealthAssessment, HealthRecord } from '../../types';
+import {
+  DEEPSEEK_MODEL,
+  extractDeepSeekAssistantText,
+  fetchDeepSeekConfigured,
+  postDeepSeekChatCompletions,
+} from '../../services/deepseekProxyClient';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -13,39 +19,14 @@ interface Props {
   assessment?: HealthAssessment;
 }
 
-// Helper to safely read env in Vite/browser
-const getDeepSeekApiKey = (): string => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta && (import.meta as any).env) {
-      // @ts-ignore
-      return (import.meta as any).env.VITE_DEEPSEEK_API_KEY || '';
-    }
-  } catch (e) {
-    console.warn('Cannot read import.meta.env in current environment');
-  }
-  return '';
-};
-
-const DEEPSEEK_API_KEY = getDeepSeekApiKey();
-
-// Use proxy in development, direct URL in production
-const isDev = (() => {
-  try {
-    // @ts-ignore
-    return !!import.meta.env.DEV;
-  } catch {
-    return false;
-  }
-})();
-
-const DEEPSEEK_API_URL = isDev
-  ? '/api/deepseek/chat/completions'
-  : 'https://api.deepseek.com/chat/completions';
-const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const DEFAULT_OVERVIEW_QUESTION = '请根据我的健康档案，给我一份“档案总览建议”，按今天、本周、本月分别给出可执行计划。';
 
 export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = false, record, assessment }) => {
+  const [aiConfigured, setAiConfigured] = useState(false);
+
+  useEffect(() => {
+    void fetchDeepSeekConfigured().then(setAiConfigured);
+  }, []);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -104,9 +85,8 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
 
     setIsLoading(true);
     try {
-      if (!DEEPSEEK_API_KEY) {
-        const errorMsg = '未配置 DeepSeek API 密钥，请在环境变量中设置 VITE_DEEPSEEK_API_KEY';
-        console.error(errorMsg);
+      if (!aiConfigured) {
+        const errorMsg = '智能问答暂未开通，请联系管理员在服务端配置 DEEPSEEK_API_KEY 后重新部署';
         setError(errorMsg);
         setIsLoading(false);
         return;
@@ -140,36 +120,10 @@ export const VirtualHealthAssistant: React.FC<Props> = ({ userName, fullPage = f
         temperature: 0.3,
       };
 
-      console.log('[DeepSeek] Calling API:', DEEPSEEK_API_URL);
-      console.log('[DeepSeek] Payload:', JSON.stringify(payload, null, 2));
+      const data = await postDeepSeekChatCompletions(payload);
 
-      const resp = await fetch(DEEPSEEK_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      console.log('[DeepSeek] Response status:', resp.status, resp.statusText);
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        console.error('[DeepSeek] Error response:', text);
-        throw new Error(`DeepSeek 接口返回错误：${resp.status} ${resp.statusText} - ${text.slice(0, 200)}`);
-      }
-
-      const data = await resp.json();
-      console.log('[DeepSeek] Response data:', data);
-
-      // DeepSeek 响应格式：{ choices: [{ message: { content: "..." } }] }
       const assistantContent =
-        data?.choices?.[0]?.message?.content ||
-        data?.data?.choices?.[0]?.message?.content ||
-        data?.reply ||
-        data?.message ||
-        data?.content ||
+        extractDeepSeekAssistantText(data) ||
         '抱歉，暂时没有获取到明确的回复，请稍后再试或联系线下医生。';
 
       setMessages((prev) => [...prev, { role: 'assistant', content: String(assistantContent) }]);

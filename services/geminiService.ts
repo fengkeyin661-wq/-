@@ -19,102 +19,34 @@ import {
   normalizeLipidScreeningRecord,
 } from './lipidFieldMapping';
 
-// Helper to safely access environment variables
-const getEnvVar = (key: string): string => {
-  let val = '';
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta && import.meta.env) {
-      // @ts-ignore
-      val = import.meta.env[key];
-    }
-  } catch (e) {}
+import {
+  extractDeepSeekAssistantText,
+  fetchDeepSeekConfigured,
+  postDeepSeekChatCompletions,
+} from './deepseekProxyClient';
 
-  if (val) return val;
-
-  try {
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process && process.env) {
-      // @ts-ignore
-      val = process.env[key];
-    }
-  } catch (e) {}
-
-  return val || '';
-};
-
-// Determine environment
-const isDev = (() => {
-    try {
-        // @ts-ignore
-        return !!import.meta.env.DEV;
-    } catch {
-        return false;
-    }
-})();
-
-// DeepSeek API Configuration（固定 Flash，不使用 Pro 以节省费用）
-const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
-const DEEPSEEK_MODEL = 'deepseek-v4-flash';
-
-// PROXY STRATEGY:
-const PROXY_URL = "/api/deepseek/chat/completions";
-const DIRECT_URL = "https://api.deepseek.com/chat/completions";
-
-const API_URL = isDev ? PROXY_URL : DIRECT_URL;
-
-// Helper for DeepSeek API Calls
+// Helper for DeepSeek API Calls（经服务端 /api 代理，密钥仅存 Vercel DEEPSEEK_API_KEY）
 async function callDeepSeek(systemPrompt: string, userContent: string, jsonMode: boolean = true): Promise<string> {
-    if (!API_KEY) {
-        console.warn("Missing VITE_DEEPSEEK_API_KEY");
-        throw new Error("Missing API Key");
+    void jsonMode;
+    const configured = await fetchDeepSeekConfigured(true);
+    if (!configured) {
+        throw new Error('DeepSeek API is not configured on the server');
     }
 
-    const makeRequest = async (url: string) => {
-        console.log(`[AI] Calling DeepSeek (${DEEPSEEK_MODEL}) via ${url}...`);
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${API_KEY}`
-            },
-            body: JSON.stringify({
-                model: DEEPSEEK_MODEL,
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userContent }
-                ],
-                temperature: 0.1,
-                stream: false
-            })
+    try {
+        const data = await postDeepSeekChatCompletions({
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userContent },
+            ],
+            temperature: 0.1,
         });
 
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Request to ${url} failed: ${response.status} - ${errText.slice(0, 100)}`);
-        }
-        return response.json();
-    };
-
-    try {
-        let data;
-        try {
-            data = await makeRequest(API_URL);
-        } catch (initialError: any) {
-            console.warn(`Initial AI request failed via ${API_URL}, retrying direct...`, initialError);
-            if (API_URL !== DIRECT_URL) {
-                 data = await makeRequest(DIRECT_URL);
-            } else {
-                throw initialError;
-            }
-        }
-
-        let content = data.choices[0]?.message?.content || "";
-        content = content.replace(/```json\n?|\n?```/g, "").trim();
+        let content = extractDeepSeekAssistantText(data);
+        content = content.replace(/```json\n?|\n?```/g, '').trim();
         return content;
-
-    } catch (e: any) {
-        console.error("DeepSeek Call Exception:", e);
+    } catch (e: unknown) {
+        console.error('DeepSeek Call Exception:', e);
         throw e;
     }
 }
@@ -1033,7 +965,6 @@ export const generateHospitalBusinessAnalysis = async (issues: { [key: string]: 
     `;
 
     try {
-        if (!API_KEY) throw new Error("No API Key"); // Force fallback if no key
         const jsonText = await callDeepSeek("你是医院管理顾问，擅长数据挖掘与全科业务规划。", prompt);
         const result = JSON.parse(jsonText || '[]');
         if (Array.isArray(result) && result.length > 0) {

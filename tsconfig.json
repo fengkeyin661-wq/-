@@ -18,5 +18,5 @@
     "esModuleInterop": true
   },
   "include": ["./**/*.ts", "./**/*.tsx"],
-  "exclude": ["supabase/functions"]
+  "exclude": ["supabase/functions", "api"]
 }

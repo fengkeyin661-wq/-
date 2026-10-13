@@ -1,39 +1,20 @@
 import type { ContentItem } from './contentService';
 import type { CheckupPortalGuide } from './checkupPortalContentService';
 import { getPackageKind, packageKindLabel } from './userServiceCatalog';
+import {
+  extractDeepSeekAssistantText,
+  fetchDeepSeekConfigured,
+  postDeepSeekChatCompletions,
+} from './deepseekProxyClient';
 
 export type CheckupChatMessage = {
   role: 'user' | 'assistant';
   content: string;
 };
 
-const getEnvVar = (key: string): string => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta?.env?.[key]) {
-      // @ts-ignore
-      return import.meta.env[key] || '';
-    }
-  } catch {
-    /* ignore */
-  }
-  return '';
-};
-
-const isDev = (() => {
-  try {
-    // @ts-ignore
-    return !!import.meta.env.DEV;
-  } catch {
-    return false;
-  }
-})();
-
-const API_KEY = getEnvVar('VITE_DEEPSEEK_API_KEY');
-const DEEPSEEK_MODEL = 'deepseek-v4-flash';
-const API_URL = isDev ? '/api/deepseek/chat/completions' : 'https://api.deepseek.com/chat/completions';
-
-export const isCheckupChatConfigured = (): boolean => !!API_KEY;
+export async function isCheckupChatConfigured(): Promise<boolean> {
+  return fetchDeepSeekConfigured();
+}
 
 export function buildCheckupAssistantContext(
   guide: CheckupPortalGuide,
@@ -81,52 +62,20 @@ export async function sendCheckupChatMessage(
   messages: CheckupChatMessage[],
   contextBlock: string,
 ): Promise<string> {
-  if (!API_KEY) {
+  const configured = await fetchDeepSeekConfigured(true);
+  if (!configured) {
     throw new Error('智能问答暂未开通，请致电体检咨询热线 0371-67739261');
   }
 
-  const payload = {
-    model: DEEPSEEK_MODEL,
+  const data = await postDeepSeekChatCompletions({
     messages: [
       { role: 'system', content: `${SYSTEM_PROMPT}\n\n${contextBlock}` },
       ...messages.map((m) => ({ role: m.role, content: m.content })),
     ],
-    stream: false,
     temperature: 0.35,
-  };
+  });
 
-  const makeRequest = async (url: string) => {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`问答服务暂时不可用（${resp.status}）${text ? `：${text.slice(0, 120)}` : ''}`);
-    }
-    return resp.json();
-  };
-
-  let data;
-  try {
-    data = await makeRequest(API_URL);
-  } catch (e) {
-    if (API_URL !== 'https://api.deepseek.com/chat/completions') {
-      data = await makeRequest('https://api.deepseek.com/chat/completions');
-    } else {
-      throw e;
-    }
-  }
-
-  const content =
-    data?.choices?.[0]?.message?.content ||
-    data?.data?.choices?.[0]?.message?.content ||
-    '';
-
+  const content = extractDeepSeekAssistantText(data);
   if (!content.trim()) {
     throw new Error('未获取到有效回复，请稍后重试或致电体检中心');
   }

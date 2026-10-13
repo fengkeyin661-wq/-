@@ -51,4 +51,4 @@
 ## 必需环境变量（Vercel）
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_KEY` 或 `VITE_SUPABASE_ANON_KEY`
-- `VITE_DEEPSEEK_API_KEY`
+- `DEEPSEEK_API_KEY`（Vercel **Secret**，仅 `/api/deepseek/*` 服务端使用；勿再配置 `VITE_DEEPSEEK_API_KEY`）

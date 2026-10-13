@@ -33,8 +33,12 @@ export const CheckupChatBot: React.FC<Props> = ({ packages, portalGuide }) => {
     [portalGuide, packages],
   );
 
-  const configured = isCheckupChatConfigured();
+  const [configured, setConfigured] = useState(false);
   const hasUserMessage = messages.some((m) => m.role === 'user');
+
+  useEffect(() => {
+    void isCheckupChatConfigured().then(setConfigured);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -120,7 +124,7 @@ export const CheckupChatBot: React.FC<Props> = ({ packages, portalGuide }) => {
                 </div>
                 {!configured && (
                   <p className="mt-2 rounded-lg bg-amber-500/90 px-3 py-2 text-[11px] font-medium">
-                    问答服务未配置密钥；如需启用请联系管理员配置 VITE_DEEPSEEK_API_KEY
+                    问答服务未配置；请在 Vercel 设置服务端环境变量 DEEPSEEK_API_KEY（Secret）后重新部署
                   </p>
                 )}
               </div>

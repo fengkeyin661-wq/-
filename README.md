@@ -8,7 +8,7 @@
 2. 配置环境变量（Vercel 同步）：
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_KEY` 或 `VITE_SUPABASE_ANON_KEY`
-   - `VITE_DEEPSEEK_API_KEY`
+   - `DEEPSEEK_API_KEY`（仅服务端 / 本地 `.env`，**不要**使用 `VITE_` 前缀，避免打进前端包）
 3. `npm run dev`
 
 ## 质量检查
