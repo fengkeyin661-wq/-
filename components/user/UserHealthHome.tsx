@@ -15,6 +15,7 @@ import { fetchLatestAssessmentRun } from '../../services/assessmentPipelineServi
 import { UserRiskHeroBanner } from './UserRiskHeroBanner';
 import { VirtualHealthAssistant } from './VirtualHealthAssistant';
 import { HealthTrendCharts } from '../HealthTrendCharts';
+import { TrendReminders } from './TrendReminders';
 import { HighGlucoseTag } from '../HighGlucoseTag';
 import { HighBloodPressureTag } from '../HighBloodPressureTag';
 import { HighLipidTag } from '../HighLipidTag';
@@ -186,6 +187,8 @@ export const UserHealthHome: React.FC<Props> = ({
           <h1 className="text-lg font-black text-slate-800">你好，{record.profile.name}</h1>
           <p className="text-xs text-slate-500">{homeSubtitle}</p>
         </div>
+
+        <TrendReminders checkupId={checkupId} />
 
         <UserRiskHeroBanner assessment={assessment} summaryExpandable />
 

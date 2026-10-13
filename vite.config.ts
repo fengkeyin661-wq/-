@@ -18,6 +18,23 @@ function xlmsIngestDevPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const pathname = (req.url || '').split('?')[0];
+        if (pathname === '/api/xlms/synced' && req.method === 'GET') {
+          try {
+            const checkupId = new URL(req.url || '', 'http://127.0.0.1').searchParams.get('checkupId') || '';
+            const mod = await server.ssrLoadModule('/services/xlmsSyncStatus.ts');
+            const result = await mod.listSyncedExamMarks(checkupId);
+            res.statusCode = Number(result.httpStatus) || 400;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(JSON.stringify(result));
+          } catch (error) {
+            console.error('[xlms synced]', error);
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ success: false, ok: false, message: error instanceof Error ? error.message : '读取已同步年份失败' }));
+          }
+          return;
+        }
         if (pathname !== '/api/xlms/ingest' || req.method !== 'POST') {
           next();
           return;

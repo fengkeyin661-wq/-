@@ -4,6 +4,7 @@ import { HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
 import { ensureHealthRecordShape } from '../services/healthRecordDefaults';
 import { XlmsExamPanels } from './user/XlmsExamPanels';
+import { TrendReminders } from './user/TrendReminders';
 
 // @ts-ignore
 import * as mammoth from 'mammoth';
@@ -301,6 +302,9 @@ export const HealthSurvey: React.FC<Props> = ({ onSubmit, initialData, isLoading
 
         {/* Content Area */}
         <div className="p-8 flex-1 overflow-y-auto">
+            <div className="mb-6">
+                <TrendReminders checkupId={data.profile?.checkupId} />
+            </div>
             {isEditing && (
                 <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-2 rounded-lg mb-4 text-sm flex items-center gap-2 animate-fadeIn">
                     <span>⚠️ 编辑模式开启：请直接点击下方输入框修改内容，修改完成后点击右上角“保存”。</span>
