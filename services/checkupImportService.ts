@@ -29,6 +29,28 @@ import { generateSystemPortraits, evaluateRiskModels } from './riskModelService'
 
 export { resolveExamDateIso, extractExamDateFromText } from './examDateExtract';
 
+const examKey = (exam: NonNullable<HealthRecord['xlmsExams']>[number]) =>
+  `${exam.examDate}|${exam.tjcs ?? ''}`;
+
+const mergeExams = (
+  base?: HealthRecord['xlmsExams'],
+  patch?: HealthRecord['xlmsExams']
+): HealthRecord['xlmsExams'] => {
+  if (!patch?.length) return base;
+  const merged = new Map<string, NonNullable<HealthRecord['xlmsExams']>[number]>();
+  for (const exam of base || []) merged.set(examKey(exam), exam);
+  for (const exam of patch) merged.set(examKey(exam), exam);
+  return [...merged.values()].sort((a, b) => a.examDate.localeCompare(b.examDate));
+};
+
+const questionnaireIsPlaceholder = (questionnaire?: HealthRecord['questionnaire']): boolean => {
+  if (!questionnaire) return true;
+  const diseases = questionnaire.history?.diseases || [];
+  const smoking = questionnaire.substances?.smoking?.status || '';
+  const medication = questionnaire.medication?.list || '';
+  return diseases.length === 0 && !medication && (smoking === '' || smoking === '未记录');
+};
+
 const mergeRecordForImport = (base: HealthRecord, patch: Partial<HealthRecord>): HealthRecord => {
   return {
     ...base,
@@ -46,7 +68,11 @@ const mergeRecordForImport = (base: HealthRecord, patch: Partial<HealthRecord>):
       },
     },
     riskModelExtras: { ...(base.riskModelExtras || {}), ...(patch.riskModelExtras || {}) },
-    questionnaire: patch.questionnaire || base.questionnaire,
+    questionnaire:
+      questionnaireIsPlaceholder(patch.questionnaire) && base.questionnaire
+        ? base.questionnaire
+        : patch.questionnaire || base.questionnaire,
+    xlmsExams: mergeExams(base.xlmsExams, patch.xlmsExams),
   };
 };
 
@@ -193,11 +219,18 @@ export const importCheckupReportObservations = async (
     archive.health_record?.profile?.checkupDate
   );
 
+  const merged = mergeRecordForImport(archive.health_record, parsed);
   if (applySnapshot) {
-    const merged = mergeRecordForImport(archive.health_record, parsed);
     merged.profile.checkupDate = examIso.slice(0, 10);
     merged.profile.checkupId = checkupId;
     await updateHealthRecordOnly(checkupId, merged, 'checkup_import', { skipPipeline: true });
+  } else if (parsed.xlmsExams?.length) {
+    await updateHealthRecordOnly(
+      checkupId,
+      { ...archive.health_record, xlmsExams: merged.xlmsExams },
+      'checkup_import',
+      { skipPipeline: true }
+    );
   }
 
   return {

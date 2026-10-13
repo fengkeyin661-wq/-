@@ -1023,6 +1023,35 @@ export interface LipidAssessmentResult {
   indicatorProfile?: LipidIndicatorProfile;
 }
 
+export interface XlmsExamResultLine {
+  department?: string;
+  group?: string;
+  name: string;
+  result: string;
+  range?: string;
+  unit?: string;
+}
+
+export interface XlmsExamDepartment {
+  department?: string;
+  group?: string;
+  summary?: string;
+  done?: boolean;
+}
+
+/** 院内体检一次完整结果，不按对照表裁剪 */
+export interface XlmsExamSnapshot {
+  checkupId: string;
+  tjcs?: string | number;
+  examDate: string;
+  summary?: string;
+  advice?: string;
+  diagnoses?: string[];
+  departments?: XlmsExamDepartment[];
+  results?: XlmsExamResultLine[];
+  unfinished?: string[];
+}
+
 // --- 4. 聚合数据对象 ---
 export interface HealthRecord {
   profile: HealthProfile;
@@ -1033,7 +1062,9 @@ export interface HealthRecord {
   hypertensionManagement?: HypertensionManagementData;
   lipidManagement?: LipidManagementData;
   // 用于存储模型计算时的补充变量 (如父母髋骨骨折史等不在常规问卷中的)
-  riskModelExtras?: { [key: string]: any }; 
+  riskModelExtras?: { [key: string]: any };
+  /** 按体检日期保留的院内原始结果 */
+  xlmsExams?: XlmsExamSnapshot[];
 }
 
 // --- 5. 评估与计划 ---
