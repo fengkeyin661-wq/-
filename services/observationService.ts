@@ -114,6 +114,9 @@ export const upsertObservations = async (
 
   const { data, error } = await supabase.from('health_observations').insert(validRows).select('id');
   if (error) {
+    if (error.code === '23505' || error.message.includes('duplicate key') || error.message.includes('uq_obs_active_dedupe')) {
+      return { success: true, inserted: 0, message: '相同日期的指标已在档案中' };
+    }
     if (error.message.includes('Could not find') || error.code === '42P01') {
       return { success: true, inserted: validRows.length, message: '观测表未迁移，已缓存本地' };
     }

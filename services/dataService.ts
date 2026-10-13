@@ -536,10 +536,14 @@ export const getLocalArchiveByCheckupIdSync = (checkupId: string): HealthArchive
 
 export const findArchiveByCheckupId = async (checkupId: string): Promise<HealthArchive | null> => {
     let localMatch: HealthArchive | null = null;
-    const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
-    if (localRaw) {
-        const localArchives: HealthArchive[] = JSON.parse(localRaw);
-        localMatch = localArchives.find(a => a.checkup_id === checkupId) || null;
+    try {
+        const localRaw = localStorage.getItem(ARCHIVE_STORAGE_KEY);
+        if (localRaw) {
+            const localArchives: HealthArchive[] = JSON.parse(localRaw);
+            localMatch = localArchives.find(a => a.checkup_id === checkupId) || null;
+        }
+    } catch {
+        localMatch = null;
     }
     if (!isSupabaseConfigured()) return localMatch;
     try {
