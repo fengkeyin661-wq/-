@@ -1,8 +1,10 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+export const config = {
+  runtime: 'edge',
+};
 
-export default function handler(_req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Cache-Control', 'no-store');
-  res.status(200).json({
-    configured: Boolean(process.env.DEEPSEEK_API_KEY?.trim()),
-  });
+export default function handler() {
+  return Response.json(
+    { configured: Boolean(process.env.DEEPSEEK_API_KEY?.trim()) },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }

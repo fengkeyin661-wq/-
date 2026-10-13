@@ -1,40 +1,52 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { forwardDeepSeekChatCompletions } from '../../../lib/deepseekForward';
-
 export const config = {
-  maxDuration: 60,
+  runtime: 'edge',
 };
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).json({ error: 'Method not allowed' });
+const UPSTREAM = 'https://api.deepseek.com/chat/completions';
+
+export default async function handler(request: Request) {
+  if (request.method !== 'POST') {
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
 
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) {
-    return res.status(503).json({ error: 'DeepSeek API is not configured on the server' });
+    return Response.json(
+      { error: 'DeepSeek API is not configured on the server (DEEPSEEK_API_KEY)' },
+      { status: 503 },
+    );
   }
 
   let bodyText: string;
   try {
-    bodyText = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
+    bodyText = await request.text();
   } catch {
-    return res.status(400).json({ error: 'Invalid request body' });
+    return Response.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  if (bodyText.length > 200_000) {
-    return res.status(413).json({ error: 'Request body too large' });
+  if (!bodyText || bodyText.length > 200_000) {
+    return Response.json({ error: 'Request body empty or too large' }, { status: 413 });
   }
 
   try {
-    const upstream = await forwardDeepSeekChatCompletions(apiKey, bodyText);
+    const upstream = await fetch(UPSTREAM, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: bodyText,
+    });
+
     const text = await upstream.text();
-    res.status(upstream.status);
-    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
-    return res.send(text);
+    return new Response(text, {
+      status: upstream.status,
+      headers: {
+        'Content-Type': upstream.headers.get('content-type') || 'application/json',
+      },
+    });
   } catch (e) {
-    console.error('[deepseek proxy]', e);
-    return res.status(502).json({ error: 'Failed to reach DeepSeek API' });
+    console.error('[deepseek edge proxy]', e);
+    return Response.json({ error: 'Failed to reach DeepSeek API' }, { status: 502 });
   }
 }

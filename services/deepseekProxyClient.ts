@@ -1,4 +1,5 @@
-export const DEEPSEEK_MODEL = 'deepseek-v4-flash';
+/** DeepSeek 开放平台 Chat Completions 模型 ID */
+export const DEEPSEEK_MODEL = 'deepseek-flash';
 
 export const DEEPSEEK_CHAT_COMPLETIONS_URL = '/api/deepseek/chat/completions';
 export const DEEPSEEK_STATUS_URL = '/api/deepseek/status';
