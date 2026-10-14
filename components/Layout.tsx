@@ -175,8 +175,8 @@ export const Layout: React.FC<LayoutProps> = ({
                 )}
             </div>
          </header>
-         <div className="flex-1 overflow-auto p-8 print:p-0 print:overflow-visible print:h-auto">
-            <div className="max-w-7xl mx-auto print:max-w-none print:w-full">
+         <div className={`flex-1 overflow-auto print:p-0 print:overflow-visible print:h-auto ${activeTab === 'followup' ? 'px-4 py-5 lg:px-6' : 'p-8'}`}>
+            <div className={`${activeTab === 'followup' ? 'max-w-none' : 'max-w-7xl'} mx-auto print:max-w-none print:w-full`}>
                 {children}
             </div>
          </div>

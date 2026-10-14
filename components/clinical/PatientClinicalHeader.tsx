@@ -60,13 +60,13 @@ export const PatientClinicalHeader: React.FC<Props> = ({
         sticky ? 'sticky top-0 z-30' : ''
       }`}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-4 p-5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-black text-slate-800 truncate">{profile.name}</h2>
+            <h2 className="truncate text-2xl font-black text-slate-900">{profile.name}</h2>
             {risk && (
               <span
-                className={`shrink-0 rounded border px-2 py-0.5 text-[10px] font-black uppercase ${
+                className={`shrink-0 rounded border px-2.5 py-1 text-sm font-bold ${
                   risk === 'RED'
                     ? 'bg-red-50 text-red-600 border-red-200'
                     : risk === 'YELLOW'
@@ -81,7 +81,7 @@ export const PatientClinicalHeader: React.FC<Props> = ({
             <HighBloodPressureTag record={healthRecord} />
             <HighLipidTag record={healthRecord} />
           </div>
-          <p className="mt-1 text-xs text-slate-500 font-mono">
+          <p className="mt-1 text-sm text-slate-600 font-mono">
             {profile.checkupId}
             {profile.gender || profile.age != null
               ? ` · ${profile.gender || ''}${profile.age != null ? ` / ${profile.age}岁` : ''}`
@@ -89,11 +89,11 @@ export const PatientClinicalHeader: React.FC<Props> = ({
             {profile.department ? ` · ${profile.department}` : ''}
           </p>
           {profile.phone ? (
-            <p className="text-xs text-slate-400 mt-0.5">电话 {profile.phone}</p>
+            <p className="mt-1 text-sm text-slate-500">电话 {profile.phone}</p>
           ) : null}
-          {subtitle ? <p className="text-[11px] text-teal-700 mt-1 font-medium">{subtitle}</p> : null}
+          {subtitle ? <p className="mt-1 text-sm font-medium text-teal-700">{subtitle}</p> : null}
           {assessment?.isCritical && (
-            <p className="mt-2 text-xs font-bold text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1 inline-block">
+            <p className="mt-2 inline-block rounded border border-red-100 bg-red-50 px-2 py-1 text-sm font-bold text-red-700">
               危急值：{assessment.criticalWarning || '请优先处理'}
             </p>
           )}
@@ -103,7 +103,7 @@ export const PatientClinicalHeader: React.FC<Props> = ({
             <button
               type="button"
               onClick={onOpenAssessment}
-              className="rounded-lg border border-teal-200 px-3 py-1.5 text-xs font-bold text-teal-800 hover:bg-teal-50"
+              className="rounded-lg border border-teal-200 px-3 py-2 text-sm font-bold text-teal-800 hover:bg-teal-50"
             >
               完整评估
             </button>
@@ -112,7 +112,7 @@ export const PatientClinicalHeader: React.FC<Props> = ({
             <button
               type="button"
               onClick={onDelayPlan}
-              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100"
+              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800 hover:bg-amber-100"
             >
               延期1月
             </button>
@@ -121,7 +121,7 @@ export const PatientClinicalHeader: React.FC<Props> = ({
             <button
               type="button"
               onClick={onFollowUpSms}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
             >
               随访短信
             </button>
@@ -131,7 +131,7 @@ export const PatientClinicalHeader: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setMoreOpen((v) => !v)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
               >
                 慢性病 ▾
               </button>
@@ -140,7 +140,7 @@ export const PatientClinicalHeader: React.FC<Props> = ({
                   {onNavigateDiabetes ? (
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-xs hover:bg-slate-50"
+                      className="block w-full px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                       onClick={() => {
                         setMoreOpen(false);
                         onNavigateDiabetes(currentArchive!);
@@ -152,7 +152,7 @@ export const PatientClinicalHeader: React.FC<Props> = ({
                   {onNavigateHypertension ? (
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-xs hover:bg-slate-50"
+                      className="block w-full px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                       onClick={() => {
                         setMoreOpen(false);
                         onNavigateHypertension(currentArchive!);
@@ -164,7 +164,7 @@ export const PatientClinicalHeader: React.FC<Props> = ({
                   {onNavigateLipid ? (
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-xs hover:bg-slate-50"
+                      className="block w-full px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                       onClick={() => {
                         setMoreOpen(false);
                         onNavigateLipid(currentArchive!);

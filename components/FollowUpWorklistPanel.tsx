@@ -34,6 +34,7 @@ interface Props {
   currentPatientId?: string;
   onSelectPatient: (archive: HealthArchive, options?: { scrollToDetail?: boolean }) => void;
   onRefresh: () => void;
+  onCollapse?: () => void;
   criticalFocus?: { checkupId: string | null; openModal: boolean; token: number };
   userRole?: SmsSentRole;
 }
@@ -43,6 +44,7 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
   currentPatientId,
   onSelectPatient,
   onRefresh,
+  onCollapse,
   criticalFocus,
   userRole = 'admin',
 }) => {
@@ -51,7 +53,7 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
   const [modalArchive, setModalArchive] = useState<HealthArchive | null>(null);
   const [showContactRetryRemind, setShowContactRetryRemind] = useState(false);
   const contactRetryRemindKeyRef = useRef('');
-  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
+  const rowRefs = useRef<Record<string, HTMLElement | null>>({});
 
   const contactRetryDueList = useMemo(() => listCriticalContactRetryDue(archives), [archives]);
 
@@ -177,8 +179,8 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
           : `${routine.daysLeft} 天后`;
       return (
         <>
-          <div className="text-sm font-mono font-bold text-slate-700">{routine.date}</div>
-          <div className={`text-[10px] mt-0.5 ${overdue ? 'text-red-600 font-bold' : 'text-slate-500'}`}>{text}</div>
+          <div className="text-base font-mono font-bold text-slate-800">{routine.date}</div>
+          <div className={`mt-0.5 text-sm ${overdue ? 'font-bold text-red-600' : 'text-slate-600'}`}>{text}</div>
         </>
       );
     }
@@ -187,8 +189,8 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
     if (critical?.contactRetryDue && (isCriticalContactRetryDue(archive) || isCriticalContactDeferred(archive))) {
       return (
         <>
-          <div className="text-sm font-mono font-bold text-amber-800">再联系 {critical.contactRetryDue}</div>
-          <div className="text-[10px] text-amber-700 mt-0.5">
+          <div className="text-base font-mono font-bold text-amber-800">再联系 {critical.contactRetryDue}</div>
+          <div className="text-sm text-amber-700 mt-0.5">
             {isCriticalContactRetryDue(archive) ? '今日起需再联系' : '延期中'}
           </div>
         </>
@@ -203,12 +205,12 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
         diff < 0 ? `二次回访逾期 ${Math.abs(diff)} 天` : diff === 0 ? '今日二次回访' : `二次回访剩 ${diff} 天`;
       return (
         <>
-          <div className="text-sm font-mono font-bold text-slate-700">{track.secondary_due_date}</div>
-          <div className={`text-[10px] mt-0.5 ${diff < 0 ? 'text-red-600 font-bold' : 'text-blue-600'}`}>{countdown}</div>
+          <div className="text-base font-mono font-bold text-slate-700">{track.secondary_due_date}</div>
+          <div className={`text-sm mt-0.5 ${diff < 0 ? 'text-red-600 font-bold' : 'text-blue-600'}`}>{countdown}</div>
         </>
       );
     }
-    return <span className="text-xs text-slate-400">初次通知后生成</span>;
+    return <span className="text-sm text-slate-500">初次通知后生成</span>;
   };
 
   const renderPriorityFocus = (row: FollowUpWorklistRow) => {
@@ -219,16 +221,16 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
         <div>
           {risk === 'RED' || risk === 'YELLOW' ? (
             <span
-              className={`inline-block mb-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+              className={`inline-block mb-1 text-sm font-bold px-2 py-0.5 rounded ${
                 risk === 'RED' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-900'
               }`}
             >
               {risk === 'RED' ? '高风险' : '中风险'}
             </span>
           ) : null}
-          <ul className="space-y-0.5">
+          <ul className="space-y-1">
             {items.slice(0, 3).map((item, i) => (
-              <li key={item} className="flex gap-1.5 text-xs text-slate-700">
+              <li key={item} className="flex gap-2 text-sm leading-snug text-slate-700">
                 <span className="font-black text-amber-700">{i + 1}.</span>
                 <span className="line-clamp-2">{item}</span>
               </li>
@@ -238,9 +240,9 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
       );
     }
     if (row.critical?.item) {
-      return <span className="text-xs font-bold text-red-700">{row.critical.item}</span>;
+      return <span className="text-sm font-bold text-red-700">{row.critical.item}</span>;
     }
-    return <span className="text-slate-400 text-xs">待维护要点</span>;
+    return <span className="text-slate-500 text-sm">待维护要点</span>;
   };
 
   const handleExport = () => {
@@ -252,18 +254,29 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
   };
 
   return (
-    <section className="mb-8 bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden animate-fadeIn">
-      <div className="p-4 md:p-5 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-black text-slate-800">随访工作台 · 待办队列</h2>
-          <p className="text-xs text-slate-500 mt-0.5">危急值与 7 日内计划随访合并排序；选人后进入下方工作区录入</p>
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-black text-slate-800">待办队列</h2>
+            <p className="mt-1 text-sm leading-relaxed text-slate-600">危急值与 7 日内计划随访。点选人员后在右侧录入。</p>
+          </div>
+          {onCollapse ? (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="rounded-lg px-3 py-2 text-sm font-bold text-slate-600 hover:bg-white"
+            >
+              收起队列
+            </button>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
+          <div className="flex rounded-lg border border-slate-200 bg-white p-1">
             <button
               type="button"
               onClick={() => setFilter('todo')}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold ${
+              className={`rounded-md px-4 py-2 text-sm font-bold ${
                 filter === 'todo' ? 'bg-teal-600 text-white' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
@@ -272,179 +285,151 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setFilter('archived_critical')}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold ${
+              className={`rounded-md px-4 py-2 text-sm font-bold ${
                 filter === 'archived_critical' ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              已归档危急值 ({archivedList.length})
+              已归档 ({archivedList.length})
             </button>
           </div>
           <button
             type="button"
             onClick={handleExport}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700"
           >
             导出
           </button>
         </div>
       </div>
 
-      <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap gap-2 items-center">
-        <div className="relative flex-1 min-w-[200px] max-w-md">
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-4">
+        <div className="relative min-w-[200px] flex-1">
           <input
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索姓名、体检编号、危急关键字…"
-            className="w-full pl-3 pr-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:ring-2 focus:ring-teal-500 outline-none"
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-teal-500"
           />
         </div>
         {searchQuery.trim() ? (
-          <button type="button" onClick={() => setSearchQuery('')} className="text-xs font-bold text-teal-600">
+          <button type="button" onClick={() => setSearchQuery('')} className="text-sm font-bold text-teal-700">
             清除
           </button>
         ) : null}
       </div>
 
-      <div className="overflow-auto max-h-[min(420px,50vh)]">
+      <div className="space-y-3 p-4">
         {filter === 'todo' ? (
           displayTodoRows.length === 0 ? (
-            <div className="py-16 text-center text-slate-400 text-sm">暂无待办随访任务</div>
+            <div className="py-16 text-center text-base text-slate-500">暂无待办随访任务</div>
           ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-100 text-slate-600 font-black sticky top-0 z-10 text-xs uppercase">
-                <tr>
-                  <th className="p-3">受检人员</th>
-                  <th className="p-3">随访类别</th>
-                  <th className="p-3 min-w-[140px]">危急值</th>
-                  <th className="p-3">计划与倒计时</th>
-                  <th className="p-3 min-w-[160px]">本期优先核对</th>
-                  <th className="p-3">最近随访</th>
-                  <th className="p-3 text-center">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {displayTodoRows.map((row) => {
-                  const { archive } = row;
-                  const isCriticalRow = Boolean(row.critical);
-                  const selected = archive.checkup_id === currentPatientId;
-                  return (
-                    <tr
-                      key={archive.checkup_id}
-                      ref={(el) => {
-                        rowRefs.current[archive.checkup_id] = el;
-                      }}
-                      className={`transition-colors ${
-                        isCriticalRow ? 'bg-red-50/40 border-l-4 border-l-red-500' : 'border-l-4 border-l-transparent'
-                      } ${selected ? 'ring-2 ring-inset ring-teal-400 bg-teal-50/30' : 'hover:bg-slate-50'}`}
-                    >
-                      <td className="p-3">
-                        <div className="font-bold text-slate-800">{archive.name}</div>
-                        <div className="text-[11px] text-slate-500">{archive.checkup_id}</div>
-                        <div className="text-[11px] text-slate-400">{archive.department}</div>
-                      </td>
-                      <td className="p-3">
+            displayTodoRows.map((row) => {
+              const { archive } = row;
+              const isCriticalRow = Boolean(row.critical);
+              const selected = archive.checkup_id === currentPatientId;
+              return (
+                <article
+                  key={archive.checkup_id}
+                  ref={(el) => {
+                    rowRefs.current[archive.checkup_id] = el;
+                  }}
+                  className={`rounded-xl border p-4 ${
+                    isCriticalRow ? 'border-red-200 bg-red-50/50' : 'border-slate-200 bg-white'
+                  } ${selected ? 'ring-2 ring-teal-500' : ''}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-bold text-slate-900">{archive.name}</h3>
                         <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-black ${
+                          className={`rounded-md px-2 py-0.5 text-sm font-bold ${
                             row.critical
-                              ? 'bg-red-100 text-red-800 border border-red-200'
-                              : 'bg-blue-50 text-blue-700 border border-blue-100'
+                              ? 'border border-red-200 bg-red-100 text-red-800'
+                              : 'border border-blue-100 bg-blue-50 text-blue-700'
                           }`}
                         >
                           {categoryLabel(row)}
                         </span>
-                      </td>
-                      <td className="p-3">
-                        {row.critical ? (
-                          <div className="space-y-1">
-                            <div className="font-bold text-red-700 text-xs">{row.critical.item}</div>
-                            {row.critical.level ? (
-                              <div className="text-[10px] text-orange-600 font-bold">{row.critical.level}</div>
-                            ) : null}
-                            <div className="text-[10px] text-slate-600 line-clamp-2" title={row.critical.desc}>
-                              {row.critical.desc}
-                            </div>
-                            <div className="text-[10px] font-bold text-red-600">{row.critical.statusLabel}</div>
-                          </div>
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </td>
-                      <td className="p-3">{planCell(row)}</td>
-                      <td className="p-3 max-w-[200px]">
-                        {renderPriorityFocus(row)}
-                      </td>
-                      <td className="p-3 text-xs text-slate-500">
-                        {getLatestFollowUp(archive.follow_ups)?.date || '无'}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex flex-col gap-1 items-center">
-                          {isCriticalFollowUpPending(archive) ? (
-                            <button
-                              type="button"
-                              onClick={() => setModalArchive(archive)}
-                              className="px-2 py-1 rounded text-[10px] font-bold bg-red-600 text-white hover:bg-red-700"
-                            >
-                              危急处置
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => onSelectPatient(archive, { scrollToDetail: true })}
-                            className="px-2 py-1 rounded text-[10px] font-bold bg-teal-600 text-white hover:bg-teal-700"
-                          >
-                            开始随访
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {archive.checkup_id}
+                        {archive.department ? ` · ${archive.department}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {isCriticalFollowUpPending(archive) ? (
+                        <button
+                          type="button"
+                          onClick={() => setModalArchive(archive)}
+                          className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white hover:bg-red-700"
+                        >
+                          危急处置
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => onSelectPatient(archive, { scrollToDetail: true })}
+                        className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-bold text-white hover:bg-teal-700"
+                      >
+                        开始随访
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <div className="mb-1 text-sm font-bold text-slate-500">计划</div>
+                      {planCell(row)}
+                    </div>
+                    <div>
+                      <div className="mb-1 text-sm font-bold text-slate-500">优先核对</div>
+                      {renderPriorityFocus(row)}
+                    </div>
+                  </div>
+                  {row.critical ? (
+                    <div className="mt-3 rounded-lg bg-white/80 p-3">
+                      <div className="text-base font-bold text-red-700">{row.critical.item}</div>
+                      {row.critical.level ? (
+                        <div className="mt-1 text-sm font-bold text-orange-600">{row.critical.level}</div>
+                      ) : null}
+                      <p className="mt-1 text-sm leading-relaxed text-slate-700">{row.critical.desc}</p>
+                      <div className="mt-1 text-sm font-bold text-red-600">{row.critical.statusLabel}</div>
+                    </div>
+                  ) : null}
+                  <p className="mt-3 text-sm text-slate-600">
+                    最近随访 {getLatestFollowUp(archive.follow_ups)?.date || '无'}
+                  </p>
+                </article>
+              );
+            })
           )
         ) : displayArchived.length === 0 ? (
-          <div className="py-16 text-center text-slate-400 text-sm">暂无已归档危急值记录</div>
+          <div className="py-16 text-center text-base text-slate-500">暂无已归档危急值记录</div>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-100 text-slate-600 font-black sticky top-0 z-10 text-xs uppercase">
-              <tr>
-                <th className="p-3">受检人员</th>
-                <th className="p-3">危急项目</th>
-                <th className="p-3">描述</th>
-                <th className="p-3">归档更新</th>
-                <th className="p-3 text-center">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {displayArchived.map((arch) => (
-                <tr key={arch.checkup_id} className="hover:bg-slate-50">
-                  <td className="p-3">
-                    <div className="font-bold text-slate-800">{arch.name}</div>
-                    <div className="text-[11px] text-slate-500">{arch.checkup_id}</div>
-                  </td>
-                  <td className="p-3 text-red-700 font-bold text-xs">
-                    {arch.critical_track?.critical_item || '—'}
-                  </td>
-                  <td className="p-3 text-xs text-slate-600 line-clamp-2">
-                    {arch.critical_track?.critical_desc || arch.assessment_data?.criticalWarning || '—'}
-                  </td>
-                  <td className="p-3 text-xs text-slate-500">
-                    {new Date(arch.updated_at || arch.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="p-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => onSelectPatient(arch, { scrollToDetail: true })}
-                      className="px-2 py-1 rounded text-[10px] font-bold bg-slate-100 text-slate-700 hover:bg-slate-200"
-                    >
-                      查看随访
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          displayArchived.map((arch) => (
+            <article key={arch.checkup_id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">{arch.name}</h3>
+                  <p className="mt-1 text-sm text-slate-600">{arch.checkup_id}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onSelectPatient(arch, { scrollToDetail: true })}
+                  className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200"
+                >
+                  查看随访
+                </button>
+              </div>
+              <p className="mt-3 text-base font-bold text-red-700">{arch.critical_track?.critical_item || '—'}</p>
+              <p className="mt-1 text-sm leading-relaxed text-slate-700">
+                {arch.critical_track?.critical_desc || arch.assessment_data?.criticalWarning || '—'}
+              </p>
+              <p className="mt-2 text-sm text-slate-500">
+                归档更新 {new Date(arch.updated_at || arch.created_at).toLocaleDateString()}
+              </p>
+            </article>
+          ))
         )}
       </div>
 

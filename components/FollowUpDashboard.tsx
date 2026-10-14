@@ -119,7 +119,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
     (archive: HealthArchive, options?: { scrollToDetail?: boolean }) => {
       onPatientChange?.(archive);
       setWorkspaceTab('entry');
-      if (layout === 'full') setWorklistCollapsed(true);
       if (options?.scrollToDetail) {
         requestAnimationFrame(() => {
           detailAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -650,35 +649,41 @@ export const FollowUpDashboard: React.FC<Props> = ({
     { id: 'guide', label: '执行单' },
   ];
 
+  const splitWorkbench = layout === 'full' && !worklistCollapsed;
+
   return (
-    <div className="animate-fadeIn pb-10">
-      {layout === 'full' && !worklistCollapsed && (
-        <FollowUpWorklistPanel
-          archives={allArchives}
-          currentPatientId={currentPatientId}
-          onSelectPatient={handleWorklistSelectPatient}
-          onRefresh={() => onRefresh?.()}
-          criticalFocus={criticalFocus}
-          userRole={userRole}
-        />
+    <div className={`animate-fadeIn pb-10 ${splitWorkbench ? 'xl:grid xl:grid-cols-[minmax(380px,440px)_minmax(0,1fr)] xl:items-start xl:gap-6' : ''}`}>
+      {splitWorkbench && (
+        <div className="xl:sticky xl:top-0 xl:max-h-[calc(100vh-7.5rem)] xl:overflow-y-auto">
+          <FollowUpWorklistPanel
+            archives={allArchives}
+            currentPatientId={currentPatientId}
+            onSelectPatient={handleWorklistSelectPatient}
+            onRefresh={() => onRefresh?.()}
+            onCollapse={() => setWorklistCollapsed(true)}
+            criticalFocus={criticalFocus}
+            userRole={userRole}
+          />
+        </div>
       )}
 
+      <div className="min-w-0">
       {layout === 'full' && worklistCollapsed && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2">
-          <span className="text-xs text-slate-600">
-            当前：{healthRecord?.profile.name || currentPatientName || '未选择'}
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-5 py-3">
+          <span className="text-base text-slate-700">
+            当前：<span className="font-bold text-slate-900">{healthRecord?.profile.name || currentPatientName || '未选择'}</span>
           </span>
           <button
             type="button"
             onClick={() => setWorklistCollapsed(false)}
-            className="text-xs font-bold text-teal-700 hover:underline"
+            className="rounded-lg bg-teal-50 px-4 py-2 text-sm font-bold text-teal-800 hover:bg-teal-100"
           >
-            展开待办队列 · 切换职工
+            展开待办队列
           </button>
         </div>
       )}
 
-      <div id="followup-detail-anchor" ref={detailAnchorRef} className="scroll-mt-4 pt-2">
+      <div id="followup-detail-anchor" ref={detailAnchorRef} className="scroll-mt-4">
         {!hideClinicalHeader && healthRecord && currentPatientId ? (
           <PatientClinicalHeader
             healthRecord={healthRecord}
@@ -707,7 +712,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setWorkspaceTab(tab.id)}
-                className={`flex-1 rounded-md px-3 py-2 text-xs font-bold transition-colors ${
+                className={`flex-1 rounded-md px-3 py-2.5 text-base font-bold transition-colors ${
                   workspaceTab === tab.id
                     ? tab.id === 'entry'
                       ? 'bg-teal-600 text-white'
@@ -720,7 +725,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
             ))}
           </div>
         ) : layout === 'full' && !currentPatientId ? (
-          <div className="rounded-xl border border-slate-100 bg-white p-8 text-center text-sm text-slate-400">
+          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-base text-slate-500">
             请从待办队列选择受检者后开始随访
           </div>
         ) : null}
@@ -784,11 +789,11 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                           <div className="text-xs text-slate-500 mt-1 line-clamp-2">{node.summary}</div>
                                         )}
                                         {node.linkedCritical && (
-                                          <span className="text-[10px] text-red-600 bg-red-50 px-1 rounded mt-1 inline-block">关联危急值</span>
+                                          <span className="text-sm text-red-600 bg-red-50 px-1 rounded mt-1 inline-block">关联危急值</span>
                                         )}
                                     </div>
                                     {isFollowUp && (
-                                      <span className="text-[10px] text-teal-600 opacity-0 group-hover:opacity-100 transition-opacity bg-teal-50 px-2 py-1 rounded">查看详情</span>
+                                      <span className="text-sm text-teal-600 opacity-0 group-hover:opacity-100 transition-opacity bg-teal-50 px-2 py-1 rounded">查看详情</span>
                                     )}
                                 </div>
                             </div>
@@ -825,7 +830,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   <div>
                     <div className="text-xs font-black uppercase tracking-wide text-amber-800">本期监督重点</div>
                     <div className="mt-0.5 text-sm font-bold text-slate-800">{followUpContext.sourceLabel}</div>
-                    <p className="mt-1 text-[11px] text-amber-900/85">
+                    <p className="mt-1 text-sm text-amber-900/85">
                       对照方案整体监督，不必逐项盘问所有指标；中高危与异常复测优先。
                     </p>
                   </div>
@@ -857,7 +862,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                 )}
                 {followUpContext.failedTasks.length + followUpContext.partialTasks.length > 0 ? (
                   <div className="mt-3 border-t border-amber-200/80 pt-2">
-                    <div className="text-[11px] font-bold text-red-700">上期需跟进</div>
+                    <div className="text-sm font-bold text-red-700">上期需跟进</div>
                     <ul className="mt-1 space-y-0.5 text-xs text-red-800">
                       {[...followUpContext.failedTasks, ...followUpContext.partialTasks].map((t) => (
                         <li key={t.taskId || t.description}>· {t.description}</li>
@@ -921,10 +926,10 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </div>
               </div>
               
-              <div className="p-6 space-y-8">
-                      <section className="bg-yellow-50 p-4 rounded-lg border-2 border-amber-300">
-                           <h4 className="font-bold text-amber-900 mb-2">1. 异常指标跟踪</h4>
-                           <p className="text-[11px] text-amber-800/90 mb-3">
+              <div className="space-y-10 p-6 lg:p-8">
+                      <section className="rounded-xl border-2 border-amber-300 bg-yellow-50 p-5">
+                           <h4 className="mb-2 text-base font-bold text-amber-900">1. 异常指标跟踪</h4>
+                           <p className="text-sm text-amber-800/90 mb-3">
                              与上方「本期监督重点」一致（中高危因素）；记录复测或进一步检查进展即可。
                            </p>
                            {formData.abnormalityFollowUps && formData.abnormalityFollowUps.length > 0 ? (
@@ -936,7 +941,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                              <p className="text-slate-500">上次：{row.lastResult}</p>
                                            ) : null}
                                            <select
-                                             className="w-full border rounded p-1.5 text-xs bg-slate-50"
+                                             className="w-full rounded border p-2.5 text-base bg-slate-50"
                                              value={row.status}
                                              onChange={(e) => updateAbnormalityRow(idx, 'status', e.target.value as AbnormalityFollowUpStatus)}
                                            >
@@ -947,7 +952,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                            <input
                                              type="text"
                                              placeholder="结果或安排简述…"
-                                             className="w-full border rounded p-1.5 text-xs"
+                                             className="w-full rounded border p-2.5 text-base"
                                              value={row.note || ''}
                                              onChange={(e) => updateAbnormalityRow(idx, 'note', e.target.value)}
                                            />
@@ -959,19 +964,19 @@ export const FollowUpDashboard: React.FC<Props> = ({
                            )}
                       </section>
 
-                      <section className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                           <h4 className="font-bold text-slate-800 mb-3">2. 风险相关指标（按需）</h4>
+                      <section className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                           <h4 className="mb-4 text-base font-bold text-slate-800">2. 风险相关指标（按需）</h4>
                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                              {(supervisionBrief?.metricSlots || []).map((slot) => {
                                const skipped = metricSkipped[slot.key];
                                return (
                                  <div key={slot.key} className="bg-white rounded border border-slate-100 p-3">
                                    <div className="flex justify-between items-start gap-2 mb-1">
-                                     <label className="text-xs font-bold text-slate-700">
+                                     <label className="text-sm font-bold text-slate-800">
                                        {slot.label} ({slot.unit})
                                        {slot.refHint ? <span className="font-normal text-slate-400 ml-1">{slot.refHint}</span> : null}
                                      </label>
-                                     <label className="text-[10px] text-slate-500 flex items-center gap-1 shrink-0">
+                                     <label className="text-sm text-slate-500 flex items-center gap-1 shrink-0">
                                        <input
                                          type="checkbox"
                                          checked={!!skipped}
@@ -984,7 +989,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                      type="number"
                                      step={slot.key === 'glucose' ? 0.1 : slot.key === 'weight' ? 0.1 : 1}
                                      disabled={skipped}
-                                     className="w-full border rounded p-2 text-sm disabled:bg-slate-100"
+                                     className="w-full rounded border p-2.5 text-base disabled:bg-slate-100"
                                      value={formData.indicators[slot.key] ?? ''}
                                      onChange={(e) => updateForm('indicators', slot.key, Number(e.target.value))}
                                    />
@@ -1000,16 +1005,16 @@ export const FollowUpDashboard: React.FC<Props> = ({
                              {extraMetricsOpen ? '收起更多指标 ▲' : '展开更多指标 ▼'}
                            </button>
                            {extraMetricsOpen ? (
-                             <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white p-3 rounded border border-slate-100">
+                             <div className="mt-4 grid grid-cols-1 gap-4 rounded border border-slate-100 bg-white p-4 sm:grid-cols-2 xl:grid-cols-3">
                                {(['tc', 'tg', 'ldl', 'hdl'] as const)
                                  .filter((k) => !primaryMetricKeys.has(k))
                                  .map((k) => (
                                    <div key={k}>
-                                     <span className="text-[10px] text-slate-400 block mb-1 uppercase">{k}</span>
+                                     <span className="text-sm text-slate-400 block mb-1 uppercase">{k}</span>
                                      <input
                                        type="number"
                                        step="0.01"
-                                       className="w-full border rounded p-1.5 text-sm"
+                                       className="w-full rounded border p-2.5 text-base"
                                        value={formData.indicators[k] || ''}
                                        onChange={(e) => updateForm('indicators', k, Number(e.target.value))}
                                      />
@@ -1018,34 +1023,34 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                {!primaryMetricKeys.has('sbp') ? (
                                  <>
                                    <div>
-                                     <span className="text-[10px] text-slate-400 block mb-1">收缩压</span>
-                                     <input type="number" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.sbp || ''} onChange={(e) => updateForm('indicators', 'sbp', Number(e.target.value))} />
+                                     <span className="text-sm text-slate-400 block mb-1">收缩压</span>
+                                     <input type="number" className="w-full rounded border p-2.5 text-base" value={formData.indicators.sbp || ''} onChange={(e) => updateForm('indicators', 'sbp', Number(e.target.value))} />
                                    </div>
                                    <div>
-                                     <span className="text-[10px] text-slate-400 block mb-1">舒张压</span>
-                                     <input type="number" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.dbp || ''} onChange={(e) => updateForm('indicators', 'dbp', Number(e.target.value))} />
+                                     <span className="text-sm text-slate-400 block mb-1">舒张压</span>
+                                     <input type="number" className="w-full rounded border p-2.5 text-base" value={formData.indicators.dbp || ''} onChange={(e) => updateForm('indicators', 'dbp', Number(e.target.value))} />
                                    </div>
                                  </>
                                ) : null}
                                {!primaryMetricKeys.has('glucose') ? (
                                  <div>
-                                   <span className="text-[10px] text-slate-400 block mb-1">空腹血糖</span>
-                                   <input type="number" step="0.1" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.glucose || ''} onChange={(e) => updateForm('indicators', 'glucose', Number(e.target.value))} />
+                                   <span className="text-sm text-slate-400 block mb-1">空腹血糖</span>
+                                   <input type="number" step="0.1" className="w-full rounded border p-2.5 text-base" value={formData.indicators.glucose || ''} onChange={(e) => updateForm('indicators', 'glucose', Number(e.target.value))} />
                                  </div>
                                ) : null}
                                {!primaryMetricKeys.has('weight') ? (
                                  <div>
-                                   <span className="text-[10px] text-slate-400 block mb-1">体重</span>
-                                   <input type="number" className="w-full border rounded p-1.5 text-sm" value={formData.indicators.weight || ''} onChange={(e) => updateForm('indicators', 'weight', Number(e.target.value))} />
+                                   <span className="text-sm text-slate-400 block mb-1">体重</span>
+                                   <input type="number" className="w-full rounded border p-2.5 text-base" value={formData.indicators.weight || ''} onChange={(e) => updateForm('indicators', 'weight', Number(e.target.value))} />
                                  </div>
                                ) : null}
                              </div>
                            ) : null}
                       </section>
 
-                      <section className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
-                          <h4 className="font-bold text-indigo-800 mb-3">3. 健康管理方案落实总评</h4>
-                          <p className="text-[11px] text-indigo-900/80 mb-3">对照下方饮食、运动建议整体打分，不必分项盘问。</p>
+                      <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
+                          <h4 className="mb-3 text-base font-bold text-indigo-800">3. 健康管理方案落实总评</h4>
+                          <p className="text-sm text-indigo-900/80 mb-3">对照下方饮食、运动建议整体打分，不必分项盘问。</p>
                           {(managementPlanRef.dietary.length > 0 || managementPlanRef.exercise.length > 0) ? (
                             <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                               <div className="rounded-lg border border-indigo-100 bg-white p-3">
@@ -1496,7 +1501,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
               onConvertToFollowUp={onPatientChange ? () => onPatientChange(criticalModalArchive) : undefined}
           />
       )}
-
+      </div>
     </div>
   );
 };
