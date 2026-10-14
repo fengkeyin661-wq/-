@@ -23,7 +23,10 @@ export async function ingestStructuredVisit(body: unknown): Promise<Record<strin
       httpStatus: result.success ? 200 : notConnected ? 503 : 400,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : '同步失败';
+    const raw = error instanceof Error ? error.message :  '同步失败';
+    const message = /fetch failed|failed to fetch/i.test(raw)
+      ? '检后档案库暂时连不上，这次没有写入。请稍后再同步。'
+      : raw;
     return { success: false, ok: false, httpStatus: 400, message };
   }
 }

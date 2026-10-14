@@ -23,7 +23,6 @@ import { UserMetricEntryModal } from './UserMetricEntryModal';
 import { UserHotlineCompact } from './portal/UserHotlineCompact';
 import { HealthAssistantFab } from './HealthAssistantFab';
 import type { UserMetricKey } from '../../services/observationMapper';
-import { UserArchivePrintButton } from './UserArchivePrintButton';
 
 export type UserProfileSubView = 'menu' | 'record' | 'followup' | 'plan' | 'apps';
 
@@ -196,14 +195,7 @@ export const UserHealthHome: React.FC<Props> = ({
         <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="font-bold text-slate-800">核心指标</h2>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              {checkupId ? (
-                <UserArchivePrintButton
-                  record={record}
-                  assessment={assessment}
-                  checkupId={checkupId}
-                />
-              ) : null}
+            <div className="flex shrink-0 items-center gap-2">
               {checkupId ? (
                 <button
                   type="button"

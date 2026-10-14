@@ -160,7 +160,7 @@ export const UserProfile: React.FC<Props> = ({
             <div className="flex items-center justify-between gap-3">
                 <div>
                     <h2 className="text-base font-bold text-slate-800">我的健康档案</h2>
-                    <p className="text-xs text-slate-500">可下载或打印，内容仅供健康参考</p>
+                    <p className="text-xs text-slate-500">版式与管理端档案一致，仅供健康参考，不能作为诊断或处方</p>
                 </div>
                 <UserArchivePrintButton record={record} assessment={assessment} checkupId={userId} />
             </div>
