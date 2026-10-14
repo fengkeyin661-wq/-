@@ -51,6 +51,16 @@ export const formatChartTick = (value: number, decimals: number): string => {
   return value.toFixed(decimals).replace(/\.?0+$/, '');
 };
 
+/** 坐标点展示实测值，不按刻度四舍五入。 */
+export const formatObservedValue = (value: number): string => {
+  if (!Number.isFinite(value)) return '';
+  return new Intl.NumberFormat('en-US', {
+    useGrouping: false,
+    maximumFractionDigits: 10,
+    minimumFractionDigits: 0,
+  }).format(value);
+};
+
 const METRIC_AXIS: Record<
   string,
   Omit<ChartAxisConfig, 'domain' | 'ticks'> & {

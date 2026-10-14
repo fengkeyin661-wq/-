@@ -11,7 +11,7 @@ import {
   ReferenceLine,
   Label,
 } from 'recharts';
-import { buildMetricAxisConfig, buildBpAxisConfig, formatChartTick } from '../services/chartAxisConfig';
+import { buildMetricAxisConfig, buildBpAxisConfig, formatChartTick, formatObservedValue } from '../services/chartAxisConfig';
 
 const TREND_LINE_PROPS = {
   type: 'monotone' as const,
@@ -87,9 +87,7 @@ export const MetricTrendChart: React.FC<SingleProps> = ({
             />
             <Tooltip
               contentStyle={{ borderRadius: '8px', fontSize: '12px' }}
-              formatter={(val: number) =>
-                formatChartTick(val, axis.tickDecimals)
-              }
+              formatter={(val: number) => formatObservedValue(Number(val))}
             />
             <ReferenceLines lines={axis.referenceLines} />
             <Line
@@ -144,7 +142,10 @@ export const BpTrendChart: React.FC<BpProps> = ({
               tickLine={false}
               width={36}
             />
-            <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px' }} />
+            <Tooltip
+              contentStyle={{ borderRadius: '8px', fontSize: '12px' }}
+              formatter={(val: number) => formatObservedValue(Number(val))}
+            />
             <Legend wrapperStyle={{ fontSize: '10px' }} />
             <ReferenceLines lines={axis.referenceLines} />
             <Line {...TREND_LINE_PROPS} dataKey="sbp" name={sbpName} stroke="#ef4444" />
