@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { CriticalTrackRecord } from '../types';
 import type { HealthArchive } from '../services/dataService';
-import { updateCriticalTrack } from '../services/dataService';
 import {
   buildFollowUpWorklist,
   formatLocalYmd,
@@ -19,13 +17,7 @@ import {
   exportCriticalFollowUpArchives,
   exportFollowUpWorklistRows,
 } from '../services/criticalFollowUpExport';
-import { CriticalHandleModal } from './CriticalHandleModal';
-import {
-  isSmsConfigured,
-  resolveArchivePhone,
-  sendCriticalSms,
-  type SmsSentRole,
-} from '../services/smsService';
+import type { SmsSentRole } from '../services/smsService';
 
 export type WorklistFilter = 'todo' | 'archived_critical';
 
@@ -50,7 +42,6 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
 }) => {
   const [filter, setFilter] = useState<WorklistFilter>('todo');
   const [searchQuery, setSearchQuery] = useState('');
-  const [modalArchive, setModalArchive] = useState<HealthArchive | null>(null);
   const [showContactRetryRemind, setShowContactRetryRemind] = useState(false);
   const contactRetryRemindKeyRef = useRef('');
   const rowRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -91,7 +82,7 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
       setSearchQuery(criticalFocus.checkupId);
       const arch = archives.find((a) => a.checkup_id === criticalFocus.checkupId);
       if (arch && criticalFocus.openModal) {
-        setModalArchive(arch);
+        onSelectPatient(arch, { scrollToDetail: true });
       }
       requestAnimationFrame(() => {
         const el = rowRefs.current[criticalFocus.checkupId!];
@@ -100,65 +91,13 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
     } else {
       setFilter('todo');
     }
-  }, [criticalFocus?.token, criticalFocus?.checkupId, criticalFocus?.openModal, archives]);
+  }, [criticalFocus?.token, criticalFocus?.checkupId, criticalFocus?.openModal, archives, onSelectPatient]);
 
   const dismissContactRetryRemind = () => {
     if (contactRetryRemindKeyRef.current) {
       sessionStorage.setItem('crit_contact_retry_popup', contactRetryRemindKeyRef.current);
     }
     setShowContactRetryRemind(false);
-  };
-
-  const handleCriticalSave = async (
-    record: CriticalTrackRecord,
-    options?: { sendSms?: boolean; delayContactWeek?: boolean; convertToFollowUp?: boolean },
-  ) => {
-    if (!modalArchive) return;
-    let recordToSave = { ...record };
-
-    if (options?.delayContactWeek) {
-      await updateCriticalTrack(modalArchive.checkup_id, recordToSave);
-      alert(`已登记电话联系不上，延期至 ${record.contact_retry_due} 再提醒`);
-      setModalArchive(null);
-      onRefresh();
-      return;
-    }
-
-    if (options?.sendSms) {
-      const phone = resolveArchivePhone(modalArchive);
-      if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
-        alert('该职工未登记有效手机号，无法发送短信');
-        return;
-      }
-      if (!isSmsConfigured()) {
-        alert('短信服务未配置：请部署 send-sms Edge Function 并设置 VITE_SMS_INVOKE_SECRET');
-        return;
-      }
-      const summary = modalArchive.assessment_data?.criticalWarning || record.critical_desc;
-      const smsRes = await sendCriticalSms({
-        checkupId: modalArchive.checkup_id,
-        phone,
-        name: modalArchive.name,
-        summary,
-        sentRole: userRole,
-      });
-      if (!smsRes.success || smsRes.failCount > 0) {
-        alert(`短信发送失败：${smsRes.results[0]?.error || smsRes.message}`);
-        return;
-      }
-      const now = new Date().toLocaleString();
-      recordToSave =
-        record.status === 'pending_secondary' || record.status === 'archived'
-          ? { ...recordToSave, secondary_notify_time: now }
-          : { ...recordToSave, initial_notify_time: now };
-    }
-
-    await updateCriticalTrack(modalArchive.checkup_id, recordToSave);
-    setModalArchive(null);
-    onRefresh();
-    if (options?.convertToFollowUp) {
-      onSelectPatient(modalArchive, { scrollToDetail: true });
-    }
   };
 
   const categoryLabel = (row: FollowUpWorklistRow) => {
@@ -358,21 +297,12 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {isCriticalFollowUpPending(archive) ? (
-                        <button
-                          type="button"
-                          onClick={() => setModalArchive(archive)}
-                          className="rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white hover:bg-red-700"
-                        >
-                          危急处置
-                        </button>
-                      ) : null}
                       <button
                         type="button"
                         onClick={() => onSelectPatient(archive, { scrollToDetail: true })}
                         className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-bold text-white hover:bg-teal-700"
                       >
-                        开始随访
+                        {isCriticalFollowUpPending(archive) ? '开始随访（含危急值）' : '开始随访'}
                       </button>
                     </div>
                   </div>
@@ -433,15 +363,6 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
         )}
       </div>
 
-      {modalArchive ? (
-        <CriticalHandleModal
-          archive={modalArchive}
-          onClose={() => setModalArchive(null)}
-          onSave={handleCriticalSave}
-          onConvertToFollowUp={() => onSelectPatient(modalArchive, { scrollToDetail: true })}
-        />
-      ) : null}
-
       {showContactRetryRemind && contactRetryDueList.length > 0 ? (
         <div className="fixed inset-0 bg-slate-900/60 z-[80] flex items-center justify-center backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 border-t-8 border-amber-500">
@@ -463,11 +384,11 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
                     onClick={() => {
                       dismissContactRetryRemind();
                       setFilter('todo');
-                      setModalArchive(arch);
+                      onSelectPatient(arch, { scrollToDetail: true });
                     }}
                     className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700"
                   >
-                    立即处理
+                    去随访处理
                   </button>
                 </li>
               ))}

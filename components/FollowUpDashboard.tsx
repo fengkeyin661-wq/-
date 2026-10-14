@@ -3,10 +3,13 @@ import { FollowUpRecord, RiskLevel, HealthAssessment, ScheduledFollowUp, HealthR
 import { HealthArchive, updateCriticalTrack } from '../services/dataService';
 import { analyzeFollowUpRecord, generateFollowUpSMS, generateAnnualReportSummary } from '../services/geminiService';
 import {
+  addLocalDaysYmd,
   buildFollowUpContext,
   buildFollowUpChainSummary,
   buildMergedTimeline,
   computeIndicatorDelta,
+  criticalClosureNeedsNote,
+  ensureCriticalTrackOnAssessment,
   getIndicatorValuesFromRecord,
   filterPriorityFocusItems,
 } from '../services/followUpLinkageService';
@@ -27,7 +30,6 @@ import {
   sendCriticalSms,
   type SmsSentRole,
 } from '../services/smsService';
-import { CriticalHandleModal } from './CriticalHandleModal';
 import { PatientClinicalHeader } from './clinical/PatientClinicalHeader';
 
 export type FollowUpWorkspaceTab = 'timeline' | 'entry' | 'guide';
@@ -112,8 +114,8 @@ export const FollowUpDashboard: React.FC<Props> = ({
   const [isGeneratingSms, setIsGeneratingSms] = useState(false);
   const [isSendingSms, setIsSendingSms] = useState(false);
 
-  // State for Critical Value Modal
-  const [criticalModalArchive, setCriticalModalArchive] = useState<HealthArchive | null>(null);
+  const [criticalDraft, setCriticalDraft] = useState<CriticalTrackRecord | null>(null);
+  const [criticalSendSms, setCriticalSendSms] = useState(false);
 
   const handleWorklistSelectPatient = useCallback(
     (archive: HealthArchive, options?: { scrollToDetail?: boolean }) => {
@@ -336,6 +338,28 @@ export const FollowUpDashboard: React.FC<Props> = ({
     baseState.followUpType =
       followUpContext?.sourceLabel === '危急值二次回访' ? 'critical_secondary' : 'routine';
     baseState.linkedCriticalTrackId = followUpContext?.criticalTrack?.id;
+    const existingTrack = patientArchive?.critical_track;
+    const openTrack =
+      existingTrack && existingTrack.status !== 'archived'
+        ? existingTrack
+        : !existingTrack && patientArchive?.assessment_data?.isCritical && patientArchive
+          ? ensureCriticalTrackOnAssessment(patientArchive)
+          : null;
+    const draft =
+      openTrack && openTrack.status !== 'archived'
+        ? {
+            ...openTrack,
+            secondary_due_date:
+              openTrack.secondary_due_date ||
+              (() => {
+                const due = new Date();
+                due.setMonth(due.getMonth() + 1);
+                return due.toISOString().split('T')[0];
+              })(),
+          }
+        : null;
+    setCriticalDraft(draft);
+    setCriticalSendSms(false);
 
     if (isAssessmentNewer && assessment) {
         baseState.assessment.riskJustification = `基于最新评估：${(assessment.summary || '').slice(0, 50)}...`;
@@ -384,10 +408,70 @@ export const FollowUpDashboard: React.FC<Props> = ({
     { val: 'declined', label: '拒绝/未做' },
   ];
 
+  const criticalTrackRow = () =>
+    (formData.abnormalityFollowUps || []).find((row) => row.kind === 'critical');
+
+  const handleDelayCriticalContact = async () => {
+    if (!criticalDraft || !currentPatientId || criticalDraft.status === 'archived') return;
+    const retryDue = addLocalDaysYmd(7);
+    const note = `电话无人接听/联系不上，已延期至 ${retryDue} 再联系。`;
+    if (!confirm(`确认因电话联系不上，将再联系时间延期一周？\n\n下次提醒日：${retryDue}\n（不会进入下一阶段）`)) {
+      return;
+    }
+    const now = new Date().toLocaleString();
+    const count = (criticalDraft.contact_unreachable_count || 0) + 1;
+    const isSecondary = criticalDraft.status === 'pending_secondary';
+    const next: CriticalTrackRecord = {
+      ...criticalDraft,
+      status: isSecondary ? 'pending_secondary' : 'pending_initial',
+      contact_retry_due: retryDue,
+      contact_unreachable_at: now,
+      contact_unreachable_count: count,
+      ...(isSecondary
+        ? {
+            secondary_feedback: criticalDraft.secondary_feedback?.trim()
+              ? `${criticalDraft.secondary_feedback.trim()}\n${note}`
+              : note,
+          }
+        : {
+            initial_feedback: criticalDraft.initial_feedback?.trim()
+              ? `${criticalDraft.initial_feedback.trim()}\n${note}`
+              : note,
+          }),
+    };
+    const res = await updateCriticalTrack(currentPatientId, next);
+    if (!res.success) {
+      alert('保存失败: ' + (res.message || '请稍后重试'));
+      return;
+    }
+    setCriticalDraft(next);
+    alert(`已登记电话联系不上，延期至 ${retryDue} 再提醒`);
+    onRefresh?.();
+  };
+
   const handleSubmit = async () => {
     if (!formData.planAdherenceGrade) {
       alert('请选择「健康管理方案落实总评」后再提交。');
       return;
+    }
+    const criticalRow = criticalTrackRow();
+    if (
+      criticalRow &&
+      criticalRow.status !== 'pending' &&
+      criticalClosureNeedsNote(criticalDraft, criticalRow.note || '')
+    ) {
+      alert('危急值已标记为完成处理，请在该条跟踪中填写结果或安排。');
+      return;
+    }
+    if (criticalSendSms) {
+      if (!currentPatientPhone || !/^1[3-9]\d{9}$/.test(currentPatientPhone)) {
+        alert('该职工未登记有效手机号，无法发送短信。请取消短信或补全手机号后再提交。');
+        return;
+      }
+      if (!isSmsConfigured()) {
+        alert('短信服务未配置。请取消短信后再提交。');
+        return;
+      }
     }
     setIsAnalyzing(true);
     try {
@@ -401,6 +485,17 @@ export const FollowUpDashboard: React.FC<Props> = ({
           .join('；');
         const submitPayload = {
           ...formData,
+          criticalDisposition:
+            criticalDraft && criticalRow
+              ? {
+                  critical_level: criticalDraft.critical_level,
+                  critical_item: criticalDraft.critical_item,
+                  critical_desc: criticalDraft.critical_desc,
+                  secondary_due_date: criticalDraft.secondary_due_date,
+                  note: criticalRow.note || '',
+                  closed: criticalRow.status !== 'pending',
+                }
+              : undefined,
           otherInfo: [formData.otherInfo, skippedNote ? `本次未测指标：${skippedNote}` : '']
             .filter(Boolean)
             .join('\n'),
@@ -446,13 +541,26 @@ export const FollowUpDashboard: React.FC<Props> = ({
             alert(saveRes?.message || '随访记录保存失败，请检查网络或权限后重试。');
             return;
         }
+        let criticalSuffix = criticalDraft && criticalRow ? '\n\n危急值处置已随本次随访一并保存。' : '';
+        if (criticalSendSms && currentPatientId) {
+          const smsRes = await sendCriticalSms({
+            checkupId: currentPatientId,
+            phone: currentPatientPhone,
+            name: currentPatientName,
+            summary: currentArchive?.assessment_data?.criticalWarning || criticalDraft?.critical_desc || '',
+            sentRole: userRole,
+          });
+          if (!smsRes.success || smsRes.failCount > 0) {
+            criticalSuffix += `\n短信发送失败：${smsRes.results[0]?.error || smsRes.message}`;
+          }
+        }
         autoFillForm();
         const cloudHint = saveRes?.message ? `\n\n${saveRes.message}` : '';
         if (result?.analysisSource === 'ai') {
-            alert('随访记录已保存，并已生成AI分析执行单。' + cloudHint);
+            alert('随访记录已保存，并已生成AI分析执行单。' + cloudHint + criticalSuffix);
         } else {
             alert(
-                `随访记录已保存，但AI分析未成功，当前为回退建议。原因：${result?.analysisError || '未获取到模型返回'}${cloudHint}`
+                `随访记录已保存，但AI分析未成功，当前为回退建议。原因：${result?.analysisError || '未获取到模型返回'}${cloudHint}${criticalSuffix}`
             );
         }
         setWorkspaceTab('guide');
@@ -579,67 +687,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
           setShowSmsModal(false);
       } finally {
           setIsSendingSms(false);
-      }
-  };
-
-  const handleCriticalSave = async (
-      record: CriticalTrackRecord,
-      options?: { sendSms?: boolean; convertToFollowUp?: boolean; delayContactWeek?: boolean },
-  ) => {
-      if (!criticalModalArchive) return;
-      let recordToSave = { ...record };
-
-      if (options?.delayContactWeek) {
-          const res = await updateCriticalTrack(criticalModalArchive.checkup_id, recordToSave);
-          if (res.success) {
-              alert(`已登记电话联系不上，延期至 ${record.contact_retry_due} 再提醒`);
-              setCriticalModalArchive(null);
-              if (onRefresh) onRefresh();
-          } else {
-              alert('保存失败: ' + res.message);
-          }
-          return;
-      }
-
-      if (options?.sendSms) {
-          const phone = resolveArchivePhone(criticalModalArchive);
-          if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
-              alert('该职工未登记有效手机号，无法发送短信');
-              return;
-          }
-          if (!isSmsConfigured()) {
-              alert('短信服务未配置：请部署 send-sms Edge Function 并设置 VITE_SMS_INVOKE_SECRET');
-              return;
-          }
-          const summary = criticalModalArchive.assessment_data?.criticalWarning || record.critical_desc;
-          const smsRes = await sendCriticalSms({
-              checkupId: criticalModalArchive.checkup_id,
-              phone,
-              name: criticalModalArchive.name,
-              summary,
-              sentRole: userRole,
-          });
-          if (!smsRes.success || smsRes.failCount > 0) {
-              alert(`短信发送失败：${smsRes.results[0]?.error || smsRes.message}`);
-              return;
-          }
-          const now = new Date().toLocaleString();
-          recordToSave = record.status === 'pending_secondary' || record.status === 'archived'
-              ? { ...recordToSave, secondary_notify_time: now }
-              : { ...recordToSave, initial_notify_time: now };
-      }
-
-      const res = await updateCriticalTrack(criticalModalArchive.checkup_id, recordToSave);
-      if (res.success) {
-          alert(options?.sendSms ? '危急值记录已保存，短信已发送' : '危急值处理记录已更新');
-          setCriticalModalArchive(null);
-          if (onRefresh) onRefresh();
-          if (options?.convertToFollowUp && criticalModalArchive && onPatientChange) {
-              onPatientChange(criticalModalArchive);
-              setWorkspaceTab('entry');
-          }
-      } else {
-          alert('保存失败: ' + res.message);
       }
   };
 
@@ -831,18 +878,9 @@ export const FollowUpDashboard: React.FC<Props> = ({
                     <div className="text-xs font-black uppercase tracking-wide text-amber-800">本期监督重点</div>
                     <div className="mt-0.5 text-sm font-bold text-slate-800">{followUpContext.sourceLabel}</div>
                     <p className="mt-1 text-sm text-amber-900/85">
-                      对照方案整体监督，不必逐项盘问所有指标；中高危与异常复测优先。
+                      只督促危急值和重点，一般情况不在这里逐项跟进。危急值处置随本次随访一起填写。
                     </p>
                   </div>
-                  {followUpContext.criticalTrack ? (
-                    <button
-                      type="button"
-                      onClick={() => currentArchive && setCriticalModalArchive(currentArchive)}
-                      className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700"
-                    >
-                      危急值待办 →
-                    </button>
-                  ) : null}
                 </div>
                 {priorityFocusItems.length > 0 ? (
                   <ol className="mt-3 space-y-2">
@@ -857,7 +895,7 @@ export const FollowUpDashboard: React.FC<Props> = ({
                   </ol>
                 ) : (
                   <p className="mt-2 text-sm text-amber-900/80">
-                    暂无中高危提示：请完成方案总评，并更新异常指标跟踪。
+                    暂无危急值或重点。一般情况不列入本期跟踪。
                   </p>
                 )}
                 {followUpContext.failedTasks.length + followUpContext.partialTasks.length > 0 ? (
@@ -930,15 +968,120 @@ export const FollowUpDashboard: React.FC<Props> = ({
                       <section className="rounded-xl border-2 border-amber-300 bg-yellow-50 p-5">
                            <h4 className="mb-2 text-base font-bold text-amber-900">1. 异常指标跟踪</h4>
                            <p className="text-sm text-amber-800/90 mb-3">
-                             与上方「本期监督重点」一致（中高危因素）；记录复测或进一步检查进展即可。
+                             只保留危急值和重点。一般情况不列入随访跟踪；危急值的通知、回访和归档在本条里完成。
                            </p>
                            {formData.abnormalityFollowUps && formData.abnormalityFollowUps.length > 0 ? (
                                <div className="flex flex-col gap-3">
-                                   {formData.abnormalityFollowUps.map((row, idx) => (
-                                       <div key={row.key} className="bg-white p-3 rounded border border-amber-100 text-xs space-y-2">
-                                           <div className="font-bold text-slate-800">{row.item}</div>
-                                           {row.lastResult ? (
-                                             <p className="text-slate-500">上次：{row.lastResult}</p>
+                                   {formData.abnormalityFollowUps.map((row, idx) => {
+                                     const isCriticalRow = row.kind === 'critical' && !!criticalDraft;
+                                     const stageLabel =
+                                       criticalDraft?.status === 'pending_secondary' ? '待二次回访' : '待初次通知';
+                                     const levelChecked = (lvl: string) =>
+                                       (criticalDraft?.critical_level || '').split(/[,，、/ ]+/).includes(lvl);
+                                     const toggleLevel = (lvl: string) => {
+                                       if (!criticalDraft || criticalDraft.status !== 'pending_initial') return;
+                                       const current = (criticalDraft.critical_level || '').split(/[,，、/ ]+/).filter(Boolean);
+                                       const nextLevels = current.includes(lvl)
+                                         ? current.filter((item) => item !== lvl)
+                                         : [...current, lvl];
+                                       setCriticalDraft({ ...criticalDraft, critical_level: nextLevels.sort().join(',') });
+                                     };
+                                     return (
+                                       <div
+                                         key={row.key}
+                                         className={`bg-white p-4 rounded-lg border space-y-3 ${
+                                           isCriticalRow ? 'border-red-200' : 'border-amber-100'
+                                         }`}
+                                       >
+                                           <div className="flex flex-wrap items-start justify-between gap-2">
+                                             <div className="font-bold text-base text-slate-800">{row.item}</div>
+                                             {isCriticalRow ? (
+                                               <span className="rounded bg-red-50 px-2 py-1 text-sm font-bold text-red-700">
+                                                 {stageLabel}
+                                               </span>
+                                             ) : null}
+                                           </div>
+                                           {row.lastResult && !isCriticalRow ? (
+                                             <p className="text-sm text-slate-500">上次：{row.lastResult}</p>
+                                           ) : null}
+                                           {isCriticalRow && criticalDraft ? (
+                                             <div className="space-y-3 rounded-lg border border-red-100 bg-red-50/60 p-3">
+                                               <div className="text-sm font-bold text-red-800">危急值处置（随本次随访保存）</div>
+                                               {criticalDraft.contact_retry_due ? (
+                                                 <p className="text-sm font-bold text-amber-800">
+                                                   已登记联系不上，计划再联系：{criticalDraft.contact_retry_due}
+                                                 </p>
+                                               ) : null}
+                                               <div className="flex flex-wrap gap-4 text-sm">
+                                                 <label className="flex items-center gap-2">
+                                                   <input
+                                                     type="checkbox"
+                                                     className="h-4 w-4 accent-red-600"
+                                                     checked={levelChecked('A类')}
+                                                     disabled={criticalDraft.status !== 'pending_initial'}
+                                                     onChange={() => toggleLevel('A类')}
+                                                   />
+                                                   <span className="font-bold text-red-700">A类 危急值</span>
+                                                 </label>
+                                                 <label className="flex items-center gap-2">
+                                                   <input
+                                                     type="checkbox"
+                                                     className="h-4 w-4 accent-orange-500"
+                                                     checked={levelChecked('B类')}
+                                                     disabled={criticalDraft.status !== 'pending_initial'}
+                                                     onChange={() => toggleLevel('B类')}
+                                                   />
+                                                   <span className="font-bold text-orange-700">B类 重点</span>
+                                                 </label>
+                                               </div>
+                                               <label className="block text-sm font-bold text-slate-700">
+                                                 项目名称
+                                                 <input
+                                                   type="text"
+                                                   className="mt-1 w-full rounded border bg-white p-2.5 text-base"
+                                                   value={criticalDraft.critical_item}
+                                                   disabled={criticalDraft.status !== 'pending_initial'}
+                                                   onChange={(e) =>
+                                                     setCriticalDraft({ ...criticalDraft, critical_item: e.target.value })
+                                                   }
+                                                 />
+                                               </label>
+                                               <label className="block text-sm font-bold text-slate-700">
+                                                 异常描述
+                                                 <textarea
+                                                   className="mt-1 w-full rounded border bg-white p-2.5 text-base"
+                                                   rows={2}
+                                                   value={criticalDraft.critical_desc}
+                                                   disabled={criticalDraft.status !== 'pending_initial'}
+                                                   onChange={(e) =>
+                                                     setCriticalDraft({ ...criticalDraft, critical_desc: e.target.value })
+                                                   }
+                                                 />
+                                               </label>
+                                               {criticalDraft.status === 'pending_initial' ? (
+                                                 <label className="block text-sm font-bold text-slate-700">
+                                                   计划二次回访日期
+                                                   <input
+                                                     type="date"
+                                                     className="mt-1 w-full rounded border bg-white p-2.5 text-base"
+                                                     value={criticalDraft.secondary_due_date || ''}
+                                                     onChange={(e) =>
+                                                       setCriticalDraft({
+                                                         ...criticalDraft,
+                                                         secondary_due_date: e.target.value,
+                                                       })
+                                                     }
+                                                   />
+                                                 </label>
+                                               ) : (
+                                                 <p className="text-sm text-slate-600">
+                                                   初次通知：{criticalDraft.initial_feedback || '—'}
+                                                   {criticalDraft.initial_notify_time
+                                                     ? `（${criticalDraft.initial_notify_time}）`
+                                                     : ''}
+                                                 </p>
+                                               )}
+                                             </div>
                                            ) : null}
                                            <select
                                              className="w-full rounded border p-2.5 text-base bg-slate-50"
@@ -951,16 +1094,43 @@ export const FollowUpDashboard: React.FC<Props> = ({
                                            </select>
                                            <input
                                              type="text"
-                                             placeholder="结果或安排简述…"
+                                             placeholder={
+                                               isCriticalRow
+                                                 ? criticalDraft?.status === 'pending_secondary'
+                                                   ? '二次回访结果、治疗进展…'
+                                                   : '通知对象、通话情况及处置建议…'
+                                                 : '结果或安排简述…'
+                                             }
                                              className="w-full rounded border p-2.5 text-base"
                                              value={row.note || ''}
                                              onChange={(e) => updateAbnormalityRow(idx, 'note', e.target.value)}
                                            />
+                                           {isCriticalRow ? (
+                                             <div className="flex flex-wrap items-center justify-between gap-3">
+                                               <label className="flex items-center gap-2 text-sm text-slate-700">
+                                                 <input
+                                                   type="checkbox"
+                                                   className="h-4 w-4 accent-teal-600"
+                                                   checked={criticalSendSms}
+                                                   onChange={(e) => setCriticalSendSms(e.target.checked)}
+                                                 />
+                                                 保存随访时短信通知（{currentPatientPhone || '无手机号'}）
+                                               </label>
+                                               <button
+                                                 type="button"
+                                                 onClick={handleDelayCriticalContact}
+                                                 className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800 hover:bg-amber-100"
+                                               >
+                                                 电话联系不上，延期一周
+                                               </button>
+                                             </div>
+                                           ) : null}
                                        </div>
-                                   ))}
+                                     );
+                                   })}
                                </div>
                            ) : (
-                             <p className="text-xs text-slate-500">暂无中高危监督重点，无需填写异常跟踪；可在下方沟通备注中补充。</p>
+                             <p className="text-sm text-slate-500">暂无危急值或重点，无需填写异常跟踪。一般情况请写在下方沟通备注。</p>
                            )}
                       </section>
 
@@ -1492,15 +1662,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Critical Handle Modal */}
-      {criticalModalArchive && (
-          <CriticalHandleModal 
-              archive={criticalModalArchive} 
-              onClose={() => setCriticalModalArchive(null)} 
-              onSave={handleCriticalSave}
-              onConvertToFollowUp={onPatientChange ? () => onPatientChange(criticalModalArchive) : undefined}
-          />
-      )}
       </div>
     </div>
   );

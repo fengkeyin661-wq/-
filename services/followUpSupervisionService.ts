@@ -17,6 +17,8 @@ export type AbnormalityFollowUp = {
   lastResult?: string;
   status: AbnormalityFollowUpStatus;
   note?: string;
+  /** critical：危急值工单；key：未包含在危急值里的高危重点 */
+  kind?: 'critical' | 'key';
 };
 
 export type SupervisionMetricKey =
@@ -137,28 +139,76 @@ const buildMetricSlots = (archive: HealthArchive, blob: string): SupervisionMetr
   return slots.slice(0, 4);
 };
 
-const buildRiskFocusLines = (archive: HealthArchive): string[] => {
-  const out: string[] = [];
+type SupervisionFocusLine = { text: string; kind: 'critical' | 'key' };
+
+const openCriticalTrack = (archive: HealthArchive) => {
   const track = archive.critical_track;
-  if (track && track.status !== 'archived' && track.critical_item) {
-    out.push(`危急/重点：${track.critical_item}`);
-  }
-  const a = archive.assessment_data;
-  for (const line of a?.risks?.red || []) {
-    const t = String(line).trim();
-    if (t && !out.includes(t)) out.push(t);
-    if (out.length >= 4) return out;
-  }
-  for (const line of a?.risks?.yellow || []) {
-    const t = String(line).trim();
-    if (t && !out.some((x) => normalizeFocusItemKey(x) === normalizeFocusItemKey(t))) out.push(t);
-    if (out.length >= 4) break;
-  }
-  return out.slice(0, 4);
+  if (!track || track.status === 'archived' || !track.critical_item?.trim()) return null;
+  return track;
 };
 
+const criticalFocusPrefix = (level: string | undefined): string => {
+  const hasA = (level || '').includes('A');
+  const hasB = (level || '').includes('B');
+  if (hasA && !hasB) return '危急值';
+  if (hasB && !hasA) return '重点';
+  return '危急/重点';
+};
+
+const criticalCoverageBlob = (archive: HealthArchive): string =>
+  [archive.critical_track?.critical_item, archive.critical_track?.critical_desc, archive.assessment_data?.criticalWarning]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+/** 已写进危急值项目或描述里的条目不再单独跟踪，避免同一件事填两遍 */
+const lineCoveredByCritical = (line: string, blob: string): boolean => {
+  const raw = line.trim().toLowerCase();
+  if (!blob || raw.length < 2) return false;
+  if (blob.includes(raw)) return true;
+  const head = raw.slice(0, Math.min(8, raw.length));
+  if (head.length >= 4 && blob.includes(head)) return true;
+  const tokens = raw
+    .split(/[，,、；;。.\s（）()]+/)
+    .map((part) => part.replace(/显著|升高|降低|类|需|排除|恶性|建议/g, '').trim())
+    .filter((part) => part.length >= 4);
+  return tokens.some((token) => blob.includes(token));
+};
+
+/**
+ * 随访跟踪只保留危急值工单，以及尚未包含在危急值中的高危重点。
+ * 中危和一般情况不进入跟踪清单。
+ */
+const buildSupervisionFocus = (archive: HealthArchive): SupervisionFocusLine[] => {
+  const out: SupervisionFocusLine[] = [];
+  const track = openCriticalTrack(archive);
+  if (track) {
+    out.push({
+      text: `${criticalFocusPrefix(track.critical_level)}：${track.critical_item}`,
+      kind: 'critical',
+    });
+  } else if (archive.assessment_data?.isCritical) {
+    const warning = (archive.assessment_data.criticalWarning || '').replace(/\[[AB][12]?类\]\s*/g, '').trim();
+    const item = warning.slice(0, 40) || '危急值筛查';
+    out.push({ text: `危急值：${item}`, kind: 'critical' });
+  }
+  const blob = criticalCoverageBlob(archive);
+  for (const line of archive.assessment_data?.risks?.red || []) {
+    const text = String(line).trim();
+    if (!text) continue;
+    if (lineCoveredByCritical(text, blob)) continue;
+    if (out.some((row) => normalizeFocusItemKey(row.text) === normalizeFocusItemKey(text))) continue;
+    out.push({ text: text.startsWith('重点：') ? text : `重点：${text}`, kind: 'key' });
+    if (out.length >= 4) break;
+  }
+  return out;
+};
+
+const buildRiskFocusLines = (archive: HealthArchive): string[] =>
+  buildSupervisionFocus(archive).map((row) => row.text);
+
 const stripCriticalPrefix = (focusLine: string) =>
-  focusLine.replace(/^危急\/重点：/, '').trim();
+  focusLine.replace(/^(危急值|重点|危急\/重点)：/, '').trim();
 
 const textMatchesFocusLine = (text: string, focusLine: string): boolean => {
   const blob = String(text || '').toLowerCase();
@@ -180,9 +230,9 @@ const checkupAbnMatchesFocus = (ab: CheckupAbnormality, focusLine: string): bool
 const priorRowMatchesFocus = (row: AbnormalityFollowUp, focusLine: string): boolean =>
   textMatchesFocusLine(`${row.item} ${row.lastResult || ''}`, focusLine);
 
-/** 与 buildRiskFocusLines 一一对应，便于录入区与「本期监督重点」一致 */
+/** 与本期监督重点一一对应：只有危急值和未覆盖的高危重点 */
 const mergeAbnormalityTracks = (archive: HealthArchive): AbnormalityFollowUp[] => {
-  const focusLines = buildRiskFocusLines(archive);
+  const focusLines = buildSupervisionFocus(archive);
   if (!focusLines.length) return [];
 
   const prior = getLatestFollowUp(archive.follow_ups);
@@ -191,24 +241,25 @@ const mergeAbnormalityTracks = (archive: HealthArchive): AbnormalityFollowUp[] =
   const usedPriorKeys = new Set<string>();
 
   return focusLines.map((focus) => {
-    const priorHit = priorRows.find((r) => !usedPriorKeys.has(r.key) && priorRowMatchesFocus(r, focus));
+    const priorHit = priorRows.find((r) => !usedPriorKeys.has(r.key) && priorRowMatchesFocus(r, focus.text));
     if (priorHit) {
       usedPriorKeys.add(priorHit.key);
-      return { ...priorHit, item: focus };
+      return { ...priorHit, item: focus.text, kind: focus.kind };
     }
 
-    const matchedAb = checkupAbn.find((ab) => checkupAbnMatchesFocus(ab, focus));
+    const matchedAb = checkupAbn.find((ab) => checkupAbnMatchesFocus(ab, focus.text));
     let lastResult = matchedAb
       ? [matchedAb.result, matchedAb.clinicalSig].filter(Boolean).join(' · ').slice(0, 120)
       : undefined;
-    if (!lastResult && focus.startsWith('危急/重点：') && archive.critical_track?.critical_desc) {
-      lastResult = archive.critical_track.critical_desc.slice(0, 120);
+    if (!lastResult && focus.kind === 'critical' && archive.critical_track?.critical_desc) {
+      lastResult = archive.critical_track.critical_desc.slice(0, 160);
     }
 
-    const label = stripCriticalPrefix(focus) || focus;
+    const label = stripCriticalPrefix(focus.text) || focus.text;
     return {
       key: abnormalityKey(label, lastResult),
-      item: focus,
+      item: focus.text,
+      kind: focus.kind,
       lastResult: lastResult || undefined,
       status: 'pending' as const,
       note: '',

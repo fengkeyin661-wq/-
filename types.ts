@@ -1202,11 +1202,21 @@ export interface FollowUpRecord {
     lastResult?: string;
     status: 'pending' | 'retest_done' | 'further_exam_done' | 'referred' | 'declined';
     note?: string;
+    kind?: 'critical' | 'key';
   }[];
   /** 提交时冻结的监督重点，供时间轴展示 */
   supervisionSnapshot?: string[];
 
   followUpType?: 'routine' | 'critical_secondary' | 'critical_conversion';
+  /** 本次随访一并提交的危急值处置，避免再开危急值待办 */
+  criticalDisposition?: {
+    critical_level: string;
+    critical_item: string;
+    critical_desc: string;
+    secondary_due_date: string;
+    note: string;
+    closed: boolean;
+  };
   linkedCriticalTrackId?: string;
   sourceScheduleId?: string;
   focusSnapshot?: string[];

@@ -599,6 +599,64 @@ export const resolvePriorityFocusForArchive = (archive: HealthArchive): string[]
   return filterPriorityFocusItems(ctx.focusItems).slice(0, 6);
 };
 
+/** 随访录入里勾选「已复测/已就医」等闭环状态时，危急值工单缺少说明 */
+export const criticalClosureNeedsNote = (
+  track: CriticalTrackRecord | null | undefined,
+  note: string
+): boolean => {
+  if (!track || track.status === 'archived') return false;
+  if (note.trim()) return false;
+  if (track.status === 'pending_secondary') return !track.secondary_feedback?.trim();
+  return !track.initial_feedback?.trim();
+};
+
+/**
+ * 把随访跟踪说明写进危急值工单，避免同一事项再开危急值待办。
+ * closed=false 且没有说明时不推进阶段，只保留调用方已改过的等级、项目和日期。
+ */
+export const applyFollowUpNoteToCriticalTrack = (
+  track: CriticalTrackRecord,
+  input: { note: string; closed: boolean }
+): CriticalTrackRecord => {
+  const note = input.note.trim();
+  const now = new Date().toLocaleString();
+  const iso = new Date().toISOString();
+  if (track.status === 'archived') return track;
+
+  if (track.status === 'pending_initial') {
+    if (!input.closed && !note) return track;
+    const feedback = [track.initial_feedback?.trim(), note].filter(Boolean).join('\n');
+    const next = clearCriticalContactRetry({
+      ...track,
+      initial_feedback: feedback,
+      initial_notify_time: track.initial_notify_time || now,
+      status: input.closed ? 'archived' : 'pending_secondary',
+    });
+    if (!input.closed) return next;
+    return {
+      ...next,
+      secondary_feedback: note || feedback,
+      secondary_notify_time: now,
+      resolvedAt: iso,
+      resolutionNote: note || feedback || '随访中已闭环',
+    };
+  }
+
+  if (!input.closed && !note) return track;
+  const feedback = [track.secondary_feedback?.trim(), note].filter(Boolean).join('\n');
+  if (input.closed) {
+    return clearCriticalContactRetry({
+      ...track,
+      secondary_feedback: feedback,
+      secondary_notify_time: now,
+      status: 'archived',
+      resolvedAt: iso,
+      resolutionNote: note || feedback || '随访中已闭环',
+    });
+  }
+  return { ...track, secondary_feedback: feedback };
+};
+
 export const linkFollowUpToCritical = (
   track: CriticalTrackRecord,
   followUpId: string
@@ -619,10 +677,41 @@ export const resolveCriticalIfApplicable = (
   archive: HealthArchive,
   newFollowUp: FollowUpRecord
 ): { track: CriticalTrackRecord | null; assessmentPatch: HealthAssessment | null } => {
+  const disposition = newFollowUp.criticalDisposition;
   let track = archive.critical_track;
+  if (!track && disposition) {
+    track = {
+      id: `crit_${newFollowUp.id}`,
+      status: 'pending_initial',
+      critical_item: disposition.critical_item || '危急值筛查',
+      critical_desc: disposition.critical_desc || '',
+      critical_level: disposition.critical_level || 'B类',
+      initial_notify_time: '',
+      initial_feedback: '',
+      secondary_due_date: disposition.secondary_due_date || '',
+      autoCreated: true,
+    };
+  }
   if (!track) return { track: null, assessmentPatch: null };
 
   track = linkFollowUpToCritical(track, newFollowUp.id);
+
+  if (disposition && track.status !== 'archived') {
+    track = applyFollowUpNoteToCriticalTrack(
+      {
+        ...track,
+        critical_level: disposition.critical_level || track.critical_level,
+        critical_item: disposition.critical_item || track.critical_item,
+        critical_desc: disposition.critical_desc || track.critical_desc,
+        secondary_due_date: disposition.secondary_due_date || track.secondary_due_date,
+      },
+      { note: disposition.note, closed: disposition.closed }
+    );
+    return {
+      track,
+      assessmentPatch: track.status === 'archived' ? clearCriticalFromAssessment(archive.assessment_data) : null,
+    };
+  }
 
   if (newFollowUp.followUpType === 'critical_secondary' && track.status === 'pending_secondary') {
     track = {
