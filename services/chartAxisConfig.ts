@@ -195,16 +195,6 @@ const METRIC_AXIS: Record<
       { value: 420, label: '男上限 420', color: '#ef4444' },
     ],
   },
-  'core.plt': {
-    step: 50,
-    minFloor: 50,
-    maxCeil: 450,
-    tickDecimals: 0,
-    referenceLines: [
-      { value: 100, label: '下限 100', color: '#ef4444' },
-      { value: 300, label: '上限 300', color: '#f59e0b' },
-    ],
-  },
   'core.abi': {
     step: 0.1,
     minFloor: 0.7,
