@@ -114,6 +114,18 @@ Deno.serve(async (req) => {
           labBasic.renal = renal;
           break;
         }
+        case 'core.urea': {
+          const renal = (labBasic.renal as Record<string, unknown>) || {};
+          renal.urea = String(v);
+          labBasic.renal = renal;
+          break;
+        }
+        case 'core.uric_acid': {
+          const renal = (labBasic.renal as Record<string, unknown>) || {};
+          renal.ua = String(v);
+          labBasic.renal = renal;
+          break;
+        }
         case 'core.body_fat_rate': {
           record.riskModelExtras = { ...(record.riskModelExtras as object || {}), bodyFatRate: v };
           const bc = (checkup.bodyComposition as Record<string, unknown>) || {};

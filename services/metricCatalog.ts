@@ -37,6 +37,8 @@ export const CORE_METRICS: MetricDefinition[] = [
   { code: 'core.waist', label: '腰围', unit: 'cm', validMin: 40, validMax: 200, isCore: true },
   { code: 'core.body_fat_rate', label: '体脂率', unit: '%', validMin: 3, validMax: 60, isCore: true },
   { code: 'core.creatinine', label: '血肌酐', unit: 'μmol/L', validMin: 20, validMax: 2000, isCore: true },
+  { code: 'core.urea', label: '尿素氮', unit: 'mmol/L', validMin: 0.1, validMax: 50, isCore: true },
+  { code: 'core.uric_acid', label: '尿酸', unit: 'μmol/L', validMin: 20, validMax: 1500, isCore: true },
 ];
 
 /** 扩展指标：实验室、人体成分、动脉硬化（与 migration 015 一致） */

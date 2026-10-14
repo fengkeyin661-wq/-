@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ALL_METRICS, CORE_METRICS } from '../services/metricCatalog';
+import { findArchiveByCheckupId } from '../services/dataService';
+import { observationsFromXlmsExams } from '../services/observationMapper';
 import {
   fetchObservationSeries,
   buildBpChartData,
   buildContinuousChartSeries,
+  type HealthObservationRow,
 } from '../services/observationService';
 import { BpTrendChart, MetricTrendChart } from './MetricTrendChart';
 
@@ -33,8 +36,11 @@ const USER_DASHBOARD_FETCH_CODES = [
   'core.skeletal_muscle_mass',
   'core.waist_hip_ratio',
   'core.inbody_score',
+  'core.urea',
+  'core.uric_acid',
 ];
 const LIPID_CODES = ['core.tc', 'core.tg', 'core.ldl', 'core.hdl'] as const;
+const RENAL_CODES = ['core.urea', 'core.uric_acid'] as const;
 
 const DASHBOARD_EXCLUDED_OPTIONAL = new Set([
   'core.sbp',
@@ -43,6 +49,7 @@ const DASHBOARD_EXCLUDED_OPTIONAL = new Set([
   'core.fasting_glucose',
   'core.bmi',
   ...USER_PRIMARY_CHART_CODES,
+  ...RENAL_CODES,
 ]);
 
 const OPTIONAL_METRICS = ALL_METRICS.filter((m) => !DASHBOARD_EXCLUDED_OPTIONAL.has(m.code));
@@ -87,6 +94,8 @@ const CHART_COLORS: Record<string, string> = {
   'core.waist': '#6366f1',
   'core.body_fat_rate': '#ec4899',
   'core.creatinine': '#14b8a6',
+  'core.urea': '#0f766e',
+  'core.uric_acid': '#b45309',
   'core.hba1c': '#dc2626',
   'core.abi': '#2563eb',
   'core.ba_pwv': '#7c3aed',
@@ -122,6 +131,8 @@ export const HealthTrendCharts: React.FC<Props> = ({
   const [waistData, setWaistData] = useState<{ label: string; value: number | null }[]>([]);
   const [bodyFatData, setBodyFatData] = useState<{ label: string; value: number | null }[]>([]);
   const [creatinineData, setCreatinineData] = useState<{ label: string; value: number | null }[]>([]);
+  const [ureaData, setUreaData] = useState<{ label: string; value: number | null }[]>([]);
+  const [uricAcidData, setUricAcidData] = useState<{ label: string; value: number | null }[]>([]);
   const [optionalSeries, setOptionalSeries] = useState<{ label: string; value: number | null }[]>([]);
   const [optionalLoading, setOptionalLoading] = useState(false);
   const [selectedOptional, setSelectedOptional] = useState('');
@@ -135,7 +146,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       const codes = isUserDashboard
         ? USER_DASHBOARD_FETCH_CODES
         : isAdminDashboard
-          ? [...DEFAULT_CODES, ...LIPID_CODES, ...USER_PRIMARY_CHART_CODES]
+          ? [...DEFAULT_CODES, ...LIPID_CODES, ...USER_PRIMARY_CHART_CODES, ...RENAL_CODES]
           : [
               'core.sbp',
               'core.dbp',
@@ -148,18 +159,43 @@ export const HealthTrendCharts: React.FC<Props> = ({
               'core.waist',
               'core.body_fat_rate',
               'core.creatinine',
+              'core.urea',
+              'core.uric_acid',
               'core.hba1c',
               'core.abi',
               'core.ba_pwv',
             ];
-      const rows = await fetchObservationSeries(checkupId, codes, 200);
+      const [fetched, archive] = await Promise.all([
+        fetchObservationSeries(checkupId, codes, 200),
+        findArchiveByCheckupId(checkupId),
+      ]);
       if (cancelled) return;
+      const stored: HealthObservationRow[] = observationsFromXlmsExams(archive?.health_record).map(
+        (item, index) => ({
+          id: `xlms-renal-${index}`,
+          archive_id: archive?.id || '',
+          checkup_id: checkupId,
+          metric_code: item.metricCode,
+          value_numeric: item.valueNumeric,
+          value_text: String(item.valueNumeric),
+          unit: item.unit || null,
+          observed_at: item.observedAt,
+          recorded_at: item.observedAt,
+          source: String(item.source),
+          source_ref: item.sourceRef || null,
+          entered_by_role: null,
+          status: 'active' as const,
+        })
+      );
+      const rows = [...stored, ...fetched];
       setBpData(buildBpChartData(rows));
       const toSeries = (code: string) =>
         buildContinuousChartSeries(rows, code).map((p) => ({ label: p.label, value: p.value }));
 
       setWeightData(toSeries('core.weight'));
       setGlucoseData(toSeries('core.fasting_glucose'));
+      setUreaData(toSeries('core.urea'));
+      setUricAcidData(toSeries('core.uric_acid'));
       if (isCompactDashboard) {
         setHba1cData(toSeries('core.hba1c'));
         setAbiData(toSeries('core.abi'));
@@ -247,7 +283,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
       hasSeriesData(hba1cData) ||
       hasSeriesData(abiData) ||
       hasSeriesData(pwvData) ||
-      hasLipidCharts;
+      hasLipidCharts ||
+      hasSeriesData(ureaData) ||
+      hasSeriesData(uricAcidData);
     const hasOptional = selectedOptional && hasSeriesData(optionalSeries);
 
     if (!hasDefault && !hasOptional && !optionalLoading) {
@@ -306,6 +344,20 @@ export const HealthTrendCharts: React.FC<Props> = ({
             {LIPID_VARIANTS.map(renderLipidChart)}
           </div>
         )}
+        <MetricTrendChart
+          title={metricLabel('core.urea')}
+          data={ureaData}
+          metricCode="core.urea"
+          stroke={CHART_COLORS['core.urea']}
+          valueName="mmol/L"
+        />
+        <MetricTrendChart
+          title={metricLabel('core.uric_acid')}
+          data={uricAcidData}
+          metricCode="core.uric_acid"
+          stroke={CHART_COLORS['core.uric_acid']}
+          valueName={'μmol/L'}
+        />
         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
           <label className="mb-1 block text-xs font-bold text-slate-600">
             {isAdminDashboard ? UI.moreAdmin : UI.moreUser}
@@ -368,7 +420,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
     (showLipids && hasLipid) ||
     (showExtra && hasSeriesData(waistData)) ||
     (showExtra && hasSeriesData(bodyFatData)) ||
-    (showExtra && hasSeriesData(creatinineData));
+    (showExtra && hasSeriesData(creatinineData)) ||
+    (showExtra && hasSeriesData(ureaData)) ||
+    (showExtra && hasSeriesData(uricAcidData));
 
   if (!hasAny) {
     return (
@@ -432,6 +486,24 @@ export const HealthTrendCharts: React.FC<Props> = ({
           metricCode="core.creatinine"
           stroke={CHART_COLORS['core.creatinine']}
           valueName={CORE_METRICS.find((m) => m.code === 'core.creatinine')?.unit ?? 'μmol/L'}
+        />
+      )}
+      {showExtra && hasSeriesData(ureaData) && (
+        <MetricTrendChart
+          title={`${metricLabel('core.urea')}${UI.renal}`}
+          data={ureaData}
+          metricCode="core.urea"
+          stroke={CHART_COLORS['core.urea']}
+          valueName="mmol/L"
+        />
+      )}
+      {showExtra && hasSeriesData(uricAcidData) && (
+        <MetricTrendChart
+          title={`${metricLabel('core.uric_acid')}${UI.renal}`}
+          data={uricAcidData}
+          metricCode="core.uric_acid"
+          stroke={CHART_COLORS['core.uric_acid']}
+          valueName={'μmol/L'}
         />
       )}
     </div>

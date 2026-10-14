@@ -59,10 +59,53 @@ const writeCache = (checkupId: string, rows: HealthObservationRow[]) => {
   }
 };
 
+
+const RENAL_DEFINITION_ROWS = [
+  {
+    code: 'core.urea',
+    label: '尿素氮',
+    unit: 'mmol/L',
+    value_type: 'number',
+    category: 'lab',
+    json_path: 'health_record.checkup.labBasic.renal.urea',
+    valid_min: 0.1,
+    valid_max: 50,
+    is_core: true,
+    sort_order: 13,
+  },
+  {
+    code: 'core.uric_acid',
+    label: '尿酸',
+    unit: 'μmol/L',
+    value_type: 'number',
+    category: 'lab',
+    json_path: 'health_record.checkup.labBasic.renal.ua',
+    valid_min: 20,
+    valid_max: 1500,
+    is_core: true,
+    sort_order: 14,
+  },
+];
+
+const ensureRenalMetricDefinitions = async (): Promise<boolean> => {
+  if (!isSupabaseConfigured()) return true;
+  const { error } = await supabase.from('health_metric_definitions').upsert(RENAL_DEFINITION_ROWS, {
+    onConflict: 'code',
+  });
+  return !error;
+};
+
 export const upsertObservations = async (
   checkupId: string,
   inputs: ObservationInput[]
 ): Promise<{ success: boolean; inserted: number; message?: string; observationIds?: string[] }> => {
+  if (!inputs.length) return { success: true, inserted: 0 };
+
+  const renalCodes = new Set(['core.urea', 'core.uric_acid']);
+  if (inputs.some((item) => renalCodes.has(item.metricCode))) {
+    const ready = await ensureRenalMetricDefinitions();
+    if (!ready) inputs = inputs.filter((item) => !renalCodes.has(item.metricCode));
+  }
   if (!inputs.length) return { success: true, inserted: 0 };
 
   const archive = await findArchiveByCheckupId(checkupId);

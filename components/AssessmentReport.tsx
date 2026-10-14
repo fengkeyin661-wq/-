@@ -758,7 +758,7 @@ export const AssessmentReport: React.FC<Props> = ({
             <span>📈</span> 近年核心指标变化趋势
           </h3>
           <p className="text-xs text-slate-500 mb-4">
-            汇总历年体检与随访录入的血压、体重、血糖、血脂等观测值，便于对照评估与干预效果
+            汇总历年体检与随访录入的血压、体重、血糖、血脂、尿素氮、尿酸等观测值，便于对照评估与干预效果
           </p>
           <HealthTrendCharts checkupId={trendCheckupId} variant="admin" />
         </div>

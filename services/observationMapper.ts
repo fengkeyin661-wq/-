@@ -1,6 +1,6 @@
 import type { HealthRecord, FollowUpRecord, DiabetesScreeningRecord, BodyCompositionData } from '../types';
 import type { HomeMonitoringLog } from './dataService';
-import type { ObservationSource } from './metricCatalog';
+import { validateMetricValue, type ObservationSource } from './metricCatalog';
 
 export interface ObservationInput {
   metricCode: string;
@@ -71,6 +71,8 @@ export const observationsFromHealthRecord = (
   push('core.hdl', num(lipids.hdl), 'mmol/L');
   push('core.waist', num(b.waist), 'cm');
   push('core.creatinine', num(l.renal?.creatinine), 'μmol/L');
+  push('core.urea', num(l.renal?.urea), 'mmol/L');
+  push('core.uric_acid', num(l.renal?.ua), 'μmol/L');
   push('core.body_fat_rate', num(bc.bodyFatRate), '%');
   push('core.postprandial_glucose', num(record.riskModelExtras?.postprandialGlucose), 'mmol/L');
   push('core.hba1c', labHba1c(record), '%');
@@ -87,6 +89,39 @@ export const observationsFromHealthRecord = (
   if (!onlyMetricCodes?.length) return out;
   return out.filter((o) => onlyMetricCodes.includes(o.metricCode));
 };
+
+const renalMetricCode = (label: string): 'core.urea' | 'core.uric_acid' | null => {
+  const text = label.replace(/\s/g, '');
+  if (!text || text.includes('尿尿') || text.includes('24小时')) return null;
+  if (text.includes('尿素氮') || (text.includes('尿素') && /bun/i.test(text))) return 'core.urea';
+  if (text.includes('尿酸') && !text.includes('尿素')) return 'core.uric_acid';
+  return null;
+};
+
+/** 已保存的历年体检明细里取尿素氮、尿酸，供趋势图使用。不重新同步体检。 */
+export const observationsFromXlmsExams = (record?: HealthRecord | null): ObservationInput[] => {
+  const out: ObservationInput[] = [];
+  for (const exam of record?.xlmsExams || []) {
+    const day = String(exam.examDate || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    for (const line of exam.results || []) {
+      const metricCode = renalMetricCode(line.name || '');
+      if (!metricCode) continue;
+      const value = num(line.result);
+      if (value == null || !validateMetricValue(metricCode, value).ok) continue;
+      out.push({
+        metricCode,
+        valueNumeric: value,
+        unit: metricCode === 'core.urea' ? 'mmol/L' : 'μmol/L',
+        observedAt: day,
+        source: 'checkup_import',
+        sourceRef: `xlms:${day}`,
+      });
+    }
+  }
+  return out;
+};
+
 
 /** 从糖尿病专栏筛查记录提取时序观测 */
 export const observationsFromDiabetesScreening = (
@@ -408,6 +443,14 @@ export const applyLatestObservationsToRecord = (
       case 'core.creatinine':
         lab.renal = lab.renal || {};
         lab.renal.creatinine = String(v);
+        break;
+      case 'core.urea':
+        lab.renal = lab.renal || {};
+        lab.renal.urea = String(v);
+        break;
+      case 'core.uric_acid':
+        lab.renal = lab.renal || {};
+        lab.renal.ua = String(v);
         break;
       case 'core.body_fat_rate':
         bc.bodyFatRate = v;

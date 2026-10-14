@@ -36,6 +36,8 @@ export const TREND_RULES: TrendRule[] = [
   { code: 'core.tg', label: '甘油三酯', unit: 'mmol/L', worse: 'up', minDelta: 0.4, digits: 2 },
   { code: 'core.ldl', label: '低密度脂蛋白', unit: 'mmol/L', worse: 'up', minDelta: 0.4, digits: 2 },
   { code: 'core.hdl', label: '高密度脂蛋白', unit: 'mmol/L', worse: 'down', minDelta: 0.15, digits: 2 },
+  { code: 'core.urea', label: '尿素氮', unit: 'mmol/L', worse: 'up', minDelta: 1.5, digits: 2 },
+  { code: 'core.uric_acid', label: '尿酸', unit: 'μmol/L', worse: 'up', minDelta: 60, digits: 0 },
 ];
 
 export const TREND_METRIC_CODES = TREND_RULES.map((rule) => rule.code);

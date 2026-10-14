@@ -178,6 +178,23 @@ const METRIC_AXIS: Record<
       { value: 81, label: '女上限 81', color: '#f97316' },
     ],
   },
+  'core.urea': {
+    step: 1,
+    minFloor: 0,
+    maxCeil: 20,
+    tickDecimals: 1,
+    referenceLines: [{ value: 7.1, label: '上限 7.1', color: '#f59e0b' }],
+  },
+  'core.uric_acid': {
+    step: 50,
+    minFloor: 100,
+    maxCeil: 700,
+    tickDecimals: 0,
+    referenceLines: [
+      { value: 360, label: '女上限 360', color: '#f59e0b' },
+      { value: 420, label: '男上限 420', color: '#ef4444' },
+    ],
+  },
   'core.abi': {
     step: 0.1,
     minFloor: 0.7,
