@@ -90,6 +90,34 @@ export const observationsFromHealthRecord = (
   return out.filter((o) => onlyMetricCodes.includes(o.metricCode));
 };
 
+const storedTrendCode = (label: string): string | null => {
+  const text = label.replace(/\s/g, '');
+  if (!text || text.includes('白带') || text.includes('大便') || text.includes('前列腺')) return null;
+  const core = text.split(/[（(]/)[0];
+  if (core === '葡萄糖' || core === '空腹血糖' || core === '空腹血糖项目' || core === '空腹葡萄糖') return 'core.fasting_glucose';
+  if (core === '总胆固醇') return 'core.tc';
+  if (core === '低密度脂蛋白' || core === '低密度脂蛋白胆固醇') return 'core.ldl';
+  if (core === '高密度脂蛋白' || core === '高密度脂蛋白胆固醇') return 'core.hdl';
+  if (core === '肌酐' || core === '血肌酐') return 'core.creatinine';
+  if (core === '血红蛋白' || core === '血红蛋白浓度') return 'core.hgb';
+  if (core === '白细胞' || core === '白细胞计数') return 'core.wbc';
+  if (core === '糖化血红蛋白') return 'core.hba1c';
+  if (core === '体重') return 'core.weight';
+  if (core === '腰围') return 'core.waist';
+  return null;
+};
+
+const storedUnit = (code: string): string => {
+  if (code === 'core.fasting_glucose' || code === 'core.tc' || code === 'core.tg' || code === 'core.ldl' || code === 'core.hdl' || code === 'core.urea') return 'mmol/L';
+  if (code === 'core.plt' || code === 'core.wbc') return '10^9/L';
+  if (code === 'core.hgb') return 'g/L';
+  if (code === 'core.creatinine' || code === 'core.uric_acid') return 'μmol/L';
+  if (code === 'core.hba1c') return '%';
+  if (code === 'core.weight') return 'kg';
+  if (code === 'core.waist') return 'cm';
+  return '';
+};
+
 const triglycerideCode = (label: string): 'core.tg' | null => {
   const text = label.replace(/\s/g, '');
   const core = text.split(/[（(]/)[0];
@@ -112,26 +140,21 @@ const renalMetricCode = (label: string): 'core.urea' | 'core.uric_acid' | null =
   return null;
 };
 
-/** 已保存的历年体检明细里取甘油三酯、血小板计数、尿素氮和尿酸，供趋势图使用。不重新同步体检。 */
+/** 已保存的历年体检明细里取趋势指标，供图表使用。不重新同步体检。 */
 export const observationsFromXlmsExams = (record?: HealthRecord | null): ObservationInput[] => {
   const out: ObservationInput[] = [];
   for (const exam of record?.xlmsExams || []) {
     const day = String(exam.examDate || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
     for (const line of exam.results || []) {
-      const metricCode = triglycerideCode(line.name || '') || renalMetricCode(line.name || '') || plateletCountCode(line.name || '');
+      const metricCode = storedTrendCode(line.name || '') || triglycerideCode(line.name || '') || renalMetricCode(line.name || '') || plateletCountCode(line.name || '');
       if (!metricCode) continue;
       const value = num(line.result);
       if (value == null || !validateMetricValue(metricCode, value).ok) continue;
       out.push({
         metricCode,
         valueNumeric: value,
-        unit:
-          metricCode === 'core.urea' || metricCode === 'core.tg'
-            ? 'mmol/L'
-            : metricCode === 'core.plt'
-              ? '10^9/L'
-              : 'μmol/L',
+        unit: storedUnit(metricCode),
         observedAt: day,
         source: 'checkup_import',
         sourceRef: `xlms:${day}`,

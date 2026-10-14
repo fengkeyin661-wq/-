@@ -3,8 +3,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord, FollowUpRecord } from '../types';
 import { getLatestFollowUp } from '../services/followUpLinkageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { SystemRiskPortrait } from './SystemRiskPortrait';
+import { SHOW_RISK_MODEL_MATRIX, SystemRiskPortrait } from './SystemRiskPortrait';
 import { HealthTrendCharts } from './HealthTrendCharts';
+import { buildArchiveTrendPrintHtml } from '../services/archiveTrendPrintHtml';
 
 export const FOLLOWUP_WORKSPACE_ANCHOR_ID = 'followup-detail-anchor';
 
@@ -103,7 +104,7 @@ export const AssessmentReport: React.FC<Props> = ({
   };
 
   // Combined Print Window Logic
-  const handlePrint = () => {
+  const handlePrint = async () => {
       setIsEditing(false);
       
       const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
@@ -111,6 +112,15 @@ export const AssessmentReport: React.FC<Props> = ({
       if (!printWindow) {
           alert("浏览器拦截了弹窗，请允许本站弹出窗口以便打印。");
           return;
+      }
+
+      let trendsHtml = '';
+      if (trendCheckupId) {
+          try {
+              trendsHtml = await buildArchiveTrendPrintHtml(trendCheckupId);
+          } catch {
+              trendsHtml = '';
+          }
       }
 
       const riskLevelMap = { 'RED': '高风险', 'YELLOW': '中风险', 'GREEN': '低风险' };
@@ -137,10 +147,10 @@ export const AssessmentReport: React.FC<Props> = ({
       const pAge = profile?.age ? `${profile.age}岁` : '';
       const pDept = profile?.department || '';
 
-      // --- New: Generate HTML for Models ---
+      // 疾病风险预测模型缺项较多，打印稿暂时不包含该表
       let modelsHtml = '';
 
-      if (riskAnalysis) {
+      if (SHOW_RISK_MODEL_MATRIX && riskAnalysis) {
           // Models HTML
           const modelsRows = riskAnalysis.models.map(m => `
             <tr>
@@ -256,6 +266,13 @@ export const AssessmentReport: React.FC<Props> = ({
                 ul.list li { margin-bottom: 4px; color: #374151; }
                 .empty-text { color: #9ca3af; font-style: italic; }
 
+                .trend-note { font-size: 12px; color: #6b7280; margin: 0 0 12px; }
+                .trend-card { break-inside: avoid; margin-bottom: 18px; }
+                .trend-card h3 { font-size: 14px; margin: 0 0 6px; color: #111827; }
+                .trend-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #4b5563; margin: 0 0 4px; }
+                .trend-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+                .trend-table { font-size: 11px; }
+
                 /* Risk Portrait Grid - Styles removed as section removed */
                 
                 /* Models Table */
@@ -274,8 +291,8 @@ export const AssessmentReport: React.FC<Props> = ({
                 .contact-info span { display: inline-block; }
 
                 @media print {
-                    body { padding: 0; -webkit-print-color-adjust: exact; }
-                    .plan-card, .risk-col, .disclaimer-box { break-inside: avoid; }
+                    body { padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    .plan-card, .risk-col, .disclaimer-box, .trend-card { break-inside: avoid; }
                 }
             </style>
         </head>
@@ -351,6 +368,8 @@ export const AssessmentReport: React.FC<Props> = ({
                         </div>
                     </div>
                 </div>
+
+                ${trendsHtml}
 
                 <div class="footer">
                     <div>评估医师签名: _________________</div>
@@ -430,7 +449,7 @@ export const AssessmentReport: React.FC<Props> = ({
                 <button onClick={() => setIsEditing(true)} className="bg-white border border-teal-200 text-teal-700 px-5 py-2 rounded-lg font-medium hover:bg-teal-50 flex items-center gap-2">
                     ✏️ 医生修订
                 </button>
-                <button onClick={handlePrint} className="bg-slate-800 text-white px-5 py-2 rounded-lg font-medium hover:bg-slate-700 flex items-center gap-2">
+                <button onClick={() => { void handlePrint(); }} className="bg-slate-800 text-white px-5 py-2 rounded-lg font-medium hover:bg-slate-700 flex items-center gap-2">
                     🖨️ 打印报告
                 </button>
                 {(onUpdateReport || onSupplementQuestionnaire) && (
@@ -521,15 +540,15 @@ export const AssessmentReport: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Embedded Risk Portrait Section (Models Only) */}
-      {healthRecord && (
+      {/* 疾病风险预测模型矩阵缺项较多，暂时不展示 */}
+      {SHOW_RISK_MODEL_MATRIX && healthRecord && (
           <div className="mb-8 print:hidden">
               <SystemRiskPortrait 
                   record={healthRecord} 
                   existingAnalysis={riskAnalysis} 
                   onUpdate={() => onUpdateRiskAnalysis && onUpdateRiskAnalysis()}
                   hidePrintButton={true}
-                  showPortraits={false} // Only show prediction models
+                  showPortraits={false}
               />
           </div>
       )}
