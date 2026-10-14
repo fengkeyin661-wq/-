@@ -112,15 +112,23 @@ export const upsertObservations = async (
     return { success: true, inserted: validRows.length, observationIds: newLocal.map((x) => x.id) };
   }
 
-  const { data, error } = await supabase.from('health_observations').insert(validRows).select('id');
-  if (error) {
-    if (error.code === '23505' || error.message.includes('duplicate key') || error.message.includes('uq_obs_active_dedupe')) {
-      return { success: true, inserted: 0, message: '相同日期的指标已在档案中' };
+  const insertedIds: string[] = [];
+  for (const row of validRows) {
+    const { data, error } = await supabase.from('health_observations').insert(row).select('id');
+    if (error) {
+      if (error.code === '23505' || error.message.includes('duplicate key') || error.message.includes('uq_obs_active_dedupe')) {
+        continue;
+      }
+      if (error.message.includes('Could not find') || error.code === '42P01') {
+        return { success: true, inserted: validRows.length, message: '观测表未迁移，已缓存本地' };
+      }
+      return { success: false, inserted: insertedIds.length, message: error.message };
     }
-    if (error.message.includes('Could not find') || error.code === '42P01') {
-      return { success: true, inserted: validRows.length, message: '观测表未迁移，已缓存本地' };
-    }
-    return { success: false, inserted: 0, message: error.message };
+    for (const item of data || []) insertedIds.push(item.id);
+  }
+  const data = insertedIds.map((id) => ({ id }));
+  if (!insertedIds.length) {
+    return { success: true, inserted: 0, message: '相同日期的指标已在档案中' };
   }
 
   const now = new Date().toISOString();
@@ -133,7 +141,7 @@ export const upsertObservations = async (
     archive_id: archive.id,
     checkup_id: checkupId,
     event_type: 'observation_created',
-    payload: { count: validRows.length, source: validRows[0]?.source },
+    payload: { count: insertedIds.length, source: validRows[0]?.source },
   });
 
   return {
