@@ -8,6 +8,7 @@ import {
   formatObservedValue,
   snapDomainToStep,
 } from './chartAxisConfig';
+import { ALL_METRICS } from './metricCatalog';
 import {
   buildBpChartData,
   buildContinuousChartSeries,
@@ -26,6 +27,42 @@ const PRINT_CODES = [
   'core.fasting_glucose',
   'core.uric_acid',
 ];
+
+const PRINT_CODE_SET = new Set(PRINT_CODES);
+
+/** 打印稿默认带上的趋势，不出现在可勾选列表里 */
+export const DEFAULT_ARCHIVE_TREND_LABELS = ['血压', '体重', '血脂', '空腹血糖', '尿酸'] as const;
+
+export const optionalArchivePrintMetrics = (): { code: string; label: string; unit: string }[] =>
+  ALL_METRICS.filter((metric) => !PRINT_CODE_SET.has(metric.code)).map((metric) => ({
+    code: metric.code,
+    label: metric.label,
+    unit: metric.unit,
+  }));
+
+export const ARCHIVE_TREND_PRINT_CSS = `
+.trend-note { font-size: 12px; color: #6b7280; margin: 0 0 12px; }
+.trend-card { break-inside: avoid; margin-bottom: 18px; }
+.trend-card h3 { font-size: 14px; margin: 0 0 6px; color: #111827; }
+.trend-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #4b5563; margin: 0 0 4px; }
+.trend-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.trend-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 6px 0 0; }
+.trend-table th, .trend-table td { border: 1px solid #e5e7eb; padding: 4px 6px; text-align: left; }
+.trend-table th { background: #f9fafb; font-weight: bold; }
+`;
+
+const EXTRA_COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#2563eb', '#7c3aed', '#0f766e', '#dc2626', '#0891b2'];
+
+const KNOWN_COLORS: Record<string, string> = {
+  'core.hba1c': '#dc2626',
+  'core.abi': '#2563eb',
+  'core.ba_pwv': '#7c3aed',
+  'core.waist': '#6366f1',
+  'core.body_fat_rate': '#ec4899',
+  'core.creatinine': '#14b8a6',
+  'core.urea': '#0f766e',
+  'core.plt': '#0891b2',
+};
 
 const LIPID_SERIES = [
   { code: 'core.tc', name: '总胆固醇', color: '#0d9488' },
@@ -220,9 +257,39 @@ const pointsOf = (
     value: point.value,
   }));
 
-export const buildArchiveTrendPrintHtml = async (checkupId: string): Promise<string> => {
+const singleMetricCard = (
+  rows: Parameters<typeof buildContinuousChartSeries>[0],
+  code: string,
+  color: string
+): string => {
+  const def = ALL_METRICS.find((metric) => metric.code === code);
+  if (!def) return '';
+  const points = pointsOf(rows, code);
+  const axis = buildMetricAxisConfig(
+    code,
+    points.map((point) => point.value)
+  );
+  const unit = def.unit ? `（${def.unit}）` : '';
+  return chartCard({
+    title: `${def.label}趋势${unit}`,
+    dates: points.map((point) => point.date),
+    series: [{ name: def.label, color, values: points.map((point) => point.value) }],
+    domain: axis.domain,
+    ticks: axis.ticks,
+    tickDecimals: axis.tickDecimals,
+    referenceLines: axis.referenceLines,
+  });
+};
+
+export const buildArchiveTrendPrintHtml = async (
+  checkupId: string,
+  extraMetricCodes: string[] = []
+): Promise<string> => {
   if (!checkupId) return '';
-  const rows = await fetchObservationSeries(checkupId, PRINT_CODES, 500);
+  const extras = [...new Set(extraMetricCodes)].filter(
+    (code) => !PRINT_CODE_SET.has(code) && ALL_METRICS.some((metric) => metric.code === code)
+  );
+  const rows = await fetchObservationSeries(checkupId, [...PRINT_CODES, ...extras], 800);
   if (!rows.length) return '';
 
   const weight = pointsOf(rows, 'core.weight');
@@ -312,13 +379,23 @@ export const buildArchiveTrendPrintHtml = async (checkupId: string): Promise<str
       tickDecimals: uricAxis.tickDecimals,
       referenceLines: uricAxis.referenceLines,
     }),
+    ...extras.map((code, index) =>
+      singleMetricCard(rows, code, KNOWN_COLORS[code] || EXTRA_COLORS[index % EXTRA_COLORS.length])
+    ),
   ].filter(Boolean);
 
   if (!cards.length) return '';
 
+  const extraLabels = extras
+    .map((code) => ALL_METRICS.find((metric) => metric.code === code)?.label)
+    .filter((label): label is string => Boolean(label));
+  const note = extraLabels.length
+    ? `默认包含血压、体重、血脂、空腹血糖、尿酸，并附带${extraLabels.join('、')}。横轴为观测日期。`
+    : '血压、体重、血脂、空腹血糖、尿酸。横轴为观测日期，便于对照历次结果。';
+
   return `<div class="section">
     <div class="section-title">近年核心指标变化趋势</div>
-    <p class="trend-note">血压、体重、血脂、空腹血糖、尿酸。横轴为观测日期，便于对照历次结果。</p>
+    <p class="trend-note">${esc(note)}</p>
     ${cards.join('')}
   </div>`;
 };

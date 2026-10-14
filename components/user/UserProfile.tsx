@@ -17,6 +17,7 @@ import { buildFollowUpGuidance } from '../../services/followUpGuidance';
 import { formatPlanAdherenceGrade } from '../../services/followUpSupervisionService';
 import { UserRiskHeroBanner } from './UserRiskHeroBanner';
 import { UserNeedSurveyBanner } from './portal/UserNeedSurveyBanner';
+import { UserArchivePrintButton } from './UserArchivePrintButton';
 
 // 用户端预留：assessment.diabetesReport / record.diabetesManagement 由管理端糖尿病专栏写入，后续可在此展示「我的糖尿病管理」
 
@@ -156,6 +157,13 @@ export const UserProfile: React.FC<Props> = ({
     // ... (keep renderRecordView, renderFollowupView) ...
     const renderRecordView = () => (
         <div className="p-4 space-y-6 animate-slideInRight pb-20">
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <h2 className="text-base font-bold text-slate-800">我的健康档案</h2>
+                    <p className="text-xs text-slate-500">可下载或打印，内容仅供健康参考</p>
+                </div>
+                <UserArchivePrintButton record={record} assessment={assessment} checkupId={userId} />
+            </div>
             <UserRiskHeroBanner assessment={assessment} showSummary={false} />
 
             {/* 2. Health Archive Details */}
