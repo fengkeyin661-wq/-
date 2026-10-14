@@ -90,6 +90,20 @@ export const observationsFromHealthRecord = (
   return out.filter((o) => onlyMetricCodes.includes(o.metricCode));
 };
 
+const triglycerideCode = (label: string): 'core.tg' | null => {
+  const text = label.replace(/\s/g, '');
+  const core = text.split(/[（(]/)[0];
+  if (core === '甘油三酯' || core === '甘油三脂') return 'core.tg';
+  return null;
+};
+
+const plateletCountCode = (label: string): 'core.plt' | null => {
+  const text = label.replace(/\s/g, '');
+  const core = text.split(/[（(]/)[0];
+  if (core === '血小板' || core === '血小板计数' || core === '血小板数目') return 'core.plt';
+  return null;
+};
+
 const renalMetricCode = (label: string): 'core.urea' | 'core.uric_acid' | null => {
   const text = label.replace(/\s/g, '');
   if (!text || text.includes('尿尿') || text.includes('24小时')) return null;
@@ -98,21 +112,26 @@ const renalMetricCode = (label: string): 'core.urea' | 'core.uric_acid' | null =
   return null;
 };
 
-/** 已保存的历年体检明细里取尿素氮、尿酸，供趋势图使用。不重新同步体检。 */
+/** 已保存的历年体检明细里取甘油三酯、血小板计数、尿素氮和尿酸，供趋势图使用。不重新同步体检。 */
 export const observationsFromXlmsExams = (record?: HealthRecord | null): ObservationInput[] => {
   const out: ObservationInput[] = [];
   for (const exam of record?.xlmsExams || []) {
     const day = String(exam.examDate || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
     for (const line of exam.results || []) {
-      const metricCode = renalMetricCode(line.name || '');
+      const metricCode = triglycerideCode(line.name || '') || renalMetricCode(line.name || '') || plateletCountCode(line.name || '');
       if (!metricCode) continue;
       const value = num(line.result);
       if (value == null || !validateMetricValue(metricCode, value).ok) continue;
       out.push({
         metricCode,
         valueNumeric: value,
-        unit: metricCode === 'core.urea' ? 'mmol/L' : 'μmol/L',
+        unit:
+          metricCode === 'core.urea' || metricCode === 'core.tg'
+            ? 'mmol/L'
+            : metricCode === 'core.plt'
+              ? '10^9/L'
+              : 'μmol/L',
         observedAt: day,
         source: 'checkup_import',
         sourceRef: `xlms:${day}`,

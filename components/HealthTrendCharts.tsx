@@ -50,6 +50,7 @@ const DASHBOARD_EXCLUDED_OPTIONAL = new Set([
   'core.bmi',
   ...USER_PRIMARY_CHART_CODES,
   ...RENAL_CODES,
+  'core.plt',
 ]);
 
 const OPTIONAL_METRICS = ALL_METRICS.filter((m) => !DASHBOARD_EXCLUDED_OPTIONAL.has(m.code));
@@ -96,6 +97,7 @@ const CHART_COLORS: Record<string, string> = {
   'core.creatinine': '#14b8a6',
   'core.urea': '#0f766e',
   'core.uric_acid': '#b45309',
+  'core.plt': '#be123c',
   'core.hba1c': '#dc2626',
   'core.abi': '#2563eb',
   'core.ba_pwv': '#7c3aed',
@@ -133,6 +135,8 @@ export const HealthTrendCharts: React.FC<Props> = ({
   const [creatinineData, setCreatinineData] = useState<{ label: string; value: number | null }[]>([]);
   const [ureaData, setUreaData] = useState<{ label: string; value: number | null }[]>([]);
   const [uricAcidData, setUricAcidData] = useState<{ label: string; value: number | null }[]>([]);
+  const [plateletData, setPlateletData] = useState<{ label: string; value: number | null }[]>([]);
+  const [triglycerideData, setTriglycerideData] = useState<{ label: string; value: number | null }[]>([]);
   const [optionalSeries, setOptionalSeries] = useState<{ label: string; value: number | null }[]>([]);
   const [optionalLoading, setOptionalLoading] = useState(false);
   const [selectedOptional, setSelectedOptional] = useState('');
@@ -146,7 +150,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
       const codes = isUserDashboard
         ? USER_DASHBOARD_FETCH_CODES
         : isAdminDashboard
-          ? [...DEFAULT_CODES, ...LIPID_CODES, ...USER_PRIMARY_CHART_CODES, ...RENAL_CODES]
+          ? [...DEFAULT_CODES, ...LIPID_CODES, ...USER_PRIMARY_CHART_CODES, ...RENAL_CODES, 'core.plt']
           : [
               'core.sbp',
               'core.dbp',
@@ -161,6 +165,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
               'core.creatinine',
               'core.urea',
               'core.uric_acid',
+              'core.plt',
               'core.hba1c',
               'core.abi',
               'core.ba_pwv',
@@ -196,6 +201,8 @@ export const HealthTrendCharts: React.FC<Props> = ({
       setGlucoseData(toSeries('core.fasting_glucose'));
       setUreaData(toSeries('core.urea'));
       setUricAcidData(toSeries('core.uric_acid'));
+      setPlateletData(toSeries('core.plt'));
+      setTriglycerideData(toSeries('core.tg'));
       if (isCompactDashboard) {
         setHba1cData(toSeries('core.hba1c'));
         setAbiData(toSeries('core.abi'));
@@ -229,12 +236,33 @@ export const HealthTrendCharts: React.FC<Props> = ({
     let cancelled = false;
     setOptionalLoading(true);
     (async () => {
-      const rows = await fetchObservationSeries(
-        checkupId,
-        [...new Set([...USER_DASHBOARD_FETCH_CODES, ...LIPID_CODES, selectedOptional])],
-        200
-      );
+      const [fetched, archive] = await Promise.all([
+        fetchObservationSeries(
+          checkupId,
+          [...new Set([...USER_DASHBOARD_FETCH_CODES, ...LIPID_CODES, selectedOptional])],
+          200
+        ),
+        findArchiveByCheckupId(checkupId),
+      ]);
       if (cancelled) return;
+      const stored: HealthObservationRow[] = observationsFromXlmsExams(archive?.health_record).map(
+        (item, index) => ({
+          id: `xlms-optional-${index}`,
+          archive_id: archive?.id || '',
+          checkup_id: checkupId,
+          metric_code: item.metricCode,
+          value_numeric: item.valueNumeric,
+          value_text: String(item.valueNumeric),
+          unit: item.unit || null,
+          observed_at: item.observedAt,
+          recorded_at: item.observedAt,
+          source: String(item.source),
+          source_ref: item.sourceRef || null,
+          entered_by_role: null,
+          status: 'active' as const,
+        })
+      );
+      const rows = [...stored, ...fetched];
       setOptionalSeries(
         buildContinuousChartSeries(rows, selectedOptional).map((p) => ({
           label: p.label,
@@ -285,7 +313,9 @@ export const HealthTrendCharts: React.FC<Props> = ({
       hasSeriesData(pwvData) ||
       hasLipidCharts ||
       hasSeriesData(ureaData) ||
-      hasSeriesData(uricAcidData);
+      hasSeriesData(uricAcidData) ||
+      hasSeriesData(plateletData) ||
+      hasSeriesData(triglycerideData);
     const hasOptional = selectedOptional && hasSeriesData(optionalSeries);
 
     if (!hasDefault && !hasOptional && !optionalLoading) {
@@ -344,6 +374,15 @@ export const HealthTrendCharts: React.FC<Props> = ({
             {LIPID_VARIANTS.map(renderLipidChart)}
           </div>
         )}
+        {!isAdminDashboard && (
+          <MetricTrendChart
+            title={metricLabel('core.tg')}
+            data={triglycerideData}
+            metricCode="core.tg"
+            stroke={CHART_COLORS['core.tg']}
+            valueName="mmol/L"
+          />
+        )}
         <MetricTrendChart
           title={metricLabel('core.urea')}
           data={ureaData}
@@ -357,6 +396,13 @@ export const HealthTrendCharts: React.FC<Props> = ({
           metricCode="core.uric_acid"
           stroke={CHART_COLORS['core.uric_acid']}
           valueName={'μmol/L'}
+        />
+        <MetricTrendChart
+          title={metricLabel('core.plt')}
+          data={plateletData}
+          metricCode="core.plt"
+          stroke={CHART_COLORS['core.plt']}
+          valueName="10^9/L"
         />
         <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
           <label className="mb-1 block text-xs font-bold text-slate-600">
@@ -504,6 +550,15 @@ export const HealthTrendCharts: React.FC<Props> = ({
           metricCode="core.uric_acid"
           stroke={CHART_COLORS['core.uric_acid']}
           valueName={'μmol/L'}
+        />
+      )}
+      {showExtra && hasSeriesData(plateletData) && (
+        <MetricTrendChart
+          title={`${metricLabel('core.plt')}趋势`}
+          data={plateletData}
+          metricCode="core.plt"
+          stroke={CHART_COLORS['core.plt']}
+          valueName="10^9/L"
         />
       )}
     </div>
