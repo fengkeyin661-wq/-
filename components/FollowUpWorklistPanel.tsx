@@ -2,13 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { HealthArchive } from '../services/dataService';
 import {
   buildFollowUpWorklist,
-  formatLocalYmd,
   getLatestFollowUp,
   isCriticalContactDeferred,
   isCriticalContactRetryDue,
   isCriticalFollowUpPending,
   listArchivedCriticalFollowUps,
-  listCriticalContactRetryDue,
   matchesCriticalArchiveSearch,
   resolveCriticalTrackStatus,
   type FollowUpWorklistRow,
@@ -42,11 +40,7 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
 }) => {
   const [filter, setFilter] = useState<WorklistFilter>('todo');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showContactRetryRemind, setShowContactRetryRemind] = useState(false);
-  const contactRetryRemindKeyRef = useRef('');
   const rowRefs = useRef<Record<string, HTMLElement | null>>({});
-
-  const contactRetryDueList = useMemo(() => listCriticalContactRetryDue(archives), [archives]);
 
   const todoRows = useMemo(() => buildFollowUpWorklist(archives, { routineWithinDays: 7 }), [archives]);
 
@@ -65,17 +59,6 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
   }, [archivedList, searchQuery]);
 
   useEffect(() => {
-    if (contactRetryDueList.length === 0) {
-      setShowContactRetryRemind(false);
-      return;
-    }
-    const key = `${formatLocalYmd()}:${contactRetryDueList.map((a) => a.checkup_id).sort().join(',')}`;
-    contactRetryRemindKeyRef.current = key;
-    if (sessionStorage.getItem('crit_contact_retry_popup') === key) return;
-    setShowContactRetryRemind(true);
-  }, [contactRetryDueList]);
-
-  useEffect(() => {
     if (!criticalFocus?.token) return;
     if (criticalFocus.checkupId) {
       setFilter('todo');
@@ -92,13 +75,6 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
       setFilter('todo');
     }
   }, [criticalFocus?.token, criticalFocus?.checkupId, criticalFocus?.openModal, archives, onSelectPatient]);
-
-  const dismissContactRetryRemind = () => {
-    if (contactRetryRemindKeyRef.current) {
-      sessionStorage.setItem('crit_contact_retry_popup', contactRetryRemindKeyRef.current);
-    }
-    setShowContactRetryRemind(false);
-  };
 
   const categoryLabel = (row: FollowUpWorklistRow) => {
     if (row.critical && row.routine) return '危急+计划';
@@ -363,48 +339,6 @@ export const FollowUpWorklistPanel: React.FC<Props> = ({
         )}
       </div>
 
-      {showContactRetryRemind && contactRetryDueList.length > 0 ? (
-        <div className="fixed inset-0 bg-slate-900/60 z-[80] flex items-center justify-center backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 border-t-8 border-amber-500">
-            <h3 className="text-xl font-bold text-amber-800 mb-1">危急值再联系提醒</h3>
-            <p className="text-sm text-slate-600 mb-4">
-              以下 {contactRetryDueList.length} 人此前因电话联系不上已延期一周，今日起需再次联系。
-            </p>
-            <ul className="max-h-64 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-lg mb-5">
-              {contactRetryDueList.map((arch) => (
-                <li key={arch.checkup_id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <div className="font-bold text-slate-800">{arch.name}</div>
-                    <div className="text-xs text-slate-500 truncate">
-                      {arch.checkup_id} · {arch.critical_track?.critical_item || '危急值'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      dismissContactRetryRemind();
-                      setFilter('todo');
-                      onSelectPatient(arch, { scrollToDetail: true });
-                    }}
-                    className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white hover:bg-amber-700"
-                  >
-                    去随访处理
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={dismissContactRetryRemind}
-                className="px-5 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-100"
-              >
-                稍后处理
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 };
