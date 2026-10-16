@@ -8,6 +8,7 @@ export type IngestBody = {
   tjcs?: string | number;
   examDate?: string;
   record?: HealthRecord;
+  recompute?: boolean;
 };
 
 export async function ingestStructuredVisit(body: unknown): Promise<Record<string, unknown>> {

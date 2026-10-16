@@ -633,6 +633,7 @@ export const importStructuredCheckup = async (input: {
   tjcs?: string | number;
   examDate?: string;
   record?: HealthRecord;
+  recompute?: boolean;
 }): Promise<CheckupImportResult> => {
   if (!isSupabaseConfigured()) {
     return { success: false, message: NOT_CONNECTED };
@@ -685,6 +686,14 @@ export const importStructuredCheckup = async (input: {
     fileName: sourceName,
   });
   if (!obsResult.success) return obsResult;
+
+  if (input.recompute === false) {
+    return {
+      ...obsResult,
+      success: true,
+      message: `体检编号 ${checkupId} · ${examIso.slice(0, 10)}：已写入档案，待全部年份上传后再评估。`,
+    };
+  }
 
   const fin = await finalizeCheckupImportBatch(checkupId, [examIso.slice(0, 10)]);
   const snapshotNote = obsResult.appliedToSnapshot ? '已更新当前档案快照' : '本次结果已写入趋势';
