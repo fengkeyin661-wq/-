@@ -14,6 +14,7 @@ import {
   saveAnnualPlan,
   scheduleInputFromPlan,
   summarizeAnnualPlans,
+  summarizeByAgeBand,
   type AnnualHealthPlan,
   type PlanHeading,
 } from '../services/annualHealthPlan';
@@ -73,6 +74,7 @@ export const AnnualHealthPlanPanel: React.FC<AnnualHealthPlanPanelProps> = ({
     [filtered, observations, revision]
   );
   const summary = useMemo(() => summarizeAnnualPlans(plans), [plans]);
+  const ageBands = useMemo(() => summarizeByAgeBand(plans), [plans]);
 
   const toggle = (checkupId: string) => {
     setSelected((current) =>
@@ -114,7 +116,7 @@ export const AnnualHealthPlanPanel: React.FC<AnnualHealthPlanPanelProps> = ({
         <div>
           <h2 className="text-2xl font-bold text-slate-900">年度健康规划</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-            每人先按体检、监测、健教和进一步评估排好一年，汇总后就是全人群预算。勾选人员后批量制定，模型只调整月份和说明。未制定的仍按规则计入汇总，并标为待制定。
+            每人先按体检、监测、健教和进一步评估排好一年，再按年龄段汇总经费。多年才做一次的检查只把限价分摊进本年。勾选后批量制定，模型只调整月份和说明。
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -164,6 +166,45 @@ export const AnnualHealthPlanPanel: React.FC<AnnualHealthPlanPanelProps> = ({
       </div>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="text-lg font-semibold text-slate-800">按年龄段的经费</h3>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          人体成分分析只给超重、肥胖或脂肪肝，每年 1 次。无肺结节者 40–49 岁每 5 年、50 岁起每 3 年做一次低剂量胸部 CT，已有肺结节的仍每年 1 次、不重复计算。眼底照相：糖尿病每年 1 次，40–59 岁每 3 年，60 岁起每 2 年。骨密度：女性 50–64 岁每 5 年，女性 65 岁或男性 70 岁起每 2 年。不足相应年龄的不列。
+        </p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-slate-500">
+                <th className="py-2 pr-3 font-medium">年龄段</th>
+                <th className="py-2 pr-3 font-medium">人数</th>
+                <th className="py-2 pr-3 font-medium">年度预算</th>
+                <th className="py-2 pr-3 font-medium">人均</th>
+                {HEADINGS.map((heading) => (
+                  <th key={heading} className="py-2 pr-3 font-medium">
+                    {PLAN_HEADING_LABEL[heading]}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {ageBands.map((row) => (
+                <tr key={row.band} className="border-b border-slate-100">
+                  <td className="py-2 pr-3 text-slate-900">{row.band}</td>
+                  <td className="py-2 pr-3">{row.headcount}</td>
+                  <td className="py-2 pr-3">{formatYuan(row.total)}</td>
+                  <td className="py-2 pr-3">{formatYuan(row.average)}</td>
+                  {HEADINGS.map((heading) => (
+                    <td key={heading} className="py-2 pr-3 text-slate-600">
+                      {formatYuan(row.byHeading[heading])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <h3 className="text-lg font-semibold text-slate-800">人员规划</h3>
           <button
@@ -202,6 +243,7 @@ export const AnnualHealthPlanPanel: React.FC<AnnualHealthPlanPanelProps> = ({
               <tr className="border-b text-left text-slate-500">
                 <th className="py-2 pr-3 font-medium" />
                 <th className="py-2 pr-3 font-medium">姓名</th>
+                <th className="py-2 pr-3 font-medium">年龄</th>
                 <th className="py-2 pr-3 font-medium">部门</th>
                 <th className="py-2 pr-3 font-medium">风险</th>
                 <th className="py-2 pr-3 font-medium">状态</th>
@@ -220,6 +262,7 @@ export const AnnualHealthPlanPanel: React.FC<AnnualHealthPlanPanelProps> = ({
                     />
                   </td>
                   <td className="py-2 pr-3 text-slate-900">{plan.name}</td>
+                  <td className="py-2 pr-3 text-slate-600">{plan.age ?? '—'}</td>
                   <td className="py-2 pr-3 text-slate-600">{plan.department}</td>
                   <td className="py-2 pr-3 text-slate-600">{plan.riskLabel}</td>
                   <td className="py-2 pr-3">

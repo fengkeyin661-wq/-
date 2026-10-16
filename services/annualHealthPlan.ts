@@ -47,12 +47,33 @@ export type AnnualHealthPlan = {
   name: string;
   department: string;
   riskLabel: string;
+  age: number | null;
+  ageBand: string;
   summary: string;
   source: 'ai' | 'rule';
   slots: AnnualPlanSlot[];
   total: number;
   byHeading: Record<PlanHeading, number>;
   archive: HealthArchive;
+};
+
+export const AGE_BANDS = ['不足40岁', '40–49岁', '50–59岁', '60–69岁', '70岁及以上', '年龄不详'] as const;
+
+const personAge = (archive: HealthArchive): number | null => {
+  const value = Number(archive.age ?? archive.health_record?.profile?.age);
+  return Number.isFinite(value) && value >= 1 && value < 120 ? Math.round(value) : null;
+};
+
+const isFemale = (archive: HealthArchive): boolean =>
+  /女|f|female/i.test(`${archive.gender || ''}${archive.health_record?.profile?.gender || ''}`);
+
+export const ageBandOf = (age: number | null): string => {
+  if (age == null) return '年龄不详';
+  if (age < 40) return '不足40岁';
+  if (age < 50) return '40–49岁';
+  if (age < 60) return '50–59岁';
+  if (age < 70) return '60–69岁';
+  return '70岁及以上';
 };
 
 const money = (value: number) => Math.round(value * 100) / 100;
@@ -89,8 +110,70 @@ const defaultMonth = (heading: PlanHeading, index: number, count: number, anchor
   return spreadMonths(count, heading === 'education' ? anchor + 1 : anchor + 2)[index] || anchor;
 };
 
+const INTERVAL_ITEMS = {
+  bodyComp: { code: '311300013', name: '人体脂肪成分分析', unit: '次', price: 40, category: 'recheck' as const },
+  ldct: { code: '012301020010000', name: '低剂量胸部CT', unit: '部位', price: 195, category: 'further' as const },
+  fundus: { code: '310300058', name: '眼底照相', unit: '次', price: 22, category: 'further' as const },
+  bone: { code: '012415000010000', name: '骨密度测定费', unit: '次', price: 110, category: 'further' as const },
+};
+
+const hasLine = (lines: BudgetLine[], code: string) => lines.some((line) => line.code === code);
+
+const hasReason = (lines: BudgetLine[], text: string) => lines.some((line) => line.reason.includes(text));
+
+/** 多年才做一次的项目，只把限价分摊进本年预算 */
+const shareLine = (item: (typeof INTERVAL_ITEMS)[keyof typeof INTERVAL_ITEMS], everyYears: number, reason: string): BudgetLine => {
+  const share = money(item.price / everyYears);
+  return {
+    code: item.code,
+    name: item.name,
+    unit: item.unit,
+    price: share,
+    times: 1,
+    amount: share,
+    category: item.category,
+    reason: `${reason}。目录限价 ${item.price} 元，每 ${everyYears} 年 1 次，本年分摊 ${share} 元`,
+  };
+};
+
+const intervalLines = (person: PersonBudget, lines: BudgetLine[]): BudgetLine[] => {
+  const extra: BudgetLine[] = [];
+  const age = personAge(person.archive);
+  const female = isFemale(person.archive);
+  if (hasReason(lines, '超重、肥胖或脂肪肝')) {
+    extra.push({
+      ...INTERVAL_ITEMS.bodyComp,
+      times: 1,
+      amount: INTERVAL_ITEMS.bodyComp.price,
+      reason: '超重、肥胖或脂肪肝，每年 1 次人体成分分析',
+    });
+  }
+  if (!hasLine(lines, INTERVAL_ITEMS.ldct.code) && age != null) {
+    if (age >= 50) extra.push(shareLine(INTERVAL_ITEMS.ldct, 3, '50岁起、尚无肺结节'));
+    else if (age >= 40) extra.push(shareLine(INTERVAL_ITEMS.ldct, 5, '40–49岁、尚无肺结节'));
+  }
+  if (hasReason(lines, '糖尿病范围')) {
+    extra.push({
+      ...INTERVAL_ITEMS.fundus,
+      times: 1,
+      amount: INTERVAL_ITEMS.fundus.price,
+      reason: '糖尿病范围，每年 1 次眼底照相',
+    });
+  } else if (age != null && age >= 40) {
+    extra.push(shareLine(INTERVAL_ITEMS.fundus, age >= 60 ? 2 : 3, age >= 60 ? '60岁及以上' : '40–59岁'));
+  }
+  if (age != null) {
+    if ((female && age >= 65) || (!female && age >= 70)) {
+      extra.push(shareLine(INTERVAL_ITEMS.bone, 2, female ? '女性65岁及以上' : '男性70岁及以上'));
+    } else if (female && age >= 50) {
+      extra.push(shareLine(INTERVAL_ITEMS.bone, 5, '女性50–64岁'));
+    }
+  }
+  return extra;
+};
+
 export const buildRuleAnnualPlan = (person: PersonBudget): AnnualHealthPlan => {
-  const lines = applyAnnualCheckupFloor(person.lines);
+  const lines = [...applyAnnualCheckupFloor(person.lines), ...intervalLines(person, person.lines)];
   const anchor = examMonth(person.archive);
   const slots: AnnualPlanSlot[] = [];
   lines.forEach((line) => {
@@ -121,11 +204,14 @@ const finalizePlan = (
   slots.forEach((slot) => {
     byHeading[slot.heading] = money(byHeading[slot.heading] + slot.price);
   });
+  const age = personAge(person.archive);
   return {
     checkupId: person.checkupId,
     name: person.name,
     department: person.department,
     riskLabel: person.riskLabel,
+    age,
+    ageBand: ageBandOf(age),
     summary,
     source,
     slots,
@@ -202,8 +288,38 @@ export const saveAnnualPlan = (plan: AnnualHealthPlan) => {
   localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(all));
 };
 
-const restoreStoredPlan = (person: PersonBudget, stored: StoredAnnualPlan): AnnualHealthPlan =>
-  finalizePlan(person, stored.slots, stored.summary, 'ai');
+const mergeSavedSchedule = (rule: AnnualHealthPlan, stored: StoredAnnualPlan): AnnualHealthPlan => {
+  const pool = new Map<string, AnnualPlanSlot[]>();
+  stored.slots.forEach((slot) => {
+    const list = pool.get(slot.code) || [];
+    list.push(slot);
+    pool.set(slot.code, list);
+  });
+  const slots = rule.slots.map((slot) => {
+    const hint = pool.get(slot.code)?.shift();
+    if (!hint) return slot;
+    return {
+      ...slot,
+      month: hint.month,
+      note: slot.note.includes('本年分摊') ? slot.note : hint.note || slot.note,
+    };
+  });
+  slots.sort((a, b) => a.month - b.month || a.name.localeCompare(b.name, 'zh'));
+  return finalizePlan(
+    {
+      checkupId: rule.checkupId,
+      name: rule.name,
+      department: rule.department,
+      riskLabel: rule.riskLabel,
+      lines: [],
+      total: 0,
+      archive: rule.archive,
+    },
+    slots,
+    stored.summary || rule.summary,
+    'ai'
+  );
+};
 
 export const buildDisplayedPlans = (
   archives: HealthArchive[],
@@ -215,8 +331,9 @@ export const buildDisplayedPlans = (
     .map((archive) => {
       const person = people.get(archive.checkup_id);
       if (!person) return null;
+      const rule = buildRuleAnnualPlan(person);
       const saved = stored[archive.checkup_id];
-      return saved ? restoreStoredPlan(person, saved) : buildRuleAnnualPlan(person);
+      return saved ? mergeSavedSchedule(rule, saved) : rule;
     })
     .filter((plan): plan is AnnualHealthPlan => Boolean(plan))
     .sort((a, b) => Number(b.source === 'ai') - Number(a.source === 'ai') || b.total - a.total);
@@ -242,6 +359,34 @@ export const summarizeAnnualPlans = (plans: AnnualHealthPlan[]) => {
     byHeading,
   };
 };
+
+export type AgeBandSummary = {
+  band: string;
+  headcount: number;
+  total: number;
+  average: number;
+  byHeading: Record<PlanHeading, number>;
+};
+
+export const summarizeByAgeBand = (plans: AnnualHealthPlan[]): AgeBandSummary[] =>
+  AGE_BANDS.map((band) => {
+    const group = plans.filter((plan) => plan.ageBand === band);
+    const byHeading: Record<PlanHeading, number> = { checkup: 0, monitor: 0, education: 0, depth: 0 };
+    let total = 0;
+    group.forEach((plan) => {
+      total = money(total + plan.total);
+      (Object.keys(byHeading) as PlanHeading[]).forEach((heading) => {
+        byHeading[heading] = money(byHeading[heading] + plan.byHeading[heading]);
+      });
+    });
+    return {
+      band,
+      headcount: group.length,
+      total,
+      average: group.length ? money(total / group.length) : 0,
+      byHeading,
+    };
+  }).filter((row) => row.headcount > 0);
 
 export const scheduleInputFromPlan = (plan: AnnualHealthPlan) => {
   const grouped = new Map<string, { code: string; name: string; times: number; reason: string }>();
