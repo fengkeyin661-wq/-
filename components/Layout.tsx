@@ -34,18 +34,18 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'elderly_assessment', label: '老年专项评估', icon: '👵', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'chronic_disease_management', label: '慢性病管理', icon: '🩺', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'followup', label: '随访监测', icon: '📅', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'annual_plan', label: '年度健康规划', icon: '🗓️', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'my_workload', label: '我的工作', icon: '📈', roles: ['health_manager'] },
     { id: 'doctor_messages', label: '消息', icon: '💬', roles: ['doctor'] },
     { id: 'my_patients', label: '我的签约用户', icon: '🤝', roles: ['doctor'] },
     { id: 'heatmap', label: '健康总屏', icon: '🏥', roles: ['admin', 'doctor', 'health_manager'] },
-    { id: 'health_budget', label: '健康预算', icon: '💰', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'need_survey', label: '需求调查问卷', icon: '📋', roles: ['admin', 'health_manager'] },
     { id: 'admin', label: '管理控制台', icon: '⚡', roles: ['admin', 'home', 'health_manager'] },
   ];
 
   const visibleItems = isAuthenticated 
     ? navItems.filter(item => item.roles.includes(currentUserRole || 'admin'))
-    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'chronic_disease_management', 'followup', 'heatmap', 'health_budget'].includes(item.id));
+    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'chronic_disease_management', 'followup', 'annual_plan', 'heatmap'].includes(item.id));
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden print:block print:h-auto print:overflow-visible">

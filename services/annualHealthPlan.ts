@@ -175,6 +175,74 @@ export const riskLinesForPlan = (archive: HealthArchive): string[] => {
   return [...(risks?.red || []), ...(risks?.yellow || [])].slice(0, 8);
 };
 
+const PLAN_STORAGE_KEY = 'HEALTH_ANNUAL_PLANS_V1';
+
+type StoredAnnualPlan = {
+  summary: string;
+  slots: AnnualPlanSlot[];
+  savedAt: string;
+};
+
+const readStoredPlans = (): Record<string, StoredAnnualPlan> => {
+  try {
+    const raw = localStorage.getItem(PLAN_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, StoredAnnualPlan>) : {};
+  } catch {
+    return {};
+  }
+};
+
+export const saveAnnualPlan = (plan: AnnualHealthPlan) => {
+  const all = readStoredPlans();
+  all[plan.checkupId] = {
+    summary: plan.summary,
+    slots: plan.slots,
+    savedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(PLAN_STORAGE_KEY, JSON.stringify(all));
+};
+
+const restoreStoredPlan = (person: PersonBudget, stored: StoredAnnualPlan): AnnualHealthPlan =>
+  finalizePlan(person, stored.slots, stored.summary, 'ai');
+
+export const buildDisplayedPlans = (
+  archives: HealthArchive[],
+  observations: HealthObservationRow[]
+): AnnualHealthPlan[] => {
+  const people = personBudgetById(archives, observations);
+  const stored = readStoredPlans();
+  return archives
+    .map((archive) => {
+      const person = people.get(archive.checkup_id);
+      if (!person) return null;
+      const saved = stored[archive.checkup_id];
+      return saved ? restoreStoredPlan(person, saved) : buildRuleAnnualPlan(person);
+    })
+    .filter((plan): plan is AnnualHealthPlan => Boolean(plan))
+    .sort((a, b) => Number(b.source === 'ai') - Number(a.source === 'ai') || b.total - a.total);
+};
+
+export const summarizeAnnualPlans = (plans: AnnualHealthPlan[]) => {
+  const byHeading: Record<PlanHeading, number> = { checkup: 0, monitor: 0, education: 0, depth: 0 };
+  let total = 0;
+  let drafted = 0;
+  plans.forEach((plan) => {
+    total = money(total + plan.total);
+    if (plan.source === 'ai') drafted += 1;
+    (Object.keys(byHeading) as PlanHeading[]).forEach((heading) => {
+      byHeading[heading] = money(byHeading[heading] + plan.byHeading[heading]);
+    });
+  });
+  return {
+    headcount: plans.length,
+    drafted,
+    pending: plans.length - drafted,
+    total,
+    average: plans.length ? money(total / plans.length) : 0,
+    byHeading,
+  };
+};
+
 export const scheduleInputFromPlan = (plan: AnnualHealthPlan) => {
   const grouped = new Map<string, { code: string; name: string; times: number; reason: string }>();
   plan.slots.forEach((slot) => {

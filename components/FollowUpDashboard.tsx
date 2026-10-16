@@ -31,7 +31,6 @@ import {
   type SmsSentRole,
 } from '../services/smsService';
 import { PatientClinicalHeader } from './clinical/PatientClinicalHeader';
-import { AnnualHealthPlanPanel } from './AnnualHealthPlanPanel';
 
 export type FollowUpWorkspaceTab = 'timeline' | 'entry' | 'guide';
 
@@ -1664,11 +1663,6 @@ export const FollowUpDashboard: React.FC<Props> = ({
       )}
 
       </div>
-      {layout === 'full' ? (
-        <div className="xl:col-span-2">
-          <AnnualHealthPlanPanel archives={allArchives} />
-        </div>
-      ) : null}
     </div>
   );
 };

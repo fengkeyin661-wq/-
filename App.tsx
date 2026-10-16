@@ -5,7 +5,7 @@ import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
 import { FollowUpDashboard } from './components/FollowUpDashboard';
 import { CampusHealthBoard } from './components/CampusHealthBoard';
-import { HealthBudgetPanel } from './components/HealthBudgetPanel';
+import { AnnualHealthPlanPanel } from './components/AnnualHealthPlanPanel';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { NativeSurveyForm } from './components/NativeSurveyForm';
@@ -1315,8 +1315,8 @@ export const App: React.FC = () => {
                 onSelectPatient={(archive) => handleSelectPatient(archive, 'assessment')}
               />
             )}
-            {activeTab === 'health_budget' && (
-              <HealthBudgetPanel
+            {activeTab === 'annual_plan' && (
+              <AnnualHealthPlanPanel
                 archives={archives}
                 onRefresh={refreshArchives}
                 onSelectPatient={(archive) => handleSelectPatient(archive, 'assessment')}
