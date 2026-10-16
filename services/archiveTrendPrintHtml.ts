@@ -7,14 +7,48 @@ import {
   formatChartTick,
   formatObservedValue,
   snapDomainToStep,
+  weightRangeReferenceLines,
 } from './chartAxisConfig';
+import { findArchiveByCheckupId } from './dataService';
 import { ALL_METRICS } from './metricCatalog';
 import {
   buildBpChartData,
   buildContinuousChartSeries,
   fetchObservationSeries,
   formatObservationChartLabel,
+  type HealthObservationRow,
 } from './observationService';
+
+const resolveHeightCm = async (
+  checkupId: string,
+  rows: HealthObservationRow[]
+): Promise<number | null> => {
+  try {
+    const archive = await findArchiveByCheckupId(checkupId);
+    const stored = Number(archive?.health_record?.checkup?.basics?.height);
+    if (Number.isFinite(stored) && stored >= 120 && stored <= 220) return stored;
+  } catch {
+    /* 身高缺失时再尝试用同日体重和 BMI 反推 */
+  }
+
+  const byDate = new Map<string, { weight?: number; bmi?: number }>();
+  for (const row of rows) {
+    const date = row.observed_at.slice(0, 10);
+    const value = row.value_numeric;
+    if (!date || value == null || !Number.isFinite(value)) continue;
+    const slot = byDate.get(date) || {};
+    if (row.metric_code === 'core.weight') slot.weight = value;
+    if (row.metric_code === 'core.bmi') slot.bmi = value;
+    byDate.set(date, slot);
+  }
+  const paired = [...byDate.entries()]
+    .filter(([, slot]) => slot.weight && slot.bmi && slot.bmi >= 12 && slot.bmi <= 60)
+    .sort((a, b) => b[0].localeCompare(a[0]));
+  const latest = paired[0]?.[1];
+  if (!latest?.weight || !latest.bmi) return null;
+  const inferred = Math.sqrt(latest.weight / latest.bmi) * 100;
+  return inferred >= 120 && inferred <= 220 ? inferred : null;
+};
 
 const PRINT_CODES = [
   'core.sbp',
@@ -289,7 +323,7 @@ export const buildArchiveTrendPrintHtml = async (
   const extras = [...new Set(extraMetricCodes)].filter(
     (code) => !PRINT_CODE_SET.has(code) && ALL_METRICS.some((metric) => metric.code === code)
   );
-  const rows = await fetchObservationSeries(checkupId, [...PRINT_CODES, ...extras], 800);
+  const rows = await fetchObservationSeries(checkupId, [...PRINT_CODES, 'core.bmi', ...extras], 800);
   if (!rows.length) return '';
 
   const weight = pointsOf(rows, 'core.weight');
@@ -317,9 +351,12 @@ export const buildArchiveTrendPrintHtml = async (
     bp.map((point) => point.sbp).filter((v): v is number => v != null),
     bp.map((point) => point.dbp).filter((v): v is number => v != null)
   );
+  const heightCm = await resolveHeightCm(checkupId, rows);
+  const weightBand = weightRangeReferenceLines(heightCm);
   const weightAxis = buildMetricAxisConfig(
     'core.weight',
-    weight.map((point) => point.value)
+    weight.map((point) => point.value),
+    weightBand?.lines || []
   );
   const glucoseAxis = buildMetricAxisConfig(
     'core.fasting_glucose',
@@ -344,7 +381,9 @@ export const buildArchiveTrendPrintHtml = async (
       referenceLines: bpAxis.referenceLines,
     }),
     chartCard({
-      title: '体重趋势（kg）',
+      title: weightBand
+        ? `体重趋势（kg，身高 ${weightBand.heightCm} cm，正常 ${weightBand.low}–${weightBand.high}，BMI 18.5–24.0）`
+        : '体重趋势（kg）',
       dates: weight.map((point) => point.date),
       series: [{ name: '体重', color: '#0d9488', values: weight.map((point) => point.value) }],
       domain: weightAxis.domain,

@@ -11,13 +11,20 @@ import {
   ReferenceLine,
   Label,
 } from 'recharts';
-import { buildMetricAxisConfig, buildBpAxisConfig, formatChartTick, formatObservedValue } from '../services/chartAxisConfig';
+import {
+  buildMetricAxisConfig,
+  buildBpAxisConfig,
+  formatChartTick,
+  formatObservedValue,
+  type ChartReferenceLine,
+} from '../services/chartAxisConfig';
 
 const TREND_LINE_PROPS = {
-  type: 'monotone' as const,
+  type: 'linear' as const,
   connectNulls: true,
   strokeWidth: 2,
-  dot: { r: 3 },
+  dot: { r: 3, strokeWidth: 0 },
+  activeDot: { r: 4 },
 };
 
 const ReferenceLines: React.FC<{ lines: { value: number; label: string; color?: string }[] }> = ({
@@ -50,6 +57,7 @@ interface SingleProps {
   stroke: string;
   valueName?: string;
   height?: number;
+  extraReferenceLines?: ChartReferenceLine[];
 }
 
 export const MetricTrendChart: React.FC<SingleProps> = ({
@@ -59,13 +67,15 @@ export const MetricTrendChart: React.FC<SingleProps> = ({
   stroke,
   valueName,
   height = 160,
+  extraReferenceLines = [],
 }) => {
   const hasData = data.some((p) => p.value != null);
   if (!hasData) return null;
 
   const axis = buildMetricAxisConfig(
     metricCode,
-    data.map((p) => p.value)
+    data.map((p) => p.value),
+    extraReferenceLines
   );
 
   return (

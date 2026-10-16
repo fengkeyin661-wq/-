@@ -122,8 +122,8 @@ const METRIC_AXIS: Record<
   },
   'core.weight': {
     step: 5,
-    minFloor: 40,
-    maxCeil: 120,
+    minFloor: 30,
+    maxCeil: 150,
     tickDecimals: 0,
     referenceLines: [],
   },
@@ -308,13 +308,45 @@ export const buildBpAxisConfig = (
   };
 };
 
+/** 中国成人正常体重：BMI 18.5–24.0，由身高（cm）换算为公斤 */
+export const normalWeightRangeKg = (
+  heightCm: number
+): { low: number; high: number } | null => {
+  if (!Number.isFinite(heightCm) || heightCm < 120 || heightCm > 220) return null;
+  const meters = heightCm / 100;
+  const factor = meters * meters;
+  const low = Math.round(18.5 * factor * 10) / 10;
+  const high = Math.round(24 * factor * 10) / 10;
+  if (!(high > low)) return null;
+  return { low, high };
+};
+
+export const weightRangeReferenceLines = (
+  heightCm: number | null
+): { heightCm: number; low: number; high: number; lines: ChartReferenceLine[] } | null => {
+  if (heightCm == null) return null;
+  const range = normalWeightRangeKg(heightCm);
+  if (!range) return null;
+  return {
+    heightCm: Math.round(heightCm),
+    low: range.low,
+    high: range.high,
+    lines: [
+      { value: range.low, label: `正常下限 ${range.low}`, color: '#22c55e' },
+      { value: range.high, label: `正常上限 ${range.high}`, color: '#f59e0b' },
+    ],
+  };
+};
+
 export const buildMetricAxisConfig = (
   metricCode: string,
-  values: (number | null | undefined)[]
+  values: (number | null | undefined)[],
+  extraReferenceLines: ChartReferenceLine[] = []
 ): ChartAxisConfig => {
   const spec = METRIC_AXIS[metricCode] || DEFAULT_AXIS;
   const nums = values.filter((v): v is number => v != null && Number.isFinite(v));
-  const refValues = spec.referenceLines.map((r) => r.value);
+  const referenceLines = [...spec.referenceLines, ...extraReferenceLines];
+  const refValues = referenceLines.map((r) => r.value);
   const domain = snapDomainToStep(nums, refValues, spec.step, {
     minFloor: spec.minFloor,
     maxCeil: spec.maxCeil,
@@ -324,6 +356,6 @@ export const buildMetricAxisConfig = (
     domain,
     ticks: range(domain[0], domain[1], spec.step),
     tickDecimals: spec.tickDecimals,
-    referenceLines: spec.referenceLines,
+    referenceLines,
   };
 };

@@ -8,6 +8,7 @@ import {
   buildContinuousChartSeries,
   type HealthObservationRow,
 } from '../services/observationService';
+import { weightRangeReferenceLines } from '../services/chartAxisConfig';
 import { BpTrendChart, MetricTrendChart } from './MetricTrendChart';
 
 interface Props {
@@ -16,7 +17,7 @@ interface Props {
   className?: string;
 }
 
-const DEFAULT_CODES = ['core.sbp', 'core.dbp', 'core.weight', 'core.fasting_glucose'];
+const DEFAULT_CODES = ['core.sbp', 'core.dbp', 'core.weight', 'core.bmi', 'core.fasting_glucose'];
 const USER_PRIMARY_CHART_CODES = ['core.hba1c', 'core.abi', 'core.ba_pwv'] as const;
 const USER_DASHBOARD_FETCH_CODES = [
   ...DEFAULT_CODES,
@@ -141,6 +142,11 @@ export const HealthTrendCharts: React.FC<Props> = ({
   const [optionalLoading, setOptionalLoading] = useState(false);
   const [selectedOptional, setSelectedOptional] = useState('');
   const [loading, setLoading] = useState(true);
+  const [bodyHeightCm, setBodyHeightCm] = useState<number | null>(null);
+  const weightBand = useMemo(() => weightRangeReferenceLines(bodyHeightCm), [bodyHeightCm]);
+  const weightTitle = weightBand
+    ? `体重趋势（身高 ${weightBand.heightCm} cm，正常 ${weightBand.low}–${weightBand.high} kg）`
+    : UI.weight;
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +161,7 @@ export const HealthTrendCharts: React.FC<Props> = ({
               'core.sbp',
               'core.dbp',
               'core.weight',
+              'core.bmi',
               'core.fasting_glucose',
               'core.tc',
               'core.tg',
@@ -193,6 +200,28 @@ export const HealthTrendCharts: React.FC<Props> = ({
         })
       );
       const rows = [...stored, ...fetched];
+      const storedHeight = Number(archive?.health_record?.checkup?.basics?.height);
+      let nextHeight = storedHeight >= 120 && storedHeight <= 220 ? storedHeight : null;
+      if (nextHeight == null) {
+        const byDate = new Map<string, { weight?: number; bmi?: number }>();
+        for (const row of rows) {
+          const day = row.observed_at.slice(0, 10);
+          const value = row.value_numeric;
+          if (!day || value == null || !Number.isFinite(value)) continue;
+          const slot = byDate.get(day) || {};
+          if (row.metric_code === 'core.weight') slot.weight = value;
+          if (row.metric_code === 'core.bmi') slot.bmi = value;
+          byDate.set(day, slot);
+        }
+        const latest = [...byDate.entries()]
+          .filter(([, slot]) => slot.weight && slot.bmi && slot.bmi >= 12 && slot.bmi <= 60)
+          .sort((a, b) => b[0].localeCompare(a[0]))[0]?.[1];
+        if (latest?.weight && latest.bmi) {
+          const inferred = Math.sqrt(latest.weight / latest.bmi) * 100;
+          if (inferred >= 120 && inferred <= 220) nextHeight = inferred;
+        }
+      }
+      setBodyHeightCm(nextHeight);
       setBpData(buildBpChartData(rows));
       const toSeries = (code: string) =>
         buildContinuousChartSeries(rows, code).map((p) => ({ label: p.label, value: p.value }));
@@ -335,11 +364,12 @@ export const HealthTrendCharts: React.FC<Props> = ({
           dbpName={metricLabel('core.dbp')}
         />
         <MetricTrendChart
-          title={UI.weight}
+          title={weightTitle}
           data={weightData}
           metricCode="core.weight"
           stroke={CHART_COLORS['core.weight']}
           valueName={`${metricLabel('core.weight')}(kg)`}
+          extraReferenceLines={weightBand?.lines}
         />
         <MetricTrendChart
           title={UI.glucose}
@@ -490,11 +520,12 @@ export const HealthTrendCharts: React.FC<Props> = ({
       )}
       {showWeight && hasSeriesData(weightData) && (
         <MetricTrendChart
-          title={UI.weight}
+          title={weightTitle}
           data={weightData}
           metricCode="core.weight"
           stroke={CHART_COLORS['core.weight']}
           valueName={`${metricLabel('core.weight')}(kg)`}
+          extraReferenceLines={weightBand?.lines}
         />
       )}
       {showGlucose && hasSeriesData(glucoseData) && (
