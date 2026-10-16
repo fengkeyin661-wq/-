@@ -38,13 +38,14 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'doctor_messages', label: '消息', icon: '💬', roles: ['doctor'] },
     { id: 'my_patients', label: '我的签约用户', icon: '🤝', roles: ['doctor'] },
     { id: 'heatmap', label: '健康总屏', icon: '🏥', roles: ['admin', 'doctor', 'health_manager'] },
+    { id: 'health_budget', label: '健康预算', icon: '💰', roles: ['admin', 'doctor', 'health_manager'] },
     { id: 'need_survey', label: '需求调查问卷', icon: '📋', roles: ['admin', 'health_manager'] },
     { id: 'admin', label: '管理控制台', icon: '⚡', roles: ['admin', 'home', 'health_manager'] },
   ];
 
   const visibleItems = isAuthenticated 
     ? navItems.filter(item => item.roles.includes(currentUserRole || 'admin'))
-    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'chronic_disease_management', 'followup', 'heatmap'].includes(item.id));
+    : navItems.filter(item => ['dashboard', 'survey', 'assessment', 'elderly_assessment', 'chronic_disease_management', 'followup', 'heatmap', 'health_budget'].includes(item.id));
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden print:block print:h-auto print:overflow-visible">
