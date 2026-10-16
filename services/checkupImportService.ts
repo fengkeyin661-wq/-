@@ -65,7 +65,18 @@ const mergeRecordForImport = (base: HealthRecord, patch: Partial<HealthRecord>):
         lipids: { ...base.checkup.labBasic?.lipids, ...(patch.checkup?.labBasic?.lipids || {}) },
         glucose: { ...base.checkup.labBasic?.glucose, ...(patch.checkup?.labBasic?.glucose || {}) },
         renal: { ...base.checkup.labBasic?.renal, ...(patch.checkup?.labBasic?.renal || {}) },
+        liver: { ...base.checkup.labBasic?.liver, ...(patch.checkup?.labBasic?.liver || {}) },
+        bloodRoutine: { ...base.checkup.labBasic?.bloodRoutine, ...(patch.checkup?.labBasic?.bloodRoutine || {}) },
       },
+      imagingBasic: {
+        ...base.checkup.imagingBasic,
+        ...(patch.checkup?.imagingBasic || {}),
+        ultrasound: {
+          ...base.checkup.imagingBasic?.ultrasound,
+          ...(patch.checkup?.imagingBasic?.ultrasound || {}),
+        },
+      },
+      optional: { ...base.checkup.optional, ...(patch.checkup?.optional || {}) },
     },
     riskModelExtras: { ...(base.riskModelExtras || {}), ...(patch.riskModelExtras || {}) },
     questionnaire:
