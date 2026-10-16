@@ -39,7 +39,21 @@ const CATALOG = {
   superficialUs: { code: '220301002', name: '浅表器官彩色多普勒超声检查', unit: '每个部位', price: 60, category: 'further' },
   ct: { code: '012301020010000', name: '计算机体层成像（CT）平扫', unit: '部位', price: 195, category: 'further' },
   carotidUs: { code: '220302003', name: '颈部血管彩色多普勒超声', unit: '次', price: 150, category: 'further' },
+  ecg: { code: '012408000030000', name: '常规心电图检查费', unit: '次', price: 35, category: 'recheck' },
 } as const satisfies Record<string, CatalogItem>;
+
+const ANNUAL_CHECKUP_FLOOR: CatalogItem[] = [
+  CATALOG.ecg,
+  CATALOG.glucose,
+  CATALOG.tc,
+  CATALOG.tg,
+  CATALOG.hdl,
+  CATALOG.ldl,
+  CATALOG.ua,
+  CATALOG.alt,
+  CATALOG.ast,
+  CATALOG.abdomenUs,
+];
 
 export type BudgetLine = {
   code: string;
@@ -250,6 +264,31 @@ export const loadHealthBudget = async (archives: HealthArchive[]): Promise<Healt
     [...BOARD_METRIC_CODES]
   );
   return buildHealthBudget(archives, observations);
+};
+
+/** 年度体检项目并入已有复查：没有的补 1 次，已有的不另加次数 */
+export const applyAnnualCheckupFloor = (lines: BudgetLine[]): BudgetLine[] => {
+  const next = lines.map((line) => ({ ...line }));
+  ANNUAL_CHECKUP_FLOOR.forEach((item) => {
+    const existing = next.find((line) => line.code === item.code);
+    if (!existing) {
+      next.push({
+        code: item.code,
+        name: item.name,
+        unit: item.unit,
+        price: item.price,
+        times: 1,
+        amount: money(item.price),
+        category: item.category,
+        reason: '年度健康体检',
+      });
+      return;
+    }
+    if (!existing.reason.includes('年度健康体检')) {
+      existing.reason = `年度健康体检；${existing.reason}`;
+    }
+  });
+  return next;
 };
 
 export const formatYuan = (value: number) =>

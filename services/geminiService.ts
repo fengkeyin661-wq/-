@@ -1010,6 +1010,50 @@ export const generateAnnualReportSummary = async (b: any, c: any) => {
     }
     return { summary: '年度评估已完成：部分指标较前改善，仍需持续监测血压/血糖/血脂并按计划复查。' };
 };
+
+export type AnnualPlanScheduleHint = { code: string; month: number; note: string };
+
+/** 只允许调整已给项目的月份和说明，不新增收费项目 */
+export const proposeAnnualPlanSchedule = async (input: {
+  name: string;
+  department: string;
+  riskLabel: string;
+  risks: string[];
+  items: { code: string; name: string; times: number; reason: string }[];
+}): Promise<{ summary: string; items: AnnualPlanScheduleHint[] } | null> => {
+  const prompt = `
+请为该职工排一年的健康管理时间，不要新增项目，不要改价格。
+
+人员：${input.name}，${input.department}，风险：${input.riskLabel}
+已知问题：${input.risks.slice(0, 8).join('；') || '无'}
+已定项目（次数必须原样保留，同一编码出现几次就排几次）：
+${JSON.stringify(input.items)}
+
+只返回 JSON：
+{
+  "summary": "全年安排摘要，80字内",
+  "items": [{ "code": "目录编码", "month": 1, "note": "该次要做什么，20字内" }]
+}
+month 为 1 到 12。items 里每个项目的条数必须等于 times。`;
+  try {
+    const jsonText = await callDeepSeek('你是健康管理师，只安排已列出的服务。', prompt);
+    const parsed = JSON.parse(jsonText || '{}');
+    const summary = String(parsed?.summary || '').trim();
+    const items = Array.isArray(parsed?.items) ? parsed.items : [];
+    const hints: AnnualPlanScheduleHint[] = items
+      .map((item: { code?: unknown; month?: unknown; note?: unknown }) => ({
+        code: String(item?.code || '').trim(),
+        month: Math.round(Number(item?.month)),
+        note: String(item?.note || '').trim(),
+      }))
+      .filter((item: AnnualPlanScheduleHint) => item.code && item.month >= 1 && item.month <= 12);
+    if (!summary && !hints.length) return null;
+    return { summary, items: hints };
+  } catch (e) {
+    console.error('proposeAnnualPlanSchedule failed:', e);
+    return null;
+  }
+};
 export const generateDietAssessment = async (i: string) => { return {reply: 'Diet AI Placeholder'} };
 export const generateExercisePlan = async (i: string) => { return {plan:[]} };
 
