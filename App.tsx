@@ -4,7 +4,7 @@ import { Layout } from './components/Layout';
 import { HealthSurvey } from './components/HealthSurvey';
 import { AssessmentReport } from './components/AssessmentReport';
 import { FollowUpDashboard } from './components/FollowUpDashboard';
-import { HospitalHeatmap } from './components/HospitalHeatmap';
+import { CampusHealthBoard } from './components/CampusHealthBoard';
 import { AdminConsole } from './components/AdminConsole';
 import { LoginModal } from './components/LoginModal';
 import { NativeSurveyForm } from './components/NativeSurveyForm';
@@ -1307,7 +1307,13 @@ export const App: React.FC = () => {
                 title="我的工作"
               />
             )}
-            {activeTab === 'heatmap' && <HospitalHeatmap archives={archives} onRefresh={refreshArchives} onSelectPatient={(a) => handleSelectPatient(a, 'assessment')} />}
+            {activeTab === 'heatmap' && (
+              <CampusHealthBoard
+                archives={archives}
+                onRefresh={refreshArchives}
+                onSelectPatient={(archive) => handleSelectPatient(archive, 'assessment')}
+              />
+            )}
             {activeTab === 'need_survey' && (currentUserRole === 'admin' || currentUserRole === 'health_manager') && (
               <StaffNeedSurveyAdmin />
             )}

@@ -243,6 +243,52 @@ export const fetchObservationSeries = async (
   return rows;
 };
 
+/** 总屏按多人、指定指标一次读取有效观测，避免逐人请求 */
+export const fetchBoardObservations = async (
+  checkupIds: string[],
+  metricCodes: string[]
+): Promise<HealthObservationRow[]> => {
+  const ids = [...new Set(checkupIds.map((id) => id.trim()).filter(Boolean))];
+  const codes = [...new Set(metricCodes.filter(Boolean))];
+  if (!ids.length || !codes.length) return [];
+  const wanted = new Set(codes);
+  const out: HealthObservationRow[] = [];
+
+  if (isSupabaseConfigured()) {
+    try {
+      const chunkSize = 80;
+      const pageSize = 1000;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        let from = 0;
+        for (;;) {
+          const { data, error } = await supabase
+            .from('health_observations')
+            .select('*')
+            .in('checkup_id', chunk)
+            .in('metric_code', codes)
+            .eq('status', 'active')
+            .order('observed_at', { ascending: true })
+            .range(from, from + pageSize - 1);
+          if (error) throw error;
+          const page = (data || []) as HealthObservationRow[];
+          out.push(...page);
+          if (page.length < pageSize) break;
+          from += pageSize;
+        }
+      }
+      return out;
+    } catch {
+      /* 云端失败时改读本机缓存 */
+    }
+  }
+
+  for (const id of ids) {
+    out.push(...readCache(id).filter((row) => row.status === 'active' && wanted.has(row.metric_code)));
+  }
+  return out;
+};
+
 const CHECKUP_TIMELINE_SOURCES = new Set([
   'checkup_import',
   'doctor_followup',
