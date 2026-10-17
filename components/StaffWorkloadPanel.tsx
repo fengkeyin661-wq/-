@@ -10,7 +10,7 @@ import {
   fetchStaffWorkStats,
   getPeriodRange,
 } from '../services/staffWorkLogService';
-import { fetchArchives } from '../services/dataService';
+import { readArchiveListCache } from '../services/archiveListCacheService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 // @ts-ignore
 import * as XLSX from 'xlsx';
@@ -71,20 +71,15 @@ export const StaffWorkloadPanel: React.FC<Props> = ({
     ];
     if (missingIds.length === 0) return;
 
-    fetchArchives()
-      .then((archives) => {
-        const map: Record<string, string> = {};
-        for (const id of missingIds) {
-          const name = archives.find((arch) => arch.checkup_id === id)?.name;
-          if (name) map[id] = name;
-        }
-        if (Object.keys(map).length > 0) {
-          setNameByCheckupId((prev) => ({ ...prev, ...map }));
-        }
-      })
-      .catch(() => {
-        /* ignore lookup failures */
-      });
+    const archives = readArchiveListCache().archives;
+    const map: Record<string, string> = {};
+    for (const id of missingIds) {
+      const name = archives.find((arch) => arch.checkup_id === id)?.name;
+      if (name) map[id] = name;
+    }
+    if (Object.keys(map).length > 0) {
+      setNameByCheckupId((prev) => ({ ...prev, ...map }));
+    }
   }, [logs]);
 
   const resolveTargetName = (log: StaffWorkLogRow) => {

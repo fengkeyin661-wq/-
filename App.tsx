@@ -41,6 +41,7 @@ import {
 import { HealthRecord, HealthAssessment, FollowUpRecord, ScheduledFollowUp, RiskAnalysisData, QuestionnaireData, ElderlyAssessmentData, DiabetesStandaloneParticipant, HypertensionStandaloneParticipant, LipidStandaloneParticipant } from './types';
 import { generateHealthAssessment, generateFollowUpSchedule, parseHealthDataFromText, generateIncrementalAssessment } from './services/geminiService';
 import { HealthArchive, updateArchiveData, generateNextScheduleItem, saveArchive, fetchArchives, findArchiveByCheckupId, updateRiskAnalysis, updateHealthRecordOnly, ensureAndPersistCriticalTrack, updateCriticalTrack } from './services/dataService';
+import { readArchiveListCache, subscribeArchiveList, upsertArchiveInListCache } from './services/archiveListCacheService';
 import { fetchStandaloneParticipants, ensureStandaloneFromArchive } from './services/diabetesStandaloneService';
 import {
   fetchHypertensionStandaloneParticipants,
@@ -210,7 +211,7 @@ export const App: React.FC = () => {
   const baseTitleRef = useRef<string>(typeof document !== 'undefined' ? document.title : '健康管理系统');
   const prevDoctorUnreadRef = useRef<number>(0);
   // Medical Data State
-  const [archives, setArchives] = useState<HealthArchive[]>([]);
+  const [archives, setArchives] = useState<HealthArchive[]>(() => readArchiveListCache().archives);
   const [healthRecord, setHealthRecord] = useState<HealthRecord | null>(null);
   const [assessment, setAssessment] = useState<HealthAssessment | null>(null);
   const [followUps, setFollowUps] = useState<FollowUpRecord[]>([]);
@@ -271,13 +272,20 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated && (currentUserRole === 'admin' || currentUserRole === 'doctor' || currentUserRole === 'health_manager')) {
-        refreshArchives();
-        refreshStandaloneParticipants();
-        refreshHypertensionParticipants();
-        refreshLipidParticipants();
+    if (currentUserRole === 'doctor') return;
+    return subscribeArchiveList((rows) => setArchives(rows));
+  }, [currentUserRole]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (currentUserRole !== 'admin' && currentUserRole !== 'doctor' && currentUserRole !== 'health_manager') return;
+    const cached = readArchiveListCache().archives;
+    if (cached.length > 0 && currentUserRole !== 'doctor') {
+      setArchives(cached);
+      return;
     }
-  }, [isAuthenticated, currentUserRole, currentDoctor, currentManager]);
+    void refreshArchives();
+  }, [isAuthenticated, currentUserRole]);
 
   useEffect(() => {
     const role = localStorage.getItem('HEALTH_USER_ROLE_V1');
@@ -394,7 +402,6 @@ export const App: React.FC = () => {
             setArchives(myArchives);
         } catch (e) {
             console.error("Failed to filter doctor patients", e);
-            setArchives([]); 
         }
     } else {
         setArchives(allArchives);
@@ -418,6 +425,15 @@ export const App: React.FC = () => {
     setLipidParticipants(list);
     setCurrentLipid((prev) => (prev ? list.find((p) => p.id === prev.id) || null : null));
   };
+
+  const chronicListsLoaded = useRef(false);
+  useEffect(() => {
+    if (!isAuthenticated || activeTab !== 'chronic_disease_management' || chronicListsLoaded.current) return;
+    chronicListsLoaded.current = true;
+    void refreshStandaloneParticipants();
+    void refreshHypertensionParticipants();
+    void refreshLipidParticipants();
+  }, [activeTab, isAuthenticated]);
 
   const handleLoginSuccess = async (
     role: 'admin' | 'home' | 'resource_admin' | 'doctor' | 'health_manager',
@@ -549,6 +565,23 @@ export const App: React.FC = () => {
       window.location.hash = '';
   };
 
+  const keepArchive = (patch: Partial<HealthArchive> & { checkup_id: string }) => {
+    const cached = readArchiveListCache().archives.find((item) => item.checkup_id === patch.checkup_id);
+    upsertArchiveInListCache({ ...(cached || {}), ...patch } as HealthArchive);
+  };
+
+  const refreshOpenedArchive = (checkupId: string) => {
+    void findArchiveByCheckupId(checkupId).then((fresh) => {
+      if (!fresh?.health_record?.profile) return;
+      upsertArchiveInListCache(fresh);
+      setHealthRecord(fresh.health_record);
+      setAssessment(fresh.assessment_data || null);
+      setFollowUps(fresh.follow_ups || []);
+      setSchedule(fresh.follow_up_schedule || []);
+      setRiskAnalysis(fresh.risk_analysis);
+    });
+  };
+
   const handleSelectPatient = (
     archive: HealthArchive,
     mode: 'view' | 'edit' | 'followup' | 'assessment' | 'diabetes' | 'hypertension' | 'lipid' = 'view'
@@ -562,6 +595,7 @@ export const App: React.FC = () => {
       setFollowUps(archive.follow_ups || []);
       setSchedule(archive.follow_up_schedule || []);
       setRiskAnalysis(archive.risk_analysis);
+      refreshOpenedArchive(archive.checkup_id);
 
       if (mode === 'followup') {
         setActiveTab('followup');
@@ -677,7 +711,16 @@ export const App: React.FC = () => {
                   updated_at: new Date().toISOString(),
               } as HealthArchive);
               alert("档案保存成功！已生成最新风险评估。");
-              refreshArchives();
+              keepArchive({
+                checkup_id: data.profile.checkupId,
+                name: data.profile.name,
+                health_record: data,
+                assessment_data: newAssessment,
+                follow_up_schedule: newSchedule,
+                follow_ups: followUps,
+                risk_analysis: analysis,
+                updated_at: new Date().toISOString(),
+              });
               void autoEnrollHypertensionIfEligible({
                 checkup_id: data.profile.checkupId,
                 name: data.profile.name,
@@ -711,7 +754,14 @@ export const App: React.FC = () => {
       if (res.success) {
           setAssessment(newAssessment);
           alert("评估报告已更新");
-          refreshArchives();
+          keepArchive({
+            checkup_id: healthRecord.profile.checkupId,
+            health_record: healthRecord,
+            assessment_data: newAssessment,
+            follow_up_schedule: schedule,
+            follow_ups: followUps,
+            updated_at: new Date().toISOString(),
+          });
       }
   };
 
@@ -848,7 +898,14 @@ export const App: React.FC = () => {
               )
           );
           if (!res.message) {
-              refreshArchives();
+              keepArchive({
+                checkup_id: healthRecord.profile.checkupId,
+                health_record: nextHealthRecord,
+                assessment_data: mergedAssessment,
+                follow_ups: newFollowUps,
+                follow_up_schedule: newSchedule,
+                updated_at: new Date().toISOString(),
+              });
           }
       }
       return res;
@@ -868,7 +925,13 @@ export const App: React.FC = () => {
       if (res.success) {
           setFollowUps(newFollowUps);
           setSchedule(newSchedule);
-          refreshArchives();
+          keepArchive({
+            checkup_id: healthRecord.profile.checkupId,
+            health_record: healthRecord,
+            follow_ups: newFollowUps,
+            follow_up_schedule: newSchedule,
+            updated_at: new Date().toISOString(),
+          });
       }
   };
 
@@ -915,7 +978,15 @@ export const App: React.FC = () => {
               setRiskAnalysis(newAnalysis);
               setFollowUps(previousFollowUps);
               alert("问卷已提交！系统已结合您的体检数据重新生成风险评估与健康方案。");
-              refreshArchives();
+              keepArchive({
+                checkup_id: checkupId,
+                health_record: recordToSave,
+                assessment_data: newAssessment,
+                follow_up_schedule: newSchedule,
+                follow_ups: previousFollowUps,
+                risk_analysis: newAnalysis,
+                updated_at: new Date().toISOString(),
+              });
               if (isAuthenticated) setActiveTab('assessment');
           } else {
               alert("保存失败: " + res.message);
@@ -950,7 +1021,15 @@ export const App: React.FC = () => {
               setHealthRecord(mergedRecord);
               setAssessment(mergedAssessment);
               alert("老年专项评估已保存");
-              await refreshArchives();
+              keepArchive({
+                checkup_id: healthRecord.profile.checkupId,
+                health_record: mergedRecord,
+                assessment_data: mergedAssessment,
+                follow_up_schedule: schedule,
+                follow_ups: followUps,
+                risk_analysis: riskAnalysis,
+                updated_at: new Date().toISOString(),
+              });
           } else {
               alert("保存失败: " + res.message);
           }
@@ -1184,7 +1263,7 @@ export const App: React.FC = () => {
                   onEnterFollowUpWorkspace={() => setFollowUpExpandEntryToken((t) => t + 1)}
                   onSave={handleSaveAssessment}
                   onUpdateReport={handleUpdateCheckupReport}
-                  onUpdateRiskAnalysis={refreshArchives}
+                  onUpdateRiskAnalysis={() => refreshOpenedArchive(healthRecord.profile.checkupId)}
                   onSupplementQuestionnaire={() => setActiveTab('external_survey')}
                 />
                 <FollowUpDashboard
@@ -1328,7 +1407,10 @@ export const App: React.FC = () => {
             {activeTab === 'admin' && (currentUserRole === 'admin' || currentUserRole === 'health_manager') && (
               <AdminConsole
                 onSelectPatient={handleSelectPatient}
-                onDataUpdate={refreshArchives}
+                onDataUpdate={() => {
+                  const cached = readArchiveListCache().archives;
+                  if (cached.length) setArchives(cached);
+                }}
                 isAuthenticated={isAuthenticated}
                 onTabChange={setActiveTab}
                 userRole={currentUserRole === 'health_manager' ? 'health_manager' : 'admin'}

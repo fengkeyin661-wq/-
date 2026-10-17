@@ -4,6 +4,7 @@ import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack
 import {
     formatArchiveListCacheTime,
     readArchiveListCache,
+    subscribeArchiveList,
 } from '../services/archiveListCacheService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
@@ -151,6 +152,13 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         }
     }, [isAuthenticated]);
 
+    useEffect(() => {
+        return subscribeArchiveList((rows) => {
+            if (!rows.length) return;
+            setArchives(sortArchivesByExamDate(rows));
+        });
+    }, []);
+
     // Setup PDF Worker
     useEffect(() => {
         const setupPdfWorker = async () => {
@@ -172,7 +180,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         setupPdfWorker();
     }, []);
 
-    const loadData = async (_options?: { force?: boolean }) => {
+    const loadData = async (options?: { force?: boolean }) => {
         if (!configured) { setLoading(false); return; }
 
         const cached = readArchiveListCache();
@@ -183,24 +191,35 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
             setLoading(false);
             setCacheHint(
                 cached.meta
-                    ? `本地缓存 · ${formatArchiveListCacheTime(cached.meta.fetchedAt)} · ${cached.meta.count} 人`
-                    : null
+                    ? `本地缓存 · ${formatArchiveListCacheTime(cached.meta.fetchedAt)} · ${cached.meta.count} 人。点「刷新」后再向后台更新。`
+                    : `本地缓存 · ${cached.archives.length} 人。点「刷新」后再向后台更新。`
             );
-        } else {
-            setLoading(true);
+        }
+
+        if (!options?.force) {
+            if (!hasCache) {
+                setLoading(false);
+                setCacheHint('名单还没有本地缓存。点「刷新」从后台读取。');
+            }
+            return;
         }
 
         setIsRefreshing(true);
         setFetchError(null);
-        if (!hasCache) setSelectedIds(new Set());
+        if (!hasCache) setLoading(true);
 
         try {
             const data = await fetchArchives();
+            if (!data.length && hasCache) {
+                setCacheHint('后台这次没有返回名单，仍显示本地缓存。');
+                return;
+            }
             setArchives(sortArchivesByExamDate(data));
-            setCacheHint(`已同步 · ${new Date().toLocaleTimeString()} · ${data.length} 人`);
+            setCacheHint(`已刷新 · ${new Date().toLocaleTimeString()} · ${data.length} 人`);
         } catch (error: unknown) {
             setFetchError(String(error));
             if (!hasCache) setArchives([]);
+            else setCacheHint('刷新没有完成，仍显示本地缓存。');
         } finally {
             setLoading(false);
             setIsRefreshing(false);

@@ -3,7 +3,7 @@ import type { HealthArchive } from './dataService';
 const ARCHIVE_LIST_CACHE_KEY = 'HEALTH_ADMIN_ARCHIVE_LIST_V1';
 const ARCHIVE_LIST_CACHE_META_KEY = 'HEALTH_ADMIN_ARCHIVE_LIST_META_V1';
 
-/** 缓存只用于打开页面时先显示名单。控制台仍会立刻向云端拉取全部档案。 */
+/** 人员名单属于定期查看的数据：先显示本地缓存，只有手动刷新才整表重取。 */
 export const ARCHIVE_LIST_CACHE_TTL_MS = 30 * 60 * 1000;
 
 export interface ArchiveListCacheMeta {
@@ -18,6 +18,17 @@ export interface ArchiveListCacheSnapshot {
 
 let memoryArchives: HealthArchive[] | null = null;
 let memoryMeta: ArchiveListCacheMeta | null = null;
+const listeners = new Set<(archives: HealthArchive[]) => void>();
+
+const publish = () => {
+  listeners.forEach((listener) => listener(memoryArchives ? [...memoryArchives] : []));
+};
+
+/** 名单更新后通知各个页面，切换页面时不用再向后台整表抓取。 */
+export const subscribeArchiveList = (listener: (archives: HealthArchive[]) => void): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
 
 const parseArchives = (raw: string | null): HealthArchive[] => {
   if (!raw) return [];
@@ -57,6 +68,7 @@ export const writeArchiveListCache = (archives: HealthArchive[]): void => {
   };
   memoryArchives = archives;
   memoryMeta = meta;
+  publish();
 
   try {
     localStorage.setItem(ARCHIVE_LIST_CACHE_KEY, JSON.stringify(archives));
@@ -64,6 +76,14 @@ export const writeArchiveListCache = (archives: HealthArchive[]): void => {
   } catch (e) {
     console.warn('人员列表本地缓存写入失败（可能超出配额）', e);
   }
+};
+
+export const upsertArchiveInListCache = (archive: HealthArchive): void => {
+  const current = memoryArchives ? [...memoryArchives] : readArchiveListCache().archives;
+  const index = current.findIndex((item) => item.checkup_id === archive.checkup_id);
+  if (index >= 0) current[index] = { ...current[index], ...archive };
+  else current.push(archive);
+  writeArchiveListCache(current);
 };
 
 export const invalidateArchiveListCache = (): void => {
