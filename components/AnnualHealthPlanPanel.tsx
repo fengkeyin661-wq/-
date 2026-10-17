@@ -168,7 +168,7 @@ export const AnnualHealthPlanPanel: React.FC<AnnualHealthPlanPanelProps> = ({
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-800">按年龄段的经费</h3>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          人体成分分析只给超重、肥胖或脂肪肝，每年 1 次。无肺结节者 40–49 岁每 5 年、50 岁起每 3 年做一次低剂量胸部 CT，已有肺结节的仍每年 1 次、不重复计算。眼底照相：糖尿病每年 1 次，40–59 岁每 3 年，60 岁起每 2 年。骨密度：女性 50–64 岁每 5 年，女性 65 岁或男性 70 岁起每 2 年。不足相应年龄的不列。
+          多年一次的项目只分摊进本年。人体成分每年 1 次，仅超重、肥胖或脂肪肝。低剂量胸部 CT：无结节者 40–49 岁每 5 年、50–74 岁每 3 年，已有结节的每年 1 次。眼底照相：糖尿病每年 1 次，40–59 岁每 3 年，60 岁起每 2 年。骨密度：女性 50–64 岁每 5 年，女性 65 岁或男性 70 岁起每 2 年。另按国家筛查和河南高发情况计入：50–74 岁每年粪便隐血；40–69 岁每 5 年普通胃镜；男性 50–74 岁每 2 年前列腺特异抗原；女性 35–64 岁每 3 年宫颈癌筛查，40–69 岁每 2 年乳腺超声，45–69 岁每 2 年钼靶。乙肝表面抗原全体每 5 年 1 次。肌酐给糖尿病或 60 岁及以上，每年 1 次。已有乙肝、丙肝或肝硬化线索的，每年加甲胎蛋白。不到年龄的不列。
         </p>
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-full text-sm">

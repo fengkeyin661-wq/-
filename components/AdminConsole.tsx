@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { fetchArchives, deleteArchive, updateArchiveProfile, updateCriticalTrack, saveArchive, updateHealthRecordOnly, HealthArchive, findArchiveByCheckupId, updateArchiveMeta, normalizePhone, isDefaultPortalPassword, resetPortalPasswordToDefault } from '../services/dataService';
 import {
     formatArchiveListCacheTime,
-    isArchiveListCacheFresh,
     readArchiveListCache,
 } from '../services/archiveListCacheService';
 import { parseHealthDataFromText, generateHealthAssessment, generateFollowUpSchedule } from '../services/geminiService';
@@ -173,7 +172,7 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
         setupPdfWorker();
     }, []);
 
-    const loadData = async (options?: { force?: boolean }) => {
+    const loadData = async (_options?: { force?: boolean }) => {
         if (!configured) { setLoading(false); return; }
 
         const cached = readArchiveListCache();
@@ -187,9 +186,6 @@ export const AdminConsole: React.FC<Props> = ({ onSelectPatient, onDataUpdate, i
                     ? `本地缓存 · ${formatArchiveListCacheTime(cached.meta.fetchedAt)} · ${cached.meta.count} 人`
                     : null
             );
-            if (!options?.force && isArchiveListCacheFresh(cached.meta)) {
-                return;
-            }
         } else {
             setLoading(true);
         }

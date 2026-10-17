@@ -64,8 +64,12 @@ const personAge = (archive: HealthArchive): number | null => {
   return Number.isFinite(value) && value >= 1 && value < 120 ? Math.round(value) : null;
 };
 
-const isFemale = (archive: HealthArchive): boolean =>
-  /女|f|female/i.test(`${archive.gender || ''}${archive.health_record?.profile?.gender || ''}`);
+const genderText = (archive: HealthArchive) =>
+  `${archive.gender || ''}${archive.health_record?.profile?.gender || ''}`;
+
+const isFemale = (archive: HealthArchive): boolean => /女/.test(genderText(archive));
+
+const isMale = (archive: HealthArchive): boolean => /男/.test(genderText(archive)) && !isFemale(archive);
 
 export const ageBandOf = (age: number | null): string => {
   if (age == null) return '年龄不详';
@@ -115,11 +119,40 @@ const INTERVAL_ITEMS = {
   ldct: { code: '012301020010000', name: '低剂量胸部CT', unit: '部位', price: 195, category: 'further' as const },
   fundus: { code: '310300058', name: '眼底照相', unit: '次', price: 22, category: 'further' as const },
   bone: { code: '012415000010000', name: '骨密度测定费', unit: '次', price: 110, category: 'further' as const },
+  fobt: { code: '2501030020', name: '粪便隐血试验', unit: '项', price: 2, category: 'recheck' as const },
+  gastroscopy: { code: '310902005', name: '纤维胃十二指肠镜检查', unit: '次', price: 150, category: 'further' as const },
+  psa: { code: '250404005', name: '总前列腺特异性抗原测定', unit: '项', price: 17.6, category: 'recheck' as const },
+  cervix: { code: '311201067', name: '宫颈癌筛查', unit: '次', price: 200, category: 'further' as const },
+  breastUs: { code: '220301002', name: '乳腺超声筛查', unit: '每个部位', price: 60, category: 'further' as const },
+  mammo: { code: '210102014', name: '乳腺钼靶摄片', unit: '双侧', price: 80, category: 'further' as const },
+  hbsag: { code: '250403004', name: '乙型肝炎表面抗原测定', unit: '项', price: 5, category: 'recheck' as const },
+  creatinine: { code: '250307002', name: '肌酐测定', unit: '项', price: 14, category: 'recheck' as const },
+  afp: { code: '250404002', name: '甲胎蛋白测定', unit: '项', price: 14.7, category: 'recheck' as const },
 };
 
 const hasLine = (lines: BudgetLine[], code: string) => lines.some((line) => line.code === code);
 
 const hasReason = (lines: BudgetLine[], text: string) => lines.some((line) => line.reason.includes(text));
+
+const liverRiskText = (person: PersonBudget): boolean => {
+  const risks = person.archive.assessment_data?.risks;
+  const abnormalities = (person.archive.health_record?.checkup?.abnormalities || [])
+    .map((item) => `${item.item || ''}${item.result || ''}`)
+    .join(' ');
+  return /乙肝|乙型肝炎|HBsAg|表面抗原阳性|肝硬化|丙肝/.test(
+    `${(risks?.red || []).join(' ')} ${(risks?.yellow || []).join(' ')} ${abnormalities}`
+  );
+};
+
+const annualLine = (
+  item: (typeof INTERVAL_ITEMS)[keyof typeof INTERVAL_ITEMS],
+  reason: string
+): BudgetLine => ({
+  ...item,
+  times: 1,
+  amount: item.price,
+  reason,
+});
 
 /** 多年才做一次的项目，只把限价分摊进本年预算 */
 const shareLine = (item: (typeof INTERVAL_ITEMS)[keyof typeof INTERVAL_ITEMS], everyYears: number, reason: string): BudgetLine => {
@@ -140,6 +173,7 @@ const intervalLines = (person: PersonBudget, lines: BudgetLine[]): BudgetLine[] 
   const extra: BudgetLine[] = [];
   const age = personAge(person.archive);
   const female = isFemale(person.archive);
+  const male = isMale(person.archive);
   if (hasReason(lines, '超重、肥胖或脂肪肝')) {
     extra.push({
       ...INTERVAL_ITEMS.bodyComp,
@@ -148,8 +182,8 @@ const intervalLines = (person: PersonBudget, lines: BudgetLine[]): BudgetLine[] 
       reason: '超重、肥胖或脂肪肝，每年 1 次人体成分分析',
     });
   }
-  if (!hasLine(lines, INTERVAL_ITEMS.ldct.code) && age != null) {
-    if (age >= 50) extra.push(shareLine(INTERVAL_ITEMS.ldct, 3, '50岁起、尚无肺结节'));
+  if (!hasLine(lines, INTERVAL_ITEMS.ldct.code) && age != null && age <= 74) {
+    if (age >= 50) extra.push(shareLine(INTERVAL_ITEMS.ldct, 3, '50–74岁、尚无肺结节'));
     else if (age >= 40) extra.push(shareLine(INTERVAL_ITEMS.ldct, 5, '40–49岁、尚无肺结节'));
   }
   if (hasReason(lines, '糖尿病范围')) {
@@ -163,11 +197,37 @@ const intervalLines = (person: PersonBudget, lines: BudgetLine[]): BudgetLine[] 
     extra.push(shareLine(INTERVAL_ITEMS.fundus, age >= 60 ? 2 : 3, age >= 60 ? '60岁及以上' : '40–59岁'));
   }
   if (age != null) {
-    if ((female && age >= 65) || (!female && age >= 70)) {
+    if ((female && age >= 65) || (male && age >= 70)) {
       extra.push(shareLine(INTERVAL_ITEMS.bone, 2, female ? '女性65岁及以上' : '男性70岁及以上'));
     } else if (female && age >= 50) {
       extra.push(shareLine(INTERVAL_ITEMS.bone, 5, '女性50–64岁'));
     }
+  }
+  if (age != null && age >= 50 && age <= 74) {
+    extra.push(annualLine(INTERVAL_ITEMS.fobt, '50–74岁结直肠癌筛查，每年 1 次粪便隐血'));
+  }
+  if (age != null && age >= 40 && age <= 69) {
+    extra.push(shareLine(INTERVAL_ITEMS.gastroscopy, 5, '河南食管癌、胃癌相对高发，40–69岁'));
+  }
+  if (male && age != null && age >= 50 && age <= 74) {
+    extra.push(shareLine(INTERVAL_ITEMS.psa, 2, '男性50–74岁前列腺癌筛查'));
+  }
+  if (female && age != null && age >= 35 && age <= 64) {
+    extra.push(shareLine(INTERVAL_ITEMS.cervix, 3, '女性35–64岁宫颈癌筛查'));
+  }
+  const breastFollowUp = lines.some((line) => line.code === INTERVAL_ITEMS.breastUs.code && line.reason.includes('乳腺'));
+  if (female && age != null && age >= 40 && age <= 69 && !breastFollowUp) {
+    extra.push(shareLine(INTERVAL_ITEMS.breastUs, 2, '女性40–69岁乳腺癌超声筛查'));
+  }
+  if (female && age != null && age >= 45 && age <= 69) {
+    extra.push(shareLine(INTERVAL_ITEMS.mammo, 2, '女性45–69岁乳腺钼靶，按双侧两张计'));
+  }
+  extra.push(shareLine(INTERVAL_ITEMS.hbsag, 5, '成年人乙肝筛查'));
+  if (hasReason(lines, '糖尿病范围') || (age != null && age >= 60)) {
+    extra.push(annualLine(INTERVAL_ITEMS.creatinine, age != null && age >= 60 ? '60岁及以上或糖尿病，每年 1 次肌酐' : '糖尿病范围，每年 1 次肌酐'));
+  }
+  if (liverRiskText(person)) {
+    extra.push(annualLine(INTERVAL_ITEMS.afp, '乙肝、丙肝或肝硬化线索，每年 1 次甲胎蛋白'));
   }
   return extra;
 };

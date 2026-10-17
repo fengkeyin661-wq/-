@@ -3,7 +3,7 @@ import type { HealthArchive } from './dataService';
 const ARCHIVE_LIST_CACHE_KEY = 'HEALTH_ADMIN_ARCHIVE_LIST_V1';
 const ARCHIVE_LIST_CACHE_META_KEY = 'HEALTH_ADMIN_ARCHIVE_LIST_META_V1';
 
-/** 默认 30 分钟内视为新鲜，打开后台不再自动拉取云端 */
+/** 缓存只用于打开页面时先显示名单。控制台仍会立刻向云端拉取全部档案。 */
 export const ARCHIVE_LIST_CACHE_TTL_MS = 30 * 60 * 1000;
 
 export interface ArchiveListCacheMeta {

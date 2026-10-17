@@ -1487,6 +1487,27 @@ export const deleteArchive = async (id: string): Promise<boolean> => {
     } catch { return false; }
 };
 
+const ARCHIVE_LIST_PAGE = 1000;
+
+const fetchCloudArchives = async (): Promise<HealthArchive[] | null> => {
+    const cloud: HealthArchive[] = [];
+    for (let from = 0; ; from += ARCHIVE_LIST_PAGE) {
+        const { data, error } = await supabase
+            .from('health_archives')
+            .select('*')
+            .order('checkup_id', { ascending: true })
+            .range(from, from + ARCHIVE_LIST_PAGE - 1);
+        if (error) {
+            console.error("Fetch DB error", error);
+            return null;
+        }
+        const rows = (data || []) as HealthArchive[];
+        cloud.push(...rows);
+        if (rows.length < ARCHIVE_LIST_PAGE) break;
+    }
+    return cloud;
+};
+
 export const fetchArchives = async (): Promise<HealthArchive[]> => {
     let archives: HealthArchive[] = [];
     let localArchives: HealthArchive[] = [];
@@ -1500,16 +1521,16 @@ export const fetchArchives = async (): Promise<HealthArchive[]> => {
         }
     } catch (e) {}
 
-    // Cloud
+    // Cloud。接口单次最多 1000 行，必须按页取完，否则新同步的档案不会出现在名单里。
     if (isSupabaseConfigured()) {
         try {
-            const { data, error } = await supabase.from('health_archives').select('*');
-            if (!error && data) {
+            const data = await fetchCloudArchives();
+            if (data) {
                 const map = new Map<string, HealthArchive>();
                 // 先放本地，保证本地新增不会因云端空集被覆盖
                 localArchives.forEach((a) => map.set(a.checkup_id, a));
                 // 云端同 checkup_id 覆盖本地（以云端为准）
-                (data as HealthArchive[]).forEach((a) => map.set(a.checkup_id, a));
+                data.forEach((a) => map.set(a.checkup_id, a));
                 archives = Array.from(map.values());
                 try {
                     localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(archives));
