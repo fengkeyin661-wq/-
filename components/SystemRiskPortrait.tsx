@@ -4,6 +4,9 @@ import { HealthRecord, RiskAnalysisData, PredictionModelResult } from '../types'
 import { generateSystemPortraits, evaluateRiskModels } from '../services/riskModelService';
 import { updateRiskAnalysis } from '../services/dataService';
 
+/** 模型缺项较多，页面与打印稿暂时不展示疾病风险预测模型矩阵。恢复时改为 true。 */
+export const SHOW_RISK_MODEL_MATRIX = false;
+
 interface Props {
     record: HealthRecord;
     existingAnalysis?: RiskAnalysisData;
@@ -157,6 +160,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                 </div>
                 ` : ''}
 
+                ${SHOW_RISK_MODEL_MATRIX ? `
                 <div class="section-title">📊 疾病风险预测模型评估</div>
                 <table>
                     <thead>
@@ -182,6 +186,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                         `).join('')}
                     </tbody>
                 </table>
+                ` : ''}
                 
                 <div style="margin-top: 50px; text-align: right; font-size: 14px;">
                     评估医师签名: ___________________
@@ -197,6 +202,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({
     };
 
     if (!analysis) return <div className="p-10 text-center">正在生成画像...</div>;
+    if (!showPortraits && !SHOW_RISK_MODEL_MATRIX) return null;
 
     return (
         <div className="animate-fadeIn pb-10 space-y-8">
@@ -265,7 +271,8 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                 </section>
             )}
 
-            {/* 2. 风险预测矩阵 (Risk Prediction Matrix) */}
+            {/* 2. 风险预测矩阵：缺项较多，暂时隐藏 */}
+            {SHOW_RISK_MODEL_MATRIX && (
             <section className="print:break-inside-avoid">
                  <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                     <span className="text-2xl">📊</span> 疾病风险预测模型矩阵
@@ -311,6 +318,7 @@ export const SystemRiskPortrait: React.FC<Props> = ({
                     ))}
                 </div>
             </section>
+            )}
 
             {/* Input Modal */}
             {activeModel && (

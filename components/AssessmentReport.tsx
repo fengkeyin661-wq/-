@@ -1,8 +1,17 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord } from '../types';
+import { HealthAssessment, RiskLevel, HealthProfile, RiskAnalysisData, HealthRecord, FollowUpRecord } from '../types';
+import { getLatestFollowUp } from '../services/followUpLinkageService';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { SystemRiskPortrait } from './SystemRiskPortrait';
+import { SHOW_RISK_MODEL_MATRIX, SystemRiskPortrait } from './SystemRiskPortrait';
+import { HealthTrendCharts } from './HealthTrendCharts';
+import { buildHealthArchivePrintHtml } from '../services/archiveReportPrint';
+
+export const FOLLOWUP_WORKSPACE_ANCHOR_ID = 'followup-detail-anchor';
+
+export function scrollToFollowUpWorkspace() {
+  document.getElementById(FOLLOWUP_WORKSPACE_ANCHOR_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 interface Props {
   assessment: HealthAssessment;
@@ -14,6 +23,11 @@ interface Props {
   onUpdateReport?: (file: File) => void; // Changed from onReevaluate to file upload handler
   onUpdateRiskAnalysis?: () => void; // Prop to refresh archives if models are updated
   onSupplementQuestionnaire?: () => void; // Add Supplement Questionnaire Callback
+  followUps?: FollowUpRecord[];
+  checkupId?: string;
+  /** 页内嵌入随访区时：滚动至随访工作区并展开录入 */
+  onEnterFollowUpWorkspace?: () => void;
+  onViewFollowUps?: () => void;
 }
 
 const COLORS = {
@@ -31,11 +45,34 @@ export const AssessmentReport: React.FC<Props> = ({
     onSave, 
     onUpdateReport,
     onUpdateRiskAnalysis,
-    onSupplementQuestionnaire
+    onSupplementQuestionnaire,
+    followUps = [],
+    checkupId,
+    onEnterFollowUpWorkspace,
+    onViewFollowUps,
 }) => {
+  const trendCheckupId = checkupId ?? profile?.checkupId ?? healthRecord?.profile.checkupId;
+
+  const handleEnterFollowUp = () => {
+    onEnterFollowUpWorkspace?.();
+    scrollToFollowUpWorkspace();
+    onViewFollowUps?.();
+  };
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<HealthAssessment>(assessment);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [opsMenuOpen, setOpsMenuOpen] = useState(false);
+  const opsMenuRef = useRef<HTMLDivElement>(null);
+  const latestFollowUp = getLatestFollowUp(followUps);
+
+  useEffect(() => {
+    if (!opsMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (opsMenuRef.current && !opsMenuRef.current.contains(e.target as Node)) setOpsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [opsMenuOpen]);
 
   // Sync state when props change (e.g. switching patients)
   useEffect(() => {
@@ -67,7 +104,7 @@ export const AssessmentReport: React.FC<Props> = ({
   };
 
   // Combined Print Window Logic
-  const handlePrint = () => {
+  const handlePrint = async () => {
       setIsEditing(false);
       
       const printWindow = window.open('', '_blank', 'height=900,width=800,menubar=no,toolbar=no,location=no,status=no,titlebar=no');
@@ -77,268 +114,16 @@ export const AssessmentReport: React.FC<Props> = ({
           return;
       }
 
-      const riskLevelMap = { 'RED': '高风险', 'YELLOW': '中风险', 'GREEN': '低风险' };
-      const riskLevelColorMap = { 'RED': '#fee2e2', 'YELLOW': '#fef9c3', 'GREEN': '#dcfce7' }; // bg colors
-      const riskTextColorMap = { 'RED': '#991b1b', 'YELLOW': '#854d0e', 'GREEN': '#166534' }; // text colors
-      
-      const riskLevel = editData.riskLevel;
-      const riskBg = riskLevelColorMap[riskLevel as keyof typeof riskLevelColorMap];
-      const riskText = riskTextColorMap[riskLevel as keyof typeof riskTextColorMap];
-      const riskLabel = riskLevelMap[riskLevel as keyof typeof riskLevelMap];
+      const htmlContent = await buildHealthArchivePrintHtml({
+          assessment: editData,
+          patientName,
+          profile,
+          checkupId: trendCheckupId,
+          riskAnalysis,
+          includeRiskModels: SHOW_RISK_MODEL_MATRIX,
+          audience: 'staff',
+      });
 
-      const renderList = (items: string[]) => items.length > 0 
-        ? `<ul class="list">${items.map(i => `<li>${i}</li>`).join('')}</ul>` 
-        : '<p class="empty-text">无特定建议</p>';
-
-      const criticalBanner = editData.isCritical ? `
-          <div class="critical-banner">
-              ⚠️ 危急值警示：${editData.criticalWarning || '存在严重异常指标，请立即处理！'}
-          </div>
-      ` : '';
-
-      const pName = profile?.name || patientName || '未命名';
-      const pGender = profile?.gender || '';
-      const pAge = profile?.age ? `${profile.age}岁` : '';
-      const pDept = profile?.department || '';
-
-      // --- New: Generate HTML for Models ---
-      let modelsHtml = '';
-
-      if (riskAnalysis) {
-          // Models HTML
-          const modelsRows = riskAnalysis.models.map(m => `
-            <tr>
-                <td>${m.category}</td>
-                <td><strong>${m.modelName}</strong></td>
-                <td>${m.score}</td>
-                <td class="${m.riskLevel === 'RED' ? 'risk-red' : m.riskLevel === 'YELLOW' ? 'risk-yellow' : 'risk-green'}">
-                    ${m.riskLabel}
-                </td>
-                <td>${m.description}</td>
-            </tr>
-          `).join('');
-
-          modelsHtml = `
-            <div class="section-title">📊 疾病风险预测模型评估</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th style="width: 20%">类别</th>
-                        <th style="width: 25%">模型</th>
-                        <th style="width: 15%">评分</th>
-                        <th style="width: 15%">等级</th>
-                        <th>解读</th>
-                    </tr>
-                </thead>
-                <tbody>${modelsRows}</tbody>
-            </table>
-          `;
-      }
-      // -----------------------------------------------------
-
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html lang="zh-CN">
-        <head>
-            <meta charset="UTF-8">
-            <title>健康风险评估报告</title>
-            <style>
-                body {
-                    font-family: "PingFang SC", "Microsoft YaHei", "Heiti SC", sans-serif;
-                    background-color: #fff;
-                    color: #333;
-                    margin: 0;
-                    padding: 40px;
-                    font-size: 14px;
-                    line-height: 1.6;
-                }
-                .container { max-width: 800px; margin: 0 auto; }
-                
-                /* Header */
-                .header {
-                    text-align: center;
-                    border-bottom: 2px solid #111827;
-                    padding-bottom: 20px;
-                    margin-bottom: 30px;
-                }
-                .header h1 { font-size: 20px; color: #4b5563; margin-bottom: 5px; font-weight: normal; }
-                .header h2 { font-size: 28px; font-weight: 800; margin: 0; letter-spacing: 2px; color: #111827; }
-                .meta-row { display: flex; justify-content: space-between; margin-top: 15px; font-size: 14px; color: #4b5563; }
-
-                /* Risk Banner */
-                .risk-banner {
-                    background-color: ${riskBg};
-                    color: ${riskText};
-                    padding: 20px;
-                    border-radius: 8px;
-                    text-align: center;
-                    margin-bottom: 30px;
-                    border: 1px solid currentColor;
-                }
-                .risk-label { font-size: 24px; font-weight: 900; display: block; margin-bottom: 5px; }
-                .risk-desc { font-size: 14px; opacity: 0.9; }
-
-                .critical-banner {
-                    background-color: #fef2f2;
-                    color: #b91c1c;
-                    border: 2px solid #ef4444;
-                    padding: 15px;
-                    border-radius: 8px;
-                    margin-bottom: 25px;
-                    text-align: center;
-                    font-weight: bold;
-                    font-size: 16px;
-                }
-
-                /* Sections */
-                .section { margin-bottom: 25px; }
-                .section-title {
-                    font-size: 16px; font-weight: bold; border-left: 5px solid #0d9488;
-                    padding-left: 10px; margin-bottom: 12px; color: #111827;
-                    background-color: #f0fdfa; padding-top: 5px; padding-bottom: 5px;
-                    margin-top: 25px;
-                }
-                
-                .content-box { border: 1px solid #e5e7eb; border-radius: 6px; padding: 15px; }
-
-                /* Summary */
-                .summary-text { font-size: 15px; text-align: justify; white-space: pre-line; }
-
-                /* Risk Lists */
-                .risk-grid { display: flex; gap: 20px; margin-bottom: 20px; }
-                .risk-col { flex: 1; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; }
-                .risk-header { padding: 8px 15px; font-weight: bold; font-size: 14px; }
-                .rh-red { background-color: #fef2f2; color: #991b1b; }
-                .rh-yellow { background-color: #fefce8; color: #854d0e; }
-                .risk-body { padding: 15px; }
-
-                /* Plan */
-                .plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-                .plan-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 15px; }
-                .plan-title { font-weight: bold; color: #0f766e; margin-bottom: 10px; font-size: 15px; border-bottom: 1px solid #ccfbf1; padding-bottom: 5px; }
-                ul.list { padding-left: 20px; margin: 0; }
-                ul.list li { margin-bottom: 4px; color: #374151; }
-                .empty-text { color: #9ca3af; font-style: italic; }
-
-                /* Risk Portrait Grid - Styles removed as section removed */
-                
-                /* Models Table */
-                table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }
-                th, td { border: 1px solid #eee; padding: 8px; text-align: left; }
-                th { background: #f9fafb; font-weight: bold; }
-                .risk-red { color: #dc2626; font-weight: bold; }
-                .risk-yellow { color: #d97706; font-weight: bold; }
-                .risk-green { color: #16a34a; }
-
-                /* Footer */
-                .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 20px; }
-                .disclaimer-box { border-top: 2px solid #374151; padding-top: 15px; margin-top: 20px; text-align: center; }
-                .disclaimer { font-weight: bold; font-size: 14px; color: #dc2626; margin-bottom: 8px; }
-                .contact-info { font-size: 12px; color: #4b5563; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
-                .contact-info span { display: inline-block; }
-
-                @media print {
-                    body { padding: 0; -webkit-print-color-adjust: exact; }
-                    .plan-card, .risk-col, .disclaimer-box { break-inside: avoid; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>郑州大学医院健康管理中心</h1>
-                    <h2>健康风险评估与健康方案</h2>
-                    <div class="meta-row">
-                        <span>受检人: <strong>${pName}</strong> ${pGender} ${pAge}</span>
-                        <span>部门: ${pDept}</span>
-                        <span>评估日期: ${new Date().toLocaleDateString()}</span>
-                    </div>
-                </div>
-
-                ${criticalBanner}
-
-                <div class="risk-banner">
-                    <span class="risk-label">${riskLabel}</span>
-                    <span class="risk-desc">根据您的体检数据与健康问卷综合判定</span>
-                </div>
-
-                <!-- Injected Models -->
-                ${modelsHtml}
-
-                <div class="section">
-                    <div class="section-title">综合评估综述</div>
-                    <div class="content-box summary-text">${editData.summary}</div>
-                </div>
-
-                <div class="risk-grid">
-                    <div class="risk-col">
-                        <div class="risk-header rh-red">🔴 高危因素</div>
-                        <div class="risk-body">${renderList(editData.risks.red)}</div>
-                    </div>
-                    <div class="risk-col">
-                        <div class="risk-header rh-yellow">🟡 中危因素</div>
-                        <div class="risk-body">${renderList(editData.risks.yellow)}</div>
-                    </div>
-                </div>
-
-                <div class="section">
-                    <div class="section-title">健康管理方案</div>
-                    <div class="plan-grid">
-                        <div class="plan-card">
-                            <div class="plan-title">🥗 饮食干预</div>
-                            ${renderList(editData.managementPlan.dietary)}
-                        </div>
-                        <div class="plan-card">
-                            <div class="plan-title">🏃 运动方案</div>
-                            ${renderList(editData.managementPlan.exercise)}
-                        </div>
-                        <div class="plan-card">
-                            <div class="plan-title">💊 医疗建议</div>
-                            ${renderList(editData.managementPlan.medication)}
-                        </div>
-                        <div class="plan-card">
-                            <div class="plan-title">🔍 监测与随访</div>
-                            ${renderList(editData.managementPlan.monitoring)}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="section">
-                    <div class="section-title">📅 随访计划建议</div>
-                    <div class="content-box">
-                        <p style="margin-bottom: 8px;"><strong>建议随访频率:</strong> ${editData.followUpPlan.frequency}</p>
-                        <div>
-                            <strong>重点复查项目:</strong>
-                            <div style="margin-top: 5px;">
-                                ${renderList(editData.followUpPlan.nextCheckItems)}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="footer">
-                    <div>评估医师签名: _________________</div>
-                    <div>受检者确认: _________________</div>
-                </div>
-                
-                <div class="disclaimer-box">
-                    <p class="disclaimer">本方案仅供参考，具体治疗请遵医嘱。</p>
-                    <div class="contact-info">
-                        <span>制定机构：郑州大学医院</span>
-                        <span>服务热线：0371-67739261</span>
-                        <span>工作时间：周一至周五上午8:00-12:00，下午2:30-5:30</span>
-                    </div>
-                </div>
-            </div>
-            <script>
-                window.onload = function() {
-                    setTimeout(function() { window.print(); }, 500);
-                };
-            </script>
-        </body>
-        </html>
-      `;
-      
       printWindow.document.open();
       printWindow.document.write(htmlContent);
       printWindow.document.close();
@@ -391,37 +176,58 @@ export const AssessmentReport: React.FC<Props> = ({
                     onChange={handleFileChange}
                 />
                 
-                {onUpdateReport && (
-                    <button 
-                        onClick={handleUpdateClick} 
-                        className="bg-white border border-indigo-200 text-indigo-700 px-5 py-2 rounded-lg font-bold hover:bg-indigo-50 flex items-center gap-2 transition-colors shadow-sm"
-                    >
-                        📈 更新体检报告
-                    </button>
-                )}
-                
-                {onSupplementQuestionnaire && (
-                    <button 
-                        onClick={onSupplementQuestionnaire} 
-                        className="bg-white border border-blue-200 text-blue-700 px-5 py-2 rounded-lg font-bold hover:bg-blue-50 flex items-center gap-2 transition-colors shadow-sm"
-                    >
-                        📝 补充问卷信息
-                    </button>
-                )}
-
                 <button onClick={() => setIsEditing(true)} className="bg-white border border-teal-200 text-teal-700 px-5 py-2 rounded-lg font-medium hover:bg-teal-50 flex items-center gap-2">
                     ✏️ 医生修订
                 </button>
-                <button onClick={handlePrint} className="bg-slate-800 text-white px-5 py-2 rounded-lg font-medium hover:bg-slate-700 flex items-center gap-2">
+                <button onClick={() => { void handlePrint(); }} className="bg-slate-800 text-white px-5 py-2 rounded-lg font-medium hover:bg-slate-700 flex items-center gap-2">
                     🖨️ 打印报告
                 </button>
+                {(onUpdateReport || onSupplementQuestionnaire) && (
+                  <div className="relative" ref={opsMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setOpsMenuOpen((v) => !v)}
+                      className="bg-white border border-slate-200 text-slate-700 px-5 py-2 rounded-lg font-medium hover:bg-slate-50"
+                    >
+                      操作 ▾
+                    </button>
+                    {opsMenuOpen ? (
+                      <div className="absolute right-0 top-full z-40 mt-1 min-w-[11rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                        {onUpdateReport ? (
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                            onClick={() => {
+                              setOpsMenuOpen(false);
+                              handleUpdateClick();
+                            }}
+                          >
+                            更新体检报告
+                          </button>
+                        ) : null}
+                        {onSupplementQuestionnaire ? (
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                            onClick={() => {
+                              setOpsMenuOpen(false);
+                              onSupplementQuestionnaire();
+                            }}
+                          >
+                            补充问卷信息
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
              </>
          )}
       </div>
       
       {/* Patient Profile Card (Screen Only) */}
       {profile && (
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
+        <div className="hidden print:flex bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6 flex-col md:flex-row justify-between items-center gap-4">
              <div className="flex items-center gap-4 w-full md:w-auto">
                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-2xl border border-slate-200 shrink-0">
                     {profile.gender === '女' ? '👩🏻‍🦳' : '👨🏻‍🦳'}
@@ -464,15 +270,15 @@ export const AssessmentReport: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Embedded Risk Portrait Section (Models Only) */}
-      {healthRecord && (
+      {/* 疾病风险预测模型矩阵缺项较多，暂时不展示 */}
+      {SHOW_RISK_MODEL_MATRIX && healthRecord && (
           <div className="mb-8 print:hidden">
               <SystemRiskPortrait 
                   record={healthRecord} 
                   existingAnalysis={riskAnalysis} 
                   onUpdate={() => onUpdateRiskAnalysis && onUpdateRiskAnalysis()}
                   hidePrintButton={true}
-                  showPortraits={false} // Only show prediction models
+                  showPortraits={false}
               />
           </div>
       )}
@@ -497,6 +303,45 @@ export const AssessmentReport: React.FC<Props> = ({
                       <h3 className="text-lg font-bold text-red-700">危急值警示 (Critical Value)</h3>
                       <p className="text-red-800 font-bold">{editData.criticalWarning || "系统检测到严重异常结果，请立即进行临床干预！"}</p>
                   </div>
+              </div>
+          </div>
+      )}
+
+      {latestFollowUp && (
+          <div className="bg-teal-50 border border-teal-200 rounded-lg p-5 mb-6">
+              <div className="flex justify-between items-start gap-4 mb-3">
+                  <h3 className="text-lg font-bold text-teal-800 flex items-center gap-2">
+                      <span>🔗</span> 随访进展摘要
+                  </h3>
+                  {(onEnterFollowUpWorkspace || onViewFollowUps) && (
+                      <button
+                          type="button"
+                          onClick={handleEnterFollowUp}
+                          className="text-xs text-teal-700 font-bold hover:underline shrink-0"
+                      >
+                          继续随访监测 ↓
+                      </button>
+                  )}
+              </div>
+              <div className="text-sm text-slate-700 space-y-2">
+                  <p>
+                      <span className="font-bold">最近随访：</span>
+                      {latestFollowUp.date} · {latestFollowUp.method}
+                  </p>
+                  {latestFollowUp.assessment.continuitySummary && (
+                      <p><span className="font-bold">相对上次进展：</span>{latestFollowUp.assessment.continuitySummary}</p>
+                  )}
+                  {latestFollowUp.assessment.taskReviewSummary && (
+                      <p><span className="font-bold">任务回顾：</span>{latestFollowUp.assessment.taskReviewSummary}</p>
+                  )}
+                  {latestFollowUp.indicatorDelta && Object.keys(latestFollowUp.indicatorDelta).length > 0 && (
+                      <div>
+                          <span className="font-bold">指标变化：</span>
+                          <span className="text-slate-600 ml-1">
+                              {Object.entries(latestFollowUp.indicatorDelta).map(([k, d]) => `${k} ${d.prev}→${d.curr}${d.unit}`).join('；')}
+                          </span>
+                      </div>
+                  )}
               </div>
           </div>
       )}
@@ -544,6 +389,48 @@ export const AssessmentReport: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {(editData.elderlyRiskLevel || (profile?.age && profile.age >= 60)) && (
+          <div className="bg-violet-50 border border-violet-200 rounded-lg p-5 mb-6">
+              <h3 className="text-lg font-bold text-violet-900 flex items-center gap-2 mb-2">
+                  <span>👴</span> 老年专项评估（CGA）
+              </h3>
+              {editData.elderlyRiskLevel ? (
+                  <div className="text-sm text-slate-700 space-y-2">
+                      <p>
+                          <span className="font-bold">分级：</span>
+                          <span className={
+                            editData.elderlyRiskLevel === RiskLevel.RED ? 'text-red-700 font-bold' :
+                            editData.elderlyRiskLevel === RiskLevel.YELLOW ? 'text-amber-700 font-bold' :
+                            'text-emerald-700 font-bold'
+                          }>
+                            {editData.elderlyRiskLevel === RiskLevel.RED ? '高风险' :
+                             editData.elderlyRiskLevel === RiskLevel.YELLOW ? '中风险' : '低风险'}
+                          </span>
+                      </p>
+                      {editData.elderlyRiskSummary && (
+                          <p><span className="font-bold">摘要：</span>{editData.elderlyRiskSummary}</p>
+                      )}
+                      {(editData.elderlyRiskReasons || []).length > 0 && (
+                          <ul className="list-disc pl-5 space-y-0.5">
+                              {(editData.elderlyRiskReasons || []).slice(0, 5).map((r, i) => (
+                                  <li key={i}>{r}</li>
+                              ))}
+                          </ul>
+                      )}
+                      {editData.elderlyPersonalizedPlan?.followup?.length ? (
+                          <p className="text-xs text-violet-700">
+                              随访建议：{editData.elderlyPersonalizedPlan.followup[0]}
+                          </p>
+                      ) : null}
+                  </div>
+              ) : (
+                  <p className="text-sm text-violet-800">
+                      受检人年龄 ≥60 岁，建议在「老年专项评估」模块完成 CGA 量表筛查。
+                  </p>
+              )}
+          </div>
+      )}
 
       {/* Risk Factors Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -613,6 +500,18 @@ export const AssessmentReport: React.FC<Props> = ({
              </div>
           </div>
       </div>
+
+      {trendCheckupId ? (
+        <div className="bg-white p-6 rounded-xl shadow border border-slate-100 print:hidden">
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-1">
+            <span>📈</span> 近年核心指标变化趋势
+          </h3>
+          <p className="text-xs text-slate-500 mb-4">
+            汇总历年体检与随访录入的血压、体重、血糖、血脂、尿素氮、尿酸等观测值，便于对照评估与干预效果
+          </p>
+          <HealthTrendCharts checkupId={trendCheckupId} variant="admin" />
+        </div>
+      ) : null}
       
       {/* Follow-up Plan Section */}
       <div className="bg-blue-50 p-6 rounded border border-blue-200 print:bg-transparent print:border-slate-300">
@@ -645,6 +544,19 @@ export const AssessmentReport: React.FC<Props> = ({
               )}
           </div>
       </div>
+
+      {(onEnterFollowUpWorkspace || onViewFollowUps) && (
+        <div className="print:hidden rounded-lg border border-teal-200 bg-teal-50/50 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-teal-900">下方可录入随访、查看路径与执行单</p>
+          <button
+            type="button"
+            onClick={handleEnterFollowUp}
+            className="shrink-0 px-4 py-2 rounded-lg bg-teal-600 text-white text-xs font-bold hover:bg-teal-700"
+          >
+            继续随访录入 ↓
+          </button>
+        </div>
+      )}
 
       {/* Signature for Print */}
       <div className="hidden print:flex justify-between mt-12 pt-8 border-t border-slate-300">

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { QuestionnaireData, HealthRecord } from '../types';
 import { parseHealthDataFromText } from '../services/geminiService';
+import { formatCheckupId, isValidCheckupId } from '../services/checkupIdUtils';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -52,6 +53,20 @@ const OPTIONS = {
 export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initialCheckupId }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isParsing, setIsParsing] = useState(false);
+    const [parseDebug, setParseDebug] = useState<null | {
+        parsedAt: string;
+        sourceFile: string;
+        checkupId: string;
+        smokingStatus: string;
+        dailyAmount?: number;
+        smokingYears?: number;
+        packYears?: number;
+        phq9Score?: number;
+        gad7Score?: number;
+        selfHarmIdea?: number;
+        phq9DetailLen: number;
+        gad7DetailLen: number;
+    }>(null);
     
     // Local State for fields
     const [form, setForm] = useState<any>({
@@ -187,6 +202,20 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
             // Use AI Service to parse unstructured or structured text
             const result = await parseHealthDataFromText(text);
+            setParseDebug({
+                parsedAt: new Date().toLocaleString(),
+                sourceFile: file.name,
+                checkupId: result.profile.checkupId || '',
+                smokingStatus: result.questionnaire?.substances?.smoking?.status || '',
+                dailyAmount: result.questionnaire?.substances?.smoking?.dailyAmount,
+                smokingYears: result.questionnaire?.substances?.smoking?.years,
+                packYears: result.questionnaire?.substances?.smoking?.packYears,
+                phq9Score: result.questionnaire?.mentalScales?.phq9Score,
+                gad7Score: result.questionnaire?.mentalScales?.gad7Score,
+                selfHarmIdea: result.questionnaire?.mentalScales?.selfHarmIdea,
+                phq9DetailLen: Array.isArray(result.questionnaire?.mentalScales?.phq9Detail) ? result.questionnaire.mentalScales.phq9Detail.length : 0,
+                gad7DetailLen: Array.isArray(result.questionnaire?.mentalScales?.gad7Detail) ? result.questionnaire.mentalScales.gad7Detail.length : 0
+            });
             
             if (confirm(`解析成功！\n识别姓名: ${result.profile.name || '未知'}\n识别编号: ${result.profile.checkupId || '未知'}\n是否自动填入问卷？`)) {
                 mapRecordToForm(result);
@@ -321,8 +350,9 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
 
     // --- Data Mapping Logic ---
     const handleSubmit = () => {
-        if (!form.checkupId) {
-            alert('请填写体检编号');
+        const checkupId = formatCheckupId(form.checkupId);
+        if (!isValidCheckupId(checkupId)) {
+            alert('体检编号须为 6 位数字（见报告封面「体检编号」，不是登记流水号）');
             return;
         }
 
@@ -468,7 +498,7 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
             data.respiratory.chronicPhlegm = true; 
         }
 
-        onSubmit(data, form.checkupId, {
+        onSubmit(data, checkupId, {
             gender: form.gender, 
             dept: '' 
         });
@@ -504,13 +534,34 @@ export const NativeSurveyForm: React.FC<Props> = ({ onSubmit, isLoading, initial
                             正在智能读取文件内容并映射到问卷，请稍候...
                         </div>
                     )}
+                    {parseDebug && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm">
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="font-bold text-amber-900">解析结果调试面板</h3>
+                                <span className="text-xs text-amber-700">{parseDebug.parsedAt}</span>
+                            </div>
+                            <p className="text-xs text-amber-700 mb-3">来源文件：{parseDebug.sourceFile}</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-amber-900">
+                                <div>体检编号：<span className="font-semibold">{parseDebug.checkupId || '（未识别）'}</span></div>
+                                <div>吸烟状态：<span className="font-semibold">{parseDebug.smokingStatus || '（未识别）'}</span></div>
+                                <div>每日支数：<span className="font-semibold">{parseDebug.dailyAmount ?? '—'}</span></div>
+                                <div>吸烟年数：<span className="font-semibold">{parseDebug.smokingYears ?? '—'}</span></div>
+                                <div>包年数：<span className="font-semibold">{parseDebug.packYears ?? '—'}</span></div>
+                                <div>PHQ-9 总分：<span className="font-semibold">{parseDebug.phq9Score ?? '—'}</span></div>
+                                <div>GAD-7 总分：<span className="font-semibold">{parseDebug.gad7Score ?? '—'}</span></div>
+                                <div>PHQ第9题（自伤）：<span className={`font-semibold ${(parseDebug.selfHarmIdea || 0) > 0 ? 'text-red-700' : ''}`}>{parseDebug.selfHarmIdea ?? '—'}</span></div>
+                                <div>PHQ明细长度：<span className={`font-semibold ${parseDebug.phq9DetailLen === 9 ? 'text-green-700' : 'text-red-700'}`}>{parseDebug.phq9DetailLen}</span></div>
+                                <div>GAD明细长度：<span className={`font-semibold ${parseDebug.gad7DetailLen === 7 ? 'text-green-700' : 'text-red-700'}`}>{parseDebug.gad7DetailLen}</span></div>
+                            </div>
+                        </div>
+                    )}
                     <p className="text-sm text-slate-600 bg-slate-50 p-4 rounded border-l-4 border-teal-500">
                         尊敬的各位老师：为更好地关注您的健康状况，提供更具针对性的健康管理服务，我们特制定本问卷。您的所有信息将被严格保密，仅用于健康评估与管理。
                     </p>
 
                     {/* Section 1: Profile */}
                     <div className="space-y-6">
-                        <InputQ idx={1} label="体检编号" required desc="详见体检报告封面或指引单，信息匹配唯一识别码" value={form.checkupId} onChange={(v: any) => handleChange('checkupId', v)} />
+                        <InputQ idx={1} label="体检编号" required desc="6位数字，见报告封面「体检编号」（不是登记流水号）" value={form.checkupId} onChange={(v: any) => handleChange('checkupId', v)} />
                         
                         <RadioQ idx={2} label="性别" required options={OPTIONS.gender} value={form.gender} onChange={(v: any) => handleChange('gender', v)} />
                     </div>
